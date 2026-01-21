@@ -53,7 +53,7 @@ export const exportOpportunity = async (opp: Opportunity): Promise<OpportunityEx
   };
 };
 
-export const importOpportunity = async (pkg: any, existingOpps: Opportunity[]): Promise<Opportunity> => {
+export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], targetId?: string): Promise<Opportunity> => {
   if (!pkg || typeof pkg !== 'object') {
       throw new Error("Invalid import package: Content is not an object.");
   }
@@ -68,10 +68,13 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[]): 
   }
 
   const packageData = pkg as OpportunityExportPackage;
+  if (!packageData.opportunity) {
+      throw new Error("Invalid file format: Missing opportunity data.");
+  }
   const oldOpp = packageData.opportunity;
   
-  // 1. Generate New IDs
-  const newOppId = `OP-${Date.now().toString().slice(-6)}`; // Simple unique ID
+  // 1. Generate New IDs (or use Target ID)
+  const newOppId = targetId || `OP-${Date.now().toString().slice(-6)}`; // Use target if provided (overwrite), else new ID
   
   // Map old IDs to new IDs to preserve relationships
   const idMap: Record<string, string> = {};
@@ -127,7 +130,7 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[]): 
   const newOpp: Opportunity = {
     ...oldOpp,
     id: newOppId,
-    title: `${oldOpp.title} (Imported)`,
+    title: targetId ? oldOpp.title : `${oldOpp.title} (Imported)`,
     tasks: newTasks,
     notes: newNotes,
     questions: newQuestions,
