@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 
@@ -47,7 +47,11 @@ export interface AppSettings {
   defaultTasks: TaskTemplate[];
   noteTemplates: NoteTemplate[];
   holidays?: string[]; // ISO date strings YYYY-MM-DD
-}
+  trackedAreas?: string[]; // New: Areas for KPIs
+}export const DEFAULT_TRACKED_AREAS = [
+  "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
+];
+
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultTasks: DEFAULT_TASKS_STRINGS.map((t, i) => ({
@@ -66,7 +70,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     content: content,
     autoCreate: false
   })),
-  holidays: []
+  holidays: [],
+  trackedAreas: DEFAULT_TRACKED_AREAS
 };
 
 interface Props {
@@ -76,56 +81,59 @@ interface Props {
   initialSettings: AppSettings;
 }
 
-export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: {id: string, label: string}[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    return (
-        <div className="relative">
-            <button onClick={() => setIsOpen(!isOpen)} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">
-                <span className="truncate">{selected.length ? `${selected.length} selected` : placeholder}</span>
-                <ChevronDown className="w-3 h-3" />
-            </button>
-            {isOpen && (
-                <>
-                <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}/>
-                <div className="absolute top-full left-0 w-64 mt-1 bg-white border border-gray-200 shadow-lg z-20 max-h-40 overflow-y-auto rounded-lg p-1">
-                    {options.length === 0 ? <div className="text-[10px] p-2 text-gray-400">No other tasks available</div> : 
-                    options.map(opt => (
-                        <div key={opt.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
-                            if (selected.includes(opt.id)) onChange(selected.filter(s => s !== opt.id));
-                            else onChange([...selected, opt.id]);
-                        }}>
-                            <div className={`w-3 h-3 border rounded flex items-center justify-center ${selected.includes(opt.id) ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300'}`}>
-                                {selected.includes(opt.id) && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
-                            </div>
-                            <span className="text-[10px] truncate">{opt.label}</span>
-                        </div>
-                    ))}
+export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setIsOpen(!isOpen)} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">
+        <span className="truncate">{selected.length ? `${selected.length} selected` : placeholder}</span>
+        <ChevronDown className="w-3 h-3" />
+      </button>
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
+          <div className="absolute top-full left-0 w-64 mt-1 bg-white border border-gray-200 shadow-lg z-20 max-h-40 overflow-y-auto rounded-lg p-1">
+            {options.length === 0 ? <div className="text-[10px] p-2 text-gray-400">No other tasks available</div> :
+              options.map(opt => (
+                <div key={opt.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
+                  if (selected.includes(opt.id)) onChange(selected.filter(s => s !== opt.id));
+                  else onChange([...selected, opt.id]);
+                }}>
+                  <div className={`w-3 h-3 border rounded flex items-center justify-center ${selected.includes(opt.id) ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300'}`}>
+                    {selected.includes(opt.id) && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                  </div>
+                  <span className="text-[10px] truncate">{opt.label}</span>
                 </div>
-                </>
-            )}
-        </div>
-    );
+              ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
+  const [trackedAreasText, setTrackedAreasText] = useState('');
 
   // Reset internal state when modal opens
   useEffect(() => {
     if (isOpen) {
-        setSettings(initialSettings);
-        setHolidaysText((initialSettings.holidays || []).join('\n'));
+      setSettings(initialSettings);
+      setHolidaysText((initialSettings.holidays || []).join('\n'));
+      setTrackedAreasText((initialSettings.trackedAreas || DEFAULT_TRACKED_AREAS).join('\n'));
     }
   }, [isOpen, initialSettings]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
-      const holidays = holidaysText.split('\n').map(l => l.trim()).filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l));
-      onSave({ ...settings, holidays });
-      onClose();
+    const holidays = holidaysText.split('\n').map(l => l.trim()).filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l));
+    const trackedAreas = trackedAreasText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    onSave({ ...settings, holidays, trackedAreas });
+    onClose();
   };
 
   const handleTaskChange = (id: string, field: keyof TaskTemplate, value: any) => {
@@ -137,20 +145,20 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
   const addTask = () => {
     setSettings(prev => {
-        const maxOrder = prev.defaultTasks.reduce((max, t) => Math.max(max, t.order || 0), 0);
-        return {
-            ...prev,
-            defaultTasks: [...prev.defaultTasks, { 
-                id: crypto.randomUUID(), 
-                title: 'New Task', 
-                status: 'Pending', 
-                priority: 'Medium', 
-                owner: 'Me',
-                order: maxOrder + 1,
-                dependsOnTaskIds: [],
-                blockDoneUntilDependenciesDone: false
-            }]
-        };
+      const maxOrder = prev.defaultTasks.reduce((max, t) => Math.max(max, t.order || 0), 0);
+      return {
+        ...prev,
+        defaultTasks: [...prev.defaultTasks, {
+          id: crypto.randomUUID(),
+          title: 'New Task',
+          status: 'Pending',
+          priority: 'Medium',
+          owner: 'Me',
+          order: maxOrder + 1,
+          dependsOnTaskIds: [],
+          blockDoneUntilDependenciesDone: false
+        }]
+      };
     });
   };
 
@@ -171,10 +179,10 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   };
 
   const sortByOrder = () => {
-      setSettings(prev => ({
-          ...prev,
-          defaultTasks: [...prev.defaultTasks].sort((a, b) => (a.order || 0) - (b.order || 0))
-      }));
+    setSettings(prev => ({
+      ...prev,
+      defaultTasks: [...prev.defaultTasks].sort((a, b) => (a.order || 0) - (b.order || 0))
+    }));
   };
 
   const handleNoteChange = (id: string, field: keyof NoteTemplate, value: any) => {
@@ -200,8 +208,8 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
   const resetDefaults = () => {
     if (confirm("Reset all settings to system defaults?")) {
-        setSettings(DEFAULT_SETTINGS);
-        setHolidaysText('');
+      setSettings(DEFAULT_SETTINGS);
+      setHolidaysText('');
     }
   };
 
@@ -219,19 +227,19 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200 px-6 bg-white overflow-x-auto">
-          <button 
+          <button
             onClick={() => setActiveTab('general')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'general' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <Settings className="w-4 h-4" /> General
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('tasks')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'tasks' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <CheckSquare className="w-4 h-4" /> Default Tasks
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('notes')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'notes' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
@@ -241,106 +249,119 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
-          
+
           {/* GENERAL TAB */}
           {activeTab === 'general' && (
-              <div className="space-y-4">
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-4 flex items-center gap-2"><Calendar className="w-4 h-4"/> Holidays</h3>
-                      <p className="text-xs text-gray-500 mb-2">
-                          Define non-working days (Company Holidays) for business day calculations. Weekends are automatically excluded.
-                          Enter dates in <b>YYYY-MM-DD</b> format, one per line.
-                      </p>
-                      <textarea 
-                          value={holidaysText}
-                          onChange={(e) => setHolidaysText(e.target.value)}
-                          className="w-full h-48 border-gray-200 rounded-lg text-sm font-mono p-3 focus:border-[#3DCD58] focus:ring-0"
-                          placeholder="2025-01-01&#10;2025-12-25"
-                      />
-                  </div>
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-4 flex items-center gap-2"><Calendar className="w-4 h-4" /> Holidays</h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  Define non-working days (Company Holidays) for business day calculations. Weekends are automatically excluded.
+                  Enter dates in <b>YYYY-MM-DD</b> format, one per line.
+                </p>
+                <textarea
+                  value={holidaysText}
+                  onChange={(e) => setHolidaysText(e.target.value)}
+                  className="w-full h-48 border-gray-200 rounded-lg text-sm font-mono p-3 focus:border-[#3DCD58] focus:ring-0"
+                  placeholder="2025-01-01&#10;2025-12-25"
+                />
               </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-4 flex items-center gap-2"><User className="w-4 h-4" /> Tracked Areas (KPIs)</h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  Define the teams or areas involved in the tendering process. Tendering is the default area. One per line.
+                </p>
+                <textarea
+                  value={trackedAreasText}
+                  onChange={(e) => setTrackedAreasText(e.target.value)}
+                  className="w-full h-32 border-gray-200 rounded-lg text-sm p-3 focus:border-[#3DCD58] focus:ring-0"
+                  placeholder="Tendering&#10;Sales CSE&#10;TSC"
+                />
+              </div>
+            </div>
           )}
 
           {/* TASKS TAB */}
           {activeTab === 'tasks' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
-                 <p className="text-xs text-blue-700">These tasks will be automatically created for every <b>new</b> opportunity. Order duplicates are allowed.</p>
-                 <div className="flex gap-2">
-                     <button title="Sort by Due Date (Not available for templates)" disabled className="flex items-center gap-1 bg-white border border-gray-200 text-gray-300 px-2 py-1 rounded text-[10px] font-bold shadow-sm cursor-not-allowed">
-                         <Calendar className="w-3 h-3" /> Sort by due date
-                     </button>
-                     <button onClick={sortByOrder} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-[10px] font-bold shadow-sm hover:bg-blue-50">
-                         <ArrowUpDown className="w-3 h-3" /> Sort by order
-                     </button>
-                 </div>
+                <p className="text-xs text-blue-700">These tasks will be automatically created for every <b>new</b> opportunity. Order duplicates are allowed.</p>
+                <div className="flex gap-2">
+                  <button title="Sort by Due Date (Not available for templates)" disabled className="flex items-center gap-1 bg-white border border-gray-200 text-gray-300 px-2 py-1 rounded text-[10px] font-bold shadow-sm cursor-not-allowed">
+                    <Calendar className="w-3 h-3" /> Sort by due date
+                  </button>
+                  <button onClick={sortByOrder} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-700 px-2 py-1 rounded text-[10px] font-bold shadow-sm hover:bg-blue-50">
+                    <ArrowUpDown className="w-3 h-3" /> Sort by order
+                  </button>
+                </div>
               </div>
-              
+
               {settings.defaultTasks.map((task, index) => (
                 <div key={task.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col gap-2 group">
                   <div className="flex items-center gap-3">
                     <div className="flex flex-col gap-1 text-gray-300">
-                        <button onClick={() => moveTask(index, 'up')} disabled={index === 0} className="hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4"/></button>
-                        <button onClick={() => moveTask(index, 'down')} disabled={index === settings.defaultTasks.length - 1} className="hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4"/></button>
-                    </div>
-                    
-                    <div className="flex-1 grid grid-cols-12 gap-3 items-center">
-                        <div className="col-span-1">
-                            <label className="text-[9px] font-bold text-gray-400 uppercase">Order</label>
-                            <input type="number" className="w-full text-sm font-bold text-center border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0" value={task.order || 0} onChange={e => handleTaskChange(task.id, 'order', parseInt(e.target.value) || 0)} />
-                        </div>
-                        <div className="col-span-5">
-                            <label className="text-[9px] font-bold text-gray-400 uppercase">Title</label>
-                            <input className="w-full text-sm font-medium border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0" value={task.title} onChange={e => handleTaskChange(task.id, 'title', e.target.value)} />
-                        </div>
-                        <div className="col-span-2">
-                            <label className="text-[9px] font-bold text-gray-400 uppercase">Status</label>
-                            <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.status} onChange={e => handleTaskChange(task.id, 'status', e.target.value)}>
-                                {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="text-[9px] font-bold text-gray-400 uppercase">Priority</label>
-                            <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.priority} onChange={e => handleTaskChange(task.id, 'priority', e.target.value)}>
-                                {Object.keys(PRIORITY_COLORS).map(p => <option key={p}>{p}</option>)}
-                            </select>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="text-[9px] font-bold text-gray-400 uppercase">Owner</label>
-                            <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.owner} onChange={e => handleTaskChange(task.id, 'owner', e.target.value)}>
-                                <option>Me</option>
-                                <option>External Area</option>
-                            </select>
-                        </div>
+                      <button onClick={() => moveTask(index, 'up')} disabled={index === 0} className="hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4" /></button>
+                      <button onClick={() => moveTask(index, 'down')} disabled={index === settings.defaultTasks.length - 1} className="hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
                     </div>
 
-                    <button onClick={() => removeTask(task.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4"/></button>
+                    <div className="flex-1 grid grid-cols-12 gap-3 items-center">
+                      <div className="col-span-1">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Order</label>
+                        <input type="number" className="w-full text-sm font-bold text-center border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0" value={task.order || 0} onChange={e => handleTaskChange(task.id, 'order', parseInt(e.target.value) || 0)} />
+                      </div>
+                      <div className="col-span-5">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Title</label>
+                        <input className="w-full text-sm font-medium border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0" value={task.title} onChange={e => handleTaskChange(task.id, 'title', e.target.value)} />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Status</label>
+                        <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.status} onChange={e => handleTaskChange(task.id, 'status', e.target.value)}>
+                          {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Priority</label>
+                        <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.priority} onChange={e => handleTaskChange(task.id, 'priority', e.target.value)}>
+                          {Object.keys(PRIORITY_COLORS).map(p => <option key={p}>{p}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Owner</label>
+                        <select className="w-full text-xs border border-gray-200 rounded p-1.5" value={task.owner} onChange={e => handleTaskChange(task.id, 'owner', e.target.value)}>
+                          <option>Me</option>
+                          <option>External Area</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button onClick={() => removeTask(task.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
                   </div>
 
                   {/* Row 2: Dependencies and Locking */}
                   <div className="flex items-center gap-4 pl-8 border-t border-gray-50 pt-2">
-                      <div className="flex-1 max-w-sm">
-                          <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
-                          <SimpleMultiSelect 
-                             placeholder="Select dependencies..."
-                             options={settings.defaultTasks.filter(t => t.id !== task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
-                             selected={task.dependsOnTaskIds || []}
-                             onChange={(val) => handleTaskChange(task.id, 'dependsOnTaskIds', val)}
-                          />
-                      </div>
-                      <div className="flex items-center gap-2 mt-4 bg-gray-50 px-3 py-1.5 rounded border border-gray-100">
-                          <input 
-                             type="checkbox" 
-                             id={`lock-${task.id}`} 
-                             checked={task.blockDoneUntilDependenciesDone || false} 
-                             onChange={e => handleTaskChange(task.id, 'blockDoneUntilDependenciesDone', e.target.checked)} 
-                             className="rounded text-[#3DCD58] focus:ring-[#3DCD58]" 
-                          />
-                          <label htmlFor={`lock-${task.id}`} className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
-                              <Lock className="w-3 h-3 text-gray-400" />
-                              Block Done until dependencies are done
-                          </label>
-                      </div>
+                    <div className="flex-1 max-w-sm">
+                      <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
+                      <SimpleMultiSelect
+                        placeholder="Select dependencies..."
+                        options={settings.defaultTasks.filter(t => t.id !== task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
+                        selected={task.dependsOnTaskIds || []}
+                        onChange={(val) => handleTaskChange(task.id, 'dependsOnTaskIds', val)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 bg-gray-50 px-3 py-1.5 rounded border border-gray-100">
+                      <input
+                        type="checkbox"
+                        id={`lock-${task.id}`}
+                        checked={task.blockDoneUntilDependenciesDone || false}
+                        onChange={e => handleTaskChange(task.id, 'blockDoneUntilDependenciesDone', e.target.checked)}
+                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                      />
+                      <label htmlFor={`lock-${task.id}`} className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-gray-400" />
+                        Block Done until dependencies are done
+                      </label>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -361,24 +382,24 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               {settings.noteTemplates.map(note => (
                 <div key={note.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3 relative group">
                   <div className="flex items-center justify-between gap-4">
-                     <div className="flex-1">
-                        <label className="text-[9px] font-bold text-gray-400 uppercase">Template Title</label>
-                        <input className="w-full font-bold text-gray-800 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 py-1" value={note.title} onChange={e => handleNoteChange(note.id, 'title', e.target.value)} />
-                     </div>
-                     <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded border border-gray-100">
-                        <input type="checkbox" id={`auto-${note.id}`} checked={note.autoCreate} onChange={e => handleNoteChange(note.id, 'autoCreate', e.target.checked)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58]" />
-                        <label htmlFor={`auto-${note.id}`} className="text-xs font-medium text-gray-600 select-none cursor-pointer">Auto-Create on New Opp</label>
-                     </div>
-                     <button onClick={() => removeNote(note.id)} className="p-2 text-gray-300 hover:text-red-500 rounded"><Trash2 className="w-4 h-4"/></button>
+                    <div className="flex-1">
+                      <label className="text-[9px] font-bold text-gray-400 uppercase">Template Title</label>
+                      <input className="w-full font-bold text-gray-800 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 py-1" value={note.title} onChange={e => handleNoteChange(note.id, 'title', e.target.value)} />
+                    </div>
+                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded border border-gray-100">
+                      <input type="checkbox" id={`auto-${note.id}`} checked={note.autoCreate} onChange={e => handleNoteChange(note.id, 'autoCreate', e.target.checked)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58]" />
+                      <label htmlFor={`auto-${note.id}`} className="text-xs font-medium text-gray-600 select-none cursor-pointer">Auto-Create on New Opp</label>
+                    </div>
+                    <button onClick={() => removeNote(note.id)} className="p-2 text-gray-300 hover:text-red-500 rounded"><Trash2 className="w-4 h-4" /></button>
                   </div>
-                  
+
                   <div>
                     <label className="text-[9px] font-bold text-gray-400 uppercase">Default Content (HTML)</label>
-                    <textarea 
-                        className="w-full text-xs font-mono text-gray-600 border border-gray-200 rounded p-2 h-24 focus:border-[#3DCD58] focus:ring-0" 
-                        value={note.content} 
-                        onChange={e => handleNoteChange(note.id, 'content', e.target.value)} 
-                        placeholder="<p>HTML Content...</p>"
+                    <textarea
+                      className="w-full text-xs font-mono text-gray-600 border border-gray-200 rounded p-2 h-24 focus:border-[#3DCD58] focus:ring-0"
+                      value={note.content}
+                      onChange={e => handleNoteChange(note.id, 'content', e.target.value)}
+                      placeholder="<p>HTML Content...</p>"
                     />
                   </div>
                 </div>

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
@@ -10,7 +10,7 @@ import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/oppo
 import { CalendarView } from './CalendarView';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
 import { NoteTemplate, SimpleMultiSelect } from './SettingsModal';
-import { countBusinessDays } from '../services/dateUtils';
+import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 
 // @ts-ignore
 import { jsPDF } from 'jspdf';
@@ -24,6 +24,7 @@ interface Props {
     onDelete: () => void;
     noteTemplates?: NoteTemplate[];
     holidays?: string[];
+    trackedAreas?: string[];
 }
 
 export interface RichTextEditorHandle {
@@ -184,8 +185,170 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
     );
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [] }) => {
+const KpiCalendarModal = ({
+    area,
+    onClose,
+    onSave,
+    suggestedWaitingDates,
+    holidays
+}: {
+    area: KPIArea,
+    onClose: () => void,
+    onSave: (calendar: Record<string, AreaDayRecord>) => void,
+    suggestedWaitingDates: string[],
+    holidays: string[]
+}) => {
+    const [calendar, setCalendar] = useState<Record<string, AreaDayRecord>>(area.calendar || {});
+    const [selectionStart, setSelectionStart] = useState<string | null>(null);
+    const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
+
+    const isTendering = area.area === 'Tendering';
+
+    // Dates to show: range from receivedAt to deliveredAt (or today + a bit)
+    const startDate = new Date(); // Fallback
+    const dates: string[] = [];
+    // We'll show a reasonable window
+    const today = new Date().toISOString().split('T')[0];
+    const curr = new Date();
+    curr.setDate(curr.getDate() - 30); // 30 days back
+    for (let i = 0; i < 60; i++) {
+        dates.push(curr.toISOString().split('T')[0]);
+        curr.setDate(curr.getDate() + 1);
+    }
+
+    const handleDayClick = (date: string, shift: boolean) => {
+        if (!selectionStart || (selectionStart && selectionEnd) || shift === false) {
+            setSelectionStart(date);
+            setSelectionEnd(null);
+        } else {
+            setSelectionEnd(date);
+        }
+    };
+
+    const applyType = (type: DayType | null) => {
+        const start = selectionStart || selectionEnd;
+        const end = selectionEnd || selectionStart;
+        if (!start || !end) return;
+
+        const d1 = new Date(start < end ? start : end);
+        const d2 = new Date(start < end ? end : start);
+        const newCal = { ...calendar };
+
+        let it = new Date(d1);
+        while (it <= d2) {
+            const dateStr = it.toISOString().split('T')[0];
+            if (type === null) {
+                delete newCal[dateStr];
+            } else {
+                newCal[dateStr] = { ...newCal[dateStr], type };
+            }
+            it.setDate(it.getDate() + 1);
+        }
+        setCalendar(newCal);
+        setSelectionStart(null);
+        setSelectionEnd(null);
+    };
+
+    const updateHours = (date: string, hours: number) => {
+        setCalendar(prev => ({
+            ...prev,
+            [date]: { ...(prev[date] || { type: 'Worked' }), hours, type: hours > 0 ? 'Worked' : (prev[date]?.type === 'Worked' ? 'Worked' : (prev[date]?.type || 'Worked')) }
+        }));
+    };
+
+    const applySuggestions = () => {
+        const newCal = { ...calendar };
+        suggestedWaitingDates.forEach(d => {
+            if (!newCal[d]) newCal[d] = { type: 'Waiting' };
+        });
+        setCalendar(newCal);
+    };
+
+    const isInSelection = (date: string) => {
+        if (!selectionStart) return false;
+        if (!selectionEnd) return date === selectionStart;
+        const s = selectionStart < selectionEnd ? selectionStart : selectionEnd;
+        const e = selectionStart < selectionEnd ? selectionEnd : selectionStart;
+        return date >= s && date <= e;
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                        <CalendarIcon className="w-5 h-5 text-blue-500" />
+                        Calendar: {area.area}
+                    </h2>
+                    <div className="flex gap-2">
+                        <button onClick={applySuggestions} className="text-[10px] font-bold bg-yellow-50 text-yellow-700 px-3 py-1 rounded border border-yellow-200 hover:bg-yellow-100">Apply Suggestions</button>
+                        <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6">
+                    <div className="grid grid-cols-7 gap-2">
+                        {dates.map(date => {
+                            const record = calendar[date];
+                            const isSelected = isInSelection(date);
+                            const isHoliday = holidays.includes(date);
+                            const dayOfWeek = new Date(date).getUTCDay();
+                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+                            return (
+                                <div
+                                    key={date}
+                                    onClick={(e) => handleDayClick(date, e.shiftKey)}
+                                    className={`relative p-2 h-24 border rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${isSelected ? 'ring-2 ring-blue-500 ring-inset' : 'border-gray-100 hover:border-blue-200'}`}
+                                >
+                                    <span className={`text-[10px] font-bold mb-1 ${isWeekend || isHoliday ? 'text-red-400' : 'text-gray-400'}`}>
+                                        {new Date(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+                                    </span>
+
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${record?.type === 'Worked' ? 'bg-blue-100 border-blue-500 text-blue-700' :
+                                        record?.type === 'Waiting' ? 'bg-yellow-100 border-yellow-500 text-yellow-700' :
+                                            record?.type === 'Inactive' ? 'bg-red-100 border-red-500 text-red-700' :
+                                                'bg-gray-50 border-gray-200 text-gray-300'
+                                        }`}>
+                                        {record?.type === 'Worked' ? <Zap className="w-5 h-5" /> :
+                                            record?.type === 'Waiting' ? <Clock className="w-5 h-5" /> :
+                                                record?.type === 'Inactive' ? <X className="w-5 h-5" /> :
+                                                    <span className="text-xs">{new Date(date).getUTCDate()}</span>}
+                                    </div>
+
+                                    {isTendering && (
+                                        <input
+                                            type="number"
+                                            placeholder="h"
+                                            className="mt-1 w-full text-[10px] text-center border-none bg-transparent focus:ring-0 font-bold"
+                                            value={record?.hours || ''}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => updateHours(date, parseFloat(e.target.value) || 0)}
+                                        />
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
+                    <div className="flex gap-2">
+                        <button onClick={() => applyType('Worked')} className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600">Mark Worked</button>
+                        <button onClick={() => applyType('Waiting')} className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600">Mark Waiting</button>
+                        <button onClick={() => applyType('Inactive')} className="flex items-center gap-1 bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600">Mark Inactive</button>
+                        <button onClick={() => applyType(null)} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-50">Clear</button>
+                    </div>
+                    <button onClick={() => onSave(calendar)} className="bg-[#3DCD58] text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-[#2db64a]">Save Calendar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [] }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>('overview');
+    const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
     const [searchTerm, setSearchTerm] = useState('');
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -378,6 +541,29 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         if (field === 'date') updatedHistory.sort((a, b) => b.date.localeCompare(a.date));
         handleFieldChange('history', updatedHistory);
     };
+    const totalElapsedCalendarDays = localOpp.kpis?.timeline.deliveredAt
+        ? countCalendarDays(localOpp.kpis.timeline.receivedAt, localOpp.kpis.timeline.deliveredAt)
+        : countCalendarDays(localOpp.kpis.timeline.receivedAt, new Date().toISOString().split('T')[0]);
+
+    const executionUniqueDays = React.useMemo(() => {
+        const uniqueDates = new Set<string>();
+        (localOpp.kpis?.areasInvolved || []).forEach(area => {
+            if (area.calendar) {
+                Object.entries(area.calendar).forEach(([date, record]) => {
+                    const r = record as AreaDayRecord;
+                    if (r.type === 'Worked') {
+                        if (area.area === 'Tendering') {
+                            if ((r.hours || 0) > 0) uniqueDates.add(date);
+                        } else {
+                            uniqueDates.add(date);
+                        }
+                    }
+                });
+            }
+        });
+        return uniqueDates.size;
+    }, [localOpp.kpis?.areasInvolved]);
+
     const deleteHistoryEntry = (id: string) => {
         if (!window.confirm("Are you sure?")) return;
         const updatedHistory = (localOpp.history || []).filter(h => h.id !== id);
@@ -389,7 +575,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     };
 
     const addKpiArea = () => {
-        const newArea: KPIArea = { id: crypto.randomUUID(), area: '', daysSpent: 0, waitingDays: 0 };
+        const usedAreas = localOpp.kpis.areasInvolved.map(a => a.area);
+        const nextArea = trackedAreas.find(a => !usedAreas.includes(a)) || 'New Area';
+        const newArea: KPIArea = { id: crypto.randomUUID(), area: nextArea, daysSpent: 0, waitingDays: 0, calendar: {} };
         const newAreas = [...(localOpp.kpis?.areasInvolved || []), newArea];
         updateKpiField('areasInvolved', newAreas);
     };
@@ -404,15 +592,47 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         updateKpiField('areasInvolved', newAreas);
     };
 
-    // Display value for Calendar Days elapsed (standard duration)
-    const totalElapsedCalendarDays = localOpp.kpis?.timeline.deliveredAt
-        ? Math.ceil((new Date(localOpp.kpis.timeline.deliveredAt).getTime() - new Date(localOpp.kpis.timeline.receivedAt).getTime()) / (1000 * 60 * 60 * 24))
-        : 0;
+    const handleSaveAreaCalendar = (areaId: string, calendar: Record<string, AreaDayRecord>) => {
+        const area = localOpp.kpis.areasInvolved.find(a => a.id === areaId);
+        if (!area) return;
+
+        let worked = 0;
+        let waiting = 0;
+        Object.values(calendar).forEach(r => {
+            if (r.type === 'Worked') {
+                if (area.area === 'Tendering') {
+                    if ((r.hours || 0) > 0) worked++;
+                } else {
+                    worked++;
+                }
+            } else if (r.type === 'Waiting') {
+                waiting++;
+            }
+        });
+
+        const newAreas = localOpp.kpis.areasInvolved.map(a => a.id === areaId ? { ...a, calendar, daysSpent: worked, waitingDays: waiting } : a);
+        updateKpiField('areasInvolved', newAreas);
+        setEditingAreaCalendar(null);
+    };
+
+    const totalAreaDays = (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
+
+    const suggestWaitingDaysFromHistory = () => {
+        const waitingKeywords = ['on hold', 'waiting for', 'missing information', 'pending response'];
+        const suggestedDates = new Set<string>();
+        (localOpp.history || []).forEach(h => {
+            const content = h.content.toLowerCase();
+            if (waitingKeywords.some(key => content.includes(key))) {
+                suggestedDates.add(h.date.split('T')[0]);
+            }
+        });
+        return Array.from(suggestedDates);
+    };
 
     // Validation value for Business Days elapsed (workable time)
     const totalElapsedBusinessDays = localOpp.kpis?.timeline.deliveredAt
         ? countBusinessDays(localOpp.kpis.timeline.receivedAt, localOpp.kpis.timeline.deliveredAt, holidays)
-        : 0;
+        : countBusinessDays(localOpp.kpis.timeline.receivedAt, new Date().toISOString().split('T')[0], holidays);
 
     const totalTrackedDays = (localOpp.kpis?.execution.myWorkDays || 0) +
         (localOpp.kpis?.execution.waitingOnOthersDays || 0) +
@@ -1275,22 +1495,31 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                 <thead className="text-[10px] text-gray-400 font-bold uppercase bg-gray-50 border-b border-gray-100">
                                     <tr>
                                         <th className="px-4 py-2">Area / Team</th>
-                                        <th className="px-4 py-2 w-32 text-center">Days Spent</th>
+                                        <th className="px-4 py-2 w-32 text-center">Worked Days</th>
                                         <th className="px-4 py-2 w-32 text-center">Waiting Days</th>
+                                        <th className="px-4 py-2 w-24"></th>
                                         <th className="px-4 py-2 w-10"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
                                     {localOpp.kpis.areasInvolved.map(area => (
                                         <tr key={area.id} className="hover:bg-gray-50">
-                                            <td className="px-4 py-2">
-                                                <input className="w-full bg-transparent border-none p-0 focus:ring-0 font-medium text-gray-800" value={area.area} onChange={(e) => updateKpiArea(area.id, 'area', e.target.value)} placeholder="e.g. Legal, Pricing..." />
+                                            <td className="px-4 py-2 text-gray-800 font-medium">
+                                                {area.area || 'Unnamed Area'}
+                                            </td>
+                                            <td className="px-4 py-2 text-center font-bold text-blue-600">
+                                                {area.daysSpent || 0}
+                                            </td>
+                                            <td className="px-4 py-2 text-center font-bold text-yellow-600">
+                                                {area.waitingDays || 0}
                                             </td>
                                             <td className="px-4 py-2 text-center">
-                                                <input type="number" className="w-20 text-center border-gray-200 rounded p-1 text-xs" value={area.daysSpent || ''} onChange={(e) => updateKpiArea(area.id, 'daysSpent', parseFloat(e.target.value))} />
-                                            </td>
-                                            <td className="px-4 py-2 text-center">
-                                                <input type="number" className="w-20 text-center border-gray-200 rounded p-1 text-xs" value={area.waitingDays || ''} onChange={(e) => updateKpiArea(area.id, 'waitingDays', parseFloat(e.target.value))} />
+                                                <button
+                                                    onClick={() => setEditingAreaCalendar(area.id)}
+                                                    className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded border border-gray-200 hover:bg-white transition-colors"
+                                                >
+                                                    Edit Cal
+                                                </button>
                                             </td>
                                             <td className="px-4 py-2 text-right">
                                                 <button onClick={() => removeKpiArea(area.id)} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
@@ -1299,11 +1528,22 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                     ))}
                                     {localOpp.kpis.areasInvolved.length === 0 && (
                                         <tr>
-                                            <td colSpan={4} className="text-center py-8 text-gray-400 italic text-xs">No specific areas tracked yet.</td>
+                                            <td colSpan={5} className="text-center py-8 text-gray-400 italic text-xs">No specific areas tracked yet.</td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
+
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                                <div className="p-3 bg-blue-50 rounded-lg">
+                                    <label className="text-[9px] font-bold text-blue-500 uppercase block mb-1">Execution Unique Days</label>
+                                    <div className="text-xl font-black text-blue-700">{executionUniqueDays}</div>
+                                </div>
+                                <div className="p-3 bg-purple-50 rounded-lg">
+                                    <label className="text-[9px] font-bold text-purple-500 uppercase block mb-1">Total Elapsed Days</label>
+                                    <div className="text-xl font-black text-purple-700">{totalElapsedCalendarDays}</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1430,6 +1670,20 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                         </div>
                     </div>
                 )}
+
+                {editingAreaCalendar && (() => {
+                    const area = localOpp.kpis.areasInvolved.find(a => a.id === editingAreaCalendar);
+                    if (!area) return null;
+                    return (
+                        <KpiCalendarModal
+                            area={area}
+                            holidays={holidays}
+                            suggestedWaitingDates={suggestWaitingDaysFromHistory()}
+                            onClose={() => setEditingAreaCalendar(null)}
+                            onSave={(cal) => handleSaveAreaCalendar(area.id, cal)}
+                        />
+                    );
+                })()}
 
                 {activeTab === 'folder' && (
                     <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} />

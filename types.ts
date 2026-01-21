@@ -1,13 +1,13 @@
 
-export type ProcessStage = 
-  | '1. Recepción' 
-  | '2. Análisis Técnico' 
-  | '3. Arquitectura' 
-  | '4. Basket/BOM' 
-  | '5. Costeo' 
-  | '6. Propuesta' 
-  | '7. Validación' 
-  | '8. Entrega/Soporte' 
+export type ProcessStage =
+  | '1. Recepción'
+  | '2. Análisis Técnico'
+  | '3. Arquitectura'
+  | '4. Basket/BOM'
+  | '5. Costeo'
+  | '6. Propuesta'
+  | '7. Validación'
+  | '8. Entrega/Soporte'
   | '9. Won/Lost';
 
 export type TaskStatus = 'Pending' | 'In Progress' | 'Done' | 'On Hold' | 'Missing Info' | 'Canceled';
@@ -25,30 +25,30 @@ export interface CommercialRow {
 }
 
 export interface Escalations {
-    swHw: number;
-    services: number;
-    resale: number;
+  swHw: number;
+  services: number;
+  resale: number;
 }
 
 export interface Commercial {
   currency: 'USD' | 'MXN' | 'EUR';
-  
+
   // Table Rows (Updated: SW/HW merged)
   swHw: CommercialRow; // Merged
   services: CommercialRow;
   resale: CommercialRow;
-  
+
   // Global Fields
   risk: number;
   contingency: number;
   escalations: Escalations; // Split escalations
-  
+
   // Links
   agreementsLink: string; // Acuerdos Comerciales
   cfLink: string; // Customer First
-  
+
   discountsAndNotes: string; // Kept for notes
-  
+
   // Official CQA Reference Values
   cqaOfficialSellPrice: number;
   cqaOfficialMargin: number;
@@ -87,13 +87,13 @@ export interface Task {
   priority: TaskPriority;
   owner: TaskOwner;
   externalAreas: string[]; // Changed to array for multiple areas
-  responsible: string; 
+  responsible: string;
   dueDate: string;
   stageContext: ProcessStage;
   subtasks: Subtask[];
   linkedNoteId?: string; // Legacy: Link to a note
   linkedNoteIds?: string[]; // New: Link to multiple notes
-  
+
   // New Scheduling & Dependency Fields
   order: number | null;
   dependsOnTaskIds: string[]; // Array of Task IDs that must be completed before this one
@@ -111,20 +111,20 @@ export interface MeetingNote {
 }
 
 export interface Question {
-    id: string;
-    sourceId: string; // ID of Note or Task where it originated
-    sourceType: 'note' | 'task';
-    quote: string; // The text selected
-    question: string;
-    answer: string;
-    isResolved: boolean;
-    createdAt: string;
+  id: string;
+  sourceId: string; // ID of Note or Task where it originated
+  sourceType: 'note' | 'task';
+  quote: string; // The text selected
+  question: string;
+  answer: string;
+  isResolved: boolean;
+  createdAt: string;
 }
 
 export interface HistoryEntry {
   id: string;
   date: string;
-  content: string; 
+  content: string;
 }
 
 export interface PrdPresentation {
@@ -137,16 +137,24 @@ export interface PrdPresentation {
 export interface OpportunityDates {
   requested: string;
   expected: string;
-  assigned: string; 
+  assigned: string;
 }
 
 // --- KPI Interfaces ---
+
+export type DayType = 'Worked' | 'Waiting' | 'Inactive';
+
+export interface AreaDayRecord {
+  type: DayType;
+  hours?: number; // Only for Tendering
+}
 
 export interface KPIArea {
   id: string;
   area: string;
   daysSpent: number;
   waitingDays: number;
+  calendar?: Record<string, AreaDayRecord>; // date string "YYYY-MM-DD" -> record
 }
 
 export interface KPITimeline {
@@ -177,36 +185,36 @@ export interface Opportunity {
   id: string;
   title: string;
   customer: string;
-  qlk: string;       
-  revision: string;  
+  qlk: string;
+  revision: string;
   stage: ProcessStage;
-  statusLabel: OpportunityStatus; 
-  
+  statusLabel: OpportunityStatus;
+
   dates: OpportunityDates;
   priority: 'High' | 'Medium' | 'Low';
-  
+
   // Details
   description: string;
   commercial: Commercial;
   links: QuickLinks;
-  
+
   // Lists
   notes: MeetingNote[];
   tasks: Task[];
   questions: Question[]; // New module
   history: HistoryEntry[];
-  presentation: PrdPresentation; 
+  presentation: PrdPresentation;
   tags: string[];
-  
+
   // Analytics
   kpis: KPIs;
 
   // Folder Manager Link
   folderLinked?: boolean;
-  
+
   // Deprecated 
   pendingActions: any;
-  
+
   lastUpdated: string;
 }
 
@@ -243,12 +251,12 @@ export const STAGE_COLORS: Record<ProcessStage, string> = {
 };
 
 export const STATUS_COLORS: Record<OpportunityStatus, string> = {
-    'In Progress': 'bg-blue-100 text-blue-700 border-blue-200',
-    'On Hold': 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    'Submitted': 'bg-purple-100 text-purple-700 border-purple-200',
-    'Won': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    'Lost': 'bg-red-100 text-red-700 border-red-200',
-    'Canceled': 'bg-gray-100 text-gray-600 border-gray-200',
+  'In Progress': 'bg-blue-100 text-blue-700 border-blue-200',
+  'On Hold': 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  'Submitted': 'bg-purple-100 text-purple-700 border-purple-200',
+  'Won': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  'Lost': 'bg-red-100 text-red-700 border-red-200',
+  'Canceled': 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {

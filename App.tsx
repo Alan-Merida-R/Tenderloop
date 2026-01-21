@@ -666,6 +666,7 @@ function App() {
                 onDelete={() => deleteOpportunity(opp.id)}
                 noteTemplates={appSettings.noteTemplates}
                 holidays={appSettings.holidays || []}
+                trackedAreas={appSettings.trackedAreas || []}
               />
             </div>
           );
