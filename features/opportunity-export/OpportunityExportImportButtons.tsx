@@ -16,8 +16,33 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
     if (!opportunity) return;
     try {
       const pkg = await exportOpportunity(opportunity);
-      const filename = `${opportunity.id}_Export.oppkg.json`;
-      downloadJSON(pkg, filename);
+      const sanitizedTitle = opportunity.title.replace(/[^a-z0-9]/gi, '_').replace(/_{2,}/g, '_');
+      const filename = `Opportunity_${sanitizedTitle}.json`;
+
+      // @ts-ignore
+      if (window.showSaveFilePicker) {
+        try {
+          // @ts-ignore
+          const handle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{
+              description: 'JSON Data',
+              accept: { 'application/json': ['.json'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(JSON.stringify(pkg, null, 2));
+          await writable.close();
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            console.error('Save File Picker failed:', err);
+            // Fallback only on error (not on abort)
+            downloadJSON(pkg, filename);
+          }
+        }
+      } else {
+        downloadJSON(pkg, filename);
+      }
     } catch (e) {
       alert("Export failed: " + e);
     }
