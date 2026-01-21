@@ -1,0 +1,202 @@
+
+import { FileItem } from './types';
+
+export const listDirectory = async (
+  directoryHandle: FileSystemDirectoryHandle, 
+  path: string[] = []
+): Promise<FileItem[]> => {
+  const items: FileItem[] = [];
+  // @ts-ignore - async iterator on directoryHandle.values()
+  for await (const entry of directoryHandle.values()) {
+    const item: FileItem = {
+      name: entry.name,
+      kind: entry.kind,
+      handle: entry as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+      relativePath: [...path, entry.name]
+    };
+
+    if (entry.kind === 'file') {
+      item.extension = entry.name.split('.').pop()?.toLowerCase();
+      try {
+        const file = await (entry as FileSystemFileHandle).getFile();
+        item.size = file.size;
+        item.lastModified = file.lastModified;
+      } catch (e) {
+        console.warn(`Could not get file details for ${entry.name}`, e);
+      }
+    }
+    items.push(item);
+  }
+  return items.sort((a, b) => {
+    if (a.kind === b.kind) return a.name.localeCompare(b.name);
+    return a.kind === 'directory' ? -1 : 1;
+  });
+};
+
+export const createFolder = async (
+  parentHandle: FileSystemDirectoryHandle, 
+  name: string
+): Promise<FileSystemDirectoryHandle> => {
+  return await parentHandle.getDirectoryHandle(name, { create: true });
+};
+
+export const uploadFiles = async (
+  targetHandle: FileSystemDirectoryHandle, 
+  files: FileList | File[]
+): Promise<void> => {
+  for (const file of Array.from(files)) {
+    const fileHandle = await targetHandle.getFileHandle(file.name, { create: true });
+    // @ts-ignore
+    const writable = await fileHandle.createWritable();
+    await writable.write(file);
+    await writable.close();
+  }
+};
+
+// Robust Copy Logic
+export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle) => {
+    if (entry.kind === 'file') {
+        const file = await (entry.handle as FileSystemFileHandle).getFile();
+        const newFile = await destDir.getFileHandle(entry.name, { create: true });
+        // @ts-ignore
+        const writable = await newFile.createWritable();
+        await writable.write(file);
+        await writable.close();
+    } else {
+        const newDir = await destDir.getDirectoryHandle(entry.name, { create: true });
+        // @ts-ignore
+        for await (const child of (entry.handle as FileSystemDirectoryHandle).values()) {
+             await copyEntryToDir({ 
+                 name: child.name, 
+                 kind: child.kind, 
+                 handle: child as unknown as FileSystemFileHandle | FileSystemDirectoryHandle, 
+                 relativePath: [] 
+             }, newDir);
+        }
+    }
+};
+
+// Robust Move Logic (Copy + Delete)
+export const moveEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle) => {
+    // Native move is often restricted or flaky across handles. We use Copy + Delete.
+    await copyEntryToDir(entry, destDir);
+    // @ts-ignore
+    await entry.handle.remove({ recursive: true });
+};
+
+// Robust Rename Logic
+export const renameEntry = async (
+  parentHandle: FileSystemDirectoryHandle, 
+  entry: FileItem, 
+  newName: string
+): Promise<void> => {
+  if (entry.name === newName) return;
+
+  // @ts-ignore
+  if (entry.handle.move) {
+    try {
+        // @ts-ignore
+        await entry.handle.move(newName);
+        return;
+    } catch(e) {
+        // Fallback if native move/rename fails
+        console.warn("Native rename failed, falling back to copy-delete", e);
+    }
+  }
+
+  // Fallback: Copy to new name, delete old
+  if (entry.kind === 'file') {
+      const file = await (entry.handle as FileSystemFileHandle).getFile();
+      const newFileHandle = await parentHandle.getFileHandle(newName, { create: true });
+      // @ts-ignore
+      const writable = await newFileHandle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      // @ts-ignore
+      await entry.handle.remove();
+  } else {
+      const newDir = await parentHandle.getDirectoryHandle(newName, { create: true });
+      // Recursively copy content
+      // @ts-ignore
+      for await (const child of (entry.handle as FileSystemDirectoryHandle).values()) {
+           await copyEntryToDir({
+               name: child.name,
+               kind: child.kind,
+               handle: child as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+               relativePath: []
+           }, newDir);
+      }
+      // @ts-ignore
+      await entry.handle.remove({ recursive: true });
+  }
+};
+
+export const deleteEntry = async (
+  parentHandle: FileSystemDirectoryHandle, 
+  name: string
+): Promise<void> => {
+  await parentHandle.removeEntry(name, { recursive: true });
+};
+
+export const openFileNative = async (fileHandle: FileSystemFileHandle): Promise<void> => {
+  try {
+    const file = await fileHandle.getFile();
+    const url = URL.createObjectURL(file);
+    
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(anchor);
+    }, 10000);
+  } catch (err) {
+    console.error("Native open failed", err);
+    alert("Unable to open file. Please open it directly from your local folder.");
+  }
+};
+
+export const searchFiles = async (
+  dirHandle: FileSystemDirectoryHandle,
+  query: string,
+  onResult: (item: FileItem) => void,
+  shouldStop: () => boolean,
+  path: string[] = []
+): Promise<void> => {
+  const q = query.toLowerCase();
+  // @ts-ignore
+  for await (const entry of dirHandle.values()) {
+    if (shouldStop()) return;
+    
+    const entryPath = [...path, entry.name];
+    const matches = entry.name.toLowerCase().includes(q);
+    
+    const item: FileItem = {
+      name: entry.name,
+      kind: entry.kind,
+      handle: entry as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+      relativePath: entryPath
+    };
+
+    if (entry.kind === 'file') {
+       item.extension = entry.name.split('.').pop()?.toLowerCase();
+       if (matches) {
+         try {
+            const file = await (entry as FileSystemFileHandle).getFile();
+            item.size = file.size;
+            item.lastModified = file.lastModified;
+         } catch(e) {}
+       }
+    }
+
+    if (matches) onResult(item);
+
+    if (entry.kind === 'directory') {
+      await searchFiles(entry as FileSystemDirectoryHandle, query, onResult, shouldStop, entryPath);
+    }
+  }
+};
