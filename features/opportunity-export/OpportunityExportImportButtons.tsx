@@ -37,21 +37,22 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
 
       // Support importing from a bulk export file (Array) - just take the first one
       if (Array.isArray(pkg)) {
-          if (pkg.length === 0) throw new Error("File contains an empty list.");
-          pkg = pkg[0];
-          console.warn("Detected bulk export file, importing the first item only.");
+        if (pkg.length === 0) throw new Error("File contains an empty list.");
+        pkg = pkg[0];
+        console.warn("Detected bulk export file, importing the first item only.");
       }
 
       if (!pkg || typeof pkg !== 'object') {
-          throw new Error("Invalid file format.");
+        throw new Error("Invalid file format.");
       }
 
       if (!pkg.schemaVersion) {
-           throw new Error("Invalid file format: Missing schema version.");
+        throw new Error("Invalid file format: Missing schema version.");
       }
 
       // We pass empty array for existing opps as we generate new ID anyway.
-      const newOpp = await importOpportunity(pkg, []); 
+      // Fix: Pass current opportunity ID to allow overwriting/updating existing record
+      const newOpp = await importOpportunity(pkg, [], opportunity?.id);
       if (onImport) onImport(newOpp);
       alert(`Imported successfully as ${newOpp.id}`);
     } catch (err: any) {
@@ -64,15 +65,15 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
 
   return (
     <div className="flex items-center gap-2">
-      <input 
-        type="file" 
-        accept=".json" 
-        ref={fileInputRef} 
-        className="hidden" 
+      <input
+        type="file"
+        accept=".json"
+        ref={fileInputRef}
+        className="hidden"
         onChange={handleFileChange}
       />
       {opportunity && (
-        <button 
+        <button
           onClick={handleExport}
           className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"
           title="Export Opportunity Package"
@@ -80,7 +81,7 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
           <Download className="w-4 h-4" /> Export
         </button>
       )}
-      <button 
+      <button
         onClick={handleImportClick}
         className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"
         title="Import Opportunity Package"
