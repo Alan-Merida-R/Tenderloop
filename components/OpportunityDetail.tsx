@@ -819,7 +819,23 @@ const FullCalendarModal = ({
                                                             <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
                                                                 <Zap className="w-4 h-4" />
                                                             </div>
-                                                            {area.area === 'Tendering' && (record as AreaDayRecord).hours && <span className="text-[10px] font-black text-blue-700">{(record as AreaDayRecord).hours}h</span>}
+                                                            {area.area === 'Tendering' && (
+                                                                <div className="flex items-center gap-1 mt-1 px-1 bg-blue-50/50 rounded-lg border border-blue-100/50" onClick={(e) => e.stopPropagation()}>
+                                                                    <input
+                                                                        type="number"
+                                                                        className="w-7 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
+                                                                        placeholder="0"
+                                                                        value={(record as AreaDayRecord).hours || ''}
+                                                                        onChange={(e) => {
+                                                                            const val = parseFloat(e.target.value) || 0;
+                                                                            const newCal = { ...(area.calendar || {}) };
+                                                                            newCal[d] = { ...newCal[d], hours: val, type: 'Worked' };
+                                                                            onSaveAreaCalendar(area.id, newCal);
+                                                                        }}
+                                                                    />
+                                                                    <span className="text-[8px] font-black text-blue-400 uppercase">h</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                     {record?.type === 'Waiting' && (
@@ -887,7 +903,7 @@ const FullCalendarModal = ({
                     />
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 
@@ -1962,12 +1978,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             doc.text(area.area, 14, currentY + 5);
 
             for (let i = 0; i < 30; i++) {
-                const dayDate = new Date(startDate);
-                dayDate.setDate(dayDate.getDate() + i);
+                // Use UTC to ensure key matching with calendar
+                const dateParts = receivedAtStr.split('-').map(Number);
+                const dayDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+                dayDate.setUTCDate(dayDate.getUTCDate() + i);
                 const dayStr = dayDate.toISOString().split('T')[0];
                 const record = area.calendar?.[dayStr] as AreaDayRecord | undefined;
 
-                if (record) {
+                if (record && record.type) {
                     if (record.type === 'Worked') doc.setFillColor(59, 130, 246);
                     else if (record.type === 'Waiting') doc.setFillColor(234, 179, 8);
                     else if (record.type === 'Inactive') doc.setFillColor(239, 68, 68);
