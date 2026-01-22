@@ -390,32 +390,64 @@ function App() {
   const createOpportunity = (stage: ProcessStage = '1. Recepción') => {
     const newId = `OP-${1000 + db.opportunities.length + 1}`;
 
-    const taskIdMap = new Map<string, string>();
-    appSettings.defaultTasks.forEach(tmpl => {
-      taskIdMap.set(tmpl.id, crypto.randomUUID());
-    });
+    let defaultTasks: Task[] = [];
 
-    const defaultTasks: Task[] = appSettings.defaultTasks.map(tmpl => {
-      const newTaskId = taskIdMap.get(tmpl.id)!;
-      const mappedDependencies = tmpl.dependsOnTaskIds?.map(depId => taskIdMap.get(depId)).filter(Boolean) as string[] || [];
+    // --- CASE A: Task Standard Template (Opportunity Snapshot) ---
+    if (appSettings.taskStandardTemplate && appSettings.taskStandardTemplate.tasks.length > 0) {
+      const templateTasks = appSettings.taskStandardTemplate.tasks;
+      const taskIdMap = new Map<string, string>();
 
-      return {
-        id: newTaskId,
-        title: tmpl.title,
-        description: '',
-        status: tmpl.status || 'Pending',
-        priority: tmpl.priority || 'Medium',
-        owner: tmpl.owner || 'Me',
-        externalAreas: [],
+      // 1. Generate new IDs for tasks
+      templateTasks.forEach(t => {
+        taskIdMap.set(t.id, crypto.randomUUID());
+      });
+
+      // 2. Map and Instantiate
+      defaultTasks = templateTasks.map(t => ({
+        ...t,
+        id: taskIdMap.get(t.id)!,
+        description: t.description || '',
+        status: (t.status || 'Pending') as TaskStatus,
+        priority: (t.priority || 'Medium') as TaskPriority,
+        owner: (t.owner || 'Me') as TaskOwner,
         responsible: '',
         dueDate: new Date().toISOString().split('T')[0],
         stageContext: stage,
-        subtasks: [],
-        order: tmpl.order,
-        dependsOnTaskIds: mappedDependencies,
-        blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false
-      };
-    });
+        subtasks: (t.subtasks || []).map(st => ({ ...st, id: crypto.randomUUID() })),
+        order: t.order,
+        dependsOnTaskIds: (t.dependsOnTaskIds || []).map(depId => taskIdMap.get(depId)).filter(Boolean) as string[],
+        blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false
+      }));
+    }
+    // --- CASE B: Default Hardcoded Tasks ---
+    else {
+      const taskIdMap = new Map<string, string>();
+      appSettings.defaultTasks.forEach(tmpl => {
+        taskIdMap.set(tmpl.id, crypto.randomUUID());
+      });
+
+      defaultTasks = appSettings.defaultTasks.map(tmpl => {
+        const newTaskId = taskIdMap.get(tmpl.id)!;
+        const mappedDependencies = tmpl.dependsOnTaskIds?.map(depId => taskIdMap.get(depId)).filter(Boolean) as string[] || [];
+
+        return {
+          id: newTaskId,
+          title: tmpl.title,
+          description: '',
+          status: tmpl.status || 'Pending',
+          priority: tmpl.priority || 'Medium',
+          owner: tmpl.owner || 'Me',
+          externalAreas: [],
+          responsible: '',
+          dueDate: new Date().toISOString().split('T')[0],
+          stageContext: stage,
+          subtasks: [],
+          order: tmpl.order,
+          dependsOnTaskIds: mappedDependencies,
+          blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false
+        };
+      });
+    }
 
     const initialNotes = appSettings.noteTemplates
       .filter(tmpl => tmpl.autoCreate)
@@ -678,6 +710,7 @@ function App() {
         onClose={() => setShowSettings(false)}
         onSave={handleSaveSettings}
         initialSettings={appSettings}
+        opportunities={db.opportunities}
       />
     </div>
   );

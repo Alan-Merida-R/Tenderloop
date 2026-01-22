@@ -224,6 +224,13 @@ export interface UserSettings {
   userName: string;
 }
 
+export interface TaskStandardTemplate {
+  sourceOpportunityId: string;
+  sourceOpportunityName: string;
+  createdAt: string;
+  tasks: Task[];
+}
+
 export interface DatabaseSchema {
   meta: {
     version: string;
