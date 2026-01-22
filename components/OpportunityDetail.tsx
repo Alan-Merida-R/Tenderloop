@@ -955,7 +955,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        onUpdate(updated);
+        onUpdate(updated, opportunity.id);
     };
 
     const updateOfficialSellPrice = (value: number) => {
@@ -963,7 +963,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         const newKpis = { ...localOpp.kpis, proposalAmountUSD: value };
         const updated = { ...localOpp, commercial: newCommercial, kpis: newKpis, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        onUpdate(updated);
+        onUpdate(updated, opportunity.id);
     };
 
     const updateKpiField = (path: string, value: any) => {
@@ -989,7 +989,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         }
 
         setLocalOpp(updatedOpp);
-        onUpdate(updatedOpp);
+        onUpdate(updatedOpp, opportunity.id);
     };
 
     const filteredNotes = localOpp.notes.filter(n => {
