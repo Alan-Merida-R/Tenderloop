@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -185,25 +185,181 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
     );
 };
 
+const HistoryEventsModal = ({
+    date,
+    history,
+    onAdd,
+    onEdit,
+    onDelete,
+    onClose
+}: {
+    date: string,
+    history: HistoryEntry[],
+    onAdd: (content: string) => void,
+    onEdit: (id: string, content: string) => void,
+    onDelete: (id: string) => void,
+    onClose: () => void
+}) => {
+    const [isEditing, setIsEditing] = useState<string | null>(null); // Entry ID or 'new'
+    const [editContent, setEditContent] = useState('');
+
+    const dayEntries = history.filter(h => h.date.split('T')[0] === date);
+
+    const handleSave = () => {
+        if (!editContent.trim()) return;
+        if (isEditing === 'new') {
+            onAdd(editContent);
+        } else if (isEditing) {
+            onEdit(isEditing, editContent);
+        }
+        setIsEditing(null);
+        setEditContent('');
+    };
+
+    return (
+        <div className="fixed inset-0 z-[400] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in zoom-in duration-200">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <h3 className="font-black text-gray-800 flex items-center gap-2">
+                        <HistoryIcon className="w-5 h-5 text-[#3DCD58]" />
+                        History Events — {date}
+                    </h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="p-6 max-h-[60vh] overflow-y-auto">
+                    {isEditing ? (
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Event Description</label>
+                                <textarea
+                                    className="w-full h-32 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm resize-none"
+                                    value={editContent}
+                                    onChange={(e) => setEditContent(e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={handleSave} className="flex-1 bg-[#3DCD58] text-white py-2.5 rounded-xl font-bold hover:bg-[#2db64a] transition-all">Save Event</button>
+                                <button onClick={() => setIsEditing(null)} className="flex-1 bg-white border border-gray-200 text-gray-600 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-all">Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {dayEntries.length > 0 ? (
+                                <div className="space-y-3">
+                                    {dayEntries.map((h, i) => (
+                                        <div key={h.id} className="p-3 bg-gray-50 rounded-xl border border-gray-100 relative group">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="text-[10px] font-black text-[#3DCD58] uppercase">Event #{i + 1}</span>
+                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => { setIsEditing(h.id); setEditContent(h.content); }} className="p-1 hover:bg-white rounded text-gray-400 hover:text-blue-500 transition-colors"><Edit3 className="w-3.5 h-3.5" /></button>
+                                                    <button onClick={() => { if (confirm("Delete this event?")) onDelete(h.id); }} className="p-1 hover:bg-white rounded text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                </div>
+                                            </div>
+                                            <p className="text-sm text-gray-700 leading-relaxed">{h.content}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="py-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                    <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">No history events for this date</p>
+                                </div>
+                            )}
+                            <button
+                                onClick={() => { setIsEditing('new'); setEditContent(''); }}
+                                className="w-full mt-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-xs font-black uppercase tracking-widest hover:border-[#3DCD58] hover:text-[#3DCD58] transition-all flex items-center justify-center gap-2"
+                            >
+                                <Plus className="w-4 h-4" /> Add Event
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AddAreaModal = ({
+    availableAreas,
+    onAdd,
+    onClose
+}: {
+    availableAreas: string[],
+    onAdd: (area: string) => void,
+    onClose: () => void
+}) => {
+    const [selectedArea, setSelectedArea] = useState(availableAreas[0] || '');
+
+    return (
+        <div className="fixed inset-0 z-[500] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden animate-in zoom-in duration-200">
+                <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                    <h3 className="font-black text-gray-800 flex items-center gap-2">
+                        <Plus className="w-5 h-5 text-purple-600" />
+                        Add New Area
+                    </h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="p-6 space-y-4">
+                    {availableAreas.length > 0 ? (
+                        <>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Select Area to Add</label>
+                                <select
+                                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm font-bold"
+                                    value={selectedArea}
+                                    onChange={(e) => setSelectedArea(e.target.value)}
+                                >
+                                    {availableAreas.map(a => <option key={a} value={a}>{a}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                                <button onClick={() => onAdd(selectedArea)} className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg active:scale-95">Add Area</button>
+                                <button onClick={onClose} className="flex-1 bg-white border border-gray-200 text-gray-600 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-all">Cancel</button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-center py-4">
+                            <p className="text-sm font-bold text-gray-500">All available areas have been added.</p>
+                            <button onClick={onClose} className="mt-4 w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold">Close</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const KpiCalendarModal = ({
     area,
     onClose,
     onSave,
     suggestedWaitingDates,
     holidays,
-    history = []
+    history = [],
+    onNavigateToHistory,
+    onAddHistory,
+    onEditHistory,
+    onDeleteHistory
 }: {
     area: KPIArea,
     onClose: () => void,
     onSave: (calendar: Record<string, AreaDayRecord>) => void,
     suggestedWaitingDates: string[],
     holidays: string[],
-    history?: HistoryEntry[]
+    history?: HistoryEntry[],
+    onNavigateToHistory?: (eventId: string) => void,
+    onAddHistory: (date: string, content: string) => void,
+    onEditHistory: (id: string, content: string) => void,
+    onDeleteHistory: (id: string) => void
 }) => {
     const [calendar, setCalendar] = useState<Record<string, AreaDayRecord>>(area.calendar || {});
     const [viewDate, setViewDate] = useState(new Date());
     const [selectionStart, setSelectionStart] = useState<string | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
+    const [viewingHistoryDate, setViewingHistoryDate] = useState<string | null>(null);
 
     const isTendering = area.area === 'Tendering';
 
@@ -212,19 +368,16 @@ const KpiCalendarModal = ({
         const days = [];
         const firstDay = date.getUTCDay();
 
-        // Padding for previous month
         for (let i = 0; i < firstDay; i++) {
             const prev = new Date(Date.UTC(year, month, -i));
             days.unshift({ date: prev.toISOString().split('T')[0], isCurrent: false });
         }
 
-        // Current month
         while (date.getUTCMonth() === month) {
             days.push({ date: date.toISOString().split('T')[0], isCurrent: true });
             date.setUTCDate(date.getUTCDate() + 1);
         }
 
-        // Padding for next month
         while (days.length % 7 !== 0) {
             days.push({ date: date.toISOString().split('T')[0], isCurrent: false });
             date.setUTCDate(date.getUTCDate() + 1);
@@ -282,7 +435,6 @@ const KpiCalendarModal = ({
             if (!newCal[d]) newCal[d] = { type: 'Waiting' };
         });
 
-        // Suggest Inactive for weekends/holidays in current view
         monthDays.forEach(d => {
             const isHoliday = holidays.includes(d.date);
             const dayOfWeek = new Date(d.date).getUTCDay();
@@ -338,7 +490,7 @@ const KpiCalendarModal = ({
                             <div key={d} className="text-center text-[10px] font-bold text-gray-400 uppercase py-1">{d}</div>
                         ))}
                     </div>
-                    <div className="grid grid-cols-7 gap-2">
+                    <div className="grid grid-cols-7 gap-3">
                         {monthDays.map(d => {
                             const date = d.date;
                             const record = calendar[date];
@@ -353,23 +505,28 @@ const KpiCalendarModal = ({
                                     key={date}
                                     onClick={(e) => handleDayClick(date, e.shiftKey)}
                                     className={`relative p-2 h-24 border rounded-xl flex flex-col transition-all group ${!d.isCurrent ? 'bg-gray-50/50 opacity-40' : 'bg-white'
-                                        } ${isSelected ? 'ring-2 ring-blue-500 ring-inset z-10' : 'border-gray-100 hover:border-blue-200'} cursor-pointer`}
+                                        } ${isSelected ? 'ring-2 ring-blue-500 ring-inset z-10' : 'border-gray-100 hover:border-blue-200'} cursor-pointer shadow-sm hover:shadow-md`}
                                 >
                                     <div className="flex justify-between items-start w-full">
-                                        <span className={`text-[10px] font-bold ${isWeekend || isHoliday ? 'text-red-400' : 'text-gray-400'}`}>
+                                        <span className={`text-[10px] font-black ${isWeekend || isHoliday ? 'text-red-400' : 'text-gray-400'}`}>
                                             {new Date(date).getUTCDate()}
                                         </span>
                                         {dayHistory.length > 0 && (
                                             <div className="flex gap-0.5">
                                                 {dayHistory.map((h, i) => (
-                                                    <div key={i} title={h.content} className="w-1.5 h-1.5 rounded-full bg-[#3DCD58]" />
+                                                    <div
+                                                        key={i}
+                                                        onClick={(e) => { e.stopPropagation(); setViewingHistoryDate(date); }}
+                                                        title="Click to view history events"
+                                                        className="w-2 h-2 rounded-full bg-[#3DCD58] shadow-sm hover:scale-150 transition-transform cursor-help"
+                                                    />
                                                 ))}
                                             </div>
                                         )}
                                     </div>
 
                                     <div className="flex-1 flex flex-col items-center justify-center">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${record?.type === 'Worked' ? 'bg-blue-100 border-blue-500 text-blue-700' :
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${record?.type === 'Worked' ? 'bg-blue-100 border-blue-500 text-blue-700' :
                                             record?.type === 'Waiting' ? 'bg-yellow-100 border-yellow-500 text-yellow-700' :
                                                 record?.type === 'Inactive' ? 'bg-red-100 border-red-500 text-red-700' :
                                                     'bg-transparent border-transparent'
@@ -390,7 +547,7 @@ const KpiCalendarModal = ({
                                                     onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => updateHours(date, parseFloat(e.target.value) || 0)}
                                                 />
-                                                <span className="text-[8px] text-gray-400 font-bold uppercase">h</span>
+                                                <span className="text-[8px] text-gray-400 font-black uppercase">h</span>
                                             </div>
                                         )}
                                     </div>
@@ -402,16 +559,27 @@ const KpiCalendarModal = ({
 
                 <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
                     <div className="flex gap-2">
-                        <button onClick={() => applyType('Worked')} className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 transition-colors">Mark Worked</button>
-                        <button onClick={() => applyType('Waiting')} className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition-colors">Mark Waiting</button>
-                        <button onClick={() => applyType('Inactive')} className="flex items-center gap-1 bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 transition-colors">Mark Inactive</button>
-                        <button onClick={() => applyType(null)} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors text-right ml-4">Clear</button>
+                        <button onClick={() => applyType('Worked')} className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 transition-colors shadow-sm">Mark Worked</button>
+                        <button onClick={() => applyType('Waiting')} className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition-colors shadow-sm">Mark Waiting</button>
+                        <button onClick={() => applyType('Inactive')} className="flex items-center gap-1 bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 transition-colors shadow-sm">Mark Inactive</button>
+                        <button onClick={() => applyType(null)} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors ml-4 shadow-sm">Clear</button>
                     </div>
                     <button onClick={() => onSave(calendar)} className="bg-[#3DCD58] text-white px-8 py-2.5 rounded-xl font-bold shadow-lg hover:bg-[#2db64a] transition-all active:scale-95 flex items-center gap-2">
                         <Save className="w-4 h-4" /> Save Calendar
                     </button>
                 </div>
             </div>
+
+            {viewingHistoryDate && (
+                <HistoryEventsModal
+                    date={viewingHistoryDate}
+                    history={history}
+                    onAdd={(content) => onAddHistory(viewingHistoryDate, content)}
+                    onEdit={onEditHistory}
+                    onDelete={onDeleteHistory}
+                    onClose={() => setViewingHistoryDate(null)}
+                />
+            )}
         </div>
     );
 };
@@ -420,16 +588,34 @@ const FullCalendarModal = ({
     areas,
     onClose,
     onSaveAreaCalendar,
+    onAddArea,
+    onRemoveArea,
     holidays,
-    history = []
+    history = [],
+    onAddHistory,
+    onEditHistory,
+    onDeleteHistory,
+    trackedAreas,
+    timeline,
+    onUpdateTimeline
 }: {
     areas: KPIArea[],
     onClose: () => void,
     onSaveAreaCalendar: (areaId: string, calendar: Record<string, AreaDayRecord>) => void,
+    onAddArea: (area: string) => void,
+    onRemoveArea: (id: string) => void,
     holidays: string[],
-    history?: HistoryEntry[]
+    history?: HistoryEntry[],
+    onAddHistory: (date: string, content: string) => void,
+    onEditHistory: (id: string, content: string) => void,
+    onDeleteHistory: (id: string) => void,
+    trackedAreas: string[],
+    timeline: KPITimeline,
+    onUpdateTimeline: (field: keyof KPITimeline, value: string | null) => void
 }) => {
     const [viewDate, setViewDate] = useState(new Date());
+    const [viewingHistoryDate, setViewingHistoryDate] = useState<string | null>(null);
+    const [isInternalAddAreaOpen, setIsInternalAddAreaOpen] = useState(false);
 
     const getDaysInMonth = (year: number, month: number) => {
         const date = new Date(Date.UTC(year, month, 1));
@@ -451,113 +637,255 @@ const FullCalendarModal = ({
 
     return (
         <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col overflow-hidden animate-fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[98vw] h-[95vh] flex flex-col overflow-hidden animate-fade-in border border-gray-100">
                 <div className="p-6 border-b flex justify-between items-center bg-gray-50/80">
-                    <div className="flex items-center gap-6">
-                        <h2 className="text-xl font-black text-gray-800 flex items-center gap-3">
-                            <Table className="w-6 h-6 text-purple-500" />
-                            Full Implementation Timeline
-                        </h2>
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-lg transition-colors"><ChevronLeft className="w-5 h-5 text-gray-600" /></button>
-                            <span className="text-lg font-black w-48 text-center text-gray-700 capitalize">
+                    <div className="flex items-center gap-8">
+                        <div className="flex flex-col">
+                            <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
+                                <Table className="w-7 h-7 text-purple-600" />
+                                Implementation Timeline
+                            </h2>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Full Calendar / Project Management View</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl p-1.5 shadow-sm">
+                            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronLeft className="w-6 h-6 text-gray-600" /></button>
+                            <span className="text-xl font-black w-56 text-center text-gray-700 capitalize">
                                 {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
                             </span>
-                            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-50 rounded-lg transition-colors"><ChevronRight className="w-5 h-5 text-gray-600" /></button>
+                            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronRight className="w-6 h-6 text-gray-600" /></button>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setIsInternalAddAreaOpen(true)}
+                            className="bg-white border-2 border-purple-500 text-purple-600 px-6 py-2.5 rounded-xl font-black shadow-sm hover:bg-purple-50 transition-all active:scale-95 flex items-center gap-2"
+                        >
+                            <Plus className="w-5 h-5" /> Add New Area
+                        </button>
+                        <button onClick={onClose} className="p-3 hover:bg-red-50 hover:text-red-500 rounded-full transition-all text-gray-400"><X className="w-8 h-8" /></button>
+                    </div>
                 </div>
 
-                <div className="flex-1 overflow-auto p-6 bg-white">
-                    <div className="min-w-[1200px]">
-                        <div className="grid grid-cols-[180px_repeat(31,1fr)] gap-px bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-                            {/* Header */}
-                            <div className="bg-gray-50 p-3 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r">Area / Task</div>
-                            {days.map(d => {
-                                const isHoliday = holidays.includes(d);
-                                const dayOfWeek = new Date(d).getUTCDay();
-                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                                return (
-                                    <div key={d} className={`p-1 text-center border-l ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400'}`}>
-                                        <div className="text-[9px] font-bold uppercase">{new Date(d).toLocaleDateString(undefined, { weekday: 'short' })}</div>
-                                        <div className="text-xs font-black">{new Date(d).getUTCDate()}</div>
+                <div className="flex flex-1 overflow-hidden">
+                    {/* Sidebar for Timeline & Execution */}
+                    <div className="w-72 border-r bg-gray-50/50 p-6 flex flex-col gap-6 overflow-y-auto">
+                        <div>
+                            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                <Timer className="w-4 h-4 text-purple-500" />
+                                Execution Status
+                            </h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Received At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-purple-500 transition-all"
+                                        value={timeline.receivedAt || ''}
+                                        onChange={(e) => onUpdateTimeline('receivedAt', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Delivered At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-[#3DCD58] transition-all"
+                                        value={timeline.deliveredAt || ''}
+                                        onChange={(e) => onUpdateTimeline('deliveredAt', e.target.value)}
+                                    />
+                                </div>
+                                <div className="pt-4 border-t border-gray-100">
+                                    <label className="block text-[10px] font-black text-red-400 uppercase tracking-widest mb-1.5">Cancelled At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all"
+                                        value={timeline.cancelledAt || ''}
+                                        onChange={(e) => onUpdateTimeline('cancelledAt', e.target.value)}
+                                    />
+                                </div>
+                                {timeline.cancelledAt && (
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Reason Header</label>
+                                        <textarea
+                                            className="w-full h-24 bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all resize-none"
+                                            placeholder="Why was it cancelled?"
+                                            value={timeline.cancelledReason || ''}
+                                            onChange={(e) => onUpdateTimeline('cancelledReason', e.target.value)}
+                                        />
                                     </div>
-                                );
-                            })}
+                                )}
+                            </div>
+                        </div>
 
-                            {/* History Indicators Row */}
-                            <div className="bg-white p-3 text-[10px] font-bold text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t"><HistoryIcon className="w-3 h-3" /> History Events</div>
-                            {days.map(d => {
-                                const dayHistory = history.filter(h => h.date.split('T')[0] === d);
-                                return (
-                                    <div key={d} className="bg-white border-l border-t flex items-center justify-center min-h-[32px]">
-                                        {dayHistory.length > 0 && (
-                                            <div className="flex gap-0.5">
-                                                {dayHistory.map((h, i) => (
-                                                    <div key={i} title={h.content} className="w-2 h-2 rounded-full bg-[#3DCD58] shadow-sm hover:scale-125 transition-transform" />
-                                                ))}
+                        <div className="mt-auto p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                            <p className="text-[10px] font-black text-purple-600 uppercase leading-relaxed text-center">
+                                All changes in this view are immediate and persistent.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-auto p-4 bg-gray-50/20 shadow-inner">
+                        <div className="min-w-max pb-4">
+                            <div
+                                className="grid gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-xl"
+                                style={{ gridTemplateColumns: `220px repeat(${days.length}, minmax(60px, 1fr))` }}
+                            >
+                                {/* Header */}
+                                <div className="bg-gray-50 p-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-r flex items-center justify-between">
+                                    Area Name
+                                    <Filter className="w-3 h-3" />
+                                </div>
+                                {days.map(d => {
+                                    const isHoliday = holidays.includes(d);
+                                    const dayOfWeek = new Date(d).getUTCDay();
+                                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                    return (
+                                        <div key={d} className={`p-2 text-center border-l transition-colors ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                                            <div className="text-[10px] font-black uppercase">{new Date(d).toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                                            <div className="text-sm font-black">{new Date(d).getUTCDate()}</div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* History Indicators Row */}
+                                <div className="bg-white p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t bg-gray-50/30">
+                                    <HistoryIcon className="w-4 h-4" /> History Events
+                                </div>
+                                {days.map(d => {
+                                    const dayHistory = history.filter(h => h.date.split('T')[0] === d);
+                                    return (
+                                        <div
+                                            key={d}
+                                            onClick={() => setViewingHistoryDate(d)}
+                                            className="bg-white border-l border-t flex items-center justify-center min-h-[48px] cursor-pointer hover:bg-[#3DCD58]/5 group transition-all"
+                                            title="Click to manage history events"
+                                        >
+                                            {dayHistory.length > 0 ? (
+                                                <div className="flex gap-1">
+                                                    {dayHistory.map((h, i) => (
+                                                        <div key={i} title={h.content} className="w-3 h-3 rounded-full bg-[#3DCD58] shadow-sm transform group-hover:scale-125 transition-transform" />
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <Plus className="w-4 h-4 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Area Rows */}
+                                {areas.map(area => (
+                                    <React.Fragment key={area.id}>
+                                        <div className="bg-white p-4 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center relative group">
+                                            <div className="flex items-center justify-between group">
+                                                <span className="truncate pr-2">{area.area}</span>
+                                                <button
+                                                    onClick={() => onRemoveArea(area.id)}
+                                                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition-all"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-
-                            {/* Area Rows */}
-                            {areas.map(area => (
-                                <React.Fragment key={area.id}>
-                                    <div className="bg-white p-3 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center">
-                                        <span className="truncate">{area.area}</span>
-                                        <span className="text-[9px] text-gray-400 uppercase font-bold">{area.daysSpent}d worked</span>
-                                    </div>
-                                    {days.map(d => {
-                                        const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
-                                        return (
-                                            <div
-                                                key={d}
-                                                className={`border-l border-t h-16 flex flex-col items-center justify-center transition-colors cursor-pointer hover:bg-gray-50 ${record?.type === 'Worked' ? 'bg-blue-50/50' :
-                                                        record?.type === 'Waiting' ? 'bg-yellow-50/50' :
-                                                            record?.type === 'Inactive' ? 'bg-red-50/50' :
+                                            <div className="flex items-center gap-3 mt-1.5">
+                                                <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-2 py-0.5 rounded-full font-black uppercase">{area.daysSpent}d Work</span>
+                                                {area.waitingDays > 0 && <span className="text-[10px] text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full font-black uppercase">{area.waitingDays}d Wait</span>}
+                                            </div>
+                                        </div>
+                                        {days.map(d => {
+                                            const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
+                                            return (
+                                                <div
+                                                    key={d}
+                                                    className={`border-l border-t h-20 flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-[1.02] hover:z-10 hover:shadow-inner ${record?.type === 'Worked' ? 'bg-blue-50/40' :
+                                                        record?.type === 'Waiting' ? 'bg-yellow-50/40' :
+                                                            record?.type === 'Inactive' ? 'bg-red-50/30' :
                                                                 'bg-white'
-                                                    }`}
-                                                onClick={() => {
-                                                    const nextType: DayType | null =
-                                                        !record?.type ? 'Worked' :
-                                                            record.type === 'Worked' ? 'Waiting' :
-                                                                record.type === 'Waiting' ? 'Inactive' :
-                                                                    null;
+                                                        }`}
+                                                    onClick={() => {
+                                                        const currentType = record?.type;
+                                                        const nextType: DayType | null =
+                                                            !currentType ? 'Worked' :
+                                                                currentType === 'Worked' ? 'Waiting' :
+                                                                    currentType === 'Waiting' ? 'Inactive' :
+                                                                        null;
 
-                                                    const newCal = { ...(area.calendar || {}) };
-                                                    if (nextType === null) delete newCal[d];
-                                                    else newCal[d] = { ...newCal[d], type: nextType };
-                                                    onSaveAreaCalendar(area.id, newCal);
-                                                }}
-                                            >
-                                                {record?.type === 'Worked' && (
-                                                    <div className="flex flex-col items-center gap-0.5 animate-in fade-in zoom-in duration-300">
-                                                        <Zap className="w-4 h-4 text-blue-500" />
-                                                        {area.area === 'Tendering' && record.hours && <span className="text-[9px] font-black text-blue-700">{record.hours}h</span>}
-                                                    </div>
-                                                )}
-                                                {record?.type === 'Waiting' && <Clock className="w-4 h-4 text-yellow-500 animate-in fade-in zoom-in duration-300" />}
-                                                {record?.type === 'Inactive' && <X className="w-4 h-4 text-red-400 animate-in fade-in zoom-in duration-300" />}
-                                            </div>
-                                        );
-                                    })}
-                                </React.Fragment>
-                            ))}
+                                                        const newCal = { ...(area.calendar || {}) };
+                                                        if (nextType === null) delete newCal[d];
+                                                        else newCal[d] = { ...newCal[d], type: nextType };
+                                                        onSaveAreaCalendar(area.id, newCal);
+                                                    }}
+                                                >
+                                                    {record?.type === 'Worked' && (
+                                                        <div className="flex flex-col items-center gap-1 animate-in fade-in zoom-in duration-300">
+                                                            <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
+                                                                <Zap className="w-4 h-4" />
+                                                            </div>
+                                                            {area.area === 'Tendering' && (record as AreaDayRecord).hours && <span className="text-[10px] font-black text-blue-700">{(record as AreaDayRecord).hours}h</span>}
+                                                        </div>
+                                                    )}
+                                                    {record?.type === 'Waiting' && (
+                                                        <div className="w-7 h-7 rounded-full bg-yellow-500 text-white flex items-center justify-center shadow-md animate-in fade-in zoom-in duration-300">
+                                                            <Clock className="w-4 h-4" />
+                                                        </div>
+                                                    )}
+                                                    {record?.type === 'Inactive' && (
+                                                        <div className="w-7 h-7 rounded-full bg-red-100 text-red-500 flex items-center justify-center animate-in fade-in zoom-in duration-300">
+                                                            <X className="w-4 h-4" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6 border-t bg-gray-50 flex justify-between items-center shadow-2xl">
+                        <div className="flex gap-10">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg"><Zap className="w-5 h-5 text-white" /></div>
+                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Worked Day</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-yellow-500 rounded-xl flex items-center justify-center shadow-lg"><Clock className="w-5 h-5 text-white" /></div>
+                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Waiting Day</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center border-2 border-red-200"><X className="w-5 h-5 text-red-500" /></div>
+                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Inactive / Holiday</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <p className="text-[10px] font-black text-gray-400 bg-white px-4 py-2 rounded-xl border border-gray-200 italic shadow-sm">
+                                Tip: Continuous work blocks create the project execution flow.
+                            </p>
+                            <button onClick={onClose} className="bg-gray-900 text-white px-10 py-3.5 rounded-2xl font-black shadow-2xl hover:bg-black transition-all active:scale-95 text-lg">Close Dashboard</button>
                         </div>
                     </div>
                 </div>
 
-                <div className="p-6 border-t bg-gray-50 flex justify-between items-center">
-                    <div className="flex gap-6 text-[10px] font-black uppercase tracking-widest text-gray-500">
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-100 border border-blue-500 rounded" /> Worked Day</div>
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-100 border border-yellow-500 rounded" /> Waiting Day</div>
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-100 border border-red-500 rounded" /> Inactive / Weekend</div>
-                    </div>
-                    <button onClick={onClose} className="bg-gray-900 text-white px-8 py-3 rounded-xl font-black shadow-xl hover:bg-black transition-all active:scale-95">Close View</button>
-                </div>
+                {viewingHistoryDate && (
+                    <HistoryEventsModal
+                        date={viewingHistoryDate}
+                        history={history}
+                        onAdd={(content) => onAddHistory(viewingHistoryDate, content)}
+                        onEdit={onEditHistory}
+                        onDelete={onDeleteHistory}
+                        onClose={() => setViewingHistoryDate(null)}
+                    />
+                )}
+
+                {isInternalAddAreaOpen && (
+                    <AddAreaModal
+                        availableAreas={(trackedAreas || []).filter(ta => !areas.some(a => a.area === ta))}
+                        onAdd={(areaName) => {
+                            onAddArea(areaName);
+                            setIsInternalAddAreaOpen(false);
+                        }}
+                        onClose={() => setIsInternalAddAreaOpen(false)}
+                    />
+                )}
             </div>
         </div>
     );
@@ -567,6 +895,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>('overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
+    const [showAddAreaModal, setShowAddAreaModal] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
     const [searchTerm, setSearchTerm] = useState('');
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -749,8 +1078,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         handleFieldChange('questions', updatedQs);
     };
 
-    const addHistoryEntry = () => {
-        const newEntry: HistoryEntry = { id: crypto.randomUUID(), date: new Date().toISOString().split('T')[0], content: 'New event...' };
+    const addHistoryEntry = (date?: string, content?: string) => {
+        const newEntry: HistoryEntry = {
+            id: crypto.randomUUID(),
+            date: date || new Date().toISOString().split('T')[0],
+            content: content || 'New event...'
+        };
         const updatedHistory = [...(localOpp.history || []), newEntry].sort((a, b) => b.date.localeCompare(a.date));
         handleFieldChange('history', updatedHistory);
     };
@@ -771,7 +1104,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     const r = record as AreaDayRecord;
                     if (r.type === 'Worked') {
                         if (area.area === 'Tendering') {
-                            if ((r.hours || 0) > 0) uniqueDates.add(date);
+                            if ((r.hours || 0) >= 1) uniqueDates.add(date);
                         } else {
                             uniqueDates.add(date);
                         }
@@ -792,19 +1125,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         navigator.clipboard.writeText(text); alert("History copied to clipboard for bFO.");
     };
 
-    const addKpiArea = () => {
-        const availableAreas = trackedAreas.filter(a => !localOpp.kpis.areasInvolved.some(ea => ea.area === a));
-        if (availableAreas.length === 0) {
-            alert("All tracked areas are already added.");
+    const addKpiArea = (area: string) => {
+        if (!area) return;
+        if ((localOpp.kpis?.areasInvolved || []).some(a => a.area === area)) {
+            alert("This area is already being tracked.");
             return;
         }
-
-        const areaName = window.prompt(`Select area to add:\n${availableAreas.join(', ')}`, availableAreas[0]);
-        if (!areaName || !availableAreas.includes(areaName)) return;
-
-        const newArea: KPIArea = { id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} };
-        const newAreas = [...(localOpp.kpis?.areasInvolved || []), newArea];
-        updateKpiField('areasInvolved', newAreas);
+        const newArea: KPIArea = { id: crypto.randomUUID(), area, daysSpent: 0, waitingDays: 0, calendar: {} };
+        const baseKpis = localOpp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
+        const updated = { ...localOpp, kpis: { ...baseKpis, areasInvolved: [...(baseKpis.areasInvolved || []), newArea] } };
+        setLocalOpp(updated); onUpdate(updated);
     };
 
     const updateKpiArea = (id: string, field: keyof KPIArea, value: any) => {
@@ -818,7 +1148,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     };
 
     const handleSaveAreaCalendar = (areaId: string, calendar: Record<string, AreaDayRecord>) => {
-        const area = localOpp.kpis.areasInvolved.find(a => a.id === areaId);
+        const area = localOpp.kpis?.areasInvolved.find(a => a.id === areaId);
         if (!area) return;
 
         let worked = 0;
@@ -826,7 +1156,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         Object.values(calendar).forEach(r => {
             if (r.type === 'Worked') {
                 if (area.area === 'Tendering') {
-                    if ((r.hours || 0) > 0) worked++;
+                    if ((r.hours || 0) >= 1) worked++;
                 } else {
                     worked++;
                 }
@@ -835,7 +1165,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             }
         });
 
-        const newAreas = localOpp.kpis.areasInvolved.map(a => a.id === areaId ? { ...a, calendar, daysSpent: worked, waitingDays: waiting } : a);
+        const newAreas = (localOpp.kpis?.areasInvolved || []).map(a => a.id === areaId ? { ...a, calendar, daysSpent: worked, waitingDays: waiting } : a);
         updateKpiField('areasInvolved', newAreas);
         setEditingAreaCalendar(null);
     };
@@ -986,21 +1316,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         }).filter(Boolean) as string[];
 
         const summary = `
-Task: ${t.title}
-Due Date: ${t.dueDate}
-Status: ${t.status} | Priority: ${t.priority}
-Description: 
-${t.description}
+                                    Task: ${t.title}
+                                    Due Date: ${t.dueDate}
+                                    Status: ${t.status} | Priority: ${t.priority}
+                                    Description:
+                                    ${t.description}
 
-Subtasks:
-${(t.subtasks || []).map(s => `- [${s.completed ? 'x' : ' '}] ${s.title}`).join('\n')}
+                                    Subtasks:
+                                    ${(t.subtasks || []).map(s => `- [${s.completed ? 'x' : ' '}] ${s.title}`).join('\n')}
 
-Linked documents:
-${docTitles.join('\n')}
+                                    Linked documents:
+                                    ${docTitles.join('\n')}
 
-Linked notes:
-${noteTitles.join('\n')}
-      `.trim();
+                                    Linked notes:
+                                    ${noteTitles.join('\n')}
+                                    `.trim();
         navigator.clipboard.writeText(summary);
         alert("Task summary with links copied to clipboard!");
     };
@@ -1353,17 +1683,17 @@ ${noteTitles.join('\n')}
     const generateExecutiveSummary = () => {
         const s = localOpp;
         const text = `
-${s.revision} report for the ${s.id}
-SR Link: ${s.links.srLink || ''}
-Description of the request: ${s.description || ''}
-Executive summary: ${s.presentation.executiveSummary || ''}
+                                                                                        ${s.revision} report for the ${s.id}
+                                                                                        SR Link: ${s.links.srLink || ''}
+                                                                                        Description of the request: ${s.description || ''}
+                                                                                        Executive summary: ${s.presentation.executiveSummary || ''}
 
-Information
-CQA Sell price: ${s.commercial.cqaOfficialSellPrice ? `$${s.commercial.cqaOfficialSellPrice.toLocaleString()}` : ''}
-GM CCO: ${s.commercial.cqaOfficialMargin ? `${s.commercial.cqaOfficialMargin}%` : ''}
-Notes / Discounts Logic: ${s.commercial.discountsAndNotes || ''}
-CQA 2.0 Link: ${s.links.cqaLink || ''}
-    `.trim();
+                                                                                        Information
+                                                                                        CQA Sell price: ${s.commercial.cqaOfficialSellPrice ? `$${s.commercial.cqaOfficialSellPrice.toLocaleString()}` : ''}
+                                                                                        GM CCO: ${s.commercial.cqaOfficialMargin ? `${s.commercial.cqaOfficialMargin}%` : ''}
+                                                                                        Notes / Discounts Logic: ${s.commercial.discountsAndNotes || ''}
+                                                                                        CQA 2.0 Link: ${s.links.cqaLink || ''}
+                                                                                        `.trim();
         navigator.clipboard.writeText(text);
         alert("Executive summary copied to clipboard!");
     };
@@ -1529,12 +1859,15 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
         setSplitViewNoteId(noteId);
     };
 
+    const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
+
     const myWorkStats = React.useMemo(() => {
-        const tendering = localOpp.kpis.areasInvolved.find(a => a.area === 'Tendering');
+        const tendering = localOpp.kpis?.areasInvolved.find(a => a.area === 'Tendering');
         if (!tendering || !tendering.calendar) return { days: 0, hours: 0 };
         let days = 0;
         let hours = 0;
-        Object.values(tendering.calendar).forEach(r => {
+        Object.values(tendering.calendar).forEach(record => {
+            const r = record as AreaDayRecord;
             if (r.type === 'Worked') {
                 const h = r.hours || 0;
                 if (h >= 1) days++;
@@ -1542,31 +1875,141 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
             }
         });
         return { days, hours };
-    }, [localOpp.kpis.areasInvolved]);
+    }, [localOpp.kpis?.areasInvolved]);
 
     const waitingOnOthersDays = React.useMemo(() => {
-        const uniqueWaitingDates = new Set<string>();
-        localOpp.kpis.areasInvolved.forEach(area => {
-            if (area.area !== 'Tendering' && area.calendar) {
-                Object.entries(area.calendar).forEach(([date, r]) => {
-                    if (r.type === 'Worked' || r.type === 'Waiting') uniqueWaitingDates.add(date);
-                });
-            }
-        });
-        // We only count it as "waiting" if I didn't work that day? 
-        // User said: "Permitir marcar que trabajó en paralelo".
-        // Actually, user wants "Waiting on Others" summarized.
-        // Let's just sum the "Waiting" days from the calendars as a first pass, 
-        // or follow the unique dates logic if preferred.
-        // User: "El recuadro principal debe: Calcular solo con datos de Areas Involved"
         let totalWaiting = 0;
-        localOpp.kpis.areasInvolved.forEach(a => {
+        (localOpp.kpis?.areasInvolved || []).forEach(a => {
             totalWaiting += a.waitingDays || 0;
         });
         return totalWaiting;
-    }, [localOpp.kpis.areasInvolved]);
+    }, [localOpp.kpis?.areasInvolved]);
 
-    const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
+    const handleExportKpiPDF = async () => {
+        const jsPDF = (await import('jspdf')).default;
+        const autoTable = (await import('jspdf-autotable')).default;
+        const doc = new jsPDF();
+
+        // Header
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('KPI Implementation Report', 14, 20);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100);
+        doc.text(`Opportunity: ${localOpp.title}`, 14, 28);
+        const received = localOpp.kpis?.timeline?.receivedAt || 'N/A';
+        const delivered = localOpp.kpis?.timeline?.deliveredAt || 'In Progress';
+        doc.text(`Period: ${received} - ${delivered}`, 14, 33);
+
+        // Executive Summary
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0);
+        doc.text('Executive Summary', 14, 45);
+
+        autoTable(doc, {
+            startY: 50,
+            head: [['Metric', 'Value']],
+            body: [
+                ['Elapsed Calendar Days', `${totalElapsedCalendarDays}d`],
+                ['Elapsed Business Days', `${totalElapsedBusinessDays}d`],
+                ['My Work (Days)', `${myWorkStats.days}d`],
+                ['My Work (Total Hours)', `${myWorkStats.hours}h`],
+                ['Waiting on Others (Total Days)', `${waitingOnOthersDays}d`],
+                ['Unique Execution Days', `${executionUniqueDays}d`]
+            ],
+            theme: 'striped',
+            headStyles: { fillColor: [61, 205, 88] }
+        });
+
+        // Areas Table
+        doc.text('Areas Involved Breakdown', 14, (doc as any).lastAutoTable.finalY + 15);
+        autoTable(doc, {
+            startY: (doc as any).lastAutoTable.finalY + 20,
+            head: [['Area', 'Days Worked', 'Days Waiting']],
+            body: (localOpp.kpis?.areasInvolved || []).map(a => [a.area, `${a.daysSpent}d`, `${a.waitingDays}d`]),
+            theme: 'grid',
+            headStyles: { fillColor: [59, 130, 246] }
+        });
+
+        // Simple Gantt Visualization
+        const finalY = (doc as any).lastAutoTable.finalY + 15;
+        doc.text('Implementation Timeline (Gantt)', 14, finalY);
+
+        // Draw Legend
+        doc.setFontSize(8);
+        doc.setFillColor(59, 130, 246); doc.rect(14, finalY + 5, 5, 5, 'F'); doc.text('Worked', 22, finalY + 9);
+        doc.setFillColor(234, 179, 8); doc.rect(40, finalY + 5, 5, 5, 'F'); doc.text('Waiting', 48, finalY + 9);
+        doc.setFillColor(239, 68, 68); doc.rect(66, finalY + 5, 5, 5, 'F'); doc.text('Inactive', 74, finalY + 9);
+
+        // We'll draw 30 days starting from ReceivedAt
+        const receivedAtStr = localOpp.kpis?.timeline?.receivedAt || new Date().toISOString().split('T')[0];
+        const startDate = new Date(receivedAtStr);
+        const cellWidth = 5;
+        const rowHeight = 8;
+        let currentY = finalY + 20;
+
+        // Draw Headers (Days 1-30)
+        doc.setFontSize(6);
+        for (let i = 0; i < 30; i++) {
+            doc.text(`${i + 1}`, 45 + (i * cellWidth), currentY - 2);
+        }
+
+        (localOpp.kpis?.areasInvolved || []).forEach(area => {
+            doc.setFontSize(8);
+            doc.text(area.area, 14, currentY + 5);
+
+            for (let i = 0; i < 30; i++) {
+                const dayDate = new Date(startDate);
+                dayDate.setDate(dayDate.getDate() + i);
+                const dayStr = dayDate.toISOString().split('T')[0];
+                const record = area.calendar?.[dayStr] as AreaDayRecord | undefined;
+
+                if (record) {
+                    if (record.type === 'Worked') doc.setFillColor(59, 130, 246);
+                    else if (record.type === 'Waiting') doc.setFillColor(234, 179, 8);
+                    else if (record.type === 'Inactive') doc.setFillColor(239, 68, 68);
+                    doc.rect(45 + (i * cellWidth), currentY, cellWidth - 0.5, rowHeight, 'F');
+                } else {
+                    doc.setDrawColor(240);
+                    doc.rect(45 + (i * cellWidth), currentY, cellWidth - 0.5, rowHeight, 'S');
+                }
+            }
+            currentY += rowHeight + 1;
+        });
+
+        // Activity History
+        if (localOpp.history && localOpp.history.length > 0) {
+            doc.addPage();
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Activity History', 14, 20);
+            autoTable(doc, {
+                startY: 25,
+                head: [['Date', 'Activity']],
+                body: (localOpp.history || []).map(h => [h.date.split('T')[0], h.content]),
+                theme: 'striped',
+                columnStyles: {
+                    0: { cellWidth: 30 },
+                    1: { cellWidth: 'auto' }
+                },
+                headStyles: { fillColor: [61, 205, 88] }
+            });
+        }
+
+        doc.save(`${localOpp.qlk}_${localOpp.title}_KPI_Report.pdf`);
+    };
+
+
+    const handleNavigateToHistory = (eventId: string) => {
+        setActiveTab('history');
+        setTimeout(() => {
+            const el = document.getElementById(`history-entry-${eventId}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+    };
 
     return (
         <div className="flex flex-col h-full bg-white relative">
@@ -1703,22 +2146,30 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                         <CalendarDays className="w-5 h-5 text-blue-500" />
                                         <h3 className="font-bold text-gray-800">Timeline & Execution</h3>
                                     </div>
-                                    <button
-                                        onClick={() => setShowFullCalendar(true)}
-                                        className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm active:scale-95"
-                                    >
-                                        <Table className="w-4 h-4" /> View Full Calendar
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleExportKpiPDF}
+                                            className="text-xs font-black bg-white text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                                        >
+                                            <FileDown className="w-4 h-4 text-gray-400" /> Export KPI PDF
+                                        </button>
+                                        <button
+                                            onClick={() => setShowFullCalendar(true)}
+                                            className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                                        >
+                                            <Table className="w-4 h-4" /> View Full Calendar
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-[10px] font-bold text-gray-400 uppercase">Received At</label>
-                                        <input type="date" value={localOpp.kpis.timeline.receivedAt} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                        <input type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivered At</label>
-                                        <input type="date" value={localOpp.kpis.timeline.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivered / Tendered At</label>
+                                        <input type="date" value={localOpp.kpis.timeline?.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
                                     </div>
                                 </div>
 
@@ -1778,7 +2229,7 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                     <User className="w-5 h-5 text-purple-500" />
                                     <h3 className="font-bold text-gray-800">Areas Involved</h3>
                                 </div>
-                                <button onClick={addKpiArea} className="text-xs bg-purple-50 text-purple-600 font-bold px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100">+ Add Area</button>
+                                <button onClick={() => setShowAddAreaModal(true)} className="text-xs bg-purple-50 text-purple-600 font-bold px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100">+ Add Area</button>
                             </div>
 
                             <table className="w-full text-sm text-left">
@@ -1792,7 +2243,7 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-50">
-                                    {localOpp.kpis.areasInvolved.map(area => (
+                                    {(localOpp.kpis?.areasInvolved || []).map(area => (
                                         <tr key={area.id} className="hover:bg-gray-50">
                                             <td className="px-4 py-2 text-gray-800 font-medium">
                                                 {area.area || 'Unnamed Area'}
@@ -1816,7 +2267,7 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                             </td>
                                         </tr>
                                     ))}
-                                    {localOpp.kpis.areasInvolved.length === 0 && (
+                                    {(!localOpp.kpis?.areasInvolved || localOpp.kpis.areasInvolved.length === 0) && (
                                         <tr>
                                             <td colSpan={5} className="text-center py-8 text-gray-400 italic text-xs">No specific areas tracked yet.</td>
                                         </tr>
@@ -1840,11 +2291,19 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
 
                 {showFullCalendar && (
                     <FullCalendarModal
-                        areas={localOpp.kpis.areasInvolved}
+                        areas={localOpp.kpis?.areasInvolved || []}
                         holidays={holidays}
                         history={localOpp.history}
                         onSaveAreaCalendar={handleSaveAreaCalendar}
+                        onAddArea={addKpiArea}
+                        onRemoveArea={removeKpiArea}
+                        onAddHistory={addHistoryEntry}
+                        onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
+                        onDeleteHistory={deleteHistoryEntry}
                         onClose={() => setShowFullCalendar(false)}
+                        trackedAreas={trackedAreas || []}
+                        timeline={localOpp.kpis?.timeline || { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }}
+                        onUpdateTimeline={(field, val) => updateKpiField('timeline', { ...localOpp.kpis?.timeline, [field]: val })}
                     />
                 )}
 
@@ -1933,7 +2392,7 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                         </div>
                         <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
                             {localOpp.history.map(entry => (
-                                <div key={entry.id} className="relative">
+                                <div key={entry.id} id={`history-entry-${entry.id}`} className="relative">
                                     <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
                                     <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                                         <div className="flex justify-between items-center mb-2">
@@ -1972,16 +2431,23 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                 )}
 
                 {editingAreaCalendar && (() => {
-                    const area = localOpp.kpis.areasInvolved.find(a => a.id === editingAreaCalendar);
+                    const area = localOpp.kpis?.areasInvolved.find(a => a.id === editingAreaCalendar);
                     if (!area) return null;
                     return (
                         <KpiCalendarModal
                             area={area}
                             holidays={holidays}
-                            suggestedWaitingDates={suggestWaitingDaysFromHistory()}
+                            suggestedWaitingDates={[]}
                             onClose={() => setEditingAreaCalendar(null)}
-                            onSave={(cal) => handleSaveAreaCalendar(area.id, cal)}
+                            onSave={(cal) => {
+                                handleSaveAreaCalendar(editingAreaCalendar!, cal);
+                                setEditingAreaCalendar(null);
+                            }}
                             history={localOpp.history}
+                            onNavigateToHistory={handleNavigateToHistory}
+                            onAddHistory={addHistoryEntry}
+                            onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
+                            onDeleteHistory={deleteHistoryEntry}
                         />
                     );
                 })()}
@@ -2598,6 +3064,17 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                     onSelect={handleDocSelect}
                     onClose={() => setShowDocPicker(null)}
                     title={`Link documents to ${showDocPicker.type}`}
+                />
+            )}
+
+            {showAddAreaModal && (
+                <AddAreaModal
+                    availableAreas={(trackedAreas || []).filter(ta => !((localOpp.kpis?.areasInvolved || []).some(a => a.area === ta)))}
+                    onAdd={(areaName) => {
+                        addKpiArea(areaName);
+                        setShowAddAreaModal(false);
+                    }}
+                    onClose={() => setShowAddAreaModal(false)}
                 />
             )}
         </div>
