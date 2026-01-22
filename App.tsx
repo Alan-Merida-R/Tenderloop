@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskId, TaskPriority, PrdPresentation, OpportunityStatus, KPIs } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
@@ -683,7 +683,7 @@ function App() {
         {/* Main Dashboard Area */}
         <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
           <Dashboard
-            mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
+            mode={currentView === 'proposals' ? 'proposals' : currentView === 'tasks' ? 'tasks' : 'general'}
             opportunities={db.opportunities}
             onSelect={(id) => setSelectedOppId(id)}
             onCreate={() => createOpportunity('1. Recepción')}
