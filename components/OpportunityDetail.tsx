@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -190,31 +190,50 @@ const KpiCalendarModal = ({
     onClose,
     onSave,
     suggestedWaitingDates,
-    holidays
+    holidays,
+    history = []
 }: {
     area: KPIArea,
     onClose: () => void,
     onSave: (calendar: Record<string, AreaDayRecord>) => void,
     suggestedWaitingDates: string[],
-    holidays: string[]
+    holidays: string[],
+    history?: HistoryEntry[]
 }) => {
     const [calendar, setCalendar] = useState<Record<string, AreaDayRecord>>(area.calendar || {});
+    const [viewDate, setViewDate] = useState(new Date());
     const [selectionStart, setSelectionStart] = useState<string | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<string | null>(null);
 
     const isTendering = area.area === 'Tendering';
 
-    // Dates to show: range from receivedAt to deliveredAt (or today + a bit)
-    const startDate = new Date(); // Fallback
-    const dates: string[] = [];
-    // We'll show a reasonable window
-    const today = new Date().toISOString().split('T')[0];
-    const curr = new Date();
-    curr.setDate(curr.getDate() - 30); // 30 days back
-    for (let i = 0; i < 60; i++) {
-        dates.push(curr.toISOString().split('T')[0]);
-        curr.setDate(curr.getDate() + 1);
-    }
+    const getDaysInMonth = (year: number, month: number) => {
+        const date = new Date(Date.UTC(year, month, 1));
+        const days = [];
+        const firstDay = date.getUTCDay();
+
+        // Padding for previous month
+        for (let i = 0; i < firstDay; i++) {
+            const prev = new Date(Date.UTC(year, month, -i));
+            days.unshift({ date: prev.toISOString().split('T')[0], isCurrent: false });
+        }
+
+        // Current month
+        while (date.getUTCMonth() === month) {
+            days.push({ date: date.toISOString().split('T')[0], isCurrent: true });
+            date.setUTCDate(date.getUTCDate() + 1);
+        }
+
+        // Padding for next month
+        while (days.length % 7 !== 0) {
+            days.push({ date: date.toISOString().split('T')[0], isCurrent: false });
+            date.setUTCDate(date.getUTCDate() + 1);
+        }
+
+        return days;
+    };
+
+    const monthDays = getDaysInMonth(viewDate.getUTCFullYear(), viewDate.getUTCMonth());
 
     const handleDayClick = (date: string, shift: boolean) => {
         if (!selectionStart || (selectionStart && selectionEnd) || shift === false) {
@@ -242,7 +261,7 @@ const KpiCalendarModal = ({
             } else {
                 newCal[dateStr] = { ...newCal[dateStr], type };
             }
-            it.setDate(it.getDate() + 1);
+            it.setUTCDate(it.getUTCDate() + 1);
         }
         setCalendar(newCal);
         setSelectionStart(null);
@@ -252,15 +271,27 @@ const KpiCalendarModal = ({
     const updateHours = (date: string, hours: number) => {
         setCalendar(prev => ({
             ...prev,
-            [date]: { ...(prev[date] || { type: 'Worked' }), hours, type: hours > 0 ? 'Worked' : (prev[date]?.type === 'Worked' ? 'Worked' : (prev[date]?.type || 'Worked')) }
+            [date]: { ...(prev[date] || { type: 'Worked' }), hours, type: hours > 0 ? 'Worked' : (prev[date]?.type || 'Worked') }
         }));
     };
 
     const applySuggestions = () => {
+        if (!confirm("This will suggest Waiting days based on History and Inactive status for weekends/holidays. Continue?")) return;
         const newCal = { ...calendar };
         suggestedWaitingDates.forEach(d => {
             if (!newCal[d]) newCal[d] = { type: 'Waiting' };
         });
+
+        // Suggest Inactive for weekends/holidays in current view
+        monthDays.forEach(d => {
+            const isHoliday = holidays.includes(d.date);
+            const dayOfWeek = new Date(d.date).getUTCDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            if (isHoliday || isWeekend) {
+                if (!newCal[d.date]) newCal[d.date] = { type: 'Inactive' };
+            }
+        });
+
         setCalendar(newCal);
     };
 
@@ -272,14 +303,29 @@ const KpiCalendarModal = ({
         return date >= s && date <= e;
     };
 
+    const changeMonth = (offset: number) => {
+        const next = new Date(viewDate);
+        next.setUTCMonth(next.getUTCMonth() + offset);
+        setViewDate(next);
+    };
+
     return (
         <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                    <h2 className="font-bold text-gray-800 flex items-center gap-2">
-                        <CalendarIcon className="w-5 h-5 text-blue-500" />
-                        Calendar: {area.area}
-                    </h2>
+                    <div className="flex items-center gap-4">
+                        <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                            <CalendarIcon className="w-5 h-5 text-blue-500" />
+                            Calendar: {area.area}
+                        </h2>
+                        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-1">
+                            <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-50 rounded"><ChevronLeft className="w-4 h-4 text-gray-600" /></button>
+                            <span className="text-sm font-bold w-32 text-center text-gray-700 capitalize">
+                                {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                            </span>
+                            <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-50 rounded"><ChevronRight className="w-4 h-4 text-gray-600" /></button>
+                        </div>
+                    </div>
                     <div className="flex gap-2">
                         <button onClick={applySuggestions} className="text-[10px] font-bold bg-yellow-50 text-yellow-700 px-3 py-1 rounded border border-yellow-200 hover:bg-yellow-100">Apply Suggestions</button>
                         <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
@@ -287,45 +333,67 @@ const KpiCalendarModal = ({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6">
+                    <div className="grid grid-cols-7 gap-1 mb-2">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                            <div key={d} className="text-center text-[10px] font-bold text-gray-400 uppercase py-1">{d}</div>
+                        ))}
+                    </div>
                     <div className="grid grid-cols-7 gap-2">
-                        {dates.map(date => {
+                        {monthDays.map(d => {
+                            const date = d.date;
                             const record = calendar[date];
                             const isSelected = isInSelection(date);
                             const isHoliday = holidays.includes(date);
                             const dayOfWeek = new Date(date).getUTCDay();
                             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            const dayHistory = history.filter(h => h.date.split('T')[0] === date);
 
                             return (
                                 <div
                                     key={date}
                                     onClick={(e) => handleDayClick(date, e.shiftKey)}
-                                    className={`relative p-2 h-24 border rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${isSelected ? 'ring-2 ring-blue-500 ring-inset' : 'border-gray-100 hover:border-blue-200'}`}
+                                    className={`relative p-2 h-24 border rounded-xl flex flex-col transition-all group ${!d.isCurrent ? 'bg-gray-50/50 opacity-40' : 'bg-white'
+                                        } ${isSelected ? 'ring-2 ring-blue-500 ring-inset z-10' : 'border-gray-100 hover:border-blue-200'} cursor-pointer`}
                                 >
-                                    <span className={`text-[10px] font-bold mb-1 ${isWeekend || isHoliday ? 'text-red-400' : 'text-gray-400'}`}>
-                                        {new Date(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
-                                    </span>
-
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${record?.type === 'Worked' ? 'bg-blue-100 border-blue-500 text-blue-700' :
-                                        record?.type === 'Waiting' ? 'bg-yellow-100 border-yellow-500 text-yellow-700' :
-                                            record?.type === 'Inactive' ? 'bg-red-100 border-red-500 text-red-700' :
-                                                'bg-gray-50 border-gray-200 text-gray-300'
-                                        }`}>
-                                        {record?.type === 'Worked' ? <Zap className="w-5 h-5" /> :
-                                            record?.type === 'Waiting' ? <Clock className="w-5 h-5" /> :
-                                                record?.type === 'Inactive' ? <X className="w-5 h-5" /> :
-                                                    <span className="text-xs">{new Date(date).getUTCDate()}</span>}
+                                    <div className="flex justify-between items-start w-full">
+                                        <span className={`text-[10px] font-bold ${isWeekend || isHoliday ? 'text-red-400' : 'text-gray-400'}`}>
+                                            {new Date(date).getUTCDate()}
+                                        </span>
+                                        {dayHistory.length > 0 && (
+                                            <div className="flex gap-0.5">
+                                                {dayHistory.map((h, i) => (
+                                                    <div key={i} title={h.content} className="w-1.5 h-1.5 rounded-full bg-[#3DCD58]" />
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {isTendering && (
-                                        <input
-                                            type="number"
-                                            placeholder="h"
-                                            className="mt-1 w-full text-[10px] text-center border-none bg-transparent focus:ring-0 font-bold"
-                                            value={record?.hours || ''}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => updateHours(date, parseFloat(e.target.value) || 0)}
-                                        />
-                                    )}
+                                    <div className="flex-1 flex flex-col items-center justify-center">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${record?.type === 'Worked' ? 'bg-blue-100 border-blue-500 text-blue-700' :
+                                            record?.type === 'Waiting' ? 'bg-yellow-100 border-yellow-500 text-yellow-700' :
+                                                record?.type === 'Inactive' ? 'bg-red-100 border-red-500 text-red-700' :
+                                                    'bg-transparent border-transparent'
+                                            }`}>
+                                            {record?.type === 'Worked' ? <Zap className="w-4 h-4" /> :
+                                                record?.type === 'Waiting' ? <Clock className="w-4 h-4" /> :
+                                                    record?.type === 'Inactive' ? <X className="w-4 h-4" /> :
+                                                        null}
+                                        </div>
+
+                                        {isTendering && (
+                                            <div className="flex items-center gap-0.5 mt-0.5">
+                                                <input
+                                                    type="number"
+                                                    placeholder="h"
+                                                    className="w-8 text-[10px] text-center border-none bg-transparent focus:ring-0 font-bold p-0"
+                                                    value={record?.hours || ''}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => updateHours(date, parseFloat(e.target.value) || 0)}
+                                                />
+                                                <span className="text-[8px] text-gray-400 font-bold uppercase">h</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}
@@ -334,12 +402,161 @@ const KpiCalendarModal = ({
 
                 <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
                     <div className="flex gap-2">
-                        <button onClick={() => applyType('Worked')} className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600">Mark Worked</button>
-                        <button onClick={() => applyType('Waiting')} className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600">Mark Waiting</button>
-                        <button onClick={() => applyType('Inactive')} className="flex items-center gap-1 bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600">Mark Inactive</button>
-                        <button onClick={() => applyType(null)} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-50">Clear</button>
+                        <button onClick={() => applyType('Worked')} className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600 transition-colors">Mark Worked</button>
+                        <button onClick={() => applyType('Waiting')} className="flex items-center gap-1 bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition-colors">Mark Waiting</button>
+                        <button onClick={() => applyType('Inactive')} className="flex items-center gap-1 bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 transition-colors">Mark Inactive</button>
+                        <button onClick={() => applyType(null)} className="flex items-center gap-1 bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors text-right ml-4">Clear</button>
                     </div>
-                    <button onClick={() => onSave(calendar)} className="bg-[#3DCD58] text-white px-6 py-2 rounded-xl font-bold shadow-lg hover:bg-[#2db64a]">Save Calendar</button>
+                    <button onClick={() => onSave(calendar)} className="bg-[#3DCD58] text-white px-8 py-2.5 rounded-xl font-bold shadow-lg hover:bg-[#2db64a] transition-all active:scale-95 flex items-center gap-2">
+                        <Save className="w-4 h-4" /> Save Calendar
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const FullCalendarModal = ({
+    areas,
+    onClose,
+    onSaveAreaCalendar,
+    holidays,
+    history = []
+}: {
+    areas: KPIArea[],
+    onClose: () => void,
+    onSaveAreaCalendar: (areaId: string, calendar: Record<string, AreaDayRecord>) => void,
+    holidays: string[],
+    history?: HistoryEntry[]
+}) => {
+    const [viewDate, setViewDate] = useState(new Date());
+
+    const getDaysInMonth = (year: number, month: number) => {
+        const date = new Date(Date.UTC(year, month, 1));
+        const days = [];
+        while (date.getUTCMonth() === month) {
+            days.push(date.toISOString().split('T')[0]);
+            date.setUTCDate(date.getUTCDate() + 1);
+        }
+        return days;
+    };
+
+    const days = getDaysInMonth(viewDate.getUTCFullYear(), viewDate.getUTCMonth());
+
+    const changeMonth = (offset: number) => {
+        const next = new Date(viewDate);
+        next.setUTCMonth(next.getUTCMonth() + offset);
+        setViewDate(next);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex flex-col overflow-hidden animate-fade-in">
+                <div className="p-6 border-b flex justify-between items-center bg-gray-50/80">
+                    <div className="flex items-center gap-6">
+                        <h2 className="text-xl font-black text-gray-800 flex items-center gap-3">
+                            <Table className="w-6 h-6 text-purple-500" />
+                            Full Implementation Timeline
+                        </h2>
+                        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+                            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-lg transition-colors"><ChevronLeft className="w-5 h-5 text-gray-600" /></button>
+                            <span className="text-lg font-black w-48 text-center text-gray-700 capitalize">
+                                {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+                            </span>
+                            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-50 rounded-lg transition-colors"><ChevronRight className="w-5 h-5 text-gray-600" /></button>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
+                </div>
+
+                <div className="flex-1 overflow-auto p-6 bg-white">
+                    <div className="min-w-[1200px]">
+                        <div className="grid grid-cols-[180px_repeat(31,1fr)] gap-px bg-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+                            {/* Header */}
+                            <div className="bg-gray-50 p-3 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r">Area / Task</div>
+                            {days.map(d => {
+                                const isHoliday = holidays.includes(d);
+                                const dayOfWeek = new Date(d).getUTCDay();
+                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                return (
+                                    <div key={d} className={`p-1 text-center border-l ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400'}`}>
+                                        <div className="text-[9px] font-bold uppercase">{new Date(d).toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                                        <div className="text-xs font-black">{new Date(d).getUTCDate()}</div>
+                                    </div>
+                                );
+                            })}
+
+                            {/* History Indicators Row */}
+                            <div className="bg-white p-3 text-[10px] font-bold text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t"><HistoryIcon className="w-3 h-3" /> History Events</div>
+                            {days.map(d => {
+                                const dayHistory = history.filter(h => h.date.split('T')[0] === d);
+                                return (
+                                    <div key={d} className="bg-white border-l border-t flex items-center justify-center min-h-[32px]">
+                                        {dayHistory.length > 0 && (
+                                            <div className="flex gap-0.5">
+                                                {dayHistory.map((h, i) => (
+                                                    <div key={i} title={h.content} className="w-2 h-2 rounded-full bg-[#3DCD58] shadow-sm hover:scale-125 transition-transform" />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* Area Rows */}
+                            {areas.map(area => (
+                                <React.Fragment key={area.id}>
+                                    <div className="bg-white p-3 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center">
+                                        <span className="truncate">{area.area}</span>
+                                        <span className="text-[9px] text-gray-400 uppercase font-bold">{area.daysSpent}d worked</span>
+                                    </div>
+                                    {days.map(d => {
+                                        const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
+                                        return (
+                                            <div
+                                                key={d}
+                                                className={`border-l border-t h-16 flex flex-col items-center justify-center transition-colors cursor-pointer hover:bg-gray-50 ${record?.type === 'Worked' ? 'bg-blue-50/50' :
+                                                        record?.type === 'Waiting' ? 'bg-yellow-50/50' :
+                                                            record?.type === 'Inactive' ? 'bg-red-50/50' :
+                                                                'bg-white'
+                                                    }`}
+                                                onClick={() => {
+                                                    const nextType: DayType | null =
+                                                        !record?.type ? 'Worked' :
+                                                            record.type === 'Worked' ? 'Waiting' :
+                                                                record.type === 'Waiting' ? 'Inactive' :
+                                                                    null;
+
+                                                    const newCal = { ...(area.calendar || {}) };
+                                                    if (nextType === null) delete newCal[d];
+                                                    else newCal[d] = { ...newCal[d], type: nextType };
+                                                    onSaveAreaCalendar(area.id, newCal);
+                                                }}
+                                            >
+                                                {record?.type === 'Worked' && (
+                                                    <div className="flex flex-col items-center gap-0.5 animate-in fade-in zoom-in duration-300">
+                                                        <Zap className="w-4 h-4 text-blue-500" />
+                                                        {area.area === 'Tendering' && record.hours && <span className="text-[9px] font-black text-blue-700">{record.hours}h</span>}
+                                                    </div>
+                                                )}
+                                                {record?.type === 'Waiting' && <Clock className="w-4 h-4 text-yellow-500 animate-in fade-in zoom-in duration-300" />}
+                                                {record?.type === 'Inactive' && <X className="w-4 h-4 text-red-400 animate-in fade-in zoom-in duration-300" />}
+                                            </div>
+                                        );
+                                    })}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-6 border-t bg-gray-50 flex justify-between items-center">
+                    <div className="flex gap-6 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-blue-100 border border-blue-500 rounded" /> Worked Day</div>
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-100 border border-yellow-500 rounded" /> Waiting Day</div>
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-100 border border-red-500 rounded" /> Inactive / Weekend</div>
+                    </div>
+                    <button onClick={onClose} className="bg-gray-900 text-white px-8 py-3 rounded-xl font-black shadow-xl hover:bg-black transition-all active:scale-95">Close View</button>
                 </div>
             </div>
         </div>
@@ -349,6 +566,7 @@ const KpiCalendarModal = ({
 const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [] }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>('overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
+    const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
     const [searchTerm, setSearchTerm] = useState('');
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -575,9 +793,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     };
 
     const addKpiArea = () => {
-        const usedAreas = localOpp.kpis.areasInvolved.map(a => a.area);
-        const nextArea = trackedAreas.find(a => !usedAreas.includes(a)) || 'New Area';
-        const newArea: KPIArea = { id: crypto.randomUUID(), area: nextArea, daysSpent: 0, waitingDays: 0, calendar: {} };
+        const availableAreas = trackedAreas.filter(a => !localOpp.kpis.areasInvolved.some(ea => ea.area === a));
+        if (availableAreas.length === 0) {
+            alert("All tracked areas are already added.");
+            return;
+        }
+
+        const areaName = window.prompt(`Select area to add:\n${availableAreas.join(', ')}`, availableAreas[0]);
+        if (!areaName || !availableAreas.includes(areaName)) return;
+
+        const newArea: KPIArea = { id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} };
         const newAreas = [...(localOpp.kpis?.areasInvolved || []), newArea];
         updateKpiField('areasInvolved', newAreas);
     };
@@ -751,7 +976,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         let docTitles: string[] = [];
         try {
             const docs = await listLinkedForTask(localOpp.id, t.id);
-            docTitles = docs.map(d => d.fileKey.split('/').pop() || d.fileKey);
+            if (docs && docs.length > 0) {
+                docTitles = docs.map(d => d.fileKey.split('/').pop() || d.fileKey);
+            }
         } catch (e) { console.error("Failed to load docs for summary", e); }
 
         const noteTitles = (t.linkedNoteIds || (t.linkedNoteId ? [t.linkedNoteId] : [])).map(nid => {
@@ -1302,6 +1529,43 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
         setSplitViewNoteId(noteId);
     };
 
+    const myWorkStats = React.useMemo(() => {
+        const tendering = localOpp.kpis.areasInvolved.find(a => a.area === 'Tendering');
+        if (!tendering || !tendering.calendar) return { days: 0, hours: 0 };
+        let days = 0;
+        let hours = 0;
+        Object.values(tendering.calendar).forEach(r => {
+            if (r.type === 'Worked') {
+                const h = r.hours || 0;
+                if (h >= 1) days++;
+                hours += h;
+            }
+        });
+        return { days, hours };
+    }, [localOpp.kpis.areasInvolved]);
+
+    const waitingOnOthersDays = React.useMemo(() => {
+        const uniqueWaitingDates = new Set<string>();
+        localOpp.kpis.areasInvolved.forEach(area => {
+            if (area.area !== 'Tendering' && area.calendar) {
+                Object.entries(area.calendar).forEach(([date, r]) => {
+                    if (r.type === 'Worked' || r.type === 'Waiting') uniqueWaitingDates.add(date);
+                });
+            }
+        });
+        // We only count it as "waiting" if I didn't work that day? 
+        // User said: "Permitir marcar que trabajó en paralelo".
+        // Actually, user wants "Waiting on Others" summarized.
+        // Let's just sum the "Waiting" days from the calendars as a first pass, 
+        // or follow the unique dates logic if preferred.
+        // User: "El recuadro principal debe: Calcular solo con datos de Areas Involved"
+        let totalWaiting = 0;
+        localOpp.kpis.areasInvolved.forEach(a => {
+            totalWaiting += a.waitingDays || 0;
+        });
+        return totalWaiting;
+    }, [localOpp.kpis.areasInvolved]);
+
     const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
 
     return (
@@ -1434,9 +1698,17 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
 
                             {/* Timeline & Execution */}
                             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                                <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
-                                    <CalendarDays className="w-5 h-5 text-blue-500" />
-                                    <h3 className="font-bold text-gray-800">Timeline & Execution</h3>
+                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                    <div className="flex items-center gap-2">
+                                        <CalendarDays className="w-5 h-5 text-blue-500" />
+                                        <h3 className="font-bold text-gray-800">Timeline & Execution</h3>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowFullCalendar(true)}
+                                        className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                                    >
+                                        <Table className="w-4 h-4" /> View Full Calendar
+                                    </button>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
@@ -1450,31 +1722,49 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                                     </div>
                                 </div>
 
-                                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2"><Timer className="w-3 h-3" /> Total Elapsed Days</span>
-                                        <span className="text-lg font-black text-gray-800">{totalElapsedCalendarDays > 0 ? totalElapsedCalendarDays : '-'}</span>
-                                    </div>
-                                    <div className="h-px bg-gray-200 w-full"></div>
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-400 uppercase">My Work Days</label>
-                                            <input type="number" value={localOpp.kpis.execution.myWorkDays || ''} onChange={(e) => updateKpiField('execution.myWorkDays', parseFloat(e.target.value))} className="w-full border-gray-200 rounded text-sm mt-1 bg-white" placeholder="0" />
+                                        <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
+                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Calendar Days</label>
+                                            <div className="text-xl font-black text-gray-800">{totalElapsedCalendarDays}</div>
+                                            <div className="text-[10px] text-gray-400 font-bold uppercase mt-1">Total Time</div>
                                         </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Waiting on Others</label>
-                                            <input type="number" value={localOpp.kpis.execution.waitingOnOthersDays || ''} onChange={(e) => updateKpiField('execution.waitingOnOthersDays', parseFloat(e.target.value))} className="w-full border-gray-200 rounded text-sm mt-1 bg-white" placeholder="0" />
+                                        <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
+                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Business Days</label>
+                                            <div className="text-xl font-black text-blue-600">{totalElapsedBusinessDays}</div>
+                                            <div className="text-[10px] text-blue-400/60 font-bold uppercase mt-1">Workable</div>
                                         </div>
                                     </div>
-                                    {totalTrackedDays > totalElapsedBusinessDays && (
-                                        <p className="text-[10px] text-red-500 font-bold mt-1">Warning: Tracked days exceed elapsed time (Business Days: {totalElapsedBusinessDays})!</p>
+
+                                    <div className="h-px bg-gray-200 w-full" />
+
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div className="text-center">
+                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Days)</label>
+                                            <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.days}</div>
+                                        </div>
+                                        <div className="text-center">
+                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Hours)</label>
+                                            <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.hours}h</div>
+                                        </div>
+                                        <div className="text-center">
+                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">Waiting (Sum)</label>
+                                            <div className="text-lg font-black text-yellow-600">{waitingOnOthersDays}d</div>
+                                        </div>
+                                    </div>
+
+                                    {(myWorkStats.days + waitingOnOthersDays) > totalElapsedBusinessDays && (
+                                        <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-100">
+                                            <AlertCircle className="w-4 h-4 text-red-500" />
+                                            <p className="text-[10px] text-red-600 font-bold">Inconsistency detected: Logged time exceeds Business Days ({totalElapsedBusinessDays})</p>
+                                        </div>
                                     )}
                                 </div>
 
                                 <div>
                                     <div className="flex gap-2 mb-1">
                                         <label className="block text-[10px] font-bold text-gray-400 uppercase">Cancelled At</label>
-                                        <input type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6" />
+                                        <input type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6 shrink-0" />
                                     </div>
                                     <textarea value={localOpp.kpis.timeline.cancelledReason || ''} onChange={(e) => updateKpiField('timeline.cancelledReason', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm h-16 resize-none" placeholder="Reason for cancellation..." />
                                 </div>
@@ -1535,17 +1825,27 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                             </table>
 
                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-                                <div className="p-3 bg-blue-50 rounded-lg">
-                                    <label className="text-[9px] font-bold text-blue-500 uppercase block mb-1">Execution Unique Days</label>
+                                <div className="p-3 bg-blue-50 rounded-lg shadow-inner">
+                                    <label className="text-[9px] font-black text-blue-500 uppercase block mb-1">Execution Unique Days</label>
                                     <div className="text-xl font-black text-blue-700">{executionUniqueDays}</div>
                                 </div>
-                                <div className="p-3 bg-purple-50 rounded-lg">
-                                    <label className="text-[9px] font-bold text-purple-500 uppercase block mb-1">Total Elapsed Days</label>
-                                    <div className="text-xl font-black text-purple-700">{totalElapsedCalendarDays}</div>
+                                <div className="p-3 bg-purple-50 rounded-lg shadow-inner text-right">
+                                    <label className="text-[9px] font-black text-purple-500 uppercase block mb-1">Total Record Duration</label>
+                                    <div className="text-xl font-black text-purple-700">{totalAreaDays}d</div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                )}
+
+                {showFullCalendar && (
+                    <FullCalendarModal
+                        areas={localOpp.kpis.areasInvolved}
+                        holidays={holidays}
+                        history={localOpp.history}
+                        onSaveAreaCalendar={handleSaveAreaCalendar}
+                        onClose={() => setShowFullCalendar(false)}
+                    />
                 )}
 
                 {activeTab === 'presentation' && (
@@ -1681,6 +1981,7 @@ CQA 2.0 Link: ${s.links.cqaLink || ''}
                             suggestedWaitingDates={suggestWaitingDaysFromHistory()}
                             onClose={() => setEditingAreaCalendar(null)}
                             onSave={(cal) => handleSaveAreaCalendar(area.id, cal)}
+                            history={localOpp.history}
                         />
                     );
                 })()}
