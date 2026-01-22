@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 
@@ -48,7 +48,9 @@ export interface AppSettings {
   noteTemplates: NoteTemplate[];
   holidays?: string[]; // ISO date strings YYYY-MM-DD
   trackedAreas?: string[]; // New: Areas for KPIs
-}export const DEFAULT_TRACKED_AREAS = [
+  taskStandardTemplate?: import('../types').TaskStandardTemplate | null;
+}
+export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
 ];
 
@@ -71,7 +73,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoCreate: false
   })),
   holidays: [],
-  trackedAreas: DEFAULT_TRACKED_AREAS
+  trackedAreas: DEFAULT_TRACKED_AREAS,
+  taskStandardTemplate: null
 };
 
 interface Props {
@@ -79,6 +82,7 @@ interface Props {
   onClose: () => void;
   onSave: (settings: AppSettings) => void;
   initialSettings: AppSettings;
+  opportunities: import('../types').Opportunity[];
 }
 
 export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
@@ -112,11 +116,13 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
   );
 };
 
-export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings }) => {
+export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templateMsg, setTemplateMsg] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null);
 
   // Reset internal state when modal opens
   useEffect(() => {
@@ -278,6 +284,107 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   className="w-full h-32 border-gray-200 rounded-lg text-sm p-3 focus:border-[#3DCD58] focus:ring-0"
                   placeholder="Tendering&#10;Sales CSE&#10;TSC"
                 />
+              </div>
+
+              {/* TASK STANDARD TEMPLATE */}
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
+                    <ArrowUpDown className="w-4 h-4 text-blue-500" /> Task Standard Template
+                  </h3>
+                  {settings.taskStandardTemplate && (
+                    <button
+                      onClick={() => setSettings(prev => ({ ...prev, taskStandardTemplate: null }))}
+                      className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" /> Clear standard template
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500">
+                  Select an existing opportunity to use its tasks (including subtasks and dependencies) as the default template for new opportunities.
+                </p>
+
+                {settings.taskStandardTemplate ? (
+                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-blue-200 shadow-sm text-blue-500 font-bold">
+                        {settings.taskStandardTemplate.tasks.length}
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-blue-900 uppercase">Standard Active</p>
+                        <p className="text-[10px] text-blue-700 font-bold">Source: {settings.taskStandardTemplate.sourceOpportunityName} ({settings.taskStandardTemplate.sourceOpportunityId})</p>
+                        <p className="text-[10px] text-blue-400">Created: {new Date(settings.taskStandardTemplate.createdAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSettings(prev => ({ ...prev, taskStandardTemplate: null }))}
+                        className="bg-white text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-gray-50 transition-all shadow-sm"
+                      >
+                        Change Template
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search opportunity by name or ID..."
+                          className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:border-blue-500 focus:ring-0"
+                          value={templateSearch}
+                          onChange={(e) => setTemplateSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {templateSearch.length >= 2 && (
+                      <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-xl bg-white divide-y divide-gray-50 shadow-sm">
+                        {opportunities
+                          .filter(o => o.title.toLowerCase().includes(templateSearch.toLowerCase()) || o.id.toLowerCase().includes(templateSearch.toLowerCase()))
+                          .slice(0, 5)
+                          .map(opp => (
+                            <div
+                              key={opp.id}
+                              className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group transition-colors"
+                              onClick={() => {
+                                if (!opp.tasks || opp.tasks.length === 0) {
+                                  setTemplateMsg({ text: "Selected opportunity has no tasks.", type: 'error' });
+                                  return;
+                                }
+                                // Create snapshot
+                                const snapshot = {
+                                  sourceOpportunityId: opp.id,
+                                  sourceOpportunityName: opp.title,
+                                  createdAt: new Date().toISOString(),
+                                  tasks: JSON.parse(JSON.stringify(opp.tasks)) // Clean copy
+                                };
+                                setSettings(prev => ({ ...prev, taskStandardTemplate: snapshot }));
+                                setTemplateSearch('');
+                                setTemplateMsg({ text: "Standard template updated successfully!", type: 'success' });
+                                setTimeout(() => setTemplateMsg(null), 3000);
+                              }}
+                            >
+                              <div>
+                                <p className="text-xs font-bold text-gray-800 group-hover:text-blue-700">{opp.title}</p>
+                                <p className="text-[10px] font-mono text-gray-400">{opp.id} • {opp.tasks.length} tasks</p>
+                              </div>
+                              <button className="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">USE AS STANDARD</button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+
+                    {templateMsg && (
+                      <p className={`text-[10px] font-bold ${templateMsg.type === 'error' ? 'text-red-500' : 'text-emerald-500'} animate-fade-in`}>
+                        {templateMsg.text}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

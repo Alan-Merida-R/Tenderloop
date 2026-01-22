@@ -207,7 +207,8 @@ function App() {
           myWorkDays: null,
           waitingOnOthersDays: null
         },
-        areasInvolved: []
+        areasInvolved: [],
+        effortContribution: null
       };
 
       // Sync Proposal Amount from Commercial if present
@@ -388,34 +389,76 @@ function App() {
    * Create New Opportunity with Configurable Defaults
    */
   const createOpportunity = (stage: ProcessStage = '1. Recepción') => {
-    const newId = `OP-${1000 + db.opportunities.length + 1}`;
-
-    const taskIdMap = new Map<string, string>();
-    appSettings.defaultTasks.forEach(tmpl => {
-      taskIdMap.set(tmpl.id, crypto.randomUUID());
+    // 1. Generate Unique OP ID
+    let maxNum = 1000;
+    db.opportunities.forEach(o => {
+      const match = o.id.match(/\d+/);
+      if (match) {
+        const num = parseInt(match[0]);
+        if (num > maxNum) maxNum = num;
+      }
     });
+    const nextNum = maxNum + 1;
+    const newId = `OP-${nextNum}`;
 
-    const defaultTasks: Task[] = appSettings.defaultTasks.map(tmpl => {
-      const newTaskId = taskIdMap.get(tmpl.id)!;
-      const mappedDependencies = tmpl.dependsOnTaskIds?.map(depId => taskIdMap.get(depId)).filter(Boolean) as string[] || [];
+    let defaultTasks: Task[] = [];
 
-      return {
-        id: newTaskId,
-        title: tmpl.title,
-        description: '',
-        status: tmpl.status || 'Pending',
-        priority: tmpl.priority || 'Medium',
-        owner: tmpl.owner || 'Me',
-        externalAreas: [],
+    // --- CASE A: Task Standard Template (Opportunity Snapshot) ---
+    if (appSettings.taskStandardTemplate && appSettings.taskStandardTemplate.tasks.length > 0) {
+      const templateTasks = appSettings.taskStandardTemplate.tasks;
+      const taskIdMap = new Map<string, string>();
+
+      // 1. Generate new IDs for tasks to avoid collisions
+      templateTasks.forEach(t => {
+        taskIdMap.set(t.id, crypto.randomUUID());
+      });
+
+      // 2. Map and Instantiate with new IDs
+      defaultTasks = templateTasks.map(t => ({
+        ...t,
+        id: taskIdMap.get(t.id)!,
+        description: t.description || '',
+        status: 'Pending',
+        priority: (t.priority || 'Medium') as TaskPriority,
+        owner: (t.owner || 'Me') as TaskOwner,
         responsible: '',
         dueDate: new Date().toISOString().split('T')[0],
         stageContext: stage,
-        subtasks: [],
-        order: tmpl.order,
-        dependsOnTaskIds: mappedDependencies,
-        blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false
-      };
-    });
+        subtasks: (t.subtasks || []).map(st => ({ ...st, id: crypto.randomUUID(), status: 'Pending' })),
+        order: t.order,
+        dependsOnTaskIds: (t.dependsOnTaskIds || []).map(depId => taskIdMap.get(depId)).filter(Boolean) as string[],
+        blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false
+      }));
+    }
+    // --- CASE B: Default Hardcoded Tasks ---
+    else {
+      const taskIdMap = new Map<string, string>();
+      appSettings.defaultTasks.forEach(tmpl => {
+        taskIdMap.set(tmpl.id, crypto.randomUUID());
+      });
+
+      defaultTasks = appSettings.defaultTasks.map(tmpl => {
+        const newTaskId = taskIdMap.get(tmpl.id)!;
+        const mappedDependencies = tmpl.dependsOnTaskIds?.map(depId => taskIdMap.get(depId)).filter(Boolean) as string[] || [];
+
+        return {
+          id: newTaskId,
+          title: tmpl.title,
+          description: '',
+          status: tmpl.status || 'Pending',
+          priority: tmpl.priority || 'Medium',
+          owner: tmpl.owner || 'Me',
+          externalAreas: [],
+          responsible: '',
+          dueDate: new Date().toISOString().split('T')[0],
+          stageContext: stage,
+          subtasks: [],
+          order: tmpl.order,
+          dependsOnTaskIds: mappedDependencies,
+          blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false
+        };
+      });
+    }
 
     const initialNotes = appSettings.noteTemplates
       .filter(tmpl => tmpl.autoCreate)
@@ -472,7 +515,8 @@ function App() {
           cancelledReason: null
         },
         execution: { myWorkDays: null, waitingOnOthersDays: null },
-        areasInvolved: []
+        areasInvolved: [],
+        effortContribution: null
       },
       tags: [],
       pendingActions: [],
@@ -678,6 +722,7 @@ function App() {
         onClose={() => setShowSettings(false)}
         onSave={handleSaveSettings}
         initialSettings={appSettings}
+        opportunities={db.opportunities}
       />
     </div>
   );

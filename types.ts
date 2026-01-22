@@ -173,6 +173,7 @@ export interface KPIs {
   languageSkill: number | null;       // 0–100
   technicalUnderstanding: number | null;  // 0–100
   dealProbability: number | null;     // 0–100
+  effortContribution: number | null;  // 0–100
   sold: boolean | null;
   proposalAmountUSD: number | null;
 
@@ -221,6 +222,13 @@ export interface Opportunity {
 export interface UserSettings {
   theme: 'light' | 'dark';
   userName: string;
+}
+
+export interface TaskStandardTemplate {
+  sourceOpportunityId: string;
+  sourceOpportunityName: string;
+  createdAt: string;
+  tasks: Task[];
 }
 
 export interface DatabaseSchema {
