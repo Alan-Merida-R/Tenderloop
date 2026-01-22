@@ -666,62 +666,7 @@ const FullCalendarModal = ({
                     </div>
                 </div>
 
-                <div className="flex flex-1 overflow-hidden">
-                    {/* Sidebar for Timeline & Execution */}
-                    <div className="w-72 border-r bg-gray-50/50 p-6 flex flex-col gap-6 overflow-y-auto">
-                        <div>
-                            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                                <Timer className="w-4 h-4 text-purple-500" />
-                                Execution Status
-                            </h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Received At</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-purple-500 transition-all"
-                                        value={timeline.receivedAt || ''}
-                                        onChange={(e) => onUpdateTimeline('receivedAt', e.target.value)}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Delivered At</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-[#3DCD58] transition-all"
-                                        value={timeline.deliveredAt || ''}
-                                        onChange={(e) => onUpdateTimeline('deliveredAt', e.target.value)}
-                                    />
-                                </div>
-                                <div className="pt-4 border-t border-gray-100">
-                                    <label className="block text-[10px] font-black text-red-400 uppercase tracking-widest mb-1.5">Cancelled At</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all"
-                                        value={timeline.cancelledAt || ''}
-                                        onChange={(e) => onUpdateTimeline('cancelledAt', e.target.value)}
-                                    />
-                                </div>
-                                {timeline.cancelledAt && (
-                                    <div>
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Reason Header</label>
-                                        <textarea
-                                            className="w-full h-24 bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all resize-none"
-                                            placeholder="Why was it cancelled?"
-                                            value={timeline.cancelledReason || ''}
-                                            onChange={(e) => onUpdateTimeline('cancelledReason', e.target.value)}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="mt-auto p-4 bg-purple-50 rounded-2xl border border-purple-100">
-                            <p className="text-[10px] font-black text-purple-600 uppercase leading-relaxed text-center">
-                                All changes in this view are immediate and persistent.
-                            </p>
-                        </div>
-                    </div>
+                <div className="flex-1 flex flex-col overflow-hidden">
 
                     <div className="flex-1 overflow-auto p-4 bg-gray-50/20 shadow-inner">
                         <div className="min-w-max pb-4">
@@ -854,6 +799,62 @@ const FullCalendarModal = ({
                                     </React.Fragment>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Footer for Timeline & Execution Status (Moved from sidebar to bottom) */}
+                    <div className="border-t bg-gray-50/80 p-6 flex flex-wrap gap-8 items-start shadow-inner">
+                        <div className="flex-1 min-w-[300px]">
+                            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                <Timer className="w-4 h-4 text-purple-500" />
+                                Execution Status
+                            </h3>
+                            <div className="flex flex-wrap gap-6">
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Received At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-purple-500 transition-all"
+                                        value={timeline.receivedAt || ''}
+                                        onChange={(e) => onUpdateTimeline('receivedAt', e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Delivered At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-[#3DCD58] transition-all"
+                                        value={timeline.deliveredAt || ''}
+                                        onChange={(e) => onUpdateTimeline('deliveredAt', e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="block text-[10px] font-black text-red-400 uppercase tracking-widest mb-1.5">Cancelled At</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all"
+                                        value={timeline.cancelledAt || ''}
+                                        onChange={(e) => onUpdateTimeline('cancelledAt', e.target.value)}
+                                    />
+                                </div>
+                                {timeline.cancelledAt && (
+                                    <div className="w-full">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Cancellation Reason</label>
+                                        <textarea
+                                            className="w-full h-20 bg-white border border-gray-200 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-red-500 transition-all resize-none"
+                                            placeholder="Why was it cancelled?"
+                                            value={timeline.cancelledReason || ''}
+                                            onChange={(e) => onUpdateTimeline('cancelledReason', e.target.value)}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="w-64 p-4 bg-purple-50 rounded-2xl border border-purple-100 hidden lg:block self-center">
+                            <p className="text-[10px] font-black text-purple-600 uppercase leading-relaxed text-center">
+                                All changes in this view are immediate and persistent.
+                            </p>
                         </div>
                     </div>
 
