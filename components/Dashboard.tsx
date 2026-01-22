@@ -312,11 +312,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         const sumLang = targetOpps.reduce((sum, o) => sum + (o.kpis?.languageSkill || 0), 0);
         const sumTech = targetOpps.reduce((sum, o) => sum + (o.kpis?.technicalUnderstanding || 0), 0);
         const sumDeal = targetOpps.reduce((sum, o) => sum + (o.kpis?.dealProbability || 0), 0);
+        const sumEffort = targetOpps.reduce((sum, o) => sum + (o.kpis?.effortContribution || 0), 0);
         const sumAmount = targetOpps.reduce((sum, o) => sum + (o.kpis?.proposalAmountUSD || 0), 0);
 
         const validLangCount = targetOpps.filter(o => o.kpis?.languageSkill !== null).length;
         const validTechCount = targetOpps.filter(o => o.kpis?.technicalUnderstanding !== null).length;
         const validDealCount = targetOpps.filter(o => o.kpis?.dealProbability !== null).length;
+        const validEffortCount = targetOpps.filter(o => o.kpis?.effortContribution !== null && o.kpis?.effortContribution > 0).length;
 
         const soldCount = targetOpps.filter(o => o.kpis?.sold === true).length;
         const totalSoldStatus = targetOpps.filter(o => o.kpis?.sold !== null).length;
@@ -347,6 +349,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             avgLang: validLangCount ? (sumLang / validLangCount).toFixed(1) : '-',
             avgTech: validTechCount ? (sumTech / validTechCount).toFixed(1) : '-',
             avgDeal: validDealCount ? (sumDeal / validDealCount).toFixed(1) : '-',
+            avgEffort: validEffortCount ? (sumEffort / validEffortCount).toFixed(1) : '-',
             winRate: totalSoldStatus ? ((soldCount / totalSoldStatus) * 100).toFixed(1) : '-',
             avgAmount: count ? (sumAmount / count).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '-',
             avgDeliveryDays: validDeliveryCount ? (sumDeliveryDays / validDeliveryCount).toFixed(1) : '-',
@@ -405,10 +408,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             const sumLang = opps.reduce((sum, o) => sum + (o.kpis?.languageSkill || 0), 0);
             const sumTech = opps.reduce((sum, o) => sum + (o.kpis?.technicalUnderstanding || 0), 0);
             const sumDeal = opps.reduce((sum, o) => sum + (o.kpis?.dealProbability || 0), 0);
+            const sumEffort = opps.reduce((sum, o) => sum + (o.kpis?.effortContribution || 0), 0);
 
             const validLangCount = opps.filter(o => o.kpis?.languageSkill !== null).length;
             const validTechCount = opps.filter(o => o.kpis?.technicalUnderstanding !== null).length;
             const validDealCount = opps.filter(o => o.kpis?.dealProbability !== null).length;
+            const validEffortCount = opps.filter(o => o.kpis?.effortContribution !== null && o.kpis?.effortContribution > 0).length;
 
             const soldCount = opps.filter(o => o.kpis?.sold === true).length;
             const totalSoldStatus = opps.filter(o => o.kpis?.sold !== null).length;
@@ -440,6 +445,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 avgLang: validLangCount ? sumLang / validLangCount : 0,
                 avgTech: validTechCount ? sumTech / validTechCount : 0,
                 avgDeal: validDealCount ? sumDeal / validDealCount : 0,
+                avgEffort: validEffortCount ? sumEffort / validEffortCount : 0,
                 winRate: totalSoldStatus ? (soldCount / totalSoldStatus) * 100 : 0,
                 avgDelivery: validDeliveryCount ? sumDeliveryDays / validDeliveryCount : 0,
                 avgWork: validWorkCount ? sumWorkDays / validWorkCount : 0
@@ -1093,6 +1099,10 @@ ${noteTitles.join('\n')}
                                         <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Delivery</p>
                                         <p className="text-lg font-black text-gray-800">{kpiData.avgDeliveryDays} d</p>
                                     </div>
+                                    <div className="p-3 bg-gray-50 rounded-lg text-center" title="Represents the combined effort invested by me and all involved areas.">
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Effort Contrib.</p>
+                                        <p className="text-lg font-black text-gray-800">{(kpiData as any).avgEffort}%</p>
+                                    </div>
                                     <div className="p-3 bg-gray-50 rounded-lg text-center">
                                         <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg My Work</p>
                                         <p className="text-lg font-black text-gray-800">{kpiData.avgWorkDays} d</p>
@@ -1145,6 +1155,7 @@ ${noteTitles.join('\n')}
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[10px] font-bold text-gray-500">Lang</span></div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-[10px] font-bold text-gray-500">Tech</span></div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-bold text-gray-500">Deal %</span></div>
+                                                    <div className="flex items-center gap-1.5" title="Effort Contribution Trends"><div className="w-2 h-2 rounded-full bg-pink-500"></div><span className="text-[10px] font-bold text-gray-500">Effort</span></div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-orange-500"></div><span className="text-[10px] font-bold text-gray-500">Win Rate</span></div>
                                                 </div>
                                             </div>
@@ -1154,6 +1165,7 @@ ${noteTitles.join('\n')}
                                                     { key: 'avgLang', color: '#3b82f6', label: 'Language' },
                                                     { key: 'avgTech', color: '#6366f1', label: 'Technical' },
                                                     { key: 'avgDeal', color: '#10b981', label: 'Deal Prob.' },
+                                                    { key: 'avgEffort', color: '#ec4899', label: 'Effort Contrib.' },
                                                     { key: 'winRate', color: '#f97316', label: 'Win Rate' }
                                                 ]}
                                                 maxValue={100}

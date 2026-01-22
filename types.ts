@@ -173,6 +173,7 @@ export interface KPIs {
   languageSkill: number | null;       // 0–100
   technicalUnderstanding: number | null;  // 0–100
   dealProbability: number | null;     // 0–100
+  effortContribution: number | null;  // 0–100
   sold: boolean | null;
   proposalAmountUSD: number | null;
 

@@ -1185,7 +1185,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             return;
         }
         const newArea: KPIArea = { id: crypto.randomUUID(), area, daysSpent: 0, waitingDays: 0, calendar: {} };
-        const baseKpis = localOpp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
+        const baseKpis = localOpp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
         const updated = { ...localOpp, kpis: { ...baseKpis, areasInvolved: [...(baseKpis.areasInvolved || []), newArea] } };
         setLocalOpp(updated); onUpdate(updated);
     };
@@ -1938,6 +1938,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         return totalWaiting;
     }, [localOpp.kpis?.areasInvolved]);
 
+    const suggestedEffortScore = React.useMemo(() => {
+        if (!localOpp.kpis) return 0;
+        const myDays = myWorkStats.days;
+        const totalWorked = totalAreaDays;
+        const otherTeamsDays = Math.max(0, totalWorked - myDays);
+        const waiting = waitingOnOthersDays;
+        // Formula: My Effort (10pts/day) + Team (5pts/day) - Waiting Penalty (2pts/day)
+        const score = (myDays * 10) + (otherTeamsDays * 5) - (waiting * 2);
+        return Math.min(100, Math.max(0, score));
+    }, [myWorkStats.days, totalAreaDays, waitingOnOthersDays, localOpp.kpis]);
+
     const handleExportKpiPDF = async () => {
         const jsPDF = (await import('jspdf')).default;
         const autoTable = (await import('jspdf-autotable')).default;
@@ -2219,6 +2230,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                             <span>{localOpp.kpis.dealProbability || 0}%</span>
                                         </div>
                                         <input type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                    </div>
+                                    <div className="pt-2 border-t border-gray-50">
+                                        <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1 items-center">
+                                            <div className="flex items-center gap-1.5" title="Represents the combined effort invested by me and all involved areas to make the proposal successful.">
+                                                <span>Effort Contribution</span>
+                                                <div className="w-3.5 h-3.5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] cursor-help border border-gray-200">?</div>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {localOpp.kpis.effortContribution === null || localOpp.kpis.effortContribution === 0 ? (
+                                                    <button
+                                                        onClick={() => updateKpiField('effortContribution', suggestedEffortScore)}
+                                                        className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors"
+                                                    >
+                                                        Suggest: {suggestedEffortScore}%
+                                                    </button>
+                                                ) : null}
+                                                <span className="text-blue-600 font-black">{localOpp.kpis.effortContribution || 0}%</span>
+                                            </div>
+                                        </div>
+                                        <input type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500" />
+                                        <p className="text-[9px] text-gray-400 italic mt-1 leading-tight">Combined scoring based on My Work ({myWorkStats.days}d) and Team Work ({totalAreaDays}d).</p>
                                     </div>
                                 </div>
 
