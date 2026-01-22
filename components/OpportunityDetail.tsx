@@ -1260,7 +1260,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         const task = localOpp.tasks.find(t => t.id === taskId);
         if (!task || !task.blockDoneUntilDependenciesDone || !task.dependsOnTaskIds || task.dependsOnTaskIds.length === 0) return true;
 
-        const pendingDeps = localOpp.tasks.filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done');
+        const pendingDeps = localOpp.tasks.filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done' && t.status !== 'Canceled');
         if (pendingDeps.length > 0) {
             alert("This task is blocked until its dependencies are completed.");
             return false;

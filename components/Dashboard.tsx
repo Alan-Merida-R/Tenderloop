@@ -463,7 +463,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         const task = opp.tasks.find(t => t.id === taskId);
         if (!task || !task.blockDoneUntilDependenciesDone || !task.dependsOnTaskIds || task.dependsOnTaskIds.length === 0) return true;
 
-        const pendingDeps = opp.tasks.filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done');
+        const pendingDeps = opp.tasks.filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done' && t.status !== 'Canceled');
 
         if (pendingDeps.length > 0) {
             alert("This task is blocked until its dependencies are completed.");

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskId, TaskPriority, PrdPresentation, OpportunityStatus, KPIs } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
@@ -207,7 +207,8 @@ function App() {
           myWorkDays: null,
           waitingOnOthersDays: null
         },
-        areasInvolved: []
+        areasInvolved: [],
+        effortContribution: null
       };
 
       // Sync Proposal Amount from Commercial if present
@@ -417,13 +418,13 @@ function App() {
         ...t,
         id: taskIdMap.get(t.id)!,
         description: t.description || '',
-        status: (t.status || 'Pending') as TaskStatus,
+        status: 'Pending',
         priority: (t.priority || 'Medium') as TaskPriority,
         owner: (t.owner || 'Me') as TaskOwner,
         responsible: '',
         dueDate: new Date().toISOString().split('T')[0],
         stageContext: stage,
-        subtasks: (t.subtasks || []).map(st => ({ ...st, id: crypto.randomUUID() })),
+        subtasks: (t.subtasks || []).map(st => ({ ...st, id: crypto.randomUUID(), status: 'Pending' })),
         order: t.order,
         dependsOnTaskIds: (t.dependsOnTaskIds || []).map(depId => taskIdMap.get(depId)).filter(Boolean) as string[],
         blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false
@@ -514,7 +515,8 @@ function App() {
           cancelledReason: null
         },
         execution: { myWorkDays: null, waitingOnOthersDays: null },
-        areasInvolved: []
+        areasInvolved: [],
+        effortContribution: null
       },
       tags: [],
       pendingActions: [],
@@ -683,7 +685,7 @@ function App() {
         {/* Main Dashboard Area */}
         <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
           <Dashboard
-            mode={currentView === 'proposals' ? 'proposals' : currentView === 'tasks' ? 'tasks' : 'general'}
+            mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
             opportunities={db.opportunities}
             onSelect={(id) => setSelectedOppId(id)}
             onCreate={() => createOpportunity('1. Recepción')}
