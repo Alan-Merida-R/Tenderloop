@@ -693,26 +693,42 @@ const FullCalendarModal = ({
 
                                 {/* History Indicators Row */}
                                 <div className="bg-white p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t bg-gray-50/30">
-                                    <HistoryIcon className="w-4 h-4" /> History Events
+                                    <HistoryIcon className="w-4 h-4" /> Events & Milestones
                                 </div>
                                 {days.map(d => {
                                     const dayHistory = history.filter(h => h.date.split('T')[0] === d);
+                                    const isReceived = timeline.receivedAt === d;
+                                    const isDelivered = timeline.deliveredAt === d;
+
                                     return (
                                         <div
                                             key={d}
                                             onClick={() => setViewingHistoryDate(d)}
-                                            className="bg-white border-l border-t flex items-center justify-center min-h-[48px] cursor-pointer hover:bg-[#3DCD58]/5 group transition-all"
-                                            title="Click to manage history events"
+                                            className="bg-white border-l border-t flex flex-col items-center justify-center min-h-[56px] cursor-pointer hover:bg-[#3DCD58]/5 group transition-all p-1"
+                                            title={isReceived ? `Received: ${new Date(d).toLocaleDateString()}` : isDelivered ? `Delivered: ${new Date(d).toLocaleDateString()}` : "Click to manage history events"}
                                         >
-                                            {dayHistory.length > 0 ? (
-                                                <div className="flex gap-1">
-                                                    {dayHistory.map((h, i) => (
-                                                        <div key={i} title={h.content} className="w-3 h-3 rounded-full bg-[#3DCD58] shadow-sm transform group-hover:scale-125 transition-transform" />
-                                                    ))}
+                                            <div className="flex flex-col gap-1 items-center">
+                                                {/* Milestone Markers */}
+                                                <div className="flex gap-1 mb-1">
+                                                    {isReceived && (
+                                                        <div className="px-1.5 py-0.5 rounded bg-purple-600 text-[8px] font-black text-white uppercase animate-pulse shadow-sm" title={`Received at ${d}`}>REC</div>
+                                                    )}
+                                                    {isDelivered && (
+                                                        <div className="px-1.5 py-0.5 rounded bg-emerald-600 text-[8px] font-black text-white uppercase animate-pulse shadow-sm" title={`Delivered at ${d}`}>DEL</div>
+                                                    )}
                                                 </div>
-                                            ) : (
-                                                <Plus className="w-4 h-4 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            )}
+
+                                                {/* History Dots */}
+                                                {dayHistory.length > 0 ? (
+                                                    <div className="flex gap-1">
+                                                        {dayHistory.map((h, i) => (
+                                                            <div key={i} title={h.content} className="w-2.5 h-2.5 rounded-full bg-[#3DCD58] shadow-sm transform group-hover:scale-125 transition-transform" />
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    (!isReceived && !isDelivered) && <Plus className="w-3 h-3 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -1113,24 +1129,44 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         ? countCalendarDays(localOpp.kpis.timeline.receivedAt, localOpp.kpis.timeline.deliveredAt)
         : countCalendarDays(localOpp.kpis.timeline.receivedAt, new Date().toISOString().split('T')[0]);
 
+    /**
+     * UniqueExecutionDays: Number of unique calendar days that have either a 'Worked' or 'Waiting' status across any area.
+     * This follows 'Rule B' which allows overlapping work across areas.
+     */
     const executionUniqueDays = React.useMemo(() => {
         const uniqueDates = new Set<string>();
         (localOpp.kpis?.areasInvolved || []).forEach(area => {
             if (area.calendar) {
                 Object.entries(area.calendar).forEach(([date, record]) => {
                     const r = record as AreaDayRecord;
-                    if (r.type === 'Worked') {
-                        if (area.area === 'Tendering') {
-                            if ((r.hours || 0) >= 1) uniqueDates.add(date);
-                        } else {
-                            uniqueDates.add(date);
-                        }
+                    if (r.type === 'Worked' || r.type === 'Waiting') {
+                        uniqueDates.add(date);
                     }
                 });
             }
         });
         return uniqueDates.size;
     }, [localOpp.kpis?.areasInvolved]);
+
+    /**
+     * Tracks if any activity is recorded outside the official ReceivedAt -> DeliveredAt range.
+     */
+    const hasDaysOutsideRange = React.useMemo(() => {
+        const receivedAt = localOpp.kpis?.timeline.receivedAt;
+        const deliveredAt = localOpp.kpis?.timeline.deliveredAt || new Date().toISOString().split('T')[0];
+
+        let outside = false;
+        (localOpp.kpis?.areasInvolved || []).forEach(area => {
+            if (area.calendar) {
+                Object.keys(area.calendar).forEach(date => {
+                    if (receivedAt && (date < receivedAt || date > deliveredAt)) {
+                        outside = true;
+                    }
+                });
+            }
+        });
+        return outside;
+    }, [localOpp.kpis?.areasInvolved, localOpp.kpis?.timeline.receivedAt, localOpp.kpis?.timeline.deliveredAt]);
 
     const deleteHistoryEntry = (id: string) => {
         if (!window.confirm("Are you sure?")) return;
@@ -1951,52 +1987,95 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             headStyles: { fillColor: [59, 130, 246] }
         });
 
-        // Simple Gantt Visualization
-        const finalY = (doc as any).lastAutoTable.finalY + 15;
-        doc.text('Implementation Timeline (Gantt)', 14, finalY);
+        // Multi-Month Gantt Visualization
+        let currentY = (doc as any).lastAutoTable.finalY + 15;
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Implementation Timeline (Gantt)', 14, currentY);
+        currentY += 10;
 
         // Draw Legend
         doc.setFontSize(8);
-        doc.setFillColor(59, 130, 246); doc.rect(14, finalY + 5, 5, 5, 'F'); doc.text('Worked', 22, finalY + 9);
-        doc.setFillColor(234, 179, 8); doc.rect(40, finalY + 5, 5, 5, 'F'); doc.text('Waiting', 48, finalY + 9);
-        doc.setFillColor(239, 68, 68); doc.rect(66, finalY + 5, 5, 5, 'F'); doc.text('Inactive', 74, finalY + 9);
+        doc.setFillColor(59, 130, 246); doc.rect(14, currentY, 5, 5, 'F'); doc.text('Worked', 22, currentY + 4);
+        doc.setFillColor(234, 179, 8); doc.rect(40, currentY, 5, 5, 'F'); doc.text('Waiting', 48, currentY + 4);
+        doc.setFillColor(239, 68, 68); doc.rect(66, currentY, 5, 5, 'F'); doc.text('Inactive', 74, currentY + 4);
+        doc.setDrawColor(147, 51, 234); doc.line(92, currentY, 92, currentY + 5); doc.text('Received', 95, currentY + 4);
+        doc.setDrawColor(16, 185, 129); doc.line(115, currentY, 115, currentY + 5); doc.text('Delivered', 118, currentY + 4);
+        currentY += 12;
 
-        // We'll draw 30 days starting from ReceivedAt
-        const receivedAtStr = localOpp.kpis?.timeline?.receivedAt || new Date().toISOString().split('T')[0];
-        const startDate = new Date(receivedAtStr);
-        const cellWidth = 5;
-        const rowHeight = 8;
-        let currentY = finalY + 20;
+        // Determine months with activity
+        const activeMonths = new Set<string>();
+        const kpis = localOpp.kpis;
+        if (kpis?.timeline.receivedAt) activeMonths.add(kpis.timeline.receivedAt.substring(0, 7));
+        if (kpis?.timeline.deliveredAt) activeMonths.add(kpis.timeline.deliveredAt.substring(0, 7));
+        (kpis?.areasInvolved || []).forEach(area => {
+            Object.keys(area.calendar || {}).forEach(date => activeMonths.add(date.substring(0, 7)));
+        });
+        (localOpp.history || []).forEach(h => activeMonths.add(h.date.substring(0, 7)));
 
-        // Draw Headers (Days 1-30)
-        doc.setFontSize(6);
-        for (let i = 0; i < 30; i++) {
-            doc.text(`${i + 1}`, 45 + (i * cellWidth), currentY - 2);
-        }
+        const sortedMonths = Array.from(activeMonths).sort();
+        const cellWidth = 5.5;
+        const rowHeight = 7;
 
-        (localOpp.kpis?.areasInvolved || []).forEach(area => {
-            doc.setFontSize(8);
-            doc.text(area.area, 14, currentY + 5);
+        sortedMonths.forEach((monthStr, mIndex) => {
+            const [year, month] = monthStr.split('-').map(Number);
+            const date = new Date(Date.UTC(year, month - 1, 1));
+            const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-            for (let i = 0; i < 30; i++) {
-                // Use UTC to ensure key matching with calendar
-                const dateParts = receivedAtStr.split('-').map(Number);
-                const dayDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
-                dayDate.setUTCDate(dayDate.getUTCDate() + i);
-                const dayStr = dayDate.toISOString().split('T')[0];
-                const record = area.calendar?.[dayStr] as AreaDayRecord | undefined;
-
-                if (record && record.type) {
-                    if (record.type === 'Worked') doc.setFillColor(59, 130, 246);
-                    else if (record.type === 'Waiting') doc.setFillColor(234, 179, 8);
-                    else if (record.type === 'Inactive') doc.setFillColor(239, 68, 68);
-                    doc.rect(45 + (i * cellWidth), currentY, cellWidth - 0.5, rowHeight, 'F');
-                } else {
-                    doc.setDrawColor(240);
-                    doc.rect(45 + (i * cellWidth), currentY, cellWidth - 0.5, rowHeight, 'S');
-                }
+            // Check if we need a new page for this month
+            const areasCount = (kpis?.areasInvolved || []).length;
+            const requiredHeight = 20 + (areasCount * rowHeight);
+            if (currentY + requiredHeight > 270) {
+                doc.addPage();
+                currentY = 20;
             }
-            currentY += rowHeight + 1;
+
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'bold');
+            doc.text(monthName, 14, currentY);
+            currentY += 5;
+
+            // Header for days
+            const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+            doc.setFontSize(5);
+            for (let i = 1; i <= daysInMonth; i++) {
+                doc.text(`${i}`, 45 + ((i - 1) * cellWidth), currentY);
+            }
+            currentY += 2;
+
+            (kpis?.areasInvolved || []).forEach(area => {
+                doc.setFontSize(7);
+                doc.setFont('helvetica', 'normal');
+                doc.text(area.area, 14, currentY + 4);
+
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const dStr = `${monthStr}-${i.toString().padStart(2, '0')}`;
+                    const record = area.calendar?.[dStr] as AreaDayRecord | undefined;
+                    const x = 45 + ((i - 1) * cellWidth);
+
+                    if (record && record.type) {
+                        if (record.type === 'Worked') doc.setFillColor(59, 130, 246);
+                        else if (record.type === 'Waiting') doc.setFillColor(234, 179, 8);
+                        else if (record.type === 'Inactive') doc.setFillColor(239, 68, 68);
+                        doc.rect(x, currentY, cellWidth - 0.5, rowHeight - 1, 'F');
+                    } else {
+                        doc.setDrawColor(240);
+                        doc.rect(x, currentY, cellWidth - 0.5, rowHeight - 1, 'S');
+                    }
+
+                    // Milestone markers on top of areas for the month
+                    if (kpis?.timeline.receivedAt === dStr) {
+                        doc.setDrawColor(147, 51, 234); // Purple
+                        doc.line(x + (cellWidth / 2), currentY, x + (cellWidth / 2), currentY + rowHeight - 1);
+                    }
+                    if (kpis?.timeline.deliveredAt === dStr) {
+                        doc.setDrawColor(16, 185, 129); // Emerald
+                        doc.line(x + (cellWidth / 2), currentY, x + (cellWidth / 2), currentY + rowHeight - 1);
+                    }
+                }
+                currentY += rowHeight;
+            });
+            currentY += 10;
         });
 
         // Activity History
@@ -2223,10 +2302,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                         </div>
                                     </div>
 
-                                    {(myWorkStats.days + waitingOnOthersDays) > totalElapsedBusinessDays && (
-                                        <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-100">
-                                            <AlertCircle className="w-4 h-4 text-red-500" />
-                                            <p className="text-[10px] text-red-600 font-bold">Inconsistency detected: Logged time exceeds Business Days ({totalElapsedBusinessDays})</p>
+                                    {(executionUniqueDays > totalElapsedBusinessDays || hasDaysOutsideRange) && (
+                                        <div className="flex flex-col gap-1 p-3 bg-red-50 rounded-xl border-2 border-red-100 shadow-sm animate-pulse">
+                                            <div className="flex items-center gap-2">
+                                                <AlertCircle className="w-4 h-4 text-red-500" />
+                                                <p className="text-[11px] text-red-700 font-black uppercase">KPI Consistency Alert</p>
+                                            </div>
+                                            {executionUniqueDays > totalElapsedBusinessDays && (
+                                                <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
+                                                    Inconsistency detected: Unique execution days ({executionUniqueDays}) exceed Business Days ({totalElapsedBusinessDays}).
+                                                </p>
+                                            )}
+                                            {hasDaysOutsideRange && (
+                                                <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
+                                                    Inconsistency detected: Some tracked days are outside the Received/Delivered range.
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
