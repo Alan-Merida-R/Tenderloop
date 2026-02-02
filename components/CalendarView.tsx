@@ -75,32 +75,32 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
             {monthName} {year}
           </h2>
           <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm text-xs font-medium">
-            <button 
-              onClick={() => navigate(-1, 'year')} 
+            <button
+              onClick={() => navigate(-1, 'year')}
               className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Prev Year"
             >
               <ChevronsLeft className="w-4 h-4" />
             </button>
-            <button 
-              onClick={() => navigate(-1, viewMode === 'month' ? 'month' : 'week')} 
+            <button
+              onClick={() => navigate(-1, viewMode === 'month' ? 'month' : 'week')}
               className="p-1 hover:bg-gray-100 rounded text-gray-500 border-r border-gray-100 mr-1" title="Prev"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button 
+            <button
               onClick={() => setCurrentDate(new Date())}
               className="px-2 py-1 hover:bg-gray-100 rounded text-gray-700"
             >
-              Today
+              Hoy
             </button>
-            <button 
-              onClick={() => navigate(1, viewMode === 'month' ? 'month' : 'week')} 
+            <button
+              onClick={() => navigate(1, viewMode === 'month' ? 'month' : 'week')}
               className="p-1 hover:bg-gray-100 rounded text-gray-500 border-l border-gray-100 ml-1" title="Next"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-            <button 
-              onClick={() => navigate(1, 'year')} 
+            <button
+              onClick={() => navigate(1, 'year')}
               className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Next Year"
             >
               <ChevronsRight className="w-4 h-4" />
@@ -109,13 +109,13 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
         </div>
 
         <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
-          <button 
+          <button
             onClick={() => setViewMode('month')}
             className={`px-3 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'month' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
           >
             Month
           </button>
-          <button 
+          <button
             onClick={() => setViewMode('week')}
             className={`px-3 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'week' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
           >
@@ -138,8 +138,8 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
           const dayItems = items.filter(item => getDate(item) === dateStr);
 
           return (
-            <div 
-              key={i} 
+            <div
+              key={i}
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, dateStr)}
               className={`bg-white p-2 min-h-[100px] flex flex-col gap-1 transition-colors hover:bg-gray-50/50 ${!isCurrentMonth && viewMode === 'month' ? 'bg-gray-50/30' : ''}`}
