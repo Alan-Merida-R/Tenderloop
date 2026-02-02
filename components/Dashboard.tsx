@@ -81,7 +81,7 @@ const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: 
 };
 
 interface Props {
-    mode: 'proposals' | 'tasks' | 'general' | 'tracking';
+    mode: 'proposals' | 'tasks' | 'general';
     opportunities: Opportunity[];
     onSelect: (id: string) => void;
     onCreate: (stage?: ProcessStage) => void;
@@ -1021,13 +1021,6 @@ ${noteTitles.join('\n')}
                         </div>
                     )}
 
-                    {mode === 'tracking' && (
-                        <div className="flex bg-gray-100/50 p-1 rounded-2xl items-center">
-                            <div className="px-4 py-2 text-xs font-black text-[#3DCD58] uppercase flex items-center gap-2">
-                                <Clock className="w-4 h-4" /> Activity Tracking
-                            </div>
-                        </div>
-                    )}
 
                     {mode === 'tasks' && (
                         <>
@@ -1035,7 +1028,7 @@ ${noteTitles.join('\n')}
                                 onClick={() => setShowTracking(!showTracking)}
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showTracking ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                             >
-                                <CalendarDays className="w-4 h-4" /> Seguimiento
+                                <CalendarDays className="w-4 h-4" /> Activity Tracking
                             </button>
                             <button
                                 onClick={() => setShowNextSteps(!showNextSteps)}
@@ -1460,15 +1453,6 @@ ${noteTitles.join('\n')}
                     </>
                 )}
 
-                {/* Tracking Mode */}
-                {mode === 'tracking' && (
-                    <TrackingView
-                        opportunities={opportunities}
-                        onClose={() => { }}
-                        onUpdateOpportunity={onOppUpdate}
-                        onSelectOpp={onSelect}
-                    />
-                )}
 
                 {/* ... Tasks Mode ... */}
                 {mode === 'tasks' && (
