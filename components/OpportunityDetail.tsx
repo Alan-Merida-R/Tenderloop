@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -1183,6 +1183,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     // --- VERSION MANAGER STATE (Moved Up) ---
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
     const [showVersionMenu, setShowVersionMenu] = useState(false);
+    const [showMoreActionsMenu, setShowMoreActionsMenu] = useState(false);
     const [showCreateVersionModal, setShowCreateVersionModal] = useState(false);
     const [newVersionData, setNewVersionData] = useState({ commitMessage: '', tags: '', srId: '' });
     const [showDiffModal, setShowDiffModal] = useState(false);
@@ -2770,16 +2771,29 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                         </div>
 
                         <div className="w-px h-8 bg-gray-200 mx-1"></div>
-                        <button onClick={handleExportPDF} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-4 h-4" /> Export PDF</button>
-                        <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-3 py-2 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-sm font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-4 h-4" /> Copy Summary</button>
-                        <div className="w-px h-8 bg-gray-200 mx-1"></div>
-                        <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-2 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-5 h-5" /></button>
+
+                        <div className="relative">
+                            <button onClick={() => setShowMoreActionsMenu(!showMoreActionsMenu)} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors">
+                                <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {showMoreActionsMenu && (
+                                <>
+                                    <div className="fixed inset-0 z-30" onClick={() => setShowMoreActionsMenu(false)} />
+                                    <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col p-1 animate-in fade-in zoom-in-95 duration-100">
+                                        <button onClick={() => { handleExportPDF(); setShowMoreActionsMenu(false); }} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg text-left"><FileDown className="w-4 h-4" /> Export PDF</button>
+                                        <button onClick={() => { generateExecutiveSummary(); setShowMoreActionsMenu(false); }} className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg text-left"><Copy className="w-4 h-4" /> Copy Summary</button>
+                                        <div className="h-px bg-gray-100 my-1"></div>
+                                        <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg text-left"><Trash2 className="w-4 h-4" /> Delete Opportunity</button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <div className="flex flex-wrap md:flex-nowrap justify-between items-end gap-4 mb-2">
                     <div className="flex-1 w-full md:w-auto min-w-[200px]">
-                        <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-3xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300" placeholder="Title" />
-                        <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-lg text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-1 placeholder-gray-400" placeholder="Customer" />
+                        <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-2xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 truncate" placeholder="Title" />
+                        <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-base text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-1 placeholder-gray-400 truncate" placeholder="Customer" />
 
                         <div className="flex flex-wrap items-center gap-2 mt-3">
                             {(localOpp.labels || []).map(l => (
