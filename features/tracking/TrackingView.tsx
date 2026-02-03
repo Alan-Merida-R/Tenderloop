@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Opportunity, Task, HistoryEntry, MeetingNote, KPIArea, AreaDayRecord, TaskStatus, TaskPriority } from '../../types';
+import { Opportunity, Task, HistoryEntry, MeetingNote, KPIArea, AreaDayRecord, TaskStatus, TaskPriority, DeepLink } from '../../types';
 import { TrackingFilters, TrackingWorkItem, TrackingViewMode, TrackingItemType } from './trackingTypes';
-import { Calendar, ChevronLeft, ChevronRight, Filter, Plus, Clock, History, FileText, CheckCircle, Search, X, LayoutGrid, CalendarDays, Timer, Briefcase, User, Info, ArrowRight, Save, Trash2, Edit2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Filter, Plus, Clock, History, FileText, CheckCircle, Search, X, LayoutGrid, CalendarDays, Timer, Briefcase, User, Info, ArrowRight, Save, Trash2, Edit2, FolderOpen, ExternalLink } from 'lucide-react';
 
 interface TrackingViewProps {
     opportunities: Opportunity[];
     onClose: () => void;
     onUpdateOpportunity?: (updated: Opportunity) => void;
-    onSelectOpp?: (id: string) => void;
+    onSelectOpp?: (id: string, deeplink?: DeepLink) => void;
 }
 
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
@@ -123,7 +123,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
                     if (task.dueDate) {
                         items.push({
-                            id: `task-${task.id}`,
+                            id: task.id,
                             type: 'task',
                             date: task.dueDate.split('T')[0],
                             opportunityId: opp.id,
@@ -141,7 +141,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 opp.history.forEach(h => {
                     if (searchLower && !h.content.toLowerCase().includes(searchLower)) return;
                     items.push({
-                        id: `history-${h.id}`,
+                        id: h.id,
                         type: 'history',
                         date: h.date.split('T')[0],
                         opportunityId: opp.id,
@@ -157,7 +157,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 opp.notes.forEach(n => {
                     if (searchLower && !n.title.toLowerCase().includes(searchLower) && !n.content.toLowerCase().includes(searchLower)) return;
                     items.push({
-                        id: `note-${n.id}`,
+                        id: n.id,
                         type: 'note',
                         date: n.date.split('T')[0],
                         opportunityId: opp.id,
@@ -811,8 +811,27 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                         </div>
                         <div className="p-6 bg-gray-50 border-t flex gap-3">
-                            <button onClick={() => setSelectedItem(null)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
-                            <button onClick={() => { onSelectOpp?.(selectedItem.opportunityId); setSelectedItem(null); }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all flex items-center justify-center gap-2"><Briefcase className="w-4 h-4" /> {LABELS.openOpp}</button>
+                            <button onClick={() => setSelectedItem(null)} className="px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
+
+                            <button onClick={() => {
+                                onSelectOpp?.(selectedItem.opportunityId, { tab: 'folder' });
+                                setSelectedItem(null);
+                            }} className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-white transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                                <FolderOpen className="w-3.5 h-3.5 text-gray-400" /> {LABELS.openOpp}
+                            </button>
+
+                            <button onClick={() => {
+                                let deeplink: DeepLink | undefined;
+                                if (selectedItem.type === 'task') deeplink = { tab: 'tasks', taskId: selectedItem.id };
+                                else if (selectedItem.type === 'note') deeplink = { tab: 'notes', noteId: selectedItem.id };
+                                else if (selectedItem.type === 'history') deeplink = { tab: 'history', eventId: selectedItem.id };
+                                else if (selectedItem.type === 'hours') deeplink = { tab: 'kpi', focusDate: selectedItem.date };
+
+                                onSelectOpp?.(selectedItem.opportunityId, deeplink);
+                                setSelectedItem(null);
+                            }} className="flex-[1.5] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all flex items-center justify-center gap-2">
+                                <ExternalLink className="w-4 h-4" /> {LABELS.view} {LABELS[selectedItem.type as keyof typeof LABELS]}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -16,6 +16,15 @@ export type ExternalArea = 'Delivery' | 'SCM' | 'Sales' | 'Legal' | 'Finance' | 
 export type TaskPriority = 'High' | 'Medium' | 'Low';
 export type OpportunityStatus = 'In Progress' | 'On Hold' | 'Canceled' | 'Submitted' | 'Won' | 'Lost';
 
+export interface DeepLink {
+  tab: string;
+  taskId?: string;
+  noteId?: string;
+  eventId?: string;
+  path?: string;
+  focusDate?: string;
+}
+
 export interface CommercialRow {
   cost: number;
   margin: number; // %

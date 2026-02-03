@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
@@ -31,6 +31,7 @@ function App() {
 
   // Detail Overlay State (Notion-like)
   const [selectedOppId, setSelectedOppId] = useState<string | null>(null);
+  const [activeDeepLink, setActiveDeepLink] = useState<DeepLink | null>(null);
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -675,7 +676,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div
             className="flex items-center gap-2 font-bold text-gray-800 tracking-tight cursor-pointer hover:text-[#3DCD58] text-lg transition-colors"
-            onClick={() => { setSelectedOppId(null); setCurrentView('general-dashboard'); }}
+            onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); setCurrentView('general-dashboard'); }}
           >
             <HardDrive className="w-5 h-5 text-[#3DCD58]" />
             TenderLoop
@@ -798,7 +799,10 @@ function App() {
           <Dashboard
             mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
             opportunities={db.opportunities}
-            onSelect={(id) => setSelectedOppId(id)}
+            onSelect={(id, dl) => {
+              setSelectedOppId(id);
+              setActiveDeepLink(dl || null);
+            }}
             onCreate={() => createOpportunity('1. Recepción')}
             onStageChange={moveOpportunityStage}
             onDateChange={changeOpportunityDate}
@@ -816,12 +820,13 @@ function App() {
             <div className="absolute inset-0 z-50 bg-white animate-slide-in-right overflow-hidden">
               <OpportunityDetail
                 opportunity={opp}
-                onBack={() => setSelectedOppId(null)}
+                onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
                 onUpdate={updateOpportunity}
                 onDelete={() => deleteOpportunity(opp.id)}
                 noteTemplates={appSettings.noteTemplates}
                 holidays={appSettings.holidays || []}
                 trackedAreas={appSettings.trackedAreas || []}
+                deepLink={activeDeepLink || undefined}
               />
             </div>
           );

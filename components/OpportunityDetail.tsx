@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
@@ -25,6 +25,7 @@ interface Props {
     noteTemplates?: NoteTemplate[];
     holidays?: string[];
     trackedAreas?: string[];
+    deepLink?: DeepLink;
 }
 
 export interface RichTextEditorHandle {
@@ -1171,8 +1172,8 @@ const FullCalendarModal = ({
     );
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [] }) => {
-    const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>('overview');
+const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined }) => {
+    const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
@@ -1236,6 +1237,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             onUpdate(updated, opportunity.id);
         }
     }, [opportunity, activeTab]);
+
+    useEffect(() => {
+        if (deepLink) {
+            if (deepLink.tab) setActiveTab(deepLink.tab as any);
+
+            if (deepLink.tab === 'notes' && deepLink.noteId) {
+                setSelectedNoteId(deepLink.noteId);
+            }
+
+            // Small delay to ensure tab content is rendered
+            setTimeout(() => {
+                let elementId = '';
+                if (deepLink.tab === 'tasks' && deepLink.taskId) elementId = `task-${deepLink.taskId}`;
+                else if (deepLink.tab === 'history' && deepLink.eventId) elementId = `history-entry-${deepLink.eventId}`;
+                else if (deepLink.tab === 'notes' && deepLink.noteId) elementId = `note-item-${deepLink.noteId}`;
+
+                if (elementId) {
+                    const el = document.getElementById(elementId);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.classList.add('ring-2', 'ring-[#3DCD58]', 'ring-offset-4', 'z-10');
+                        setTimeout(() => el.classList.remove('ring-2', 'ring-[#3DCD58]', 'ring-offset-4', 'z-10'), 3000);
+                    }
+                }
+            }, 300);
+        }
+    }, [deepLink]);
 
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
@@ -2992,7 +3020,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                     <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                 )}
                                 {filteredNotes.map(note => (
-                                    <div key={note.id} className={`p-3 rounded-lg border cursor-pointer relative group transition-all ${selectedNoteId === note.id ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => setSelectedNoteId(note.id)}>
+                                    <div key={note.id} id={`note-item-${note.id}`} className={`p-3 rounded-lg border cursor-pointer relative group transition-all ${selectedNoteId === note.id ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => setSelectedNoteId(note.id)}>
                                         <div className="font-bold text-sm text-gray-900 truncate pr-6">{note.title}</div>
                                         <div className="text-[10px] font-mono text-gray-400 mt-1 uppercase">{note.date}</div>
                                         <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -3223,7 +3251,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                     {filteredTasks.length === 0 ? (
                                         <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
                                     ) : filteredTasks.map(task => (
-                                        <div key={task.id} className="group border border-gray-100 p-4 rounded-xl flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-all hover:border-[#3DCD58]/30 hover:shadow-md" onClick={() => setSelectedTaskForEdit({ task })}>
+                                        <div key={task.id} id={`task-${task.id}`} className="group border border-gray-100 p-4 rounded-xl flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-all hover:border-[#3DCD58]/30 hover:shadow-md" onClick={() => setSelectedTaskForEdit({ task })}>
                                             <div className="flex items-center gap-4">
                                                 <div
                                                     className="text-xs font-bold text-gray-300 w-6 text-center"

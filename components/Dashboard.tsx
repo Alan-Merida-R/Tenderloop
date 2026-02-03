@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink } from '../types';
 import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3 } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -83,7 +83,7 @@ const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: 
 interface Props {
     mode: 'proposals' | 'tasks' | 'general';
     opportunities: Opportunity[];
-    onSelect: (id: string) => void;
+    onSelect: (id: string, deeplink?: DeepLink) => void;
     onCreate: (stage?: ProcessStage) => void;
     onStageChange: (id: string, newStage: ProcessStage) => void;
     onDateChange: (id: string, type: 'expected' | 'dueDate', newDate: string) => void;
