@@ -71,6 +71,7 @@ export interface QuickLinks {
   ba: string;      // Basket Link
   srLink: string;  // Support Request Link
   geet: string;    // GEET Link
+  [key: string]: string; // Allow custom links
 }
 
 export interface Subtask {
@@ -223,6 +224,10 @@ export interface Opportunity {
   tags: string[]; // Keep for legacy
   labels: OpportunityLabel[]; // New colored labels
 
+  // Version Control
+  srId?: string; // Support Request ID (Logical Branch)
+  versions?: OpportunityVersion[];
+
   // Analytics
   kpis: KPIs;
 
@@ -233,6 +238,18 @@ export interface Opportunity {
   pendingActions: any;
 
   lastUpdated: string;
+}
+
+export interface OpportunityVersion {
+  id: string;
+  opportunityId: string;
+  srId: string;
+  commitMessage: string;
+  tags: string[];
+  createdAt: string;
+  createdBy: string;
+  source: string;
+  snapshot: Omit<Opportunity, 'history' | 'versions'>;
 }
 
 export interface UserSettings {

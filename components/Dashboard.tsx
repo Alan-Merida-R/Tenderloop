@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel } from '../types';
 import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3 } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -92,6 +92,7 @@ interface Props {
     onOppUpdate: (updated: Opportunity) => void;
     onTaskUpdate: (oppId: string, taskId: string, updates: Partial<Task>) => void;
     holidays?: string[];
+    globalLabels: OpportunityLabel[];
 }
 
 // Helper: Copy text to clipboard
@@ -154,9 +155,10 @@ const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: 
     );
 };
 
-const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [] }) => {
+const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [] }) => {
     const [viewMode, setViewMode] = useState<'board' | 'table' | 'calendar'>('board');
     const [filterText, setFilterText] = useState('');
+    const [labelFilters, setLabelFilters] = useState<string[]>([]);
     const [selectedOppChips, setSelectedOppChips] = useState<string[]>([]);
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
     const [dateFilterStart, setDateFilterStart] = useState('');
@@ -186,7 +188,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [taskPriorityFilters, setTaskPriorityFilters] = useState<string[]>([]);
     const [taskOppFilters, setTaskOppFilters] = useState<string[]>([]);
     const [taskAreaFilters, setTaskAreaFilters] = useState<string[]>([]);
-    const [taskGroupBy, setTaskGroupBy] = useState<'status' | 'area' | 'priority'>('status');
+    const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>([]);
+    const [taskGroupBy, setTaskGroupBy] = useState<'status' | 'area' | 'priority' | 'opportunity'>('status');
 
     // Next Steps Toggle
     const [showNextSteps, setShowNextSteps] = useState(false);
@@ -336,9 +339,14 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 if (dateFilterEnd && dateToCheck > dateFilterEnd) matchesDate = false;
             }
 
-            return matchesText && matchesChips && matchesStatus && matchesDate;
+            let matchesLabels = true;
+            if (labelFilters.length > 0) {
+                matchesLabels = (opp.labels || []).some(l => labelFilters.includes(l.id));
+            }
+
+            return matchesText && matchesChips && matchesStatus && matchesDate && matchesLabels;
         });
-    }, [opportunities, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd]);
+    }, [opportunities, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -558,8 +566,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 return t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
             });
         }
+        if (taskOppStatusFilters.length > 0) {
+            tasks = tasks.filter(t => taskOppStatusFilters.includes(t.opp.statusLabel));
+        }
         return tasks;
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters]);
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters]);
 
     // --- Next Steps Logic ---
     const nextStepsData = useMemo(() => {
@@ -634,11 +645,26 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             else if (taskGroupBy === 'priority') key = task.priority;
             else if (taskGroupBy === 'area') {
                 if (task.owner === 'Me') key = 'Internal';
-                else if (task.externalAreas.length > 0) key = 'External'; // Simplified group for now
+                else if (task.externalAreas.length > 0) key = 'External';
             }
+            else if (taskGroupBy === 'opportunity') {
+                key = `${task.opp.id} - ${task.opp.title}`;
+            }
+
             if (!groups[key]) groups[key] = [];
             groups[key].push(task);
         });
+
+        // Sort tasks within groups by Order, then Due Date
+        Object.keys(groups).forEach(key => {
+            groups[key].sort((a, b) => {
+                const orderA = a.order ?? 9999;
+                const orderB = b.order ?? 9999;
+                if (orderA !== orderB) return orderA - orderB;
+                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+            });
+        });
+
         return groups;
     }, [filteredTasks, taskGroupBy]);
 
@@ -908,10 +934,22 @@ ${noteTitles.join('\n')}
                 <div className="flex items-center gap-1 text-[10px] text-gray-500">
                     <span className="font-mono bg-gray-100 px-1 rounded">{item.opp.id}</span>
                     {item.order && <span className="bg-gray-100 px-1 rounded font-bold text-gray-600" title="Execution Order">#{item.order}</span>}
+                    {(item.opp.labels || []).map((l: OpportunityLabel) => (
+                        <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
+                    ))}
                 </div>
                 <div className="flex gap-1 items-center">
                     {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400" />}
-                    <span className={`w-2 h-2 rounded-full ${PRIORITY_COLORS[item.priority as TaskPriority]?.split(' ')[1]}`}></span>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const order: TaskPriority[] = ['Low', 'Medium', 'High'];
+                            const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
+                            onTaskUpdate(item.opp.id, item.id, { priority: next });
+                        }}
+                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]?.split(' ')[1]}`}
+                        title={`Priority: ${item.priority} (Click to cycle)`}
+                    ></button>
                 </div>
             </div>
 
@@ -1007,6 +1045,18 @@ ${noteTitles.join('\n')}
                         />
                     )}
 
+                    <MultiSelectDropdown
+                        label="Labels"
+                        options={globalLabels.map(l => l.text)} // We need IDs internally but MultiSelectDropdown is simple strings. Let's fix this limitation or map text.
+                        // Actually MultiSelectDropdown takes strings. We'll map back and forth or just filter by ID if options were better. 
+                        // To keep it simple ensuring labels have unique text or just filter usage. 
+                        selected={labelFilters.map(id => globalLabels.find(l => l.id === id)?.text || id)}
+                        onChange={(texts) => {
+                            const ids = texts.map(t => globalLabels.find(l => l.text === t)?.id).filter(Boolean) as string[];
+                            setLabelFilters(ids);
+                        }}
+                    />
+
                     {mode === 'tasks' && (
                         <div className="flex items-center gap-2">
                             <MultiSelectDropdown
@@ -1027,7 +1077,13 @@ ${noteTitles.join('\n')}
                                 selected={taskPriorityFilters}
                                 onChange={setTaskPriorityFilters}
                             />
-
+                            <MultiSelectDropdown
+                                label="Opp Status"
+                                options={Object.keys(STATUS_COLORS)}
+                                selected={taskOppStatusFilters}
+                                onChange={setTaskOppStatusFilters}
+                            />
+                            <div className="h-6 w-px bg-gray-300 mx-2"></div>
                             <span className="text-xs text-gray-500 font-medium ml-2">Group by:</span>
                             <select
                                 className="text-sm border-gray-200 rounded-lg p-2 bg-white shadow-sm"
@@ -1037,6 +1093,7 @@ ${noteTitles.join('\n')}
                                 <option value="status">Status</option>
                                 <option value="priority">Priority</option>
                                 <option value="area">Area</option>
+                                <option value="opportunity">Opportunity</option>
                             </select>
                         </div>
                     )}
@@ -1404,8 +1461,15 @@ ${noteTitles.join('\n')}
                                                         )}
                                                         <div className="flex flex-col gap-1 mt-2">
                                                             <span className="text-[10px] font-mono text-gray-400 w-fit">{opp.id}</span>
-                                                            <h4 className="font-bold text-gray-800 text-sm leading-snug pr-12">{opp.title}</h4>
                                                             <p className="text-xs text-gray-500 font-medium">{opp.customer}</p>
+
+                                                            <div className="flex flex-wrap gap-1 mt-1">
+                                                                {(opp.labels || []).map(l => (
+                                                                    <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
+                                                                        {l.text}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
 
                                                             <div className="flex flex-wrap items-center gap-2 mt-2">
                                                                 {kanbanGroupBy === 'status' && (
@@ -1420,6 +1484,9 @@ ${noteTitles.join('\n')}
                                                                     <div className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${STATUS_COLORS[opp.statusLabel]}`}>
                                                                         {opp.statusLabel}
                                                                     </div>
+                                                                )}
+                                                                {opp.priority && (
+                                                                    <div className={`text-[9px] w-2 h-2 rounded-full ${PRIORITY_COLORS[opp.priority as TaskPriority]?.split(' ')[1]}`} title={`Priority: ${opp.priority}`}></div>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -1548,7 +1615,15 @@ ${noteTitles.join('\n')}
                                         className={`text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform ${STAGE_COLORS[o.stage]}`}
                                         title={o.title}
                                     >
-                                        <span className="font-bold">{o.id}</span>
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-bold">{o.id}</span>
+                                            <div className="flex gap-0.5">
+                                                {(o.labels || []).slice(0, 2).map((l, i) => (
+                                                    <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
+                                                ))}
+                                                {(o.labels || []).length > 2 && <span className="text-[8px] text-gray-500 leading-none">+{o.labels!.length - 2}</span>}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                             />
@@ -1769,7 +1844,7 @@ ${noteTitles.join('\n')}
                                                 <div className="flex gap-2 flex-1 relative flex-col">
                                                     <MultiSelectDropdown
                                                         label="Select Areas"
-                                                        options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
+                                                        options={['Internal', 'Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
                                                         selected={selectedTask.task.externalAreas || []}
                                                         onChange={(vals) => updateSelectedTask('externalAreas', vals)}
                                                     />

@@ -601,6 +601,8 @@ function App() {
       dates: { requested: new Date().toISOString().split('T')[0], expected: '', assigned: new Date().toISOString().split('T')[0] },
       priority: 'Medium',
       description: '',
+      tags: [],
+      labels: [],
       commercial: {
         currency: 'USD',
         swHw: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
@@ -637,7 +639,6 @@ function App() {
         areasInvolved: [],
         effortContribution: null
       },
-      tags: [],
       pendingActions: [],
       lastUpdated: new Date().toISOString()
     };

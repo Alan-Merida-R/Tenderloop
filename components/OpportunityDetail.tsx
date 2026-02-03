@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -26,6 +26,7 @@ interface Props {
     holidays?: string[];
     trackedAreas?: string[];
     deepLink?: DeepLink;
+    globalLabels?: OpportunityLabel[];
 }
 
 export interface RichTextEditorHandle {
@@ -1172,12 +1173,50 @@ const FullCalendarModal = ({
     );
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined }) => {
+const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onDelete, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [] }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
+
+    // --- VERSION MANAGER STATE (Moved Up) ---
+    const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
+    const [showCreateVersionModal, setShowCreateVersionModal] = useState(false);
+    const [newVersionData, setNewVersionData] = useState({ commitMessage: '', tags: '', srId: '' });
+    const [showDiffModal, setShowDiffModal] = useState(false);
+    const [diffBaseId, setDiffBaseId] = useState<string | null>(null);
+    const [diffCompareId, setDiffCompareId] = useState<string | null>(null);
+
+    const handleVersionSwitch = (vId: string | null) => {
+        if (vId === viewingVersionId && vId !== null) {
+            handleVersionSwitch(null); // Toggle off
+            return;
+        }
+
+        if (vId) {
+            // Load Snapshot
+            const ver = localOpp.versions?.find(v => v.id === vId);
+            if (ver) {
+                // Merge snapshot with current containers (versions/history) to keep UI functional
+                const snapshotWithContainers = {
+                    ...ver.snapshot,
+                    versions: localOpp.versions,
+                    history: localOpp.history,
+                    srId: ver.srId
+                } as Opportunity;
+                setLocalOpp(snapshotWithContainers);
+                setViewingVersionId(vId);
+            }
+        } else {
+            // Restore Live
+            // We revert to props.opportunity to discard working copy changes
+            // But we must ensure versions are up to date if we just created one.
+            // onUpdate called by createVersion should have updated props.
+            setLocalOpp(opportunity);
+            setViewingVersionId(null);
+        }
+    };
     const [searchTerm, setSearchTerm] = useState('');
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1268,7 +1307,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        onUpdate(updated, opportunity.id);
+        // Guard: Only persist to DB if NOT viewing a version (Working Copy mode)
+        if (!viewingVersionId) {
+            onUpdate(updated);
+        }
     };
 
     const updateOfficialSellPrice = (value: number) => {
@@ -1825,8 +1867,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
         doc.setFontSize(11);
         doc.setFont(undefined, 'normal');
-        doc.text(`Customer: ${s.customer} | ID: ${s.id} | QLK: ${s.qlk || '-'} | Rev: ${s.revision}`, 14, yPos);
-        yPos += 10;
+        const headerText = `Customer: ${s.customer} | ID: ${s.id} | QLK: ${s.qlk || '-'} | Rev: ${s.revision}`;
+        const splitHeader = doc.splitTextToSize(headerText, pageWidth - 28);
+        doc.text(splitHeader, 14, yPos);
+        yPos += (splitHeader.length * 7) + 3;
 
         autoTable(doc, {
             startY: yPos,
@@ -1842,6 +1886,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             headStyles: { fillColor: [61, 205, 88] }
         });
         yPos = (doc as any).lastAutoTable.finalY + 15;
+
+        // Quick Links Section in PDF
+        if (s.links && Object.keys(s.links).length > 0) {
+            const linkEntries = Object.entries(s.links).filter(([_, v]) => (v as string) && (v as string).length > 0);
+            if (linkEntries.length > 0) {
+                doc.setFontSize(12);
+                doc.setFont(undefined, 'bold');
+                doc.text("Quick Links", 14, yPos);
+                yPos += 6;
+                doc.setFontSize(9);
+                doc.setFont(undefined, 'normal');
+                linkEntries.forEach(([k, v]) => {
+                    const linkText = `${k.toUpperCase()}: ${v}`;
+                    // Check if linkText fits, if not split
+                    const splitLink = doc.splitTextToSize(linkText, pageWidth - 28);
+                    doc.text(splitLink, 14, yPos);
+                    // Add clickable link over the text area
+                    // Basic link functionality in jsPDF (might not support multiline link well, but good enough)
+                    doc.link(14, yPos - 3, pageWidth - 28, splitLink.length * 4, { url: v });
+                    yPos += (splitLink.length * 5) + 2;
+                });
+                yPos += 10;
+            }
+        }
 
         if (s.commercial) {
             doc.setFontSize(14);
@@ -2501,23 +2569,171 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         }, 100);
     };
 
+    // --- VERSION MANAGER STATE MOVED UP ---
+
+    // Ensure SR ID exists
+    useEffect(() => {
+        if (!localOpp.srId) handleFieldChange('srId', 'SR-1');
+        if (!localOpp.versions) handleFieldChange('versions', []);
+    }, []);
+
+    const versionGroups = React.useMemo(() => {
+        const groups: Record<string, OpportunityVersion[]> = {};
+        const sorted = [...(localOpp.versions || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        sorted.forEach(v => {
+            const key = v.srId || localOpp.srId || 'SR-1';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(v);
+        });
+        return groups;
+    }, [localOpp.versions, localOpp.srId]);
+
+    const activeVersion = viewingVersionId ? localOpp.versions?.find(v => v.id === viewingVersionId) : null;
+    const isWorkingCopy = !!activeVersion;
+
+    const handleCreateVersion = () => {
+        if (!newVersionData.commitMessage) return alert("Commit message required");
+
+        // Clone and Normalize
+        const snapshot = JSON.parse(JSON.stringify(localOpp));
+        snapshot.statusLabel = 'In Progress';
+        snapshot.dates = { requested: '', expected: '', assigned: '' };
+        snapshot.tasks = snapshot.tasks.map((t: Task) => ({ ...t, status: 'Pending', completedAt: undefined }));
+        delete snapshot.history;
+        delete snapshot.versions; // No recursion
+
+        const newVer: OpportunityVersion = {
+            id: crypto.randomUUID(),
+            opportunityId: localOpp.id,
+            srId: newVersionData.srId || localOpp.srId || 'SR-1',
+            commitMessage: newVersionData.commitMessage,
+            tags: newVersionData.tags.split(',').map(t => t.trim()).filter(Boolean),
+            createdAt: new Date().toISOString(),
+            createdBy: 'Engineer',
+            source: 'live',
+            snapshot: snapshot as any
+        };
+
+        handleFieldChange('versions', [newVer, ...(localOpp.versions || [])]);
+        setShowCreateVersionModal(false);
+        setNewVersionData({ commitMessage: '', tags: '', srId: '' });
+    };
+
+    const handleRestorePartial = (ver: OpportunityVersion, type: 'tasks' | 'notes' | 'kpis') => {
+        if (!confirm(`Overwrite current ${type} with version ${ver.commitMessage}?`)) return;
+
+        // Auto-backup
+        const backupVer: OpportunityVersion = {
+            id: crypto.randomUUID(),
+            opportunityId: localOpp.id,
+            srId: localOpp.srId || 'SR-1',
+            commitMessage: `Auto-backup before restore ${type}`,
+            tags: ['auto-backup'],
+            createdAt: new Date().toISOString(),
+            createdBy: 'System',
+            source: 'live',
+            snapshot: JSON.parse(JSON.stringify(localOpp))
+        };
+        // Clean backup snapshot to avoid deep recursion if we were less careful, but here it's fine.
+        delete (backupVer.snapshot as any).history;
+        delete (backupVer.snapshot as any).versions;
+
+        let content = ver.snapshot[type as keyof Opportunity];
+        if (type === 'tasks') {
+            // Reset status when restoring tasks
+            // @ts-ignore
+            content = (content as Task[]).map(t => ({ ...t, status: 'Pending' }));
+        }
+
+        const newVersions = [backupVer, ...(localOpp.versions || [])];
+        // We do this in one go? handleFieldChange might be async or batch. 
+        // We need to update versions AND the field.
+        // Assuming handleFieldChange handles shallow merge or we do it manually.
+        // handleFieldChange usually updates one field.
+        // We'll update state manually for multiple fields if needed, or call twice.
+        // But updating 'versions' prop is safer to do first? Or last?
+
+        // We'll assume onUpdate merges.
+        const updated = { ...localOpp, versions: newVersions, [type]: content };
+        onUpdate(updated);
+        alert(`Restored ${type} and created backup.`);
+    };
+
     return (
-        <div className="flex flex-col h-full bg-white relative">
-            <div className="p-6 border-b border-gray-100 bg-gray-50/50">
-                <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-2">
-                        <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-2"><X className="w-5 h-5 text-gray-500" /></button>
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">OP</span>
-                            <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+        <div className="flex flex-row h-full bg-white relative overflow-hidden">
+            {/* Version Manager Sidebar */}
+            <div className={`w-64 bg-slate-50 border-r border-gray-200 flex flex-col transition-all ${viewingVersionId ? 'border-r-4 border-amber-300' : ''}`}>
+                <div className="p-3 border-b border-gray-200 flex justify-between items-center bg-white">
+                    <span className="text-xs font-black uppercase text-gray-400">Versions</span>
+                    <button onClick={() => setShowCreateVersionModal(true)} className="p-1 hover:bg-gray-100 rounded text-green-600"><Plus className="w-4 h-4" /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-4">
+                    {Object.entries(versionGroups).map(([sr, versions]) => (
+                        <div key={sr}>
+                            <div className="flex items-center gap-1 mb-1 px-1">
+                                <GitBranch className="w-3 h-3 text-gray-400" />
+                                <span className="text-[10px] font-bold text-gray-500 uppercase">{sr}</span>
+                            </div>
+                            <div className="space-y-1">
+                                {versions.map(v => (
+                                    <div
+                                        key={v.id}
+                                        onClick={() => handleVersionSwitch(v.id)}
+                                        className={`group relative p-2 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-gray-300'}`}
+                                    >
+                                        <div className="flex justify-between items-start mb-1">
+                                            <span className="text-xs font-bold text-gray-700 line-clamp-2 leading-tight">{v.commitMessage}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[9px] text-gray-400">
+                                            <span className="font-mono">{v.id.slice(0, 6)}</span>
+                                            <span>•</span>
+                                            <span>{new Date(v.createdAt).toLocaleDateString()}</span>
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {v.tags.map(t => <span key={t} className="text-[8px] px-1 bg-gray-100 rounded text-gray-500">{t}</span>)}
+                                        </div>
+
+                                        {/* Actions on Hover/Active */}
+                                        <div className={`mt-2 flex gap-1 ${viewingVersionId === v.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                            <button onClick={(e) => { e.stopPropagation(); handleRestorePartial(v, 'tasks'); }} className="p-1 bg-white border border-gray-200 rounded hover:bg-gray-50 text-[8px]" title="Restore Tasks">Tasks</button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleRestorePartial(v, 'notes'); }} className="p-1 bg-white border border-gray-200 rounded hover:bg-gray-50 text-[8px]" title="Restore Notes">Notes</button>
+                                            <button onClick={(e) => { e.stopPropagation(); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="p-1 bg-white border border-gray-200 rounded hover:bg-gray-50 text-[8px]" title="Compare with Live"><GitPullRequest className="w-3 h-3" /></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">QLK</span>
-                            <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
-                        </div>
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                    ))}
+                </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex flex-col flex-1 h-full min-w-0 bg-white relative">
+                {isWorkingCopy && (
+                    <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
+                        <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Version: {activeVersion?.commitMessage}</span>
+                        <button onClick={() => handleVersionSwitch(null)} className="underline hover:text-amber-900">Exit Version</button>
+                    </div>
+                )}
+
+                <div className="p-6 border-b border-gray-100 bg-gray-50/50">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-2">
+                            <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-2"><X className="w-5 h-5 text-gray-500" /></button>
+                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">OP</span>
+                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+                            </div>
+                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">QLK</span>
+                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
+                            </div>
                             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">REV</span>
                             <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
+                        </div>
+                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">SR</span>
+                            <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2536,10 +2752,53 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     <div className="flex-1 w-full md:w-auto min-w-[200px]">
                         <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-3xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300" placeholder="Title" />
                         <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-lg text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-1 placeholder-gray-400" placeholder="Customer" />
+
+                        <div className="flex flex-wrap items-center gap-2 mt-3">
+                            {(localOpp.labels || []).map(l => (
+                                <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
+                                    {l.text}
+                                    <button onClick={() => {
+                                        const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
+                                        handleFieldChange('labels', newLabels);
+                                    }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
+                                </span>
+                            ))}
+                            <div className="relative group">
+                                <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
+                                    <Plus className="w-3 h-3" /> Label
+                                </button>
+                                <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
+                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
+                                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                                        {(globalLabels || []).map(gl => {
+                                            const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
+                                            return (
+                                                <button
+                                                    key={gl.id}
+                                                    className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                                    onClick={() => {
+                                                        if (!isSelected) {
+                                                            handleFieldChange('labels', [...(localOpp.labels || []), gl]);
+                                                        }
+                                                    }}
+                                                    disabled={isSelected}
+                                                >
+                                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
+                                                    <span className="text-xs font-bold text-gray-700">{gl.text}</span>
+                                                    {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+                                                </button>
+                                            );
+                                        })}
+                                        {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div className="flex flex-col items-end gap-2 shrink-0">
                         <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-xs font-bold px-3 py-1.5 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                         <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border-none outline-none w-40 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                        <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-3 py-1.5 rounded-full border outline-none w-28 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                     </div>
                 </div>
             </div>
@@ -2568,12 +2827,37 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                             </div>
                         </div>
                         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
-                            <h3 className="text-sm font-semibold mb-2">Quick Links</h3>
+                            <div className="flex justify-between items-center mb-2">
+                                <h3 className="text-sm font-semibold">Quick Links</h3>
+                                <button
+                                    onClick={() => {
+                                        const label = prompt("Enter label for new link:");
+                                        if (label) {
+                                            handleFieldChange('links', { ...localOpp.links, [label]: '' });
+                                        }
+                                    }}
+                                    className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Link"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
                             {Object.keys(localOpp.links).map((key) => (
-                                <div key={key} className="flex gap-2 items-center">
-                                    <span className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate">{key}</span>
+                                <div key={key} className="flex gap-2 items-center group">
+                                    <span className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate" title={key}>{key}</span>
                                     <input value={localOpp.links[key as keyof QuickLinks]} onChange={(e) => handleFieldChange('links', { ...localOpp.links, [key]: e.target.value })} className="flex-1 text-sm border-gray-200 rounded-lg" placeholder="https://..." />
-                                    {localOpp.links[key as keyof QuickLinks] && <a href={localOpp.links[key as keyof QuickLinks]} target="_blank" className="p-2 bg-gray-100 rounded-lg shadow-sm"><ExternalLink className="w-4 h-4" /></a>}
+                                    {localOpp.links[key as keyof QuickLinks] && <a href={localOpp.links[key as keyof QuickLinks]} target="_blank" className="p-2 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200"><ExternalLink className="w-4 h-4" /></a>}
+                                    <button
+                                        onClick={() => {
+                                            if (confirm(`Remove link "${key}"?`)) {
+                                                const newLinks = { ...localOpp.links };
+                                                delete newLinks[key];
+                                                handleFieldChange('links', newLinks);
+                                            }
+                                        }}
+                                        className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -3614,7 +3898,102 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     onClose={() => setShowAddAreaModal(false)}
                 />
             )}
+
+            {showCreateVersionModal && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                        <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
+                                <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
+                                <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
+                                <p className="text-[10px] text-gray-400 mt-1">Leave empty to use current SR: {localOpp.srId}</p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Tags (comma separated)</label>
+                                <input className="w-full border-gray-200 rounded-lg text-sm" placeholder="e.g. Draft, Client Review" value={newVersionData.tags} onChange={e => setNewVersionData({ ...newVersionData, tags: e.target.value })} />
+                            </div>
+                            <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700">
+                                <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
+                            </div>
+                            <div className="flex gap-2 justify-end mt-2">
+                                <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
+                                <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showDiffModal && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                        <div className="p-4 border-b flex justify-between items-center">
+                            <h3 className="font-bold">Version Comparison</h3>
+                            <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
+                        </div>
+                        <div className="p-4 overflow-y-auto flex-1">
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div className="p-2 bg-red-50 rounded border border-red-100">
+                                    <h4 className="font-bold text-red-800 text-xs uppercase mb-1">Base (Live)</h4>
+                                    <p className="text-xs">Current State</p>
+                                </div>
+                                <div className="p-2 bg-green-50 rounded border border-green-100">
+                                    <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
+                                    <p className="text-xs">
+                                        {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h4 className="font-bold text-sm border-b pb-1">Changes Summary</h4>
+                                <div className="text-sm space-y-2">
+                                    {/* Inline Logic for Diff */}
+                                    {(() => {
+                                        const v = (localOpp.versions || []).find(v => v.id === diffCompareId);
+                                        if (!v) return <p>Version not found.</p>;
+
+                                        const tasksDiff = Math.abs(localOpp.tasks.length - v.snapshot.tasks.length);
+                                        const notesDiff = Math.abs(localOpp.notes.length - v.snapshot.notes.length);
+                                        const kpiChanged = JSON.stringify(localOpp.kpis) !== JSON.stringify(v.snapshot.kpis);
+
+                                        return (
+                                            <div>
+                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                    <span>Tasks Count Difference</span>
+                                                    <span className="font-mono font-bold">{tasksDiff}</span>
+                                                </div>
+                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                    <span>Notes Count Difference</span>
+                                                    <span className="font-mono font-bold">{notesDiff}</span>
+                                                </div>
+                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                    <span>KPIs Changed?</span>
+                                                    <span className={`font-bold ${kpiChanged ? 'text-orange-500' : 'text-gray-400'}`}>{kpiChanged ? 'YES' : 'NO'}</span>
+                                                </div>
+                                                <div className="p-2 bg-yellow-50 text-xs text-yellow-700 mt-2">
+                                                    * Detailed field-by-field diff is limited in this surgical view.
+                                                    <br />Restore specific sections using the sidebar actions.
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-gray-50 rounded-b-2xl">
+                            <button onClick={() => setShowDiffModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
+    </div >
     );
 };
 
