@@ -2664,7 +2664,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         <div className="flex flex-col h-full bg-white relative overflow-hidden">
 
             {/* Main Content Area */}
-            <div className="flex flex-col flex-1 h-full min-w-0 bg-white relative">
+            <div className="flex flex-col shrink-0 bg-white relative z-20">
                 <div className="flex-none flex flex-col bg-white z-10 shrink-0">
                     {isWorkingCopy && (
                         <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
