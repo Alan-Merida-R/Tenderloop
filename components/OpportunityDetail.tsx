@@ -1246,7 +1246,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const [selectedNotesToLink, setSelectedNotesToLink] = useState<string[]>([]);
 
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
-    const [taskSort, setTaskSort] = useState<'none' | 'dueDate' | 'order'>('none');
+    const [taskSort, setTaskSort] = useState<'none' | 'dueDate' | 'order'>('order');
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
 
     useEffect(() => {
@@ -1365,10 +1365,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         if (taskSort === 'dueDate') {
             return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
         }
-        if (taskSort === 'order') {
-            return (a.order || 999999) - (b.order || 999999);
-        }
-        return 0;
+        // Always sort by order by default (smallest to largest)
+        // If order is null/undefined, push to the end (999999)
+        return (a.order || 999999) - (b.order || 999999);
     });
 
     const displayValue = (val: number) => val === 0 ? '' : val;
