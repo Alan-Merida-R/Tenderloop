@@ -4,6 +4,7 @@ export interface FileHandlerResult {
   handle: FileSystemFileHandle | null;
   data: DatabaseSchema | null;
   error: string | null;
+  name?: string;
 }
 
 /**
@@ -30,7 +31,7 @@ export const openDatabaseFile = async (): Promise<FileHandlerResult> => {
       const text = await file.text();
       const data = JSON.parse(text) as DatabaseSchema;
 
-      return { handle, data, error: null };
+      return { handle, data, error: null, name: file.name };
     } else {
       // Fallback for browsers without File System Access API
       return new Promise((resolve) => {
@@ -38,9 +39,11 @@ export const openDatabaseFile = async (): Promise<FileHandlerResult> => {
         input.type = 'file';
         input.accept = '.json';
         input.style.display = 'none'; // hidden
+        document.body.appendChild(input); // Append to DOM to ensure click works
 
         input.onchange = async (e: any) => {
           const file = e.target.files?.[0];
+          document.body.removeChild(input); // Clean up
           if (!file) {
             resolve({ handle: null, data: null, error: 'Selección cancelada.' });
             return;
@@ -48,7 +51,7 @@ export const openDatabaseFile = async (): Promise<FileHandlerResult> => {
           try {
             const text = await file.text();
             const data = JSON.parse(text) as DatabaseSchema;
-            resolve({ handle: null, data, error: null }); // No handle in fallback
+            resolve({ handle: null, data, error: null, name: file.name }); // No handle in fallback
           } catch (err: any) {
             resolve({ handle: null, data: null, error: 'Error al leer el archivo: ' + err.message });
           }
