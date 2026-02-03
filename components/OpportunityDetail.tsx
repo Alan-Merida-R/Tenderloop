@@ -2674,1355 +2674,1360 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 )}
 
                 <div className="p-6 border-b border-gray-100 bg-gray-50/50">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-2">
-                            <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-2"><X className="w-5 h-5 text-gray-500" /></button>
-                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
-                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">OP</span>
-                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+                    <div className="max-w-7xl mx-auto w-full">
+                        <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-2">
+                                <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-2"><X className="w-5 h-5 text-gray-500" /></button>
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">OP</span>
+                                    <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+                                </div>
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">QLK</span>
+                                    <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
+                                </div>
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">REV</span>
+                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
                             </div>
                             <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
-                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">QLK</span>
-                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">SR</span>
+                                <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
                             </div>
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">REV</span>
-                            <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
                         </div>
-                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-3 py-1 rounded-md shadow-sm">
-                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                            <input className="text-sm font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <OpportunityExportImportButtons
-                            opportunity={localOpp}
-                            onImport={(importedOpp) => onUpdate(importedOpp)}
-                        />
-                        <div className="w-px h-8 bg-gray-200 mx-1"></div>
+                        <div className="flex items-center gap-2 justify-end">
+                            <OpportunityExportImportButtons
+                                opportunity={localOpp}
+                                onImport={(importedOpp) => onUpdate(importedOpp)}
+                            />
+                            <div className="w-px h-8 bg-gray-200 mx-1"></div>
 
-                        {/* Version Manager Discrete UI */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowVersionMenu(!showVersionMenu)}
-                                className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm font-medium transition-all shadow-sm ${viewingVersionId ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
-                            >
-                                <HistoryIcon className="w-4 h-4" />
-                                Versions
-                                {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
-                            </button>
-
-                            {showVersionMenu && (
-                                <>
-                                    <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
-                                    <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
-                                        <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                                            <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
-                                            <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
-                                                <Plus className="w-3 h-3" /> New
-                                            </button>
-                                        </div>
-                                        <div className="overflow-y-auto p-2 space-y-4 flex-1">
-                                            {(localOpp.versions || []).length === 0 && (
-                                                <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
-                                            )}
-                                            {/* Fail-safe rendering of groups */}
-                                            {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
-                                                <div key={sr}>
-                                                    <div className="flex items-center gap-1 mb-1 px-2">
-                                                        <GitBranch className="w-3 h-3 text-gray-300" />
-                                                        <span className="text-[10px] font-bold text-gray-400 uppercase">{sr}</span>
-                                                    </div>
-                                                    <div className="space-y-1">
-                                                        {versions.map(v => (
-                                                            <div
-                                                                key={v.id}
-                                                                onClick={() => { handleVersionSwitch(v.id); setShowVersionMenu(false); }}
-                                                                className={`group relative p-3 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md'}`}
-                                                            >
-                                                                <div className="flex justify-between items-start mb-1">
-                                                                    <span className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">{v.commitMessage}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-2">
-                                                                    <span className="font-mono bg-gray-100 px-1 rounded">{v.id.slice(0, 6)}</span>
-                                                                    <span>•</span>
-                                                                    <span>{new Date(v.createdAt).toLocaleDateString()}</span>
-                                                                </div>
-                                                                <div className="flex flex-wrap gap-1 mb-2">
-                                                                    {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold">{t}</span>)}
-                                                                </div>
-
-                                                                {/* Discrete Actions */}
-                                                                <div className="flex gap-2 pt-2 border-t border-gray-50 mt-1">
-                                                                    <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'tasks'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Tasks</button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'notes'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Notes</button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors ml-auto flex items-center gap-1">
-                                                                        <GitPullRequest className="w-3 h-3" /> Diff
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-
-                        <div className="w-px h-8 bg-gray-200 mx-1"></div>
-
-                        <div className="w-px h-8 bg-gray-200 mx-1"></div>
-                        <button onClick={handleExportPDF} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-4 h-4" /> Export PDF</button>
-                        <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-3 py-2 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-sm font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-4 h-4" /> Copy Summary</button>
-                        <div className="w-px h-8 bg-gray-200 mx-1"></div>
-                        <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-2 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-5 h-5" /></button>
-                    </div>
-                </div>
-                <div className="flex flex-wrap md:flex-nowrap justify-between items-end gap-4 mb-2 mt-4 px-1">
-                    <div className="flex-1 w-full md:w-auto min-w-[200px]">
-                        <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-3xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-1" placeholder="Title" />
-                        <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-lg text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-1 placeholder-gray-400" placeholder="Customer" />
-
-                        <div className="flex flex-wrap items-center gap-2 mt-3">
-                            {(localOpp.labels || []).map(l => (
-                                <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
-                                    {l.text}
-                                    <button onClick={() => {
-                                        const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
-                                        handleFieldChange('labels', newLabels);
-                                    }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
-                                </span>
-                            ))}
-                            <div className="relative group">
-                                <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
-                                    <Plus className="w-3 h-3" /> Label
+                            {/* Version Manager Discrete UI */}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowVersionMenu(!showVersionMenu)}
+                                    className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm font-medium transition-all shadow-sm ${viewingVersionId ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
+                                >
+                                    <HistoryIcon className="w-4 h-4" />
+                                    Versions
+                                    {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                 </button>
-                                <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
-                                    <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
-                                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                                        {(globalLabels || []).map(gl => {
-                                            const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
-                                            return (
-                                                <button
-                                                    key={gl.id}
-                                                    className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                                                    onClick={() => {
-                                                        if (!isSelected) {
-                                                            handleFieldChange('labels', [...(localOpp.labels || []), gl]);
-                                                        }
-                                                    }}
-                                                    disabled={isSelected}
-                                                >
-                                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
-                                                    <span className="text-xs font-bold text-gray-700">{gl.text}</span>
-                                                    {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+
+                                {showVersionMenu && (
+                                    <>
+                                        <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
+                                        <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
+                                            <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                                                <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
+                                                <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
+                                                    <Plus className="w-3 h-3" /> New
                                                 </button>
-                                            );
-                                        })}
-                                        {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                            </div>
+                                            <div className="overflow-y-auto p-2 space-y-4 flex-1">
+                                                {(localOpp.versions || []).length === 0 && (
+                                                    <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
+                                                )}
+                                                {/* Fail-safe rendering of groups */}
+                                                {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
+                                                    <div key={sr}>
+                                                        <div className="flex items-center gap-1 mb-1 px-2">
+                                                            <GitBranch className="w-3 h-3 text-gray-300" />
+                                                            <span className="text-[10px] font-bold text-gray-400 uppercase">{sr}</span>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {versions.map(v => (
+                                                                <div
+                                                                    key={v.id}
+                                                                    onClick={() => { handleVersionSwitch(v.id); setShowVersionMenu(false); }}
+                                                                    className={`group relative p-3 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md'}`}
+                                                                >
+                                                                    <div className="flex justify-between items-start mb-1">
+                                                                        <span className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">{v.commitMessage}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-2">
+                                                                        <span className="font-mono bg-gray-100 px-1 rounded">{v.id.slice(0, 6)}</span>
+                                                                        <span>•</span>
+                                                                        <span>{new Date(v.createdAt).toLocaleDateString()}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-1 mb-2">
+                                                                        {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold">{t}</span>)}
+                                                                    </div>
+
+                                                                    {/* Discrete Actions */}
+                                                                    <div className="flex gap-2 pt-2 border-t border-gray-50 mt-1">
+                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'tasks'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Tasks</button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'notes'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Notes</button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors ml-auto flex items-center gap-1">
+                                                                            <GitPullRequest className="w-3 h-3" /> Diff
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+
+                            <div className="w-px h-8 bg-gray-200 mx-1"></div>
+                            <button onClick={handleExportPDF} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-4 h-4" /> Export PDF</button>
+                            <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-3 py-2 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-sm font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-4 h-4" /> Copy Summary</button>
+                            <div className="w-px h-8 bg-gray-200 mx-1"></div>
+                            <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-2 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-5 h-5" /></button>
+                        </div>
+
+                        <div className="flex flex-wrap md:flex-nowrap justify-between items-end gap-4 mb-2 mt-4 px-1">
+                            <div className="flex-1 w-full md:w-auto min-w-[200px]">
+                                <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-3xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-1" placeholder="Title" />
+                                <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-lg text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-1 placeholder-gray-400" placeholder="Customer" />
+
+                                <div className="flex flex-wrap items-center gap-2 mt-3">
+                                    {(localOpp.labels || []).map(l => (
+                                        <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
+                                            {l.text}
+                                            <button onClick={() => {
+                                                const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
+                                                handleFieldChange('labels', newLabels);
+                                            }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
+                                        </span>
+                                    ))}
+                                    <div className="relative group">
+                                        <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
+                                            <Plus className="w-3 h-3" /> Label
+                                        </button>
+                                        <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
+                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
+                                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                                                {(globalLabels || []).map(gl => {
+                                                    const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
+                                                    return (
+                                                        <button
+                                                            key={gl.id}
+                                                            className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                                            onClick={() => {
+                                                                if (!isSelected) {
+                                                                    handleFieldChange('labels', [...(localOpp.labels || []), gl]);
+                                                                }
+                                                            }}
+                                                            disabled={isSelected}
+                                                        >
+                                                            <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
+                                                            <span className="text-xs font-bold text-gray-700">{gl.text}</span>
+                                                            {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                                {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            <div className="flex flex-col items-end gap-2 shrink-0">
+                                <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-xs font-bold px-3 py-1.5 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border-none outline-none w-40 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-3 py-1.5 rounded-full border outline-none w-28 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                            </div>
                         </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                        <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-xs font-bold px-3 py-1.5 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                        <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-xs font-semibold px-3 py-1.5 rounded-full border-none outline-none w-40 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                        <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-3 py-1.5 rounded-full border outline-none w-28 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                     </div>
                 </div>
             </div>
 
             <div className="flex border-b border-gray-200 px-6 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
-                <button onClick={() => setActiveTab('overview')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
-                <button onClick={() => setActiveTab('kpi')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
-                <button onClick={() => setActiveTab('presentation')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
-                <button onClick={() => setActiveTab('history')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
-                <button onClick={() => setActiveTab('tasks')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
-                <button onClick={() => setActiveTab('commercial')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
-                <button onClick={() => setActiveTab('notes')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
-                <button onClick={() => setActiveTab('folder')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
-                <button onClick={() => setActiveTab('questions')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
+                <div className="max-w-7xl mx-auto w-full flex">
+                    <button onClick={() => setActiveTab('overview')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
+                    <button onClick={() => setActiveTab('kpi')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
+                    <button onClick={() => setActiveTab('presentation')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
+                    <button onClick={() => setActiveTab('history')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
+                    <button onClick={() => setActiveTab('tasks')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
+                    <button onClick={() => setActiveTab('commercial')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
+                    <button onClick={() => setActiveTab('notes')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
+                    <button onClick={() => setActiveTab('folder')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
+                    <button onClick={() => setActiveTab('questions')} className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
+                </div>
             </div>
 
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
-                {activeTab === 'overview' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                            <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
-                            <textarea value={localOpp.description} onChange={(e) => handleFieldChange('description', e.target.value)} className="w-full text-sm border-gray-200 rounded-lg min-h-[300px]" placeholder="Detailed description..." />
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
-                                <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
+                <div className="max-w-7xl mx-auto w-full">
+                    {activeTab === 'overview' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
+                                <textarea value={localOpp.description} onChange={(e) => handleFieldChange('description', e.target.value)} className="w-full text-sm border-gray-200 rounded-lg min-h-[300px]" placeholder="Detailed description..." />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
+                                    <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
+                                </div>
                             </div>
-                        </div>
-                        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
-                            <div className="flex justify-between items-center mb-2">
-                                <h3 className="text-sm font-semibold">Quick Links</h3>
-                                <button
-                                    onClick={() => {
-                                        const label = prompt("Enter label for new link:");
-                                        if (label) {
-                                            handleFieldChange('links', { ...localOpp.links, [label]: '' });
-                                        }
-                                    }}
-                                    className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Link"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                </button>
-                            </div>
-                            {Object.keys(localOpp.links).map((key) => (
-                                <div key={key} className="flex gap-2 items-center group">
-                                    <span className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate" title={key}>{key}</span>
-                                    <input value={localOpp.links[key as keyof QuickLinks]} onChange={(e) => handleFieldChange('links', { ...localOpp.links, [key]: e.target.value })} className="flex-1 text-sm border-gray-200 rounded-lg" placeholder="https://..." />
-                                    {localOpp.links[key as keyof QuickLinks] && <a href={localOpp.links[key as keyof QuickLinks]} target="_blank" className="p-2 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200"><ExternalLink className="w-4 h-4" /></a>}
+                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="text-sm font-semibold">Quick Links</h3>
                                     <button
                                         onClick={() => {
-                                            if (confirm(`Remove link "${key}"?`)) {
-                                                const newLinks = { ...localOpp.links };
-                                                delete newLinks[key];
-                                                handleFieldChange('links', newLinks);
+                                            const label = prompt("Enter label for new link:");
+                                            if (label) {
+                                                handleFieldChange('links', { ...localOpp.links, [label]: '' });
                                             }
                                         }}
-                                        className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Link"
                                     >
-                                        <X className="w-4 h-4" />
+                                        <Plus className="w-4 h-4" />
                                     </button>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'kpi' && localOpp.kpis && (
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Performance Ratings */}
-                            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                                <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
-                                    <Target className="w-5 h-5 text-[#3DCD58]" />
-                                    <h3 className="font-bold text-gray-800">Performance Ratings</h3>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                            <span>Language Skill</span>
-                                            <span>{localOpp.kpis.languageSkill || 0}%</span>
-                                        </div>
-                                        <input type="range" min="0" max="100" value={localOpp.kpis.languageSkill || 0} onChange={(e) => updateKpiField('languageSkill', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                            <span>Technical Understanding</span>
-                                            <span>{localOpp.kpis.technicalUnderstanding || 0}%</span>
-                                        </div>
-                                        <input type="range" min="0" max="100" value={localOpp.kpis.technicalUnderstanding || 0} onChange={(e) => updateKpiField('technicalUnderstanding', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                            <span>Deal Probability</span>
-                                            <span>{localOpp.kpis.dealProbability || 0}%</span>
-                                        </div>
-                                        <input type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
-                                    </div>
-                                    <div className="pt-2 border-t border-gray-50">
-                                        <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1 items-center">
-                                            <div className="flex items-center gap-1.5" title="Represents the combined effort invested by me and all involved areas to make the proposal successful.">
-                                                <span>Effort Contribution</span>
-                                                <div className="w-3.5 h-3.5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] cursor-help border border-gray-200">?</div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                {localOpp.kpis.effortContribution === null || localOpp.kpis.effortContribution === 0 ? (
-                                                    <button
-                                                        onClick={() => updateKpiField('effortContribution', suggestedEffortScore)}
-                                                        className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors"
-                                                    >
-                                                        Suggest: {suggestedEffortScore}%
-                                                    </button>
-                                                ) : null}
-                                                <span className="text-blue-600 font-black">{localOpp.kpis.effortContribution || 0}%</span>
-                                            </div>
-                                        </div>
-                                        <input type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500" />
-                                        <p className="text-[9px] text-gray-400 italic mt-1 leading-tight">Combined scoring based on My Work ({myWorkStats.days}d) and Team Work ({totalAreaDays}d).</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sold?</label>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => updateKpiField('sold', true)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === true ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}>Yes</button>
-                                            <button onClick={() => updateKpiField('sold', false)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === false ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-500'}`}>No</button>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proposal Amount (USD)</label>
-                                        <input type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm" placeholder="0.00" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Timeline & Execution */}
-                            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                                    <div className="flex items-center gap-2">
-                                        <CalendarDays className="w-5 h-5 text-blue-500" />
-                                        <h3 className="font-bold text-gray-800">Timeline & Execution</h3>
-                                    </div>
-                                    <div className="flex gap-2">
+                                {Object.keys(localOpp.links).map((key) => (
+                                    <div key={key} className="flex gap-2 items-center group">
+                                        <span className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate" title={key}>{key}</span>
+                                        <input value={localOpp.links[key as keyof QuickLinks]} onChange={(e) => handleFieldChange('links', { ...localOpp.links, [key]: e.target.value })} className="flex-1 text-sm border-gray-200 rounded-lg" placeholder="https://..." />
+                                        {localOpp.links[key as keyof QuickLinks] && <a href={localOpp.links[key as keyof QuickLinks]} target="_blank" className="p-2 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200"><ExternalLink className="w-4 h-4" /></a>}
                                         <button
-                                            onClick={handleExportKpiPDF}
-                                            className="text-xs font-black bg-white text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                                            onClick={() => {
+                                                if (confirm(`Remove link "${key}"?`)) {
+                                                    const newLinks = { ...localOpp.links };
+                                                    delete newLinks[key];
+                                                    handleFieldChange('links', newLinks);
+                                                }
+                                            }}
+                                            className="p-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                         >
-                                            <FileDown className="w-4 h-4 text-gray-400" /> Export KPI PDF
+                                            <X className="w-4 h-4" />
                                         </button>
-                                        <button
-                                            onClick={() => setShowFullCalendar(true)}
-                                            className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm active:scale-95"
-                                        >
-                                            <Table className="w-4 h-4" /> View Full Calendar
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Received At</label>
-                                        <input type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivered / Tendered At</label>
-                                        <input type="date" value={localOpp.kpis.timeline?.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
-                                    </div>
-                                </div>
-
-                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
-                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Calendar Days</label>
-                                            <div className="text-xl font-black text-gray-800">{totalElapsedCalendarDays}</div>
-                                            <div className="text-[10px] text-gray-400 font-bold uppercase mt-1">Total Time</div>
-                                        </div>
-                                        <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
-                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Business Days</label>
-                                            <div className="text-xl font-black text-blue-600">{totalElapsedBusinessDays}</div>
-                                            <div className="text-[10px] text-blue-400/60 font-bold uppercase mt-1">Workable</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="h-px bg-gray-200 w-full" />
-
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <div className="text-center">
-                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Days)</label>
-                                            <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.days}</div>
-                                        </div>
-                                        <div className="text-center">
-                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Hours)</label>
-                                            <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.hours}h</div>
-                                        </div>
-                                        <div className="text-center">
-                                            <label className="block text-[9px] font-bold text-gray-400 uppercase">Waiting (Sum)</label>
-                                            <div className="text-lg font-black text-yellow-600">{waitingOnOthersDays}d</div>
-                                        </div>
-                                    </div>
-
-                                    {(executionUniqueDays > totalElapsedBusinessDays || hasDaysOutsideRange) && (
-                                        <div className="flex flex-col gap-1 p-3 bg-red-50 rounded-xl border-2 border-red-100 shadow-sm animate-pulse">
-                                            <div className="flex items-center gap-2">
-                                                <AlertCircle className="w-4 h-4 text-red-500" />
-                                                <p className="text-[11px] text-red-700 font-black uppercase">KPI Consistency Alert</p>
-                                            </div>
-                                            {executionUniqueDays > totalElapsedBusinessDays && (
-                                                <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
-                                                    Inconsistency detected: Unique execution days ({executionUniqueDays}) exceed Business Days ({totalElapsedBusinessDays}).
-                                                </p>
-                                            )}
-                                            {hasDaysOutsideRange && (
-                                                <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
-                                                    Inconsistency detected: Some tracked days are outside the Received/Delivered range.
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <div className="flex gap-2 mb-1">
-                                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Cancelled At</label>
-                                        <input type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6 shrink-0" />
-                                    </div>
-                                    <textarea value={localOpp.kpis.timeline.cancelledReason || ''} onChange={(e) => updateKpiField('timeline.cancelledReason', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm h-16 resize-none" placeholder="Reason for cancellation..." />
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Areas Involved Table */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                            <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                                <div className="flex items-center gap-2">
-                                    <User className="w-5 h-5 text-purple-500" />
-                                    <h3 className="font-bold text-gray-800">Areas Involved</h3>
-                                </div>
-                                <button onClick={() => setShowAddAreaModal(true)} className="text-xs bg-purple-50 text-purple-600 font-bold px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100">+ Add Area</button>
-                            </div>
-
-                            <table className="w-full text-sm text-left">
-                                <thead className="text-[10px] text-gray-400 font-bold uppercase bg-gray-50 border-b border-gray-100">
-                                    <tr>
-                                        <th className="px-4 py-2">Area / Team</th>
-                                        <th className="px-4 py-2 w-32 text-center">Worked Days</th>
-                                        <th className="px-4 py-2 w-32 text-center">Waiting Days</th>
-                                        <th className="px-4 py-2 w-24"></th>
-                                        <th className="px-4 py-2 w-10"></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {(localOpp.kpis?.areasInvolved || []).map(area => (
-                                        <tr key={area.id} className="hover:bg-gray-50">
-                                            <td className="px-4 py-2 text-gray-800 font-medium">
-                                                {area.area || 'Unnamed Area'}
-                                            </td>
-                                            <td className="px-4 py-2 text-center font-bold text-blue-600">
-                                                {area.daysSpent || 0}
-                                            </td>
-                                            <td className="px-4 py-2 text-center font-bold text-yellow-600">
-                                                {area.waitingDays || 0}
-                                            </td>
-                                            <td className="px-4 py-2 text-center">
-                                                <button
-                                                    onClick={() => setEditingAreaCalendar(area.id)}
-                                                    className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded border border-gray-200 hover:bg-white transition-colors"
-                                                >
-                                                    Edit Cal
-                                                </button>
-                                            </td>
-                                            <td className="px-4 py-2 text-right">
-                                                <button onClick={() => removeKpiArea(area.id)} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {(!localOpp.kpis?.areasInvolved || localOpp.kpis.areasInvolved.length === 0) && (
-                                        <tr>
-                                            <td colSpan={5} className="text-center py-8 text-gray-400 italic text-xs">No specific areas tracked yet.</td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-
-                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-                                <div className="p-3 bg-blue-50 rounded-lg shadow-inner">
-                                    <label className="text-[9px] font-black text-blue-500 uppercase block mb-1">Execution Unique Days</label>
-                                    <div className="text-xl font-black text-blue-700">{executionUniqueDays}</div>
-                                </div>
-                                <div className="p-3 bg-purple-50 rounded-lg shadow-inner text-right">
-                                    <label className="text-[9px] font-black text-purple-500 uppercase block mb-1">Total Record Duration</label>
-                                    <div className="text-xl font-black text-purple-700">{totalAreaDays}d</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {showFullCalendar && (
-                    <FullCalendarModal
-                        areas={localOpp.kpis?.areasInvolved || []}
-                        holidays={holidays}
-                        history={localOpp.history}
-                        onSaveAreaCalendar={handleSaveAreaCalendar}
-                        onAddArea={addKpiArea}
-                        onRemoveArea={removeKpiArea}
-                        onAddHistory={addHistoryEntry}
-                        onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
-                        onDeleteHistory={deleteHistoryEntry}
-                        onClose={() => setShowFullCalendar(false)}
-                        trackedAreas={trackedAreas || []}
-                        timeline={localOpp.kpis?.timeline || { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }}
-                        onUpdateTimeline={(field, val) => updateKpiField('timeline', { ...localOpp.kpis?.timeline, [field]: val })}
-                    />
-                )}
-
-                {activeTab === 'presentation' && (
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
-                            <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
-                        </div>
-                        <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
-                                <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
-                                <textarea value={localOpp.presentation.requirements} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
-                            <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'commercial' && (
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {['swHw', 'services', 'resale'].map((key) => {
-                                const row = localOpp.commercial[key as 'swHw'];
-                                return (
-                                    <div key={key} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
-                                        <h4 className="text-sm font-black text-gray-800 uppercase tracking-wide border-b border-gray-100 pb-2">{key === 'swHw' ? 'Hardware / Software' : key}</h4>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Cost</label><input type="number" value={displayValue(row.cost)} onChange={(e) => updateCommercialRow(key as any, 'cost', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono" /></div>
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Margin %</label><input type="number" value={displayValue(row.margin)} onChange={(e) => updateCommercialRow(key as any, 'margin', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-blue-600 font-bold" /></div>
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label><input type="number" value={displayValue(row.sellPrice)} onChange={(e) => updateCommercialRow(key as any, 'sellPrice', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono font-bold" /></div>
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Discount %</label><input type="number" value={displayValue(row.discount)} onChange={(e) => updateCommercialRow(key as any, 'discount', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-orange-600" /></div>
-                                        </div>
-                                        <div className="pt-2 border-t border-gray-100 mt-auto">
-                                            <div className="flex justify-between items-end">
-                                                <span className="text-xs font-medium text-gray-500">Final Price</span>
-                                                <span className="text-lg font-bold text-[#3DCD58]">${row.finalPrice.toLocaleString()}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Global Adjustments</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label><input type="number" value={displayValue(localOpp.commercial.risk)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, risk: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
-                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label><input type="number" value={displayValue(localOpp.commercial.contingency)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
-                                </div>
-                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label><textarea value={localOpp.commercial.discountsAndNotes} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: e.target.value })} className="w-full border-gray-200 rounded text-sm mt-1 h-20" /></div>
-                            </div>
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                                <div className="flex justify-between items-center">
-                                    <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Project Totals</h4>
-                                    <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 font-mono">GM: {totalMargin}%</span>
-                                </div>
-                                {/* REMOVED TOTAL SELL PRICE DISPLAY HERE */}
-                                <div className="p-4 border border-gray-100 rounded-lg">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialSellPrice)} onChange={(e) => updateOfficialSellPrice(parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm mt-1 font-bold" /></div>
-                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialMargin)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'history' && (
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                        <div className="flex justify-between items-center">
-                            <h3 className="font-bold text-gray-800">Change Log / Events</h3>
-                            <div className="flex gap-2">
-                                <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Copy for bFO</button>
-                                <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
-                            </div>
-                        </div>
-                        <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
-                            {localOpp.history.map(entry => (
-                                <div key={entry.id} id={`history-entry-${entry.id}`} className="relative">
-                                    <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
-                                    <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <input type="date" value={entry.date} onChange={(e) => updateHistoryEntry(entry.id, 'date', e.target.value)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0" />
-                                            <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
-                                        </div>
-                                        <textarea value={entry.content} onChange={(e) => updateHistoryEntry(entry.id, 'content', e.target.value)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
-                                    </div>
-                                </div>
-                            ))}
-                            {localOpp.history.length === 0 && <p className="text-center text-gray-400 italic py-8">No history recorded yet.</p>}
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'questions' && (
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                        <div className="flex justify-between items-center">
-                            <h3 className="font-bold text-gray-800">Q&A Tracker</h3>
-                        </div>
-                        <div className="space-y-4">
-                            {localOpp.questions.map(q => (
-                                <div key={q.id} className="p-4 border border-gray-200 rounded-xl hover:shadow-sm transition-shadow">
-                                    <div className="flex justify-between mb-2">
-                                        <span className="text-[10px] font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase">Source: {q.sourceType}</span>
-                                        <button onClick={() => { if (window.confirm('Delete?')) handleFieldChange('questions', localOpp.questions.filter(qi => qi.id !== q.id)) }} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
-                                    </div>
-                                    {q.quote && <div className="text-xs text-gray-400 italic mb-2 border-l-2 border-gray-200 pl-2">"{q.quote}"</div>}
-                                    <input className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(e) => updateQuestion(q.id, 'question', e.target.value)} />
-                                    <textarea className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(e) => updateQuestion(q.id, 'answer', e.target.value)} rows={2} />
-                                </div>
-                            ))}
-                            {localOpp.questions.length === 0 && <p className="text-center text-gray-400 italic py-8">No questions logged from notes or tasks.</p>}
-                        </div>
-                    </div>
-                )}
-
-                {editingAreaCalendar && (() => {
-                    const area = localOpp.kpis?.areasInvolved.find(a => a.id === editingAreaCalendar);
-                    if (!area) return null;
-                    return (
-                        <KpiCalendarModal
-                            area={area}
-                            holidays={holidays}
-                            suggestedWaitingDates={[]}
-                            onClose={() => setEditingAreaCalendar(null)}
-                            onSave={(cal) => {
-                                handleSaveAreaCalendar(editingAreaCalendar!, cal);
-                                setEditingAreaCalendar(null);
-                            }}
-                            history={localOpp.history}
-                            onNavigateToHistory={handleNavigateToHistory}
-                            onAddHistory={addHistoryEntry}
-                            onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
-                            onDeleteHistory={deleteHistoryEntry}
-                        />
-                    );
-                })()}
-
-                {activeTab === 'folder' && (
-                    <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} />
-                )}
-
-                {activeTab === 'notes' && (
-                    <div className={`flex h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : ''}`}>
-                        {!isNoteFullScreen && (
-                            <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto border-r border-gray-100 pr-4">
-                                {/* Search Bar for Notes */}
-                                <div className="relative mb-1">
-                                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                                    <input
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        placeholder="Search notes..."
-                                        className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
-                                    />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-2 mb-2">
-                                    {/* Dynamic Note Template Buttons */}
-                                    {noteTemplates.length > 0 ? (
-                                        noteTemplates.map(tmpl => (
-                                            <button
-                                                key={tmpl.id}
-                                                onClick={() => addNote(tmpl.title, tmpl.content)}
-                                                className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all"
-                                            >
-                                                <Plus className="w-3 h-3" /> {tmpl.title}
-                                            </button>
-                                        ))
-                                    ) : (
-                                        // Fallback if settings fail or empty
-                                        ['Kick-off', 'Scope', 'General'].map(t => (
-                                            <button key={t} onClick={() => addNote(t)} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all">
-                                                <Plus className="w-3 h-3" /> {t}
-                                            </button>
-                                        ))
-                                    )}
-                                    <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
-                                </div>
-                                {filteredNotes.length === 0 && searchTerm && (
-                                    <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
-                                )}
-                                {filteredNotes.map(note => (
-                                    <div key={note.id} id={`note-item-${note.id}`} className={`p-3 rounded-lg border cursor-pointer relative group transition-all ${selectedNoteId === note.id ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => setSelectedNoteId(note.id)}>
-                                        <div className="font-bold text-sm text-gray-900 truncate pr-6">{note.title}</div>
-                                        <div className="text-[10px] font-mono text-gray-400 mt-1 uppercase">{note.date}</div>
-                                        <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                                     </div>
                                 ))}
                             </div>
-                        )}
-                        <div className="flex-1 flex gap-4 min-h-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col shadow-sm">
-                            {currentNote ? (
-                                <>
-                                    <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
-                                        <div className="flex justify-between items-center">
-                                            <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
-                                            <div className="flex items-center gap-2">
-                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">
-                                                    <CalendarIcon className="w-3.5 h-3.5 text-gray-400" />
-                                                    <input
-                                                        type="date"
-                                                        value={currentNote.date || new Date().toISOString().split('T')[0]}
-                                                        onChange={(e) => updateSelectedNote('date', e.target.value)}
-                                                        className="text-xs font-bold text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer"
-                                                    />
+                        </div>
+                    )}
+
+                    {activeTab === 'kpi' && localOpp.kpis && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Performance Ratings */}
+                                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                                    <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+                                        <Target className="w-5 h-5 text-[#3DCD58]" />
+                                        <h3 className="font-bold text-gray-800">Performance Ratings</h3>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
+                                                <span>Language Skill</span>
+                                                <span>{localOpp.kpis.languageSkill || 0}%</span>
+                                            </div>
+                                            <input type="range" min="0" max="100" value={localOpp.kpis.languageSkill || 0} onChange={(e) => updateKpiField('languageSkill', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
+                                                <span>Technical Understanding</span>
+                                                <span>{localOpp.kpis.technicalUnderstanding || 0}%</span>
+                                            </div>
+                                            <input type="range" min="0" max="100" value={localOpp.kpis.technicalUnderstanding || 0} onChange={(e) => updateKpiField('technicalUnderstanding', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                        </div>
+                                        <div>
+                                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
+                                                <span>Deal Probability</span>
+                                                <span>{localOpp.kpis.dealProbability || 0}%</span>
+                                            </div>
+                                            <input type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                        </div>
+                                        <div className="pt-2 border-t border-gray-50">
+                                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1 items-center">
+                                                <div className="flex items-center gap-1.5" title="Represents the combined effort invested by me and all involved areas to make the proposal successful.">
+                                                    <span>Effort Contribution</span>
+                                                    <div className="w-3.5 h-3.5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] cursor-help border border-gray-200">?</div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {localOpp.kpis.effortContribution === null || localOpp.kpis.effortContribution === 0 ? (
+                                                        <button
+                                                            onClick={() => updateKpiField('effortContribution', suggestedEffortScore)}
+                                                            className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors"
+                                                        >
+                                                            Suggest: {suggestedEffortScore}%
+                                                        </button>
+                                                    ) : null}
+                                                    <span className="text-blue-600 font-black">{localOpp.kpis.effortContribution || 0}%</span>
                                                 </div>
                                             </div>
+                                            <input type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500" />
+                                            <p className="text-[9px] text-gray-400 italic mt-1 leading-tight">Combined scoring based on My Work ({myWorkStats.days}d) and Team Work ({totalAreaDays}d).</p>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            {textSelection && <button className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1" onClick={() => addQuestion(currentNote.id, textSelection)}><HelpCircle className="w-3 h-3" /> Ask Question</button>}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sold?</label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => updateKpiField('sold', true)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === true ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}>Yes</button>
+                                                <button onClick={() => updateKpiField('sold', false)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === false ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-500'}`}>No</button>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proposal Amount (USD)</label>
+                                            <input type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm" placeholder="0.00" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Timeline & Execution */}
+                                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                                    <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <CalendarDays className="w-5 h-5 text-blue-500" />
+                                            <h3 className="font-bold text-gray-800">Timeline & Execution</h3>
+                                        </div>
+                                        <div className="flex gap-2">
                                             <button
-                                                onClick={() => setShowQuestionsSplit(!showQuestionsSplit)}
-                                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showQuestionsSplit ? 'bg-[#3DCD58]/10 border-[#3DCD58]/20 text-[#3DCD58]' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                                                title="Open Questions"
+                                                onClick={handleExportKpiPDF}
+                                                className="text-xs font-black bg-white text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-all flex items-center gap-2 shadow-sm active:scale-95"
                                             >
-                                                <SplitSquareHorizontal className="w-3 h-3" />
-                                                Open Questions
+                                                <FileDown className="w-4 h-4 text-gray-400" /> Export KPI PDF
                                             </button>
-                                            <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>
-                                            <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
-                                        </div>
-                                    </div>
-                                    {/* Editor Container with Vertical Flex */}
-                                    <div className="flex-1 flex flex-col min-h-0">
-                                        <RichTextEditor
-                                            key={currentNote.id}
-                                            ref={noteEditorRef}
-                                            content={currentNote.content}
-                                            onChange={(val) => updateSelectedNote('content', val)}
-                                            onSelection={handleSelection}
-                                            onLinkClick={handleLinkClick}
-                                            onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
-                                        />
-
-                                        {/* Tasks in this note section */}
-                                        <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0 flex flex-col max-h-[300px]">
-                                            <div className="px-6 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0">
-                                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tasks in this note</h3>
-                                                <button
-                                                    onClick={() => handleAddInlineTask(currentNote.id)}
-                                                    disabled={!currentNote}
-                                                    className="text-xs flex items-center gap-1 font-bold text-[#3DCD58] hover:bg-[#3DCD58]/10 px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    <Plus className="w-3 h-3" /> Add task
-                                                </button>
-                                            </div>
-                                            <div className="overflow-y-auto p-4 space-y-2">
-                                                {(currentNote.inlineTasks || []).length === 0 && (
-                                                    <div className="text-center text-gray-400 text-xs italic py-2">No tasks in this note. Add one to track actions.</div>
-                                                )}
-                                                {(currentNote.inlineTasks || []).map((inlineTask) => {
-                                                    const isLinked = !!inlineTask.linkedTaskId;
-                                                    return (
-                                                        <div key={inlineTask.id} className="flex items-center gap-3 group">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={inlineTask.isDone}
-                                                                onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { isDone: e.target.checked })}
-                                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
-                                                            />
-                                                            <input
-                                                                value={inlineTask.text}
-                                                                onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { text: e.target.value })}
-                                                                className={`flex-1 text-sm bg-transparent border-none p-0 focus:ring-0 ${inlineTask.isDone ? 'text-gray-400 line-through' : 'text-gray-700'}`}
-                                                                placeholder="Task description..."
-                                                            />
-                                                            {isLinked ? (
-                                                                <div className="flex items-center gap-1">
-                                                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider flex items-center gap-1">
-                                                                        <Link className="w-3 h-3" /> Linked
-                                                                    </span>
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            const task = localOpp.tasks.find(t => t.id === inlineTask.linkedTaskId);
-                                                                            if (task) handleOpenSplitView(task, currentNote.id);
-                                                                        }}
-                                                                        className="text-[10px] text-gray-400 hover:text-blue-500 underline flex items-center gap-1"
-                                                                        title="Open Split View"
-                                                                    >
-                                                                        <Columns className="w-3 h-3" /> Split
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleUnlinkInlineTask(currentNote.id, inlineTask)}
-                                                                        className="p-1 text-gray-300 hover:text-red-500 rounded"
-                                                                        title="Unlink"
-                                                                    >
-                                                                        <Unlink className="w-3 h-3" />
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleCreateLinkedTask(currentNote.id, inlineTask)}
-                                                                    className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-all"
-                                                                >
-                                                                    Create linked task
-                                                                </button>
-                                                            )}
-                                                            <button onClick={() => handleDeleteInlineTask(currentNote.id, inlineTask.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
+                                            <button
+                                                onClick={() => setShowFullCalendar(true)}
+                                                className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm active:scale-95"
+                                            >
+                                                <Table className="w-4 h-4" /> View Full Calendar
+                                            </button>
                                         </div>
                                     </div>
 
-                                    {/* Linked Items Container (Scrollable) */}
-                                    <div className="px-6 pb-4 bg-white border-t border-gray-100 max-h-48 overflow-y-auto">
-                                        <LinkedDocsList
-                                            key={refreshKey}
-                                            opportunityId={opportunity.id}
-                                            noteId={currentNote.id}
-                                            onNavigateToFile={navigateToFile}
-                                            onPreview={() => { }}
-                                        />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Received At</label>
+                                            <input type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivered / Tendered At</label>
+                                            <input type="date" value={localOpp.kpis.timeline?.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                        </div>
+                                    </div>
 
-                                        {/* Linked Tasks Section */}
-                                        {getLinkedTasksForNote(currentNote.id).length > 0 && (
-                                            <div className="mt-4 pt-4 border-t border-gray-100">
-                                                <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Linked Tasks (Legacy & Manual Links)</h5>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {getLinkedTasksForNote(currentNote.id).map(t => (
-                                                        <div key={t.id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
-                                                            <CheckSquare className="w-3.5 h-3.5 text-gray-400" />
-                                                            <span className="text-xs font-medium text-gray-700">{t.title}</span>
-                                                            <button
-                                                                onClick={() => { setActiveTab('tasks'); setSelectedTaskForEdit({ task: t }); }}
-                                                                className="ml-2 text-[10px] font-bold text-[#3DCD58] hover:underline uppercase"
-                                                            >
-                                                                Open
-                                                            </button>
-                                                        </div>
-                                                    ))}
+                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
+                                                <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Calendar Days</label>
+                                                <div className="text-xl font-black text-gray-800">{totalElapsedCalendarDays}</div>
+                                                <div className="text-[10px] text-gray-400 font-bold uppercase mt-1">Total Time</div>
+                                            </div>
+                                            <div className="p-3 bg-white rounded-lg border border-gray-100 shadow-sm text-center">
+                                                <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Elapsed Business Days</label>
+                                                <div className="text-xl font-black text-blue-600">{totalElapsedBusinessDays}</div>
+                                                <div className="text-[10px] text-blue-400/60 font-bold uppercase mt-1">Workable</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="h-px bg-gray-200 w-full" />
+
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div className="text-center">
+                                                <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Days)</label>
+                                                <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.days}</div>
+                                            </div>
+                                            <div className="text-center">
+                                                <label className="block text-[9px] font-bold text-gray-400 uppercase">My Work (Hours)</label>
+                                                <div className="text-lg font-black text-[#3DCD58]">{myWorkStats.hours}h</div>
+                                            </div>
+                                            <div className="text-center">
+                                                <label className="block text-[9px] font-bold text-gray-400 uppercase">Waiting (Sum)</label>
+                                                <div className="text-lg font-black text-yellow-600">{waitingOnOthersDays}d</div>
+                                            </div>
+                                        </div>
+
+                                        {(executionUniqueDays > totalElapsedBusinessDays || hasDaysOutsideRange) && (
+                                            <div className="flex flex-col gap-1 p-3 bg-red-50 rounded-xl border-2 border-red-100 shadow-sm animate-pulse">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertCircle className="w-4 h-4 text-red-500" />
+                                                    <p className="text-[11px] text-red-700 font-black uppercase">KPI Consistency Alert</p>
                                                 </div>
+                                                {executionUniqueDays > totalElapsedBusinessDays && (
+                                                    <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
+                                                        Inconsistency detected: Unique execution days ({executionUniqueDays}) exceed Business Days ({totalElapsedBusinessDays}).
+                                                    </p>
+                                                )}
+                                                {hasDaysOutsideRange && (
+                                                    <p className="text-[10px] text-red-600 font-bold ml-6 line-clamp-2 italic">
+                                                        Inconsistency detected: Some tracked days are outside the Received/Delivered range.
+                                                    </p>
+                                                )}
                                             </div>
                                         )}
                                     </div>
-                                </>
-                            ) : <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2"><FileText className="w-12 h-12 opacity-10" /><p className="font-bold opacity-30">Select a note to start editing</p></div>}
-                        </div>
-                        {showQuestionsSplit && (
-                            <div className="w-1/3 bg-gray-50 border-l border-gray-200 p-4 overflow-y-auto animate-slide-in-right">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h4 className="font-black text-gray-700 uppercase tracking-widest text-xs">Linked Questions</h4>
-                                    <button onClick={() => setShowQuestionsSplit(false)} className="p-1 hover:bg-gray-200 rounded"><X className="w-4 h-4" /></button>
+
+                                    <div>
+                                        <div className="flex gap-2 mb-1">
+                                            <label className="block text-[10px] font-bold text-gray-400 uppercase">Cancelled At</label>
+                                            <input type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6 shrink-0" />
+                                        </div>
+                                        <textarea value={localOpp.kpis.timeline.cancelledReason || ''} onChange={(e) => updateKpiField('timeline.cancelledReason', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm h-16 resize-none" placeholder="Reason for cancellation..." />
+                                    </div>
                                 </div>
-                                <div className="space-y-4">
-                                    {localOpp.questions.filter(q => q.sourceId === selectedNoteId).map(q => (
-                                        <div key={q.id} className={`p-4 rounded-xl border bg-white shadow-sm transition-all ${highlightedQuestionId === q.id ? 'border-[#3DCD58] ring-1 ring-[#3DCD58]/20' : 'border-gray-200'}`}>
-                                            <div className="text-[10px] text-gray-400 font-bold uppercase mb-2 border-l-2 border-[#3DCD58] pl-2 italic truncate">"{q.quote}"</div>
-                                            <input className="w-full text-sm font-bold text-gray-900 bg-transparent border-none p-0 focus:ring-0" value={q.question} onChange={(e) => updateQuestion(q.id, 'question', e.target.value)} />
-                                            <textarea className="w-full text-xs text-gray-500 mt-2 bg-gray-50 border-none p-2 rounded focus:bg-gray-100 transition-colors" value={q.answer} placeholder="Type answer..." onChange={(e) => updateQuestion(q.id, 'answer', e.target.value)} rows={2} />
+                            </div>
+
+                            {/* Areas Involved Table */}
+                            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                    <div className="flex items-center gap-2">
+                                        <User className="w-5 h-5 text-purple-500" />
+                                        <h3 className="font-bold text-gray-800">Areas Involved</h3>
+                                    </div>
+                                    <button onClick={() => setShowAddAreaModal(true)} className="text-xs bg-purple-50 text-purple-600 font-bold px-3 py-1.5 rounded-lg border border-purple-100 hover:bg-purple-100">+ Add Area</button>
+                                </div>
+
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-[10px] text-gray-400 font-bold uppercase bg-gray-50 border-b border-gray-100">
+                                        <tr>
+                                            <th className="px-4 py-2">Area / Team</th>
+                                            <th className="px-4 py-2 w-32 text-center">Worked Days</th>
+                                            <th className="px-4 py-2 w-32 text-center">Waiting Days</th>
+                                            <th className="px-4 py-2 w-24"></th>
+                                            <th className="px-4 py-2 w-10"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                        {(localOpp.kpis?.areasInvolved || []).map(area => (
+                                            <tr key={area.id} className="hover:bg-gray-50">
+                                                <td className="px-4 py-2 text-gray-800 font-medium">
+                                                    {area.area || 'Unnamed Area'}
+                                                </td>
+                                                <td className="px-4 py-2 text-center font-bold text-blue-600">
+                                                    {area.daysSpent || 0}
+                                                </td>
+                                                <td className="px-4 py-2 text-center font-bold text-yellow-600">
+                                                    {area.waitingDays || 0}
+                                                </td>
+                                                <td className="px-4 py-2 text-center">
+                                                    <button
+                                                        onClick={() => setEditingAreaCalendar(area.id)}
+                                                        className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-1 rounded border border-gray-200 hover:bg-white transition-colors"
+                                                    >
+                                                        Edit Cal
+                                                    </button>
+                                                </td>
+                                                <td className="px-4 py-2 text-right">
+                                                    <button onClick={() => removeKpiArea(area.id)} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {(!localOpp.kpis?.areasInvolved || localOpp.kpis.areasInvolved.length === 0) && (
+                                            <tr>
+                                                <td colSpan={5} className="text-center py-8 text-gray-400 italic text-xs">No specific areas tracked yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+
+                                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                                    <div className="p-3 bg-blue-50 rounded-lg shadow-inner">
+                                        <label className="text-[9px] font-black text-blue-500 uppercase block mb-1">Execution Unique Days</label>
+                                        <div className="text-xl font-black text-blue-700">{executionUniqueDays}</div>
+                                    </div>
+                                    <div className="p-3 bg-purple-50 rounded-lg shadow-inner text-right">
+                                        <label className="text-[9px] font-black text-purple-500 uppercase block mb-1">Total Record Duration</label>
+                                        <div className="text-xl font-black text-purple-700">{totalAreaDays}d</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showFullCalendar && (
+                        <FullCalendarModal
+                            areas={localOpp.kpis?.areasInvolved || []}
+                            holidays={holidays}
+                            history={localOpp.history}
+                            onSaveAreaCalendar={handleSaveAreaCalendar}
+                            onAddArea={addKpiArea}
+                            onRemoveArea={removeKpiArea}
+                            onAddHistory={addHistoryEntry}
+                            onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
+                            onDeleteHistory={deleteHistoryEntry}
+                            onClose={() => setShowFullCalendar(false)}
+                            trackedAreas={trackedAreas || []}
+                            timeline={localOpp.kpis?.timeline || { receivedAt: new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null }}
+                            onUpdateTimeline={(field, val) => updateKpiField('timeline', { ...localOpp.kpis?.timeline, [field]: val })}
+                        />
+                    )}
+
+                    {activeTab === 'presentation' && (
+                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
+                                <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
+                            </div>
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
+                                    <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
+                                    <textarea value={localOpp.presentation.requirements} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
+                                <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'commercial' && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {['swHw', 'services', 'resale'].map((key) => {
+                                    const row = localOpp.commercial[key as 'swHw'];
+                                    return (
+                                        <div key={key} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
+                                            <h4 className="text-sm font-black text-gray-800 uppercase tracking-wide border-b border-gray-100 pb-2">{key === 'swHw' ? 'Hardware / Software' : key}</h4>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Cost</label><input type="number" value={displayValue(row.cost)} onChange={(e) => updateCommercialRow(key as any, 'cost', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono" /></div>
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Margin %</label><input type="number" value={displayValue(row.margin)} onChange={(e) => updateCommercialRow(key as any, 'margin', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-blue-600 font-bold" /></div>
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label><input type="number" value={displayValue(row.sellPrice)} onChange={(e) => updateCommercialRow(key as any, 'sellPrice', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono font-bold" /></div>
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">Discount %</label><input type="number" value={displayValue(row.discount)} onChange={(e) => updateCommercialRow(key as any, 'discount', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-orange-600" /></div>
+                                            </div>
+                                            <div className="pt-2 border-t border-gray-100 mt-auto">
+                                                <div className="flex justify-between items-end">
+                                                    <span className="text-xs font-medium text-gray-500">Final Price</span>
+                                                    <span className="text-lg font-bold text-[#3DCD58]">${row.finalPrice.toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                    <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Global Adjustments</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label><input type="number" value={displayValue(localOpp.commercial.risk)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, risk: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label><input type="number" value={displayValue(localOpp.commercial.contingency)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                    </div>
+                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label><textarea value={localOpp.commercial.discountsAndNotes} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: e.target.value })} className="w-full border-gray-200 rounded text-sm mt-1 h-20" /></div>
+                                </div>
+                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Project Totals</h4>
+                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 font-mono">GM: {totalMargin}%</span>
+                                    </div>
+                                    {/* REMOVED TOTAL SELL PRICE DISPLAY HERE */}
+                                    <div className="p-4 border border-gray-100 rounded-lg">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialSellPrice)} onChange={(e) => updateOfficialSellPrice(parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm mt-1 font-bold" /></div>
+                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialMargin)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'history' && (
+                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-gray-800">Change Log / Events</h3>
+                                <div className="flex gap-2">
+                                    <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Copy for bFO</button>
+                                    <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
+                                </div>
+                            </div>
+                            <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
+                                {localOpp.history.map(entry => (
+                                    <div key={entry.id} id={`history-entry-${entry.id}`} className="relative">
+                                        <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
+                                        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <input type="date" value={entry.date} onChange={(e) => updateHistoryEntry(entry.id, 'date', e.target.value)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0" />
+                                                <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
+                                            </div>
+                                            <textarea value={entry.content} onChange={(e) => updateHistoryEntry(entry.id, 'content', e.target.value)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
+                                        </div>
+                                    </div>
+                                ))}
+                                {localOpp.history.length === 0 && <p className="text-center text-gray-400 italic py-8">No history recorded yet.</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'questions' && (
+                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-gray-800">Q&A Tracker</h3>
+                            </div>
+                            <div className="space-y-4">
+                                {localOpp.questions.map(q => (
+                                    <div key={q.id} className="p-4 border border-gray-200 rounded-xl hover:shadow-sm transition-shadow">
+                                        <div className="flex justify-between mb-2">
+                                            <span className="text-[10px] font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase">Source: {q.sourceType}</span>
+                                            <button onClick={() => { if (window.confirm('Delete?')) handleFieldChange('questions', localOpp.questions.filter(qi => qi.id !== q.id)) }} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
+                                        </div>
+                                        {q.quote && <div className="text-xs text-gray-400 italic mb-2 border-l-2 border-gray-200 pl-2">"{q.quote}"</div>}
+                                        <input className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(e) => updateQuestion(q.id, 'question', e.target.value)} />
+                                        <textarea className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(e) => updateQuestion(q.id, 'answer', e.target.value)} rows={2} />
+                                    </div>
+                                ))}
+                                {localOpp.questions.length === 0 && <p className="text-center text-gray-400 italic py-8">No questions logged from notes or tasks.</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    {editingAreaCalendar && (() => {
+                        const area = localOpp.kpis?.areasInvolved.find(a => a.id === editingAreaCalendar);
+                        if (!area) return null;
+                        return (
+                            <KpiCalendarModal
+                                area={area}
+                                holidays={holidays}
+                                suggestedWaitingDates={[]}
+                                onClose={() => setEditingAreaCalendar(null)}
+                                onSave={(cal) => {
+                                    handleSaveAreaCalendar(editingAreaCalendar!, cal);
+                                    setEditingAreaCalendar(null);
+                                }}
+                                history={localOpp.history}
+                                onNavigateToHistory={handleNavigateToHistory}
+                                onAddHistory={addHistoryEntry}
+                                onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
+                                onDeleteHistory={deleteHistoryEntry}
+                            />
+                        );
+                    })()}
+
+                    {activeTab === 'folder' && (
+                        <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} />
+                    )}
+
+                    {activeTab === 'notes' && (
+                        <div className={`flex h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : ''}`}>
+                            {!isNoteFullScreen && (
+                                <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto border-r border-gray-100 pr-4">
+                                    {/* Search Bar for Notes */}
+                                    <div className="relative mb-1">
+                                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                        <input
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            placeholder="Search notes..."
+                                            className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        {/* Dynamic Note Template Buttons */}
+                                        {noteTemplates.length > 0 ? (
+                                            noteTemplates.map(tmpl => (
+                                                <button
+                                                    key={tmpl.id}
+                                                    onClick={() => addNote(tmpl.title, tmpl.content)}
+                                                    className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Plus className="w-3 h-3" /> {tmpl.title}
+                                                </button>
+                                            ))
+                                        ) : (
+                                            // Fallback if settings fail or empty
+                                            ['Kick-off', 'Scope', 'General'].map(t => (
+                                                <button key={t} onClick={() => addNote(t)} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all">
+                                                    <Plus className="w-3 h-3" /> {t}
+                                                </button>
+                                            ))
+                                        )}
+                                        <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
+                                    </div>
+                                    {filteredNotes.length === 0 && searchTerm && (
+                                        <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
+                                    )}
+                                    {filteredNotes.map(note => (
+                                        <div key={note.id} id={`note-item-${note.id}`} className={`p-3 rounded-lg border cursor-pointer relative group transition-all ${selectedNoteId === note.id ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => setSelectedNoteId(note.id)}>
+                                            <div className="font-bold text-sm text-gray-900 truncate pr-6">{note.title}</div>
+                                            <div className="text-[10px] font-mono text-gray-400 mt-1 uppercase">{note.date}</div>
+                                            <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                                         </div>
                                     ))}
                                 </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* ... Tasks and other tabs unchanged in structure ... */}
-                {activeTab === 'tasks' && (
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[500px] flex flex-col">
-                        {/* Task View Content */}
-                        <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gray-50/50">
-                            <div className="flex items-center gap-4">
-                                <h3 className="font-black text-gray-800 uppercase tracking-wider">Action Plan</h3>
-                                <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
-                                    <button onClick={() => setTaskViewMode('list')} className={`p-1.5 rounded ${taskViewMode === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="List View"><ListIcon className="w-4 h-4" /></button>
-                                    <button onClick={() => setTaskViewMode('calendar')} className={`p-1.5 rounded ${taskViewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="relative">
-                                    <Search className="w-4 h-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                                    <input className="pl-8 pr-4 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58] w-40" placeholder="Filter tasks..." value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} />
-                                </div>
-                                {/* CHANGED: Replaced select with MultiSelect for Status Filtering */}
-                                <MultiSelect
-                                    options={Object.keys(TASK_STATUS_COLORS)}
-                                    selected={taskStatusFilters}
-                                    onChange={setTaskStatusFilters}
-                                    placeholder="All Status"
-                                />
-                                <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
-                                <button onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
-                            </div>
-                        </div>
-
-                        {taskViewMode === 'list' && (
-                            <div className="flex items-center justify-between px-6 py-2 bg-gray-50 border-b border-gray-100">
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setTaskSort(taskSort === 'dueDate' ? 'none' : 'dueDate')}
-                                        className={`flex items-center gap-1 bg-white border px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors ${taskSort === 'dueDate' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-gray-200 text-gray-500 hover:bg-gray-100'}`}
-                                    >
-                                        <CalendarIcon className="w-3 h-3" /> Sort by due date
-                                    </button>
-                                    <button
-                                        onClick={() => setTaskSort(taskSort === 'order' ? 'none' : 'order')}
-                                        className={`flex items-center gap-1 bg-white border px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors ${taskSort === 'order' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-gray-200 text-gray-500 hover:bg-gray-100'}`}
-                                    >
-                                        <ArrowUpDown className="w-3 h-3" /> Sort by order
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="flex-1 min-h-0 overflow-hidden">
-                            {taskViewMode === 'list' ? (
-                                <div className="p-6 space-y-3 overflow-y-auto h-full">
-                                    {filteredTasks.length === 0 ? (
-                                        <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
-                                    ) : filteredTasks.map(task => (
-                                        <div key={task.id} id={`task-${task.id}`} className="group border border-gray-100 p-4 rounded-xl flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-all hover:border-[#3DCD58]/30 hover:shadow-md" onClick={() => setSelectedTaskForEdit({ task })}>
-                                            <div className="flex items-center gap-4">
-                                                <div
-                                                    className="text-xs font-bold text-gray-300 w-6 text-center"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    title="Execution Order"
-                                                >
-                                                    <input
-                                                        type="number"
-                                                        className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold"
-                                                        placeholder="#"
-                                                        value={task.order || ''}
-                                                        onChange={(e) => {
-                                                            const newOrder = e.target.value ? parseInt(e.target.value) : null;
-                                                            const updatedTasks = localOpp.tasks.map(t => t.id === task.id ? { ...t, order: newOrder } : t);
-                                                            handleFieldChange('tasks', updatedTasks);
-                                                        }}
-                                                    />
-                                                </div>
-                                                <div className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                                                <div className="flex-1">
-                                                    <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>
-                                                    <div className="text-[10px] font-black uppercase mt-1 flex items-center gap-2">
-                                                        <User className="w-3 h-3" /> {task.owner}
-                                                        <span className="text-gray-300">|</span>
-                                                        <Clock className="w-3 h-3" /> {task.dueDate}
-                                                        {(task.externalAreas || []).map(a => <span key={a} className="bg-emerald-50 text-emerald-600 px-1.5 rounded">{a}</span>)}
+                            )}
+                            <div className="flex-1 flex gap-4 min-h-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col shadow-sm">
+                                {currentNote ? (
+                                    <>
+                                        <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
+                                            <div className="flex justify-between items-center">
+                                                <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                                                        <CalendarIcon className="w-3.5 h-3.5 text-gray-400" />
+                                                        <input
+                                                            type="date"
+                                                            value={currentNote.date || new Date().toISOString().split('T')[0]}
+                                                            onChange={(e) => updateSelectedNote('date', e.target.value)}
+                                                            className="text-xs font-bold text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer"
+                                                        />
                                                     </div>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3">
-                                                {task.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400" />}
-                                                <div className={`text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-sm ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</div>
+                                                {textSelection && <button className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1" onClick={() => addQuestion(currentNote.id, textSelection)}><HelpCircle className="w-3 h-3" /> Ask Question</button>}
+                                                <button
+                                                    onClick={() => setShowQuestionsSplit(!showQuestionsSplit)}
+                                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showQuestionsSplit ? 'bg-[#3DCD58]/10 border-[#3DCD58]/20 text-[#3DCD58]' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                                    title="Open Questions"
+                                                >
+                                                    <SplitSquareHorizontal className="w-3 h-3" />
+                                                    Open Questions
+                                                </button>
+                                                <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>
+                                                <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
                                             </div>
                                         </div>
-                                    ))}
+                                        {/* Editor Container with Vertical Flex */}
+                                        <div className="flex-1 flex flex-col min-h-0">
+                                            <RichTextEditor
+                                                key={currentNote.id}
+                                                ref={noteEditorRef}
+                                                content={currentNote.content}
+                                                onChange={(val) => updateSelectedNote('content', val)}
+                                                onSelection={handleSelection}
+                                                onLinkClick={handleLinkClick}
+                                                onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
+                                            />
+
+                                            {/* Tasks in this note section */}
+                                            <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0 flex flex-col max-h-[300px]">
+                                                <div className="px-6 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0">
+                                                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tasks in this note</h3>
+                                                    <button
+                                                        onClick={() => handleAddInlineTask(currentNote.id)}
+                                                        disabled={!currentNote}
+                                                        className="text-xs flex items-center gap-1 font-bold text-[#3DCD58] hover:bg-[#3DCD58]/10 px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        <Plus className="w-3 h-3" /> Add task
+                                                    </button>
+                                                </div>
+                                                <div className="overflow-y-auto p-4 space-y-2">
+                                                    {(currentNote.inlineTasks || []).length === 0 && (
+                                                        <div className="text-center text-gray-400 text-xs italic py-2">No tasks in this note. Add one to track actions.</div>
+                                                    )}
+                                                    {(currentNote.inlineTasks || []).map((inlineTask) => {
+                                                        const isLinked = !!inlineTask.linkedTaskId;
+                                                        return (
+                                                            <div key={inlineTask.id} className="flex items-center gap-3 group">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={inlineTask.isDone}
+                                                                    onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { isDone: e.target.checked })}
+                                                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                                />
+                                                                <input
+                                                                    value={inlineTask.text}
+                                                                    onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { text: e.target.value })}
+                                                                    className={`flex-1 text-sm bg-transparent border-none p-0 focus:ring-0 ${inlineTask.isDone ? 'text-gray-400 line-through' : 'text-gray-700'}`}
+                                                                    placeholder="Task description..."
+                                                                />
+                                                                {isLinked ? (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider flex items-center gap-1">
+                                                                            <Link className="w-3 h-3" /> Linked
+                                                                        </span>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                const task = localOpp.tasks.find(t => t.id === inlineTask.linkedTaskId);
+                                                                                if (task) handleOpenSplitView(task, currentNote.id);
+                                                                            }}
+                                                                            className="text-[10px] text-gray-400 hover:text-blue-500 underline flex items-center gap-1"
+                                                                            title="Open Split View"
+                                                                        >
+                                                                            <Columns className="w-3 h-3" /> Split
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleUnlinkInlineTask(currentNote.id, inlineTask)}
+                                                                            className="p-1 text-gray-300 hover:text-red-500 rounded"
+                                                                            title="Unlink"
+                                                                        >
+                                                                            <Unlink className="w-3 h-3" />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <button
+                                                                        onClick={() => handleCreateLinkedTask(currentNote.id, inlineTask)}
+                                                                        className="opacity-0 group-hover:opacity-100 text-[10px] font-bold text-blue-500 hover:bg-blue-50 px-2 py-1 rounded transition-all"
+                                                                    >
+                                                                        Create linked task
+                                                                    </button>
+                                                                )}
+                                                                <button onClick={() => handleDeleteInlineTask(currentNote.id, inlineTask.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Linked Items Container (Scrollable) */}
+                                        <div className="px-6 pb-4 bg-white border-t border-gray-100 max-h-48 overflow-y-auto">
+                                            <LinkedDocsList
+                                                key={refreshKey}
+                                                opportunityId={opportunity.id}
+                                                noteId={currentNote.id}
+                                                onNavigateToFile={navigateToFile}
+                                                onPreview={() => { }}
+                                            />
+
+                                            {/* Linked Tasks Section */}
+                                            {getLinkedTasksForNote(currentNote.id).length > 0 && (
+                                                <div className="mt-4 pt-4 border-t border-gray-100">
+                                                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Linked Tasks (Legacy & Manual Links)</h5>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {getLinkedTasksForNote(currentNote.id).map(t => (
+                                                            <div key={t.id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                                                                <CheckSquare className="w-3.5 h-3.5 text-gray-400" />
+                                                                <span className="text-xs font-medium text-gray-700">{t.title}</span>
+                                                                <button
+                                                                    onClick={() => { setActiveTab('tasks'); setSelectedTaskForEdit({ task: t }); }}
+                                                                    className="ml-2 text-[10px] font-bold text-[#3DCD58] hover:underline uppercase"
+                                                                >
+                                                                    Open
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2"><FileText className="w-12 h-12 opacity-10" /><p className="font-bold opacity-30">Select a note to start editing</p></div>}
+                            </div>
+                            {showQuestionsSplit && (
+                                <div className="w-1/3 bg-gray-50 border-l border-gray-200 p-4 overflow-y-auto animate-slide-in-right">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h4 className="font-black text-gray-700 uppercase tracking-widest text-xs">Linked Questions</h4>
+                                        <button onClick={() => setShowQuestionsSplit(false)} className="p-1 hover:bg-gray-200 rounded"><X className="w-4 h-4" /></button>
+                                    </div>
+                                    <div className="space-y-4">
+                                        {localOpp.questions.filter(q => q.sourceId === selectedNoteId).map(q => (
+                                            <div key={q.id} className={`p-4 rounded-xl border bg-white shadow-sm transition-all ${highlightedQuestionId === q.id ? 'border-[#3DCD58] ring-1 ring-[#3DCD58]/20' : 'border-gray-200'}`}>
+                                                <div className="text-[10px] text-gray-400 font-bold uppercase mb-2 border-l-2 border-[#3DCD58] pl-2 italic truncate">"{q.quote}"</div>
+                                                <input className="w-full text-sm font-bold text-gray-900 bg-transparent border-none p-0 focus:ring-0" value={q.question} onChange={(e) => updateQuestion(q.id, 'question', e.target.value)} />
+                                                <textarea className="w-full text-xs text-gray-500 mt-2 bg-gray-50 border-none p-2 rounded focus:bg-gray-100 transition-colors" value={q.answer} placeholder="Type answer..." onChange={(e) => updateQuestion(q.id, 'answer', e.target.value)} rows={2} />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            ) : (
-                                <div className="p-6 h-full">
-                                    <CalendarView<Task>
-                                        items={filteredTasks}
-                                        getDate={(t) => t.dueDate}
-                                        onDateDrop={handleTaskDrop}
-                                        renderItem={(t) => (
-                                            <div
-                                                draggable
-                                                onDragStart={(e) => {
-                                                    e.dataTransfer.setData('id', t.id);
-                                                    e.dataTransfer.setData('type', 'task');
-                                                }}
-                                                onClick={() => setSelectedTaskForEdit({ task: t })}
-                                                className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
-                                                title={t.title}
+                            )}
+                        </div>
+                    )}
+
+                    {/* ... Tasks and other tabs unchanged in structure ... */}
+                    {activeTab === 'tasks' && (
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[500px] flex flex-col">
+                            {/* Task View Content */}
+                            <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gray-50/50">
+                                <div className="flex items-center gap-4">
+                                    <h3 className="font-black text-gray-800 uppercase tracking-wider">Action Plan</h3>
+                                    <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
+                                        <button onClick={() => setTaskViewMode('list')} className={`p-1.5 rounded ${taskViewMode === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="List View"><ListIcon className="w-4 h-4" /></button>
+                                        <button onClick={() => setTaskViewMode('calendar')} className={`p-1.5 rounded ${taskViewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative">
+                                        <Search className="w-4 h-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                                        <input className="pl-8 pr-4 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58] w-40" placeholder="Filter tasks..." value={taskFilter} onChange={(e) => setTaskFilter(e.target.value)} />
+                                    </div>
+                                    {/* CHANGED: Replaced select with MultiSelect for Status Filtering */}
+                                    <MultiSelect
+                                        options={Object.keys(TASK_STATUS_COLORS)}
+                                        selected={taskStatusFilters}
+                                        onChange={setTaskStatusFilters}
+                                        placeholder="All Status"
+                                    />
+                                    <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
+                                    <button onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
+                                </div>
+                            </div>
+
+                            {taskViewMode === 'list' && (
+                                <div className="flex items-center justify-between px-6 py-2 bg-gray-50 border-b border-gray-100">
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setTaskSort(taskSort === 'dueDate' ? 'none' : 'dueDate')}
+                                            className={`flex items-center gap-1 bg-white border px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors ${taskSort === 'dueDate' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-gray-200 text-gray-500 hover:bg-gray-100'}`}
+                                        >
+                                            <CalendarIcon className="w-3 h-3" /> Sort by due date
+                                        </button>
+                                        <button
+                                            onClick={() => setTaskSort(taskSort === 'order' ? 'none' : 'order')}
+                                            className={`flex items-center gap-1 bg-white border px-2 py-1 rounded text-[10px] font-bold shadow-sm transition-colors ${taskSort === 'order' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-gray-200 text-gray-500 hover:bg-gray-100'}`}
+                                        >
+                                            <ArrowUpDown className="w-3 h-3" /> Sort by order
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex-1 min-h-0 overflow-hidden">
+                                {taskViewMode === 'list' ? (
+                                    <div className="p-6 space-y-3 overflow-y-auto h-full">
+                                        {filteredTasks.length === 0 ? (
+                                            <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
+                                        ) : filteredTasks.map(task => (
+                                            <div key={task.id} id={`task-${task.id}`} className="group border border-gray-100 p-4 rounded-xl flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-all hover:border-[#3DCD58]/30 hover:shadow-md" onClick={() => setSelectedTaskForEdit({ task })}>
+                                                <div className="flex items-center gap-4">
+                                                    <div
+                                                        className="text-xs font-bold text-gray-300 w-6 text-center"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        title="Execution Order"
+                                                    >
+                                                        <input
+                                                            type="number"
+                                                            className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold"
+                                                            placeholder="#"
+                                                            value={task.order || ''}
+                                                            onChange={(e) => {
+                                                                const newOrder = e.target.value ? parseInt(e.target.value) : null;
+                                                                const updatedTasks = localOpp.tasks.map(t => t.id === task.id ? { ...t, order: newOrder } : t);
+                                                                handleFieldChange('tasks', updatedTasks);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                                                    <div className="flex-1">
+                                                        <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>
+                                                        <div className="text-[10px] font-black uppercase mt-1 flex items-center gap-2">
+                                                            <User className="w-3 h-3" /> {task.owner}
+                                                            <span className="text-gray-300">|</span>
+                                                            <Clock className="w-3 h-3" /> {task.dueDate}
+                                                            {(task.externalAreas || []).map(a => <span key={a} className="bg-emerald-50 text-emerald-600 px-1.5 rounded">{a}</span>)}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    {task.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400" />}
+                                                    <div className={`text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-sm ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="p-6 h-full">
+                                        <CalendarView<Task>
+                                            items={filteredTasks}
+                                            getDate={(t) => t.dueDate}
+                                            onDateDrop={handleTaskDrop}
+                                            renderItem={(t) => (
+                                                <div
+                                                    draggable
+                                                    onDragStart={(e) => {
+                                                        e.dataTransfer.setData('id', t.id);
+                                                        e.dataTransfer.setData('type', 'task');
+                                                    }}
+                                                    onClick={() => setSelectedTaskForEdit({ task: t })}
+                                                    className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
+                                                    title={t.title}
+                                                >
+                                                    {t.title}
+                                                </div>
+                                            )}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Task Edit Modal */}
+                {selectedTaskForEdit && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTaskForEdit(null)}>
+                        <div
+                            className={`bg-white shadow-2xl rounded-3xl p-8 animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-full max-w-2xl max-h-[90vh] overflow-y-auto'}`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Left Column (Task Editor) */}
+                            <div className="flex flex-col h-full overflow-y-auto pr-2">
+                                <div className="flex justify-between items-start mb-8 shrink-0">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
+                                        <div>
+                                            <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
+                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
+                                            <Copy className="w-3 h-3" /> Summary
+                                        </button>
+                                        {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X className="w-6 h-6 text-gray-400" /></button>}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-8 flex-1">
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
+                                            <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
+                                        </div>
+                                        <div className="w-24 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
+                                            <input type="number" className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0 text-center" value={selectedTaskForEdit.task.order || ''} onChange={(e) => updateTaskInModal('order', e.target.value ? parseInt(e.target.value) : null)} placeholder="#" />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-8">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Due Date</label>
+                                            <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                        <div className="flex gap-4 items-center">
+                                            <select
+                                                className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
+                                                value={selectedTaskForEdit.task.owner}
+                                                onChange={(e) => updateTaskInModal('owner', e.target.value)}
                                             >
-                                                {t.title}
+                                                <option value="Me">Me</option>
+                                                <option value="External Area">External Area</option>
+                                            </select>
+                                            {selectedTaskForEdit.task.owner === 'External Area' && (
+                                                <div className="flex gap-2 flex-1 flex-col">
+                                                    <MultiSelect
+                                                        placeholder="Select Areas"
+                                                        options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
+                                                        selected={selectedTaskForEdit.task.externalAreas || []}
+                                                        onChange={(vals) => updateTaskInModal('externalAreas', vals)}
+                                                    />
+                                                    <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Dependency Section */}
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Scheduling & Dependencies</label>
+                                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
+                                            <div className="flex-1">
+                                                <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
+                                                <SimpleMultiSelect
+                                                    placeholder="Select dependencies..."
+                                                    options={localOpp.tasks.filter(t => t.id !== selectedTaskForEdit.task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
+                                                    selected={selectedTaskForEdit.task.dependsOnTaskIds || []}
+                                                    onChange={(val) => updateTaskInModal('dependsOnTaskIds', val)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="blockDoneToggle"
+                                                    checked={selectedTaskForEdit.task.blockDoneUntilDependenciesDone || false}
+                                                    onChange={e => updateTaskInModal('blockDoneUntilDependenciesDone', e.target.checked)}
+                                                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                />
+                                                <label htmlFor="blockDoneToggle" className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
+                                                    <Lock className="w-3 h-3 text-gray-400" />
+                                                    Block Done until dependencies are done
+                                                </label>
+                                            </div>
+
+                                            {/* Dependency Status Preview */}
+                                            {selectedTaskForEdit.task.dependsOnTaskIds && selectedTaskForEdit.task.dependsOnTaskIds.length > 0 && (
+                                                <div className="mt-2 pt-2 border-t border-gray-200/50">
+                                                    {selectedTaskForEdit.task.dependsOnTaskIds.map(depId => {
+                                                        const depTask = localOpp.tasks.find(t => t.id === depId);
+                                                        if (!depTask) return null;
+                                                        return (
+                                                            <div key={depId} className="flex items-center gap-2 text-xs py-0.5">
+                                                                <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                                                <span className={`${depTask.status === 'Done' ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{depTask.title}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
+                                        <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
+                                    </div>
+
+                                    {/* DOCUMENT LINKS */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Documents</label>
+                                            <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
+                                        </div>
+                                        <div className="p-4 bg-gray-50 rounded-2xl">
+                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                        </div>
+                                    </div>
+
+                                    {/* NOTE LINKS */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Notes</label>
+                                            <button
+                                                className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline"
+                                                onClick={() => setShowNotePickerForTask(selectedTaskForEdit.task.id)}
+                                            >
+                                                + Link Note
+                                            </button>
+                                        </div>
+
+                                        {showNotePickerForTask === selectedTaskForEdit.task.id && (
+                                            <div className="relative z-10 p-4 bg-white border border-gray-200 shadow-lg rounded-xl mb-4 animate-fade-in">
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <h5 className="font-bold text-sm">Select Notes</h5>
+                                                    <button onClick={() => setShowNotePickerForTask(null)}><X className="w-4 h-4 text-gray-400" /></button>
+                                                </div>
+                                                <input
+                                                    className="w-full text-xs border-gray-200 rounded-lg mb-2"
+                                                    placeholder="Search notes..."
+                                                    value={noteSearch}
+                                                    onChange={(e) => setNoteSearch(e.target.value)}
+                                                />
+                                                <div className="max-h-40 overflow-y-auto space-y-1 mb-3">
+                                                    {localOpp.notes.filter(n => n.title.toLowerCase().includes(noteSearch.toLowerCase())).map(n => (
+                                                        <label key={n.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedNotesToLink.includes(n.id)}
+                                                                onChange={() => {
+                                                                    if (selectedNotesToLink.includes(n.id)) setSelectedNotesToLink(prev => prev.filter(id => id !== n.id));
+                                                                    else setSelectedNotesToLink(prev => [...prev, n.id]);
+                                                                }}
+                                                                className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
+                                                            />
+                                                            <span className="text-xs truncate">{n.title}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                <button
+                                                    onClick={() => linkNotesToTask(selectedTaskForEdit.task.id, selectedNotesToLink)}
+                                                    className="w-full bg-[#3DCD58] text-white text-xs font-bold py-2 rounded-lg"
+                                                >
+                                                    Link Selected
+                                                </button>
                                             </div>
                                         )}
-                                    />
+
+                                        <div className="space-y-2">
+                                            {(selectedTaskForEdit.task.linkedNoteIds || [selectedTaskForEdit.task.linkedNoteId]).filter(Boolean).map((nid) => {
+                                                const note = localOpp.notes.find(n => n.id === nid);
+                                                if (!note) return null;
+                                                return (
+                                                    <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
+                                                        <div className="flex items-center gap-2">
+                                                            <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
+                                                            <span className="text-sm font-medium">{note.title}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => { setSelectedTaskForEdit(null); setActiveTab('notes'); setSelectedNoteId(note.id); }}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
+                                                            >
+                                                                Open Note
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setSplitViewNoteId(note.id)}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
+                                                            >
+                                                                <Columns className="w-3 h-3" /> Split View
+                                                            </button>
+                                                            <button
+                                                                onClick={() => unlinkNoteFromTask(selectedTaskForEdit.task.id, note.id)}
+                                                                className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
+                                                                title="Unlink"
+                                                            >
+                                                                <Unlink className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {!selectedTaskForEdit.task.linkedNoteIds?.length && !selectedTaskForEdit.task.linkedNoteId && (
+                                                <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sub-Tasks Checklist</label>
+                                            <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => updateTaskInModal('subtasks', [...selectedTaskForEdit.task.subtasks, { id: crypto.randomUUID(), title: 'New Sub-task', completed: false }])}>+ Add Entry</button>
+                                        </div>
+                                        <div className="space-y-2 bg-gray-50 p-4 rounded-2xl">
+                                            {selectedTaskForEdit.task.subtasks.map((sub, idx) => (
+                                                <div key={sub.id} className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm group">
+                                                    <div className="flex flex-col -space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={() => moveSubtask(idx, 'up')} disabled={idx === 0} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4" /></button>
+                                                        <button onClick={() => moveSubtask(idx, 'down')} disabled={idx === selectedTaskForEdit.task.subtasks.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
+                                                    </div>
+                                                    <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
+                                                    <input className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
+                                                    <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="text-gray-200 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-6 border-t flex justify-between gap-4">
+                                        <button onClick={deleteTaskInModal} className="px-6 py-3 rounded-2xl text-sm font-black uppercase text-red-500 hover:bg-red-50 transition-all border border-red-100">Delete Task</button>
+                                        {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="flex-1 bg-gray-900 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase shadow-xl hover:shadow-gray-900/20 active:scale-95 transition-all">Close & Save</button>}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column (Split View Note Editor) */}
+                            {splitViewNoteId && (
+                                <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
+                                    <div className="flex justify-between items-center mb-4 shrink-0">
+                                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                            <FileText className="w-5 h-5 text-[#3DCD58]" />
+                                            {localOpp.notes.find(n => n.id === splitViewNoteId)?.title}
+                                        </h3>
+                                        <button
+                                            onClick={() => setSplitViewNoteId(null)}
+                                            className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
+                                        >
+                                            Close Split View
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                                        <RichTextEditor
+                                            key={splitViewNoteId}
+                                            content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
+                                            onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </div>
                     </div>
                 )}
-            </div>
 
-            {/* Task Edit Modal */}
-            {selectedTaskForEdit && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTaskForEdit(null)}>
-                    <div
-                        className={`bg-white shadow-2xl rounded-3xl p-8 animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-full max-w-2xl max-h-[90vh] overflow-y-auto'}`}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Left Column (Task Editor) */}
-                        <div className="flex flex-col h-full overflow-y-auto pr-2">
-                            <div className="flex justify-between items-start mb-8 shrink-0">
-                                <div className="flex items-center gap-4">
-                                    <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
-                                    <div>
-                                        <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
-                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
-                                    </div>
+                {showDocPicker && (
+                    <DocumentPickerModal
+                        opportunityId={opportunity.id}
+                        multi={true}
+                        onSelect={handleDocSelect}
+                        onClose={() => setShowDocPicker(null)}
+                        title={`Link documents to ${showDocPicker.type}`}
+                    />
+                )}
+
+                {showAddAreaModal && (
+                    <AddAreaModal
+                        availableAreas={(trackedAreas || []).filter(ta => !((localOpp.kpis?.areasInvolved || []).some(a => a.area === ta)))}
+                        onAdd={(areaName) => {
+                            addKpiArea(areaName);
+                            setShowAddAreaModal(false);
+                        }}
+                        onClose={() => setShowAddAreaModal(false)}
+                    />
+                )}
+
+                {showCreateVersionModal && (
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                            <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
-                                        <Copy className="w-3 h-3" /> Summary
-                                    </button>
-                                    {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X className="w-6 h-6 text-gray-400" /></button>}
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
+                                    <p className="text-[10px] text-gray-400 mt-1">Leave empty to use current SR: {localOpp.srId}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Tags (comma separated)</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm" placeholder="e.g. Draft, Client Review" value={newVersionData.tags} onChange={e => setNewVersionData({ ...newVersionData, tags: e.target.value })} />
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700">
+                                    <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
+                                </div>
+                                <div className="flex gap-2 justify-end mt-2">
+                                    <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
+                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
 
-                            <div className="space-y-8 flex-1">
-                                <div className="flex items-start gap-4">
-                                    <div className="flex-1 space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
-                                        <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
+                {showDiffModal && (
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                            <div className="p-4 border-b flex justify-between items-center">
+                                <h3 className="font-bold">Version Comparison</h3>
+                                <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
+                            </div>
+                            <div className="p-4 overflow-y-auto flex-1">
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div className="p-2 bg-red-50 rounded border border-red-100">
+                                        <h4 className="font-bold text-red-800 text-xs uppercase mb-1">Base (Live)</h4>
+                                        <p className="text-xs">Current State</p>
                                     </div>
-                                    <div className="w-24 space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
-                                        <input type="number" className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0 text-center" value={selectedTaskForEdit.task.order || ''} onChange={(e) => updateTaskInModal('order', e.target.value ? parseInt(e.target.value) : null)} placeholder="#" />
+                                    <div className="p-2 bg-green-50 rounded border border-green-100">
+                                        <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
+                                        <p className="text-xs">
+                                            {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
+                                        </p>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-8">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                        <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Due Date</label>
-                                        <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
-                                    </div>
-                                </div>
-
-                                <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
-                                    <div className="flex gap-4 items-center">
-                                        <select
-                                            className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
-                                            value={selectedTaskForEdit.task.owner}
-                                            onChange={(e) => updateTaskInModal('owner', e.target.value)}
-                                        >
-                                            <option value="Me">Me</option>
-                                            <option value="External Area">External Area</option>
-                                        </select>
-                                        {selectedTaskForEdit.task.owner === 'External Area' && (
-                                            <div className="flex gap-2 flex-1 flex-col">
-                                                <MultiSelect
-                                                    placeholder="Select Areas"
-                                                    options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
-                                                    selected={selectedTaskForEdit.task.externalAreas || []}
-                                                    onChange={(vals) => updateTaskInModal('externalAreas', vals)}
-                                                />
-                                                <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Dependency Section */}
                                 <div className="space-y-4">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Scheduling & Dependencies</label>
-                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
-                                        <div className="flex-1">
-                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
-                                            <SimpleMultiSelect
-                                                placeholder="Select dependencies..."
-                                                options={localOpp.tasks.filter(t => t.id !== selectedTaskForEdit.task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
-                                                selected={selectedTaskForEdit.task.dependsOnTaskIds || []}
-                                                onChange={(val) => updateTaskInModal('dependsOnTaskIds', val)}
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id="blockDoneToggle"
-                                                checked={selectedTaskForEdit.task.blockDoneUntilDependenciesDone || false}
-                                                onChange={e => updateTaskInModal('blockDoneUntilDependenciesDone', e.target.checked)}
-                                                className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
-                                            />
-                                            <label htmlFor="blockDoneToggle" className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
-                                                <Lock className="w-3 h-3 text-gray-400" />
-                                                Block Done until dependencies are done
-                                            </label>
-                                        </div>
+                                    <h4 className="font-bold text-sm border-b pb-1">Changes Summary</h4>
+                                    <div className="text-sm space-y-2">
+                                        {/* Inline Logic for Diff */}
+                                        {(() => {
+                                            const v = (localOpp.versions || []).find(v => v.id === diffCompareId);
+                                            if (!v) return <p>Version not found.</p>;
 
-                                        {/* Dependency Status Preview */}
-                                        {selectedTaskForEdit.task.dependsOnTaskIds && selectedTaskForEdit.task.dependsOnTaskIds.length > 0 && (
-                                            <div className="mt-2 pt-2 border-t border-gray-200/50">
-                                                {selectedTaskForEdit.task.dependsOnTaskIds.map(depId => {
-                                                    const depTask = localOpp.tasks.find(t => t.id === depId);
-                                                    if (!depTask) return null;
-                                                    return (
-                                                        <div key={depId} className="flex items-center gap-2 text-xs py-0.5">
-                                                            <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                                            <span className={`${depTask.status === 'Done' ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{depTask.title}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                            const tasksDiff = Math.abs(localOpp.tasks.length - v.snapshot.tasks.length);
+                                            const notesDiff = Math.abs(localOpp.notes.length - v.snapshot.notes.length);
+                                            const kpiChanged = JSON.stringify(localOpp.kpis) !== JSON.stringify(v.snapshot.kpis);
 
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
-                                    <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
-                                </div>
-
-                                {/* DOCUMENT LINKS */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Documents</label>
-                                        <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
-                                    </div>
-                                    <div className="p-4 bg-gray-50 rounded-2xl">
-                                        <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
-                                    </div>
-                                </div>
-
-                                {/* NOTE LINKS */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Notes</label>
-                                        <button
-                                            className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline"
-                                            onClick={() => setShowNotePickerForTask(selectedTaskForEdit.task.id)}
-                                        >
-                                            + Link Note
-                                        </button>
-                                    </div>
-
-                                    {showNotePickerForTask === selectedTaskForEdit.task.id && (
-                                        <div className="relative z-10 p-4 bg-white border border-gray-200 shadow-lg rounded-xl mb-4 animate-fade-in">
-                                            <div className="flex justify-between items-center mb-3">
-                                                <h5 className="font-bold text-sm">Select Notes</h5>
-                                                <button onClick={() => setShowNotePickerForTask(null)}><X className="w-4 h-4 text-gray-400" /></button>
-                                            </div>
-                                            <input
-                                                className="w-full text-xs border-gray-200 rounded-lg mb-2"
-                                                placeholder="Search notes..."
-                                                value={noteSearch}
-                                                onChange={(e) => setNoteSearch(e.target.value)}
-                                            />
-                                            <div className="max-h-40 overflow-y-auto space-y-1 mb-3">
-                                                {localOpp.notes.filter(n => n.title.toLowerCase().includes(noteSearch.toLowerCase())).map(n => (
-                                                    <label key={n.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedNotesToLink.includes(n.id)}
-                                                            onChange={() => {
-                                                                if (selectedNotesToLink.includes(n.id)) setSelectedNotesToLink(prev => prev.filter(id => id !== n.id));
-                                                                else setSelectedNotesToLink(prev => [...prev, n.id]);
-                                                            }}
-                                                            className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
-                                                        />
-                                                        <span className="text-xs truncate">{n.title}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <button
-                                                onClick={() => linkNotesToTask(selectedTaskForEdit.task.id, selectedNotesToLink)}
-                                                className="w-full bg-[#3DCD58] text-white text-xs font-bold py-2 rounded-lg"
-                                            >
-                                                Link Selected
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    <div className="space-y-2">
-                                        {(selectedTaskForEdit.task.linkedNoteIds || [selectedTaskForEdit.task.linkedNoteId]).filter(Boolean).map((nid) => {
-                                            const note = localOpp.notes.find(n => n.id === nid);
-                                            if (!note) return null;
                                             return (
-                                                <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
-                                                    <div className="flex items-center gap-2">
-                                                        <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
-                                                        <span className="text-sm font-medium">{note.title}</span>
+                                                <div>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>Tasks Count Difference</span>
+                                                        <span className="font-mono font-bold">{tasksDiff}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => { setSelectedTaskForEdit(null); setActiveTab('notes'); setSelectedNoteId(note.id); }}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
-                                                        >
-                                                            Open Note
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setSplitViewNoteId(note.id)}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
-                                                        >
-                                                            <Columns className="w-3 h-3" /> Split View
-                                                        </button>
-                                                        <button
-                                                            onClick={() => unlinkNoteFromTask(selectedTaskForEdit.task.id, note.id)}
-                                                            className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
-                                                            title="Unlink"
-                                                        >
-                                                            <Unlink className="w-3 h-3" />
-                                                        </button>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>Notes Count Difference</span>
+                                                        <span className="font-mono font-bold">{notesDiff}</span>
+                                                    </div>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>KPIs Changed?</span>
+                                                        <span className={`font-bold ${kpiChanged ? 'text-orange-500' : 'text-gray-400'}`}>{kpiChanged ? 'YES' : 'NO'}</span>
+                                                    </div>
+                                                    <div className="p-2 bg-yellow-50 text-xs text-yellow-700 mt-2">
+                                                        * Detailed field-by-field diff is limited in this surgical view.
+                                                        <br />Restore specific sections using the sidebar actions.
                                                     </div>
                                                 </div>
                                             );
-                                        })}
-                                        {!selectedTaskForEdit.task.linkedNoteIds?.length && !selectedTaskForEdit.task.linkedNoteId && (
-                                            <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
-                                        )}
+                                        })()}
                                     </div>
                                 </div>
-
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sub-Tasks Checklist</label>
-                                        <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => updateTaskInModal('subtasks', [...selectedTaskForEdit.task.subtasks, { id: crypto.randomUUID(), title: 'New Sub-task', completed: false }])}>+ Add Entry</button>
-                                    </div>
-                                    <div className="space-y-2 bg-gray-50 p-4 rounded-2xl">
-                                        {selectedTaskForEdit.task.subtasks.map((sub, idx) => (
-                                            <div key={sub.id} className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm group">
-                                                <div className="flex flex-col -space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={() => moveSubtask(idx, 'up')} disabled={idx === 0} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4" /></button>
-                                                    <button onClick={() => moveSubtask(idx, 'down')} disabled={idx === selectedTaskForEdit.task.subtasks.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
-                                                </div>
-                                                <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
-                                                <input className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
-                                                <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="text-gray-200 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="pt-6 border-t flex justify-between gap-4">
-                                    <button onClick={deleteTaskInModal} className="px-6 py-3 rounded-2xl text-sm font-black uppercase text-red-500 hover:bg-red-50 transition-all border border-red-100">Delete Task</button>
-                                    {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="flex-1 bg-gray-900 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase shadow-xl hover:shadow-gray-900/20 active:scale-95 transition-all">Close & Save</button>}
-                                </div>
                             </div>
-                        </div>
-
-                        {/* Right Column (Split View Note Editor) */}
-                        {splitViewNoteId && (
-                            <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
-                                <div className="flex justify-between items-center mb-4 shrink-0">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-[#3DCD58]" />
-                                        {localOpp.notes.find(n => n.id === splitViewNoteId)?.title}
-                                    </h3>
-                                    <button
-                                        onClick={() => setSplitViewNoteId(null)}
-                                        className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
-                                    >
-                                        Close Split View
-                                    </button>
-                                </div>
-                                <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-                                    <RichTextEditor
-                                        key={splitViewNoteId}
-                                        content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
-                                        onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {showDocPicker && (
-                <DocumentPickerModal
-                    opportunityId={opportunity.id}
-                    multi={true}
-                    onSelect={handleDocSelect}
-                    onClose={() => setShowDocPicker(null)}
-                    title={`Link documents to ${showDocPicker.type}`}
-                />
-            )}
-
-            {showAddAreaModal && (
-                <AddAreaModal
-                    availableAreas={(trackedAreas || []).filter(ta => !((localOpp.kpis?.areasInvolved || []).some(a => a.area === ta)))}
-                    onAdd={(areaName) => {
-                        addKpiArea(areaName);
-                        setShowAddAreaModal(false);
-                    }}
-                    onClose={() => setShowAddAreaModal(false)}
-                />
-            )}
-
-            {showCreateVersionModal && (
-                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-                        <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
-                                <p className="text-[10px] text-gray-400 mt-1">Leave empty to use current SR: {localOpp.srId}</p>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Tags (comma separated)</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm" placeholder="e.g. Draft, Client Review" value={newVersionData.tags} onChange={e => setNewVersionData({ ...newVersionData, tags: e.target.value })} />
-                            </div>
-                            <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700">
-                                <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
-                            </div>
-                            <div className="flex gap-2 justify-end mt-2">
-                                <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
-                                <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
+                            <div className="p-4 border-t bg-gray-50 rounded-b-2xl">
+                                <button onClick={() => setShowDiffModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Close</button>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {showDiffModal && (
-                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 border-b flex justify-between items-center">
-                            <h3 className="font-bold">Version Comparison</h3>
-                            <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
-                        </div>
-                        <div className="p-4 overflow-y-auto flex-1">
-                            <div className="grid grid-cols-2 gap-4 mb-4">
-                                <div className="p-2 bg-red-50 rounded border border-red-100">
-                                    <h4 className="font-bold text-red-800 text-xs uppercase mb-1">Base (Live)</h4>
-                                    <p className="text-xs">Current State</p>
-                                </div>
-                                <div className="p-2 bg-green-50 rounded border border-green-100">
-                                    <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
-                                    <p className="text-xs">
-                                        {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                <h4 className="font-bold text-sm border-b pb-1">Changes Summary</h4>
-                                <div className="text-sm space-y-2">
-                                    {/* Inline Logic for Diff */}
-                                    {(() => {
-                                        const v = (localOpp.versions || []).find(v => v.id === diffCompareId);
-                                        if (!v) return <p>Version not found.</p>;
-
-                                        const tasksDiff = Math.abs(localOpp.tasks.length - v.snapshot.tasks.length);
-                                        const notesDiff = Math.abs(localOpp.notes.length - v.snapshot.notes.length);
-                                        const kpiChanged = JSON.stringify(localOpp.kpis) !== JSON.stringify(v.snapshot.kpis);
-
-                                        return (
-                                            <div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>Tasks Count Difference</span>
-                                                    <span className="font-mono font-bold">{tasksDiff}</span>
-                                                </div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>Notes Count Difference</span>
-                                                    <span className="font-mono font-bold">{notesDiff}</span>
-                                                </div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>KPIs Changed?</span>
-                                                    <span className={`font-bold ${kpiChanged ? 'text-orange-500' : 'text-gray-400'}`}>{kpiChanged ? 'YES' : 'NO'}</span>
-                                                </div>
-                                                <div className="p-2 bg-yellow-50 text-xs text-yellow-700 mt-2">
-                                                    * Detailed field-by-field diff is limited in this surgical view.
-                                                    <br />Restore specific sections using the sidebar actions.
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-4 border-t bg-gray-50 rounded-b-2xl">
-                            <button onClick={() => setShowDiffModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Close</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 };
