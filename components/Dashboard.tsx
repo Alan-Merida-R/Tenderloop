@@ -12,6 +12,7 @@ import { RichTextEditor } from './OpportunityDetail';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays } from 'lucide-react';
+import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
 
 
 const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: string, label: string }[], maxValue: number }> = ({ data, metrics, maxValue }) => {
@@ -142,6 +143,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: 
 const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [] }) => {
     const [viewMode, setViewMode] = useState<'board' | 'table' | 'calendar'>('board');
     const [filterText, setFilterText] = useState('');
+    const [selectedOppChips, setSelectedOppChips] = useState<string[]>([]);
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
     const [dateFilterStart, setDateFilterStart] = useState('');
     const [dateFilterEnd, setDateFilterEnd] = useState('');
@@ -269,13 +271,21 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return (opp.commercial.swHw?.sellPrice || 0) + (opp.commercial.services?.sellPrice || 0) + (opp.commercial.resale?.sellPrice || 0);
     };
 
-    // --- Filter Logic (Moved up to prevent use-before-declaration error) ---
+    // --- Filter Logic ---
     const filteredOpps = useMemo(() => {
+        const booleanMatcher = parseBooleanQuery(filterText);
+
         return opportunities.filter(opp => {
-            const matchesText =
-                opp.title.toLowerCase().includes(filterText.toLowerCase()) ||
-                opp.id.toLowerCase().includes(filterText.toLowerCase()) ||
-                opp.customer.toLowerCase().includes(filterText.toLowerCase());
+            let matchesText = true;
+            if (booleanMatcher) {
+                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel}`.toLowerCase();
+                matchesText = booleanMatcher(raw);
+            }
+
+            let matchesChips = true;
+            if (selectedOppChips.length > 0) {
+                matchesChips = selectedOppChips.includes(opp.id);
+            }
 
             let matchesStatus = true;
             if (statusFilters.length > 0) {
@@ -298,9 +308,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 if (dateFilterEnd && dateToCheck > dateFilterEnd) matchesDate = false;
             }
 
-            return matchesText && matchesStatus && matchesDate;
+            return matchesText && matchesChips && matchesStatus && matchesDate;
         });
-    }, [opportunities, filterText, statusFilters, dateFilterStart, dateFilterEnd]);
+    }, [opportunities, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -939,14 +949,14 @@ ${noteTitles.join('\n')}
                         <input type="date" value={dateFilterEnd} onChange={e => setDateFilterEnd(e.target.value)} className="text-xs border-none focus:ring-0 p-1" />
                     </div>
 
-                    <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search..."
+                    <div className="relative z-20">
+                        <OpportunitySearchInput
+                            opportunities={opportunities}
                             value={filterText}
-                            onChange={(e) => setFilterText(e.target.value)}
-                            className="pl-9 pr-4 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:ring-[#3DCD58] focus:border-[#3DCD58] shadow-sm w-48"
+                            onChange={setFilterText}
+                            selectedIds={selectedOppChips}
+                            onSelect={(id) => setSelectedOppChips(prev => [...prev, id])}
+                            onRemove={(id) => setSelectedOppChips(prev => prev.filter(p => p !== id))}
                         />
                     </div>
 
