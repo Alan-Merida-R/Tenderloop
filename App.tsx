@@ -387,6 +387,7 @@ function App() {
           await rememberDb(result.handle, { name: result.handle.name });
         } else {
           setFileHandle(null);
+          // @ts-ignore
           setFallbackFileName(result.name || "Offline DB");
         }
 
@@ -804,6 +805,7 @@ function App() {
         {/* Main Dashboard Area */}
         <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
           <Dashboard
+            key={fileHandle?.name || 'sandbox'}
             mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
             opportunities={db.opportunities}
             onSelect={(id, dl) => {
