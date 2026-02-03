@@ -2664,189 +2664,191 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         <div className="flex flex-col h-full bg-white relative overflow-hidden">
 
             {/* Main Content Area */}
-            <div className="flex flex-col flex-1 h-full min-w-0 bg-white relative justify-start">
-                {isWorkingCopy && (
-                    <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
-                        <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Version: {activeVersion?.commitMessage}</span>
-                        <button onClick={() => handleVersionSwitch(null)} className="underline hover:text-amber-900">Exit Version</button>
-                    </div>
-                )}
-
-                <div className="p-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
-                    <div className="max-w-7xl mx-auto w-full">
-                        <div className="flex justify-between items-start mb-1">
-                            <div className="flex items-center gap-2">
-                                <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"><X className="w-5 h-5 text-gray-500" /></button>
-                                <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">OP</span>
-                                    <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
-                                </div>
-                                <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">QLK</span>
-                                    <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
-                                </div>
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">REV</span>
-                                <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
-                            </div>
-                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                                <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
-                            </div>
+            <div className="flex flex-col flex-1 h-full min-w-0 bg-white relative">
+                <div className="flex-none flex flex-col bg-white z-10 shrink-0">
+                    {isWorkingCopy && (
+                        <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
+                            <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Version: {activeVersion?.commitMessage}</span>
+                            <button onClick={() => handleVersionSwitch(null)} className="underline hover:text-amber-900">Exit Version</button>
                         </div>
-                        <div className="flex items-center gap-2 justify-end">
-                            <div className="scale-90 origin-right flex items-center gap-2">
-                                <OpportunityExportImportButtons
-                                    opportunity={localOpp}
-                                    onImport={(importedOpp) => onUpdate(importedOpp)}
-                                />
-                                <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                    )}
 
-                                {/* Version Manager Discrete UI */}
-                                <div className="relative">
-                                    <button
-                                        onClick={() => setShowVersionMenu(!showVersionMenu)}
-                                        className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${viewingVersionId ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
-                                    >
-                                        <HistoryIcon className="w-3.5 h-3.5" />
-                                        Versions
-                                        {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
-                                    </button>
-
-                                    {showVersionMenu && (
-                                        <>
-                                            <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
-                                            <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
-                                                <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                                                    <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
-                                                    <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
-                                                        <Plus className="w-3 h-3" /> New
-                                                    </button>
-                                                </div>
-                                                <div className="overflow-y-auto p-2 space-y-4 flex-1">
-                                                    {(localOpp.versions || []).length === 0 && (
-                                                        <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
-                                                    )}
-                                                    {/* Fail-safe rendering of groups */}
-                                                    {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
-                                                        <div key={sr}>
-                                                            <div className="flex items-center gap-1 mb-1 px-2">
-                                                                <GitBranch className="w-3 h-3 text-gray-300" />
-                                                                <span className="text-[10px] font-bold text-gray-400 uppercase">{sr}</span>
-                                                            </div>
-                                                            <div className="space-y-1">
-                                                                {versions.map(v => (
-                                                                    <div
-                                                                        key={v.id}
-                                                                        onClick={() => { handleVersionSwitch(v.id); setShowVersionMenu(false); }}
-                                                                        className={`group relative p-3 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md'}`}
-                                                                    >
-                                                                        <div className="flex justify-between items-start mb-1">
-                                                                            <span className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">{v.commitMessage}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-2">
-                                                                            <span className="font-mono bg-gray-100 px-1 rounded">{v.id.slice(0, 6)}</span>
-                                                                            <span>•</span>
-                                                                            <span>{new Date(v.createdAt).toLocaleDateString()}</span>
-                                                                        </div>
-                                                                        <div className="flex flex-wrap gap-1 mb-2">
-                                                                            {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold">{t}</span>)}
-                                                                        </div>
-
-                                                                        {/* Discrete Actions */}
-                                                                        <div className="flex gap-2 pt-2 border-t border-gray-50 mt-1">
-                                                                            <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'tasks'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Tasks</button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'notes'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Notes</button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors ml-auto flex items-center gap-1">
-                                                                                <GitPullRequest className="w-3 h-3" /> Diff
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
+                    <div className="p-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
+                        <div className="max-w-7xl mx-auto w-full">
+                            <div className="flex justify-between items-start mb-1">
+                                <div className="flex items-center gap-2">
+                                    <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"><X className="w-5 h-5 text-gray-500" /></button>
+                                    <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
+                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">OP</span>
+                                        <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
+                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">QLK</span>
+                                        <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
+                                    </div>
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">REV</span>
+                                    <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
                                 </div>
-
-                                <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
-                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
-                                <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
+                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
+                                    <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
+                                </div>
                             </div>
-                        </div>
+                            <div className="flex items-center gap-2 justify-end">
+                                <div className="scale-90 origin-right flex items-center gap-2">
+                                    <OpportunityExportImportButtons
+                                        opportunity={localOpp}
+                                        onImport={(importedOpp) => onUpdate(importedOpp)}
+                                    />
+                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
 
-                        <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
-                            <div className="flex-1 w-full md:w-auto min-w-[200px]">
-                                <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
-
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    {(localOpp.labels || []).map(l => (
-                                        <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
-                                            {l.text}
-                                            <button onClick={() => {
-                                                const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
-                                                handleFieldChange('labels', newLabels);
-                                            }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
-                                        </span>
-                                    ))}
-                                    <div className="relative group">
-                                        <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
-                                            <Plus className="w-3 h-3" /> Label
+                                    {/* Version Manager Discrete UI */}
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowVersionMenu(!showVersionMenu)}
+                                            className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${viewingVersionId ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
+                                        >
+                                            <HistoryIcon className="w-3.5 h-3.5" />
+                                            Versions
+                                            {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                         </button>
-                                        <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
-                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
-                                            <div className="space-y-1 max-h-48 overflow-y-auto">
-                                                {(globalLabels || []).map(gl => {
-                                                    const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
-                                                    return (
-                                                        <button
-                                                            key={gl.id}
-                                                            className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                                                            onClick={() => {
-                                                                if (!isSelected) {
-                                                                    handleFieldChange('labels', [...(localOpp.labels || []), gl]);
-                                                                }
-                                                            }}
-                                                            disabled={isSelected}
-                                                        >
-                                                            <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
-                                                            <span className="text-xs font-bold text-gray-700">{gl.text}</span>
-                                                            {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+
+                                        {showVersionMenu && (
+                                            <>
+                                                <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
+                                                <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
+                                                    <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                                                        <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
+                                                        <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
+                                                            <Plus className="w-3 h-3" /> New
                                                         </button>
-                                                    );
-                                                })}
-                                                {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                                    </div>
+                                                    <div className="overflow-y-auto p-2 space-y-4 flex-1">
+                                                        {(localOpp.versions || []).length === 0 && (
+                                                            <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
+                                                        )}
+                                                        {/* Fail-safe rendering of groups */}
+                                                        {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
+                                                            <div key={sr}>
+                                                                <div className="flex items-center gap-1 mb-1 px-2">
+                                                                    <GitBranch className="w-3 h-3 text-gray-300" />
+                                                                    <span className="text-[10px] font-bold text-gray-400 uppercase">{sr}</span>
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    {versions.map(v => (
+                                                                        <div
+                                                                            key={v.id}
+                                                                            onClick={() => { handleVersionSwitch(v.id); setShowVersionMenu(false); }}
+                                                                            className={`group relative p-3 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md'}`}
+                                                                        >
+                                                                            <div className="flex justify-between items-start mb-1">
+                                                                                <span className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">{v.commitMessage}</span>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-2">
+                                                                                <span className="font-mono bg-gray-100 px-1 rounded">{v.id.slice(0, 6)}</span>
+                                                                                <span>•</span>
+                                                                                <span>{new Date(v.createdAt).toLocaleDateString()}</span>
+                                                                            </div>
+                                                                            <div className="flex flex-wrap gap-1 mb-2">
+                                                                                {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold">{t}</span>)}
+                                                                            </div>
+
+                                                                            {/* Discrete Actions */}
+                                                                            <div className="flex gap-2 pt-2 border-t border-gray-50 mt-1">
+                                                                                <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'tasks'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Tasks</button>
+                                                                                <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'notes'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Notes</button>
+                                                                                <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors ml-auto flex items-center gap-1">
+                                                                                    <GitPullRequest className="w-3 h-3" /> Diff
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
+                                    <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
+                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                    <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
+                                <div className="flex-1 w-full md:w-auto min-w-[200px]">
+                                    <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
+                                    <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
+
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                        {(localOpp.labels || []).map(l => (
+                                            <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
+                                                {l.text}
+                                                <button onClick={() => {
+                                                    const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
+                                                    handleFieldChange('labels', newLabels);
+                                                }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
+                                            </span>
+                                        ))}
+                                        <div className="relative group">
+                                            <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
+                                                <Plus className="w-3 h-3" /> Label
+                                            </button>
+                                            <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
+                                                <div className="space-y-1 max-h-48 overflow-y-auto">
+                                                    {(globalLabels || []).map(gl => {
+                                                        const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
+                                                        return (
+                                                            <button
+                                                                key={gl.id}
+                                                                className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                                                onClick={() => {
+                                                                    if (!isSelected) {
+                                                                        handleFieldChange('labels', [...(localOpp.labels || []), gl]);
+                                                                    }
+                                                                }}
+                                                                disabled={isSelected}
+                                                            >
+                                                                <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
+                                                                <span className="text-xs font-bold text-gray-700">{gl.text}</span>
+                                                                {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-28 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                                <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-[10px] font-semibold px-2 py-1 rounded-full border-none outline-none w-32 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                                <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-28 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                    <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-[10px] font-semibold px-2 py-1 rounded-full border-none outline-none w-32 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                    <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto w-full flex">
-                    <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
-                    <button onClick={() => setActiveTab('kpi')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
-                    <button onClick={() => setActiveTab('presentation')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
-                    <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
-                    <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
-                    <button onClick={() => setActiveTab('commercial')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
-                    <button onClick={() => setActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
-                    <button onClick={() => setActiveTab('folder')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
-                    <button onClick={() => setActiveTab('questions')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
+                <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
+                    <div className="max-w-7xl mx-auto w-full flex">
+                        <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
+                        <button onClick={() => setActiveTab('kpi')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
+                        <button onClick={() => setActiveTab('presentation')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
+                        <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
+                        <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
+                        <button onClick={() => setActiveTab('commercial')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
+                        <button onClick={() => setActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
+                        <button onClick={() => setActiveTab('folder')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
+                        <button onClick={() => setActiveTab('questions')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
+                    </div>
                 </div>
             </div>
 
