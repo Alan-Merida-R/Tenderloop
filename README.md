@@ -1,31 +1,238 @@
-
 # TenderLoop - Local Tendering Manager
 
-A local-first, no-code style Tendering Management System for Schneider Electric processes using File System Access API.
+## 0) TÍTULO + VISIÓN GENERAL
 
-## Features
-- **Dashboard**: Track proposals and tasks with Kanban, Table, and Calendar views.
-- **Rich Text Notes**: Create and manage meeting notes with templates and link them to tasks.
-- **Commercial Management**: Calculate costs, margins, and discounts with automatic totalization.
-- **PDF Export**: Generate professional tender documentation.
-- **History Log**: Track the progression of support requests.
+**TenderLoop** es una aplicación de gestión empresarial diseñada para el control exhaustivo de propuestas técnicas y comerciales (**Tendering**). Su objetivo principal es centralizar toda la información de una oportunidad de negocio —desde la recepción del requerimiento hasta la entrega de la propuesta final— en un entorno offline-first y local.
 
-## Opportunity Folder
-Associate a real local folder to each opportunity for integrated file management. Supports navigation, creation, renaming, and selective deletion.
+### ¿Para quién está diseñado?
+Está diseñado para ingenieros de preventa, gestores de propuestas y equipos técnicos que necesitan manejar múltiples oportunidades simultáneamente, realizar seguimiento de tareas con dependencias y generar métricas de ejecución precisas.
 
-### Document Classification & Links (NEW)
-- **Type Metadata**: Assign a classification (Status, Info, Approvals, Proposal, etc.) to any file or folder. This is stored in **IndexedDB** locally.
-- **Doc Linking**: Link specific files to **Tasks** or **Notes**.
-- **Best-effort Native Open**: Open files directly via browser Blob URLs. No files are copied into the application storage; we reference the local filesystem handle.
-- **.msg Support**: Outlook email files (.msg) are listed and can be linked/opened (limited preview support).
+### Problemas que resuelve:
+- **Dispersión de información:** Consolida notas, tareas, archivos, KPIs y datos comerciales en un solo "Expediente".
+- **Falta de visibilidad:** Proporciona un tablero interactivo (Kanban/Tabla) para ver el estado de todas las propuestas.
+- **Seguimiento de tiempos:** Mide automáticamente los días de trabajo real vs. días de espera, facilitando la identificación de cuellos de botella.
+- **Dependencia de la nube:** Funciona localmente utilizando archivos JSON como "base de datos", garantizando privacidad y acceso sin conexión.
 
-## Import / Export
-Opportunities can be exported as portable JSON packages (`.oppkg.json`) to share between users.
+---
 
-- **Content**: The export includes all opportunity data, tasks, notes, questions, history, and document metadata (relative paths + relationships).
-- **Files**: Physical files are **not** included. The export only contains metadata and relative paths.
-- **Import Behavior**: Importing creates a *new* opportunity with a new ID to avoid collisions. All internal links (Task <-> Note) are preserved.
-- **Folder Re-linking**: Because file handles are machine-specific, after importing an opportunity, you must re-link the root folder in the "Opportunity Folder" tab. The system will automatically resolve all document links using the stored relative paths.
+## 1) QUICK START (Para nuevos desarrolladores)
 
-### Requirements
-- A Chromium-based browser (Chrome 86+, Edge 86+) is required for the File System Access API.
+### Requisitos Técnicos:
+- **Node.js:** Versión 18 o superior.
+- **NPM** o **Yarn** como gestor de paquetes.
+- **Navegador Moderno:** (Chrome/Edge recomendado) para soporte de la **File System Access API**.
+
+### Instalación:
+1. Clonar el repositorio.
+2. Instalar dependencias:
+   ```bash
+   npm install
+   ```
+
+### Ejecución en Desarrollo:
+```bash
+npm run dev
+```
+La aplicación estará disponible en `http://localhost:3000`.
+
+### Generación de Build (Producción):
+```bash
+npm run build
+```
+Los archivos se generarán en la carpeta `dist/`.
+
+### Configuración Inicial de Base de Datos:
+Al abrir la aplicación por primera vez:
+1. Verás una pantalla solicitando abrir o crear una base de datos.
+2. Haz clic en **Create DB** para generar un archivo `.json` nuevo.
+3. Haz clic en **Open DB** para seleccionar un archivo `.json` existente de TenderLoop.
+4. Una vez abierta, la aplicación recordará el archivo y guardará los cambios automáticamente.
+
+---
+
+## 2) VISIÓN GENERAL DE ARQUITECTURA
+
+### Tecnologías Principales:
+- **Framework:** [React 19](https://react.dev/) con [Typescript](https://www.typescriptlang.org/).
+- **Build Tool:** [Vite](https://vitejs.dev/).
+- **Estilos:** [Tailwind CSS](https://tailwindcss.com/) (vía CDN en el HTML para máxima portabilidad).
+- **Iconografía:** [Lucide React](https://lucide.dev/).
+- **Librerías de Datos:** `xlsx` para Excel, `jspdf` para exportación de documentos y `mammoth` para procesamiento de texto.
+
+### Estructura de la Aplicación:
+- **Manejo de Estado:** Centralizado en `App.tsx` usando hooks de React (`useState`, `useEffect`, `useRef`). No usa Redux ni Context global, prefiriendo la claridad del prop-drilling directo para esta escala de app.
+- **Navegación:** Gestión de vistas mediante el estado `currentView`. El expediente de la oportunidad se maneja como un **Overlay** (capa superior) controlado por `selectedOppId`.
+- **Persistencia:**
+  - **JSON Local:** Los datos de oportunidades y tareas se guardan en un archivo `.json` seleccionado por el usuario.
+  - **IndexedDB:** Se utiliza para guardar metadatos de documentos asociados (`services/opportunityDocMetaStore.ts`).
+  - **LocalStorage:** Guarda preferencias de la interfaz (modo oscuro, filtros recientes).
+
+---
+
+## 3) MAPA DE FUNCIONALIDADES (APP FEATURES)
+
+### A. Dashboard (Tablero Principal)
+Es el centro de control. Permite alternar entre tres modos:
+- **General Overview:** Muestra KPIs agregados, gráficos de evolución (Language Skill, Technical, Probability, Effort) y resúmenes de carga.
+- **Proposals Dashboard:** Enfoque en la gestión del pipeline. Incluye:
+  - **Board View (Kanban):** Arrastra oportunidades entre etapas del proceso.
+  - **Table View:** Edición rápida tipo Excel con selector de columnas.
+  - **Calendar View:** Visualiza fechas de entrega esperadas.
+- **Tasks Overview:** Enfoque en las acciones pendientes de todos los proyectos.
+
+### B. Opportunity Detail (El Expediente)
+Se abre al seleccionar una oportunidad. Contiene las siguientes pestañas:
+1. **Overview:** Datos generales (Title, Customer, QLK, SR), descripción del requerimiento y enlaces rápidos (**Quick Links**).
+2. **KPI:** Gestión de métricas de calidad. Incluye el **Full Calendar** para registrar días trabajados, en espera o inactivos por área.
+3. **Presentation:** Campos de texto para el resumen ejecutivo, problemas detectados y requerimientos (basado en formato PRD).
+4. **History:** Log cronológico de eventos relevantes del proyecto.
+5. **Tasks (Action Plan):** Gestión de tareas con:
+   - **Order & Dependencies:** Controla el orden de ejecución y bloquea estados si las dependencias no están listas.
+   - **Subtasks:** Desglose interno de cada tarea.
+   - **Linked Docs:** Vincula archivos del sistema local a tareas específicas.
+6. **Commercial:** Tabla financiera que separa **SW/HW**, **Services** y **Resale**. Calcula montos finales basados en margen y descuentos.
+7. **Notes:** Gestor de notas de reuniones con **Templates** (Kick-off, Scope, etc.) y capacidad de crear **Inline Tasks**.
+8. **Opportunity Folder:** Integración con el sistema de archivos local para explorar y previsualizar documentos del proyecto.
+9. **Questions:** Registro de dudas generadas desde notas o tareas para su resolución.
+
+### C. Sistema de Versiones
+Implementa una lógica de ramas lógicas basadas en el `srId`. Permite crear "Snapshots" y comparar versiones (**Diff View**) para ver qué cambió en tareas o KPIs respecto a la versión "Live".
+
+---
+
+## 4) MODELO DE DATOS / ENTIDADES
+
+### **Opportunity** (Oportunidad)
+- **ID:** `OP-XXXXXX` (Único).
+- **Metadata:** Title, Customer, QLK, Revision, SR ID.
+- **Status:** In Progress, Won, Lost, etc.
+- **Lists:** Array de `Task`, `MeetingNote`, `Question`, `HistoryEntry`.
+- **KPIs:** Objeto con métricas (Technical, Language, Deal Probability) y Timeline (Received/Delivered).
+- **Commercial:** Desglose de costos y precios de venta oficial (CQA).
+
+### **Task** (Tarea)
+- **Campos:** Title, Status (Done/Pending), Priority, Owner (Me/Area), Order, Dependencies.
+- **Relaciones:** Puede pertenecer a un `ProcessStage` y estar vinculada a una `MeetingNote`.
+
+### **MeetingNote** (Nota)
+- **Campos:** Title, Content (HTML), Attendees, InlineTasks.
+
+---
+
+## 5) BASE DE DATOS / PERSISTENCIA
+
+### Formato de Archivo:
+La base de datos es un archivo `.json` con la siguiente estructura raíz:
+```json
+{
+  "meta": { "version": "1.9", "lastUpdated": "..." },
+  "userSettings": { "theme": "light", "userName": "..." },
+  "opportunities": [...]
+}
+```
+
+### Mecanismo de Guardado:
+- **Autosave:** La aplicación detecta cambios en el estado `db` y ejecuta un guardado automático al disco cada **2 segundos** (usando un debounce para no saturar el sistema).
+- **Integridad:** Implementa un `migrateData` en `App.tsx` que asegura que archivos antiguos se actualicen con los campos nuevos requeridos por las versiones recientes.
+- **Limitaciones:** Debido a la seguridad del navegador, si la sesión se reinicia, el usuario debe re-autorizar el permiso de escritura al archivo una vez (botón **Change DB**).
+
+---
+
+## 6) MAPA COMPLETO DEL CÓDIGO
+
+### Estructura de Carpetas:
+```text
+/
+├── App.tsx             # Corazón de la app: Estado global, DB y Vistas.
+├── index.tsx           # Punto de entrada de React.
+├── types.ts            # Definiciones de Interfaces y Tipos de Datos.
+├── components/         # Componentes visuales principales.
+│   ├── Dashboard.tsx          # Tableros Kanban, Tabla y General.
+│   ├── OpportunityDetail.tsx  # Lógica del expediente y sus pestañas.
+│   ├── SettingsModal.tsx      # Configuración de templates y etiquetas.
+│   └── ...                    # Buscador, Tablas, Calendarios.
+├── services/           # Lógica de negocio y utilidades.
+│   ├── fileSystem.ts          # Comunicación con el Disco (Pickers).
+│   ├── dateUtils.ts           # Cálculos de días hábiles/festivos.
+│   ├── opportunityExportImport.ts  # Importación/Exportación parcial.
+│   └── ...
+├── features/           # Módulos especializados e independientes.
+│   ├── opportunity-folder/    # Gestión de archivos locales.
+│   ├── doc-links/             # Vínculos entre metadatos y archivos.
+│   └── tracking/              # Seguimiento de actividad.
+└── public/             # Assets estáticos.
+```
+
+---
+
+## 7) RUTAS Y NAVEGACIÓN DE LA UI
+
+La navegación no utiliza una URL tradicional (browser router), sino un **estado de vista interna**:
+1. **Inicio:** Pantalla de carga/apertura de base de datos.
+2. **Tablero:** Navegación lateral entre **General**, **Proposals** y **Tasks**.
+3. **Expediente:** Al hacer clic en el ID o título de una oportunidad, se activa el **selectedOppId**. Esto renderiza `OpportunityDetail` como una capa fija (`fixed inset-0`) sobre el tablero.
+4. **Deep Linking:** El sistema permite navegar a pestañas específicas dentro del expediente (ej. abrir directamente las notas) mediante el objeto `DeepLink`.
+
+---
+
+## 8) SISTEMA DE EXPORTACIÓN (PDF / DATA)
+
+### Exportación de Datos (JSON):
+- **Bulk Export:** Disponible en la vista de tabla para exportar múltiples oportunidades en un solo archivo comprimido.
+- **Single Export:** Dentro de cada oportunidad, descarga un paquete `.json` completo con sus metadatos e historial.
+
+### Exportación de Documentos (PDF):
+- Implementado en `OpportunityDetail.tsx` usando `jsPDF`.
+- Genera un resumen ejecutivo que incluye:
+  - Datos de cabecera.
+  - Snapshot de KPIs.
+  - Resumen ejecutivo del PRD.
+  - Tabla de Plan de Acción (Tareas).
+  - Listado de Riesgos y Notas comerciales.
+
+---
+
+## 9) CONTROL DE VERSIONES (GIT)
+
+### Flujo de Ramas:
+Se recomienda seguir la siguiente convención para mantener el historial limpio:
+- `main`: Versión estable y lista para uso.
+- `nueva-funcionalidad/nombre`: Para nuevos módulos (Features).
+- `reparacion/nombre`: Para corrección de errores (Bugs).
+- `cambio-funcionalidad/nombre`: Para ajustes en lógica existente.
+
+### Comandos Clave:
+- **Guardar cambios:** `git commit -m "feat: descripción"` (Usar prefijos `feat:`, `fix:`, `chore:`, `refactor:`).
+- **Rollback local:** `git checkout .` descarta cambios no commiteados.
+- **Rollback de versión:** `git checkout vX.Y.Z` para volver a un punto exacto en el tiempo.
+
+---
+
+## 10) GUÍA PARA DESARROLLADORES FUTUROS
+
+### Reglas de Oro:
+1. **No Romper App.tsx:** Cualquier cambio en el esquema de la base de datos debe ser reflejado en `types.ts` y en el helper de migración de `App.tsx`.
+2. **Componentes Puros:** En lo posible, mantén los componentes de UI en `/components` sin lógica de guardado directo; prefiere pasar funciones de "update" desde el padre.
+3. **Estilos Inline de Tailwind:** Se usa Tailwind masivamente. Mantenlo así para evitar dependencias de archivos `.css` externos pesados. 
+4. **Iconos:** Usa siempre `lucide-react`.
+
+---
+
+## 11) TROUBLESHOOTING
+
+- **Error de Lectura/Escritura:** Suele ocurrir por falta de permisos. Haz clic en el círculo rojo de estatus arriba a la derecha y usa el botón **Change DB** para volver a seleccionar el archivo.
+- **El Expediente no abre:** Verifica en la consola (F12) si hay un error de migración de datos. Es posible que un campo nuevo sea nulo en una DB antigua.
+- **Scroll Infinito / Blanco:** Si al abrir el expediente ves mucho espacio blanco, revisa que la altura del contenedor principal de la App coincida con el viewport (`h-screen`).
+
+---
+
+## 12) APÉNDICE (GLOSARIO)
+
+- **OP:** Opportunity ID (Identificador único).
+- **QLK:** Quotelink (Número de cotización oficial en sistemas externos).
+- **SR:** Support Request (ID de soporte técnico asociado).
+- **REV:** Revision (Versión de la propuesta técnica, ej. R0, R1).
+- **BA / Basket:** Se refiere al carrito o lista de materiales (BOM).
+- **GEET:** Enlace a la herramienta de estimación de entrega.
+- **KPI:** Key Performance Indicators (Métricas de calidad y tiempos).
+- **BFO:** Salesforce / Sistema comercial de referencia.

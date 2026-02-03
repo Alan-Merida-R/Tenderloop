@@ -1140,7 +1140,7 @@ ${noteTitles.join('\n')}
                                 onClick={() => setShowTracking(!showTracking)}
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showTracking ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                             >
-                                <CalendarDays className="w-4 h-4" /> Seguimiento
+                                <CalendarDays className="w-4 h-4" /> Tracker
                             </button>
                             <button
                                 onClick={() => setShowNextSteps(!showNextSteps)}
@@ -1189,7 +1189,7 @@ ${noteTitles.join('\n')}
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-x-auto overflow-y-hidden min-h-0">
+            <div className="flex-1 overflow-x-auto overflow-hidden min-h-0">
 
                 {/* ... General View and Tasks View unchanged ... */}
                 {mode === 'general' && (

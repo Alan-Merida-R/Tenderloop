@@ -688,7 +688,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f1f3f4] overflow-hidden">
+    <div className="h-screen flex flex-col bg-[#f1f3f4] overflow-hidden">
       {/* Top Navigation */}
       <div className="bg-white border-b border-gray-200 h-14 px-4 flex justify-between items-center select-none sticky top-0 z-40 shadow-sm shrink-0">
         <div className="flex items-center gap-6">
@@ -843,7 +843,7 @@ function App() {
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden relative flex">
+      <div className="flex-1 overflow-hidden relative flex min-h-0">
         {/* Main Dashboard Area */}
         <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
           <Dashboard
@@ -869,7 +869,7 @@ function App() {
           const opp = db.opportunities.find(o => o.id === selectedOppId);
           if (!opp) return null;
           return (
-            <div className="absolute inset-0 z-50 bg-white animate-slide-in-right overflow-hidden">
+            <div className="fixed inset-0 z-50 bg-white animate-slide-in-right overflow-hidden flex flex-col">
               <OpportunityDetail
                 opportunity={opp}
                 onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}

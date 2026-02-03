@@ -1297,7 +1297,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 if (elementId) {
                     const el = document.getElementById(elementId);
                     if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         el.classList.add('ring-2', 'ring-[#3DCD58]', 'ring-offset-4', 'z-10');
                         setTimeout(() => el.classList.remove('ring-2', 'ring-[#3DCD58]', 'ring-offset-4', 'z-10'), 3000);
                     }
@@ -2665,7 +2665,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
             {/* Main Content Area */}
             <div className="flex flex-col shrink-0 bg-white relative z-20">
-                <div className="flex-none flex flex-col bg-white z-10 shrink-0">
+                <div className="flex-none flex flex-col bg-white z-20 shrink-0">
                     {isWorkingCopy && (
                         <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
                             <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Version: {activeVersion?.commitMessage}</span>
@@ -2852,7 +2852,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 </div>
             </div>
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50/30">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50/30 min-h-0">
                 <div className="max-w-7xl mx-auto w-full">
                     {activeTab === 'overview' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -3521,7 +3521,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
                     {/* ... Tasks and other tabs unchanged in structure ... */}
                     {activeTab === 'tasks' && (
-                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
                             {/* Task View Content */}
                             <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gray-50/50">
                                 <div className="flex items-center gap-4">
@@ -3567,9 +3567,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                 </div>
                             )}
 
-                            <div className="flex-1 min-h-0 overflow-hidden">
+                            <div className="flex-1 min-h-0">
                                 {taskViewMode === 'list' ? (
-                                    <div className="p-6 space-y-3 overflow-y-auto h-full">
+                                    <div className="p-6 space-y-3">
                                         {filteredTasks.length === 0 ? (
                                             <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
                                         ) : filteredTasks.map(task => (
