@@ -13,6 +13,7 @@ import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
+import { EditableCell, ColumnSelector } from './TableComponents';
 
 
 const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: string, label: string }[], maxValue: number }> = ({ data, metrics, maxValue }) => {
@@ -147,6 +148,20 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
     const [dateFilterStart, setDateFilterStart] = useState('');
     const [dateFilterEnd, setDateFilterEnd] = useState('');
+
+    // Column State
+    const allColumns = [
+        { key: 'id', label: 'ID' },
+        { key: 'title', label: 'Title' },
+        { key: 'customer', label: 'Customer' },
+        { key: 'status', label: 'Status' },
+        { key: 'stage', label: 'Stage' },
+        { key: 'assigned', label: 'Assigned' },
+        { key: 'expected', label: 'Expected Date' },
+        { key: 'amount', label: 'Amount' },
+        { key: 'waiting', label: 'Waiting On' }
+    ];
+    const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(c => c.key));
 
     // KPI Filter State
     const [kpiSoldFilter, setKpiSoldFilter] = useState<'all' | 'sold' | 'not-sold'>('all');
@@ -943,6 +958,16 @@ ${noteTitles.join('\n')}
                         </div>
                     )}
 
+                    {mode === 'proposals' && viewMode === 'table' && (
+                        <div className="mr-2">
+                            <ColumnSelector
+                                columns={allColumns}
+                                visibleColumns={visibleColumns}
+                                onChange={setVisibleColumns}
+                            />
+                        </div>
+                    )}
+
                     <div className="flex gap-2 items-center bg-white p-1 rounded-lg border border-gray-200 shadow-sm mr-2">
                         <input type="date" value={dateFilterStart} onChange={e => setDateFilterStart(e.target.value)} className="text-xs border-none focus:ring-0 p-1" />
                         <span className="text-gray-400">-</span>
@@ -1404,44 +1429,72 @@ ${noteTitles.join('\n')}
                                                 <th className="px-4 py-3 w-10">
                                                     <input type="checkbox" onChange={(e) => e.target.checked ? setSelectedForExport(filteredOpps.map(o => o.id)) : setSelectedForExport([])} checked={filteredOpps.length > 0 && selectedForExport.length === filteredOpps.length} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300" />
                                                 </th>
-                                                <th className="px-6 py-3 w-32">ID</th>
-                                                <th className="px-6 py-3">Title</th>
-                                                <th className="px-6 py-3">Customer</th>
-                                                <th className="px-6 py-3">Status</th>
-                                                <th className="px-6 py-3">Stage</th>
-                                                <th className="px-6 py-3">Assigned</th>
-                                                <th className="px-6 py-3">Expected</th>
+                                                {visibleColumns.includes('id') && <th className="px-6 py-3 w-32">ID</th>}
+                                                {visibleColumns.includes('title') && <th className="px-6 py-3">Title</th>}
+                                                {visibleColumns.includes('customer') && <th className="px-6 py-3">Customer</th>}
+                                                {visibleColumns.includes('status') && <th className="px-6 py-3">Status</th>}
+                                                {visibleColumns.includes('stage') && <th className="px-6 py-3">Stage</th>}
+                                                {visibleColumns.includes('assigned') && <th className="px-6 py-3">Assigned</th>}
+                                                {visibleColumns.includes('expected') && <th className="px-6 py-3">Expected Date</th>}
+                                                {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right">Amount</th>}
+                                                {visibleColumns.includes('waiting') && <th className="px-6 py-3">Waiting On</th>}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
-                                            {filteredOpps.map(opp => (
-                                                <tr key={opp.id} className="hover:bg-gray-50 transition-colors">
-                                                    <td className="px-4 py-3">
-                                                        <input type="checkbox" checked={selectedForExport.includes(opp.id)} onChange={() => toggleSelectExport(opp.id)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300" />
-                                                    </td>
-                                                    <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>
-                                                    <td className="px-6 py-3"><input value={opp.title} onChange={(e) => handleInlineEdit(opp, 'title', e.target.value)} className="bg-transparent border-none p-0 w-full focus:ring-0 font-medium text-gray-900" /></td>
-                                                    <td className="px-6 py-3"><input value={opp.customer} onChange={(e) => handleInlineEdit(opp, 'customer', e.target.value)} className="bg-transparent border-none p-0 w-full focus:ring-0 text-gray-600" /></td>
-                                                    <td className="px-6 py-3">
-                                                        <select
-                                                            value={opp.statusLabel}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onChange={(e) => handleInlineEdit(opp, 'statusLabel', e.target.value)}
-                                                            className={`px-2 py-1 rounded text-[10px] font-bold uppercase border cursor-pointer ${STATUS_COLORS[opp.statusLabel]}`}
-                                                        >
-                                                            {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-6 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[opp.stage as ProcessStage]}`}>{translateProcessStage(opp.stage)}</span></td>
-                                                    <td className="px-6 py-3 text-xs text-gray-600">{opp.dates.assigned}</td>
-                                                    <td className="px-6 py-3"><input type="date" value={opp.dates?.expected} onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)} className="border-none bg-transparent p-0 text-xs text-gray-600" /></td>
-                                                </tr>
-                                            ))}
-                                            <tr className="bg-gray-50 border-t-2 border-gray-100 hover:bg-gray-100 cursor-pointer" onClick={() => onCreate()}>
-                                                <td className="px-6 py-4 text-[#3DCD58] font-bold flex items-center gap-2" colSpan={8}>
-                                                    <Plus className="w-4 h-4" /> New Opportunity
-                                                </td>
-                                            </tr>
+                                            {filteredOpps.map(opp => {
+                                                const waitingOn = getWaitingOnAreas(opp);
+                                                const amount = getSellPrice(opp);
+                                                return (
+                                                    <tr key={opp.id} className="hover:bg-gray-50 transition-colors">
+                                                        <td className="px-4 py-3">
+                                                            <input type="checkbox" checked={selectedForExport.includes(opp.id)} onChange={() => toggleSelectExport(opp.id)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300" />
+                                                        </td>
+                                                        {visibleColumns.includes('id') && (
+                                                            <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>
+                                                        )}
+                                                        {visibleColumns.includes('title') && (
+                                                            <td className="px-6 py-3">
+                                                                <EditableCell value={opp.title} onChange={(val) => handleInlineEdit(opp, 'title', val)} className="font-medium text-gray-900" />
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.includes('customer') && (
+                                                            <td className="px-6 py-3">
+                                                                <EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} className="text-gray-600" />
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.includes('status') && (
+                                                            <td className="px-6 py-3">
+                                                                <EditableCell
+                                                                    value={opp.statusLabel}
+                                                                    onChange={(val) => handleInlineEdit(opp, 'statusLabel', val)}
+                                                                    type="select"
+                                                                    options={Object.keys(STATUS_COLORS)}
+                                                                    displayValue={<span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${STATUS_COLORS[opp.statusLabel]}`}>{opp.statusLabel}</span>}
+                                                                />
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.includes('stage') && (
+                                                            <td className="px-6 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[opp.stage as ProcessStage]}`}>{translateProcessStage(opp.stage)}</span></td>
+                                                        )}
+                                                        {visibleColumns.includes('assigned') && (
+                                                            <td className="px-6 py-3 text-xs text-gray-600">{opp.dates.assigned}</td>
+                                                        )}
+                                                        {visibleColumns.includes('expected') && (
+                                                            <td className="px-6 py-3">
+                                                                <EditableCell type="date" value={opp.dates?.expected} onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)} className="text-xs text-gray-600 font-mono" />
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.includes('amount') && (
+                                                            <td className="px-6 py-3 text-right font-mono font-medium">${amount.toLocaleString()}</td>
+                                                        )}
+                                                        {visibleColumns.includes('waiting') && (
+                                                            <td className="px-6 py-3">
+                                                                {waitingOn ? <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded border border-orange-100">{waitingOn}</span> : <span className="text-xs text-gray-400">-</span>}
+                                                            </td>
+                                                        )}
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -1473,7 +1526,7 @@ ${noteTitles.join('\n')}
                 {/* Tracking Mode */}
                 {mode === 'tracking' && (
                     <TrackingView
-                        opportunities={opportunities}
+                        opportunities={filteredOpps}
                         onClose={() => { }}
                         onUpdateOpportunity={onOppUpdate}
                         onSelectOpp={onSelect}
@@ -1485,7 +1538,7 @@ ${noteTitles.join('\n')}
                     showTracking ? (
                         <div className="h-full">
                             <TrackingView
-                                opportunities={opportunities}
+                                opportunities={filteredOpps}
                                 onClose={() => setShowTracking(false)}
                                 onUpdateOpportunity={onOppUpdate}
                                 onSelectOpp={onSelect}
