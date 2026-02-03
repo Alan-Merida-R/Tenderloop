@@ -6,7 +6,7 @@ import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb,
 import Dashboard from './components/Dashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
-import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2 } from 'lucide-react';
+import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays } from 'lucide-react';
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
@@ -23,6 +23,8 @@ function App() {
   const [recentDbs, setRecentDbs] = useState<RecentDbEntry[]>([]);
   const [showRecents, setShowRecents] = useState(false);
   const [startupHint, setStartupHint] = useState<string | null>(null);
+  const [isDbLoaded, setIsDbLoaded] = useState(false);
+  const [fallbackFileName, setFallbackFileName] = useState<string | null>(null);
 
   // Navigation
   const [currentView, setCurrentView] = useState<AppView>('general-dashboard');
@@ -36,6 +38,7 @@ function App() {
 
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
+  const isSavingRef = useRef(false);
 
   // Load Settings from LocalStorage on mount
   useEffect(() => {
@@ -82,17 +85,55 @@ function App() {
 
   // Auto-save Effect
   useEffect(() => {
-    if (!db || !fileHandle) return;
-    if (status === 'loading') return;
+    if (!db || !fileHandle || status === 'loading') return;
 
-    setStatus('saving');
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     // @ts-ignore
     saveTimeoutRef.current = window.setTimeout(async () => {
-      const success = await saveToDisk(fileHandle, db);
-      setStatus(success ? 'saved' : 'error');
-      if (!success) setErrorMessage("Auto-save failed. Check file permissions.");
+      if (isSavingRef.current) {
+        console.debug("[Autosave] Concurrency: Save already in progress, deferred.");
+        return;
+      }
+
+      try {
+        isSavingRef.current = true;
+        console.debug("[Autosave] Verifying permissions for save...");
+
+        // Final sanity check for permission before writing
+        // @ts-ignore
+        const permission = await fileHandle.queryPermission({ mode: 'readwrite' });
+
+        if (permission !== 'granted') {
+          console.warn("[Autosave] Write permission not granted:", permission);
+          if (status !== 'error') {
+            setStatus('error');
+            setErrorMessage("Database is read-only. Please use Change DB to re-authenticate.");
+          }
+          return;
+        }
+
+        console.debug("[Autosave] Executing saveToDisk...");
+        const success = await saveToDisk(fileHandle, db);
+
+        if (success) {
+          console.debug("[Autosave] Save completed successfully.");
+          setStatus('saved');
+          if (errorMessage === "Database is read-only. Please use Change DB to re-authenticate." || errorMessage?.includes("Failed to save changes")) {
+            setErrorMessage(null);
+          }
+        } else {
+          console.error("[Autosave] saveToDisk failed.");
+          setStatus('error');
+          setErrorMessage("Failed to save changes. Please check DB permissions.");
+        }
+      } catch (err: any) {
+        console.error("[Autosave] Critical error:", err);
+        setStatus('error');
+        setErrorMessage("Failed to save changes. Check file permissions.");
+      } finally {
+        isSavingRef.current = false;
+      }
     }, 2000);
 
     return () => {
@@ -100,18 +141,34 @@ function App() {
     };
   }, [db, fileHandle]);
 
+  // Helper: Basic structural validation
+  const verifyDatabaseStructure = (data: any): boolean => {
+    if (!data || typeof data !== 'object') return false;
+    // Check for essential keys that define our DB
+    const hasOpps = Array.isArray(data.opportunities);
+    const hasMeta = data.meta && typeof data.meta === 'object';
+    return hasOpps && hasMeta;
+  };
+
   // Shared DB Loader
   const loadDbFromHandle = async (handle: FileSystemFileHandle) => {
+    console.debug("[App] Loading DB from handle:", handle.name);
     try {
       const file = await handle.getFile();
       const text = await file.text();
-      const data = JSON.parse(text) as DatabaseSchema;
+      const data = JSON.parse(text);
 
-      // Perform migrations (same logic as before)
+      if (!verifyDatabaseStructure(data)) {
+        throw new Error("Invalid database structure. Missing 'opportunities' or 'meta'.");
+      }
+
+      console.debug("[App] Data read and verified. Starting migration...");
       const migratedData = migrateData(data);
 
       setDb(migratedData);
       setFileHandle(handle);
+      setIsDbLoaded(true);
+      setFallbackFileName(null);
       setStatus('idle');
       setStartupHint(null);
       setErrorMessage(null);
@@ -119,8 +176,10 @@ function App() {
       // Remember successfully loaded DB
       await rememberDb(handle, { name: handle.name });
       setRecentDbs(await getRecentDbs()); // Refresh list
+      console.debug("[App] DB loaded successfully.");
     } catch (err: any) {
-      console.error("Failed to load DB from handle", err);
+      console.error("[App] Failed to load DB from handle", err);
+      // If error is specific to migration, we still mark as failed to prevent corrupted state
       setErrorMessage("Failed to load database: " + err.message);
       setStatus('error');
     }
@@ -128,199 +187,247 @@ function App() {
 
   // Migration Helper (Extracted to reuse)
   const migrateData = (data: DatabaseSchema): DatabaseSchema => {
-    const emptyRow: CommercialRow = { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 };
-    const emptyPrd: PrdPresentation = { executiveSummary: '', issues: '', kpis: '', requirements: '' };
+    console.debug("[Migration] Starting data migration for", data.opportunities?.length || 0, "opportunities");
+    try {
+      const emptyRow: CommercialRow = { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 };
+      const emptyPrd: PrdPresentation = { executiveSummary: '', issues: '', kpis: '', requirements: '' };
 
-    const migratedOpps: Opportunity[] = data.opportunities.map(o => {
-      // Status Migration
-      let newStatus: OpportunityStatus = 'In Progress';
-      const oldStatus = (o as any).statusLabel;
-      if (oldStatus === 'Active') newStatus = 'In Progress';
-      else if (oldStatus === 'Approved') newStatus = 'Won';
-      else if (oldStatus === 'Rejected') newStatus = 'Lost';
-      else if (oldStatus === 'On Hold') newStatus = 'On Hold';
-      else if (['In Progress', 'On Hold', 'Canceled', 'Submitted', 'Won', 'Lost'].includes(oldStatus)) {
-        newStatus = oldStatus;
-      }
-
-      // Commercial Migration (Merging HW/SW)
-      let newCommercial = {
-        currency: 'USD',
-        swHw: emptyRow, services: emptyRow, resale: emptyRow,
-        risk: 0, contingency: 0,
-        escalations: { swHw: 0, services: 0, resale: 0 },
-        agreementsLink: '', cfLink: '',
-        discountsAndNotes: '', cqaOfficialSellPrice: 0, cqaOfficialMargin: 0
-      };
-
-      if (o.commercial) {
-        const oldComm = o.commercial as any;
-        if (oldComm.hardware && oldComm.software) {
-          newCommercial.swHw = {
-            cost: oldComm.hardware.cost + oldComm.software.cost,
-            sellPrice: oldComm.hardware.sellPrice + oldComm.software.sellPrice,
-            finalPrice: oldComm.hardware.finalPrice + oldComm.software.finalPrice,
-            margin: 0,
-            discount: 0
-          };
-          if (newCommercial.swHw.sellPrice > 0) {
-            newCommercial.swHw.margin = Number(((1 - (newCommercial.swHw.cost / newCommercial.swHw.sellPrice)) * 100).toFixed(2));
+      const migratedOpps: Opportunity[] = data.opportunities.map((o, idx) => {
+        try {
+          // Status Migration
+          let newStatus: OpportunityStatus = 'In Progress';
+          const oldStatus = (o as any).statusLabel;
+          if (oldStatus === 'Active') newStatus = 'In Progress';
+          else if (oldStatus === 'Approved') newStatus = 'Won';
+          else if (oldStatus === 'Rejected') newStatus = 'Lost';
+          else if (oldStatus === 'On Hold') newStatus = 'On Hold';
+          else if (['In Progress', 'On Hold', 'Canceled', 'Submitted', 'Won', 'Lost'].includes(oldStatus)) {
+            newStatus = oldStatus;
           }
-        } else if (oldComm.swHw) {
-          newCommercial.swHw = oldComm.swHw;
-        }
 
-        newCommercial.services = oldComm.services || emptyRow;
-        newCommercial.resale = oldComm.resale || emptyRow;
-        newCommercial.risk = oldComm.risk || 0;
-        newCommercial.contingency = oldComm.contingency || 0;
-        newCommercial.discountsAndNotes = oldComm.discountsAndNotes || '';
-        newCommercial.cqaOfficialSellPrice = oldComm.cqaOfficialSellPrice || 0;
-        newCommercial.cqaOfficialMargin = oldComm.cqaOfficialMargin || 0;
+          // Commercial Migration (Merging HW/SW)
+          let newCommercial = {
+            currency: 'USD',
+            swHw: emptyRow, services: emptyRow, resale: emptyRow,
+            risk: 0, contingency: 0,
+            escalations: { swHw: 0, services: 0, resale: 0 },
+            agreementsLink: '', cfLink: '',
+            discountsAndNotes: '', cqaOfficialSellPrice: 0, cqaOfficialMargin: 0
+          };
 
-        if (typeof oldComm.escalationPerYear === 'number') {
-          newCommercial.escalations = { swHw: oldComm.escalationPerYear, services: oldComm.escalationPerYear, resale: oldComm.escalationPerYear };
-        } else {
-          newCommercial.escalations = oldComm.escalations || { swHw: 0, services: 0, resale: 0 };
-        }
+          if (o.commercial) {
+            const oldComm = o.commercial as any;
+            if (oldComm.hardware && oldComm.software) {
+              newCommercial.swHw = {
+                cost: oldComm.hardware.cost + oldComm.software.cost,
+                sellPrice: oldComm.hardware.sellPrice + oldComm.software.sellPrice,
+                finalPrice: oldComm.hardware.finalPrice + oldComm.software.finalPrice,
+                margin: 0,
+                discount: 0
+              };
+              if (newCommercial.swHw.sellPrice > 0) {
+                newCommercial.swHw.margin = Number(((1 - (newCommercial.swHw.cost / newCommercial.swHw.sellPrice)) * 100).toFixed(2));
+              }
+            } else if (oldComm.swHw) {
+              newCommercial.swHw = oldComm.swHw;
+            }
 
-        newCommercial.agreementsLink = oldComm.agreementsLink || '';
-        newCommercial.cfLink = oldComm.cfLink || '';
-        // @ts-ignore
-        newCommercial.currency = oldComm.currency || 'USD';
-      }
+            newCommercial.services = oldComm.services || emptyRow;
+            newCommercial.resale = oldComm.resale || emptyRow;
+            newCommercial.risk = oldComm.risk || 0;
+            newCommercial.contingency = oldComm.contingency || 0;
+            newCommercial.discountsAndNotes = oldComm.discountsAndNotes || '';
+            newCommercial.cqaOfficialSellPrice = oldComm.cqaOfficialSellPrice || 0;
+            newCommercial.cqaOfficialMargin = oldComm.cqaOfficialMargin || 0;
 
-      // KPI Initialization
-      const kpis: KPIs = o.kpis || {
-        languageSkill: null,
-        technicalUnderstanding: null,
-        dealProbability: null,
-        sold: null,
-        proposalAmountUSD: null,
-        timeline: {
-          receivedAt: o.dates?.requested || (o.dates as any)?.assigned || new Date().toISOString().split('T')[0],
-          deliveredAt: null,
-          cancelledAt: null,
-          cancelledReason: null
-        },
-        execution: {
-          myWorkDays: null,
-          waitingOnOthersDays: null
-        },
-        areasInvolved: [],
-        effortContribution: null
-      };
+            if (typeof oldComm.escalationPerYear === 'number') {
+              newCommercial.escalations = { swHw: oldComm.escalationPerYear, services: oldComm.escalationPerYear, resale: oldComm.escalationPerYear };
+            } else {
+              newCommercial.escalations = oldComm.escalations || { swHw: 0, services: 0, resale: 0 };
+            }
 
-      // Sync Proposal Amount from Commercial if present
-      if (newCommercial.cqaOfficialSellPrice) {
-        kpis.proposalAmountUSD = newCommercial.cqaOfficialSellPrice;
-      }
+            newCommercial.agreementsLink = oldComm.agreementsLink || '';
+            newCommercial.cfLink = oldComm.cfLink || '';
+            // @ts-ignore
+            newCommercial.currency = oldComm.currency || 'USD';
+          }
 
-      return {
-        ...o,
-        statusLabel: newStatus,
-        qlk: o.qlk || '',
-        revision: o.revision || 'R0',
-        presentation: o.presentation || emptyPrd,
-        dates: {
-          requested: o.dates?.requested || '',
-          expected: o.dates?.expected || '',
-          assigned: (o.dates as any)?.assigned || new Date().toISOString().split('T')[0]
-        },
-        links: {
-          ...o.links,
-          ba: (o.links as any).ba || '',
-          srLink: (o.links as any).srLink || '',
-          geet: (o.links as any).geet || ''
-        },
-        commercial: newCommercial as any,
-        kpis: kpis,
-        history: o.history || [],
-        questions: (o as any).questions || [],
-        tasks: (o.tasks || []).map(t => {
-          const oldT = t as any;
-          let areas: string[] = [];
-          if (oldT.externalArea && !Array.isArray(oldT.externalArea)) {
-            if (oldT.externalArea) areas = [oldT.externalArea];
-          } else if (Array.isArray(oldT.externalArea)) {
-            areas = oldT.externalArea;
-          } else if (oldT.externalAreas) {
-            areas = oldT.externalAreas;
+          // KPI Initialization
+          const kpis: KPIs = o.kpis || {
+            languageSkill: null,
+            technicalUnderstanding: null,
+            dealProbability: null,
+            sold: null,
+            proposalAmountUSD: null,
+            timeline: {
+              receivedAt: o.dates?.requested || (o.dates as any)?.assigned || new Date().toISOString().split('T')[0],
+              deliveredAt: null,
+              cancelledAt: null,
+              cancelledReason: null
+            },
+            execution: {
+              myWorkDays: null,
+              waitingOnOthersDays: null
+            },
+            areasInvolved: [],
+            effortContribution: null
+          };
+
+          // Sync Proposal Amount from Commercial if present
+          if (newCommercial.cqaOfficialSellPrice) {
+            kpis.proposalAmountUSD = newCommercial.cqaOfficialSellPrice;
           }
 
           return {
-            ...t,
-            status: (t.status || 'Pending') as TaskStatus,
-            owner: (t.owner || 'Me') as TaskOwner,
-            externalAreas: areas,
-            priority: (t.priority || 'Medium') as TaskPriority,
-            responsible: t.responsible || '',
-            order: t.order ?? null,
-            dependsOnTaskIds: t.dependsOnTaskIds || [],
-            blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false
+            ...o,
+            statusLabel: newStatus,
+            qlk: o.qlk || '',
+            revision: o.revision || 'R0',
+            presentation: o.presentation || emptyPrd,
+            dates: {
+              requested: o.dates?.requested || '',
+              expected: o.dates?.expected || '',
+              assigned: (o.dates as any)?.assigned || new Date().toISOString().split('T')[0]
+            },
+            links: {
+              ...o.links,
+              ba: (o.links as any).ba || '',
+              srLink: (o.links as any).srLink || '',
+              geet: (o.links as any).geet || ''
+            },
+            commercial: newCommercial as any,
+            kpis: kpis,
+            history: o.history || [],
+            questions: (o as any).questions || [],
+            tasks: (o.tasks || []).map(t => {
+              const oldT = t as any;
+              let areas: string[] = [];
+              if (oldT.externalArea && !Array.isArray(oldT.externalArea)) {
+                if (oldT.externalArea) areas = [oldT.externalArea];
+              } else if (Array.isArray(oldT.externalArea)) {
+                areas = oldT.externalArea;
+              } else if (oldT.externalAreas) {
+                areas = oldT.externalAreas;
+              }
+
+              return {
+                ...t,
+                status: (t.status || 'Pending') as TaskStatus,
+                owner: (t.owner || 'Me') as TaskOwner,
+                externalAreas: areas,
+                priority: (t.priority || 'Medium') as TaskPriority,
+                responsible: t.responsible || '',
+                order: t.order ?? null,
+                dependsOnTaskIds: t.dependsOnTaskIds || [],
+                blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false
+              };
+            })
           };
-        })
-      };
-    });
-    return { ...data, opportunities: migratedOpps };
+        } catch (e: any) {
+          console.error(`[Migration] Failed on item index ${idx}, ID: ${o.id}`, e);
+          // Return original item if migration fails to prevent data loss in the array
+          return o;
+        }
+      });
+      return { ...data, opportunities: migratedOpps };
+    } catch (err: any) {
+      console.error("[Migration] Critical error during migration:", err);
+      throw err;
+    }
   };
 
   // Handlers
   const handleOpenDB = async () => {
+    console.debug("[App] handleOpenDB triggered.");
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     setStatus('loading');
     setErrorMessage(null);
-    const result = await openDatabaseFile();
-    if (result.error) {
-      if (result.error !== 'Selección cancelada.') {
-        setErrorMessage(result.error);
-        setStatus('error');
-      } else {
-        setStatus('idle');
+
+    try {
+      const result = await openDatabaseFile();
+      console.debug("[App] openDatabaseFile result:", !!result.data, !!result.handle, result.error);
+
+      if (result.error) {
+        if (result.error !== 'Selección cancelada.') {
+          setErrorMessage(result.error);
+          setStatus('error');
+        } else {
+          setStatus('idle');
+        }
+        return;
       }
-    } else {
-      if (result.data && result.handle) {
-        // Request write permission immediately while we are in a user gesture
-        try {
-          // @ts-ignore
-          const perm = await result.handle.requestPermission({ mode: 'readwrite' });
-          if (perm !== 'granted') {
-            console.warn("Write permission not granted.");
-          }
-        } catch (e) {
-          console.error("Failed to request write permission", e);
+
+      if (result.data) {
+        if (!verifyDatabaseStructure(result.data)) {
+          setErrorMessage("The selected file is not a valid TenderLoop database.");
+          setStatus('error');
+          return;
         }
 
+        // Logic for handle (autosave enabled)
+        if (result.handle) {
+          try {
+            // @ts-ignore
+            const perm = await result.handle.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') console.warn("Write permission not granted.");
+          } catch (e) {
+            console.error("Failed to request write permission", e);
+          }
+          setFileHandle(result.handle);
+          setFallbackFileName(null);
+          await rememberDb(result.handle, { name: result.handle.name });
+        } else {
+          console.warn("[App] Loaded DB without handle (autosave disabled).");
+          setFileHandle(null);
+          setFallbackFileName(result.name || "Offline DB");
+        }
+
+        console.debug("[App] Migrating and setting state...");
         const migratedData = migrateData(result.data);
         setDb(migratedData);
-        setFileHandle(result.handle);
-        await rememberDb(result.handle, { name: result.handle.name });
+        setIsDbLoaded(true);
         setRecentDbs(await getRecentDbs());
         setStartupHint(null);
+        setStatus('idle');
+      } else {
+        console.warn("[App] No data received from picker.");
+        setStatus('idle');
       }
-      setStatus('idle');
+    } catch (err: any) {
+      console.error("[App] Unexpected error in handleOpenDB:", err);
+      setErrorMessage("An unexpected error occurred: " + err.message);
+      setStatus('error');
     }
   };
 
   const handleCreateDB = async () => {
     setStatus('loading');
     setErrorMessage(null);
-    const result = await createDatabaseFile();
-    if (result.error) {
-      if (result.error !== 'Creación cancelada.') {
-        setErrorMessage(result.error);
-        setStatus('error');
-      } else {
-        setStatus('idle');
+    try {
+      const result = await createDatabaseFile();
+      if (result.error) {
+        if (result.error !== 'Creación cancelada.') {
+          setErrorMessage(result.error);
+          setStatus('error');
+        } else {
+          setStatus('idle');
+        }
+        return;
       }
-    } else {
+
       if (result.data && result.handle) {
         setDb(result.data);
         setFileHandle(result.handle);
+        setIsDbLoaded(true);
         await rememberDb(result.handle, { name: result.handle.name });
         setRecentDbs(await getRecentDbs());
         setStartupHint(null);
       }
       setStatus('idle');
+    } catch (err: any) {
+      console.error("[App] Error creating DB:", err);
+      setErrorMessage("Failed to create database: " + err.message);
+      setStatus('error');
     }
   };
 
@@ -362,17 +469,11 @@ function App() {
 
   const deleteOpportunity = async (id: string) => {
     if (!db || !fileHandle) return;
-    // Redundant confirm removed because OpportunityDetail already asks.
     setSelectedOppId(null);
     const newOpps = db.opportunities.filter(o => o.id !== id);
     const newDb = { ...db, opportunities: newOpps };
     setDb(newDb);
-
-    // Save proactively during user gesture context to avoid permission errors
-    setStatus('saving');
-    const success = await saveToDisk(fileHandle, newDb);
-    setStatus(success ? 'saved' : 'error');
-    if (!success) setErrorMessage("Auto-save failed. Check file permissions.");
+    // Auto-save effect will handle persistence
   };
 
   const renderStatusBadge = () => {
@@ -610,7 +711,7 @@ function App() {
             <SettingsIcon className="w-4 h-4" /> Settings
           </button>
           <div className="w-px h-6 bg-gray-200 mx-1"></div>
-          {!fileHandle ? (
+          {!isDbLoaded ? (
             <div className="flex items-center gap-2 relative">
               <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm">
                 <button onClick={handleOpenDB} className="flex items-center gap-2 px-3 py-1.5 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-l-lg transition-colors border-r border-gray-200">
@@ -659,12 +760,22 @@ function App() {
               {startupHint && <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>}
             </div>
           ) : (
-            <div className="flex items-center gap-3 animate-fade-in">
-              <span className="text-xs text-gray-400 font-mono hidden sm:inline-block border border-gray-100 px-2 py-1 rounded bg-gray-50 flex items-center gap-1">
-                <FileJson className="w-3 h-3" />
-                {fileHandle.name}
+            <div className="flex items-center gap-2 animate-fade-in">
+              <span
+                className={`text-xs font-mono hidden lg:inline-flex border px-2 py-1.5 rounded items-center gap-1.5 transition-colors ${status === 'error' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
+                title={status === 'error' ? errorMessage || 'Database error' : (fileHandle?.name || fallbackFileName || 'Loaded Database')}
+              >
+                <FileJson className="w-3.5 h-3.5" />
+                {fileHandle?.name || fallbackFileName || 'Loaded Database'}
+                {!fileHandle && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-bold uppercase tracking-tighter">Sandbox</span>}
               </span>
-              <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center">
+              <button
+                onClick={handleOpenDB}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+              >
+                <FolderOpen className="w-3.5 h-3.5" /> Change DB
+              </button>
+              <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center h-[34px]">
                 {renderStatusBadge()}
               </div>
             </div>

@@ -10,6 +10,8 @@ import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
+import { TrackingView } from '../features/tracking/TrackingView';
+import { CalendarDays } from 'lucide-react';
 
 
 const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: string, label: string }[], maxValue: number }> = ({ data, metrics, maxValue }) => {
@@ -158,6 +160,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
     // Next Steps Toggle
     const [showNextSteps, setShowNextSteps] = useState(false);
+    const [showTracking, setShowTracking] = useState(false);
 
     // Add Task Modal State
     const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
@@ -286,7 +289,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
             let matchesDate = true;
             if (dateFilterStart || dateFilterEnd) {
-                const dateToCheck = opp.dates.expected;
+                // In General mode, we prioritize Delivery date for KPI analysis, falling back to Expected
+                const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
+                    ? opp.kpis.timeline.deliveredAt
+                    : opp.dates.expected;
+
                 if (dateFilterStart && dateToCheck < dateFilterStart) matchesDate = false;
                 if (dateFilterEnd && dateToCheck > dateFilterEnd) matchesDate = false;
             }
@@ -359,7 +366,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     }, [filteredOpps, kpiSoldFilter]);
 
     // --- Historical KPI Data ---
-    const kpiHistoricalData = useMemo(() => {
+    const kpiHistoricalData = useMemo<any[] | null>(() => {
         const targetOpps = filteredOpps.filter(opp => {
             if (!opp.kpis?.timeline.deliveredAt) return false;
             if (kpiSoldFilter === 'all') return true;
@@ -371,23 +378,27 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         if (targetOpps.length === 0) return null;
 
         const getPeriodKey = (dateStr: string, range: string) => {
-            const date = new Date(dateStr);
-            const year = date.getUTCFullYear();
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            const year = date.getFullYear();
+
             if (range === 'yearly') return `${year}`;
-            if (range === 'monthly') return `${year}-${(date.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+            if (range === 'monthly') {
+                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            }
             if (range === 'quarterly') {
-                const q = Math.floor(date.getUTCMonth() / 3) + 1;
-                return `${year}-Q${q}`;
+                const q = Math.floor(date.getMonth() / 3) + 1;
+                return `${year} Q${q}`;
             }
             if (range === 'semester') {
-                const s = Math.floor(date.getUTCMonth() / 6) + 1;
-                return `${year}-S${s}`;
+                const s = Math.floor(date.getMonth() / 6) + 1;
+                return `${year} S${s}`;
             }
             if (range === 'weekly') {
-                const firstDayOfYear = new Date(Date.UTC(year, 0, 1));
+                const firstDayOfYear = new Date(year, 0, 1);
                 const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
-                const week = Math.ceil((pastDaysOfYear + firstDayOfYear.getUTCDay() + 1) / 7);
-                return `${year}-W${week.toString().padStart(2, '0')}`;
+                const week = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+                return `${year} W${week.toString().padStart(2, '0')}`;
             }
             return dateStr;
         };
@@ -395,12 +406,19 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         // Grouping
         const groups: Record<string, Opportunity[]> = {};
         targetOpps.forEach(opp => {
-            const key = getPeriodKey(opp.kpis.timeline.deliveredAt!, kpiTimeRange);
+            const key = getPeriodKey(opp.kpis!.timeline.deliveredAt!, kpiTimeRange);
             if (!groups[key]) groups[key] = [];
             groups[key].push(opp);
         });
 
-        const sortedKeys = Object.keys(groups).sort();
+        // Custom sort for period keys (Smarter sort for string labels)
+        const sortedKeys = Object.keys(groups).sort((a, b) => {
+            // Priority: Year first, then sub-period
+            const aYear = a.match(/\d{4}/)?.[0] || "";
+            const bYear = b.match(/\d{4}/)?.[0] || "";
+            if (aYear !== bYear) return aYear.localeCompare(bYear);
+            return a.localeCompare(b);
+        });
         return sortedKeys.map(key => {
             const opps = groups[key];
             const count = opps.length;
@@ -999,12 +1017,19 @@ ${noteTitles.join('\n')}
                         <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
                             <button onClick={() => setViewMode('board')} className={`p-2 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
                             <button onClick={() => setViewMode('table')} className={`p-2 rounded ${viewMode === 'table' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
-                            <button onClick={() => setViewMode('calendar')} className={`p-2 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                            <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all uppercase flex items-center gap-2 ${viewMode === 'calendar' ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><CalendarIcon className="w-4 h-4" /> Calendar</button>
                         </div>
                     )}
 
+
                     {mode === 'tasks' && (
                         <>
+                            <button
+                                onClick={() => setShowTracking(!showTracking)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showTracking ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                            >
+                                <CalendarDays className="w-4 h-4" /> Activity Tracking
+                            </button>
                             <button
                                 onClick={() => setShowNextSteps(!showNextSteps)}
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showNextSteps ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
@@ -1154,7 +1179,7 @@ ${noteTitles.join('\n')}
                                                 <div className="flex gap-3">
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[10px] font-bold text-gray-500">Lang</span></div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-[10px] font-bold text-gray-500">Tech</span></div>
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-bold text-gray-500">Deal %</span></div>
+                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-bold text-gray-500">Deal Prob.</span></div>
                                                     <div className="flex items-center gap-1.5" title="Effort Contribution Trends"><div className="w-2 h-2 rounded-full bg-pink-500"></div><span className="text-[10px] font-bold text-gray-500">Effort</span></div>
                                                     <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-orange-500"></div><span className="text-[10px] font-bold text-gray-500">Win Rate</span></div>
                                                 </div>
@@ -1428,384 +1453,400 @@ ${noteTitles.join('\n')}
                     </>
                 )}
 
+
                 {/* ... Tasks Mode ... */}
                 {mode === 'tasks' && (
-                    <>
-                        {showNextSteps ? (
-                            <div className="flex flex-col h-full overflow-hidden">
-                                <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-6">
-                                    {['Overdue', 'Today', 'No Date'].map(key => {
-                                        const groupTasks = key === 'Overdue' ? nextStepsData.overdue
-                                            : key === 'Today' ? nextStepsData.dueToday
-                                                : nextStepsData.noDate;
+                    showTracking ? (
+                        <div className="h-full">
+                            <TrackingView
+                                opportunities={opportunities}
+                                onClose={() => setShowTracking(false)}
+                                onUpdateOpportunity={onOppUpdate}
+                                onSelectOpp={onSelect}
+                            />
+                        </div>
+                    ) : (
+                        <>
+                            {showNextSteps ? (
+                                <div className="flex flex-col h-full overflow-hidden">
+                                    <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-6">
+                                        {['Overdue', 'Today', 'No Date'].map(key => {
+                                            const groupTasks = key === 'Overdue' ? nextStepsData.overdue
+                                                : key === 'Today' ? nextStepsData.dueToday
+                                                    : nextStepsData.noDate;
 
-                                        if (groupTasks.length === 0) return null;
+                                            if (groupTasks.length === 0) return null;
 
-                                        return (
-                                            <div key={key}>
-                                                <h3 className={`text-xs font-bold uppercase tracking-widest mb-3 px-1 ${key === 'Overdue' ? 'text-red-500' : key === 'Today' ? 'text-orange-500' : 'text-gray-400'}`}>
-                                                    {key} <span className="ml-1 opacity-50">({groupTasks.length})</span>
-                                                </h3>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                                    {groupTasks.map((item: any) => renderTaskCard(item))}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {nextStepsData.overdue.length === 0 && nextStepsData.dueToday.length === 0 && nextStepsData.noDate.length === 0 && (
-                                        <div className="flex flex-col items-center justify-center h-64 text-gray-300">
-                                            <CheckSquare className="w-12 h-12 mb-2 opacity-20" />
-                                            <p className="font-bold">No next steps found</p>
-                                            <p className="text-xs">All caught up!</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {viewMode === 'board' && (
-                                    <div className="flex gap-4 h-full pb-2 min-w-max">
-                                        {Object.entries(groupedTasks).map(([group, tasks]) => (
-                                            <div key={group} className="w-72 flex flex-col h-full" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, group, 'taskGroup')}>
-                                                <div className="flex items-center justify-between mb-3 px-1">
-                                                    <h3 className={`text-xs font-semibold uppercase tracking-wider text-gray-600`}>{group}</h3>
-                                                    <span className="text-gray-400 text-xs">{tasks.length}</span>
-                                                </div>
-                                                <div className="flex-1 overflow-y-auto space-y-3 pr-2 bg-gray-100/50 p-2 rounded-xl">
-                                                    {tasks.map((item: any) => renderTaskCard(item))}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {viewMode === 'table' && (
-                                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
-                                        <div className="overflow-auto flex-1 p-4">
-                                            <div className="space-y-2">
-                                                {filteredTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((item) => (
-                                                    <div key={item.id} className="border border-gray-100 rounded-lg hover:bg-gray-50 bg-white flex items-center gap-4 p-3 cursor-pointer group" onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
-                                                        <div className={`w-1 h-10 rounded-full ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`}></div>
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className={`text-xs font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
-                                                                {item.order && <span className="text-xs font-bold text-gray-400">#{item.order}</span>}
-                                                                <span className="text-sm font-medium text-gray-900">{item.title}</span>
-                                                                {(item.externalAreas || []).length > 0 && <span className="text-xs bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 py-0.5 rounded flex items-center gap-1"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
-                                                                {item.blockDoneUntilDependenciesDone && <span title="Blocking dependencies"><Lock className="w-3 h-3 text-gray-400" /></span>}
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right flex items-center gap-3">
-                                                            <select
-                                                                value={item.priority}
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                onChange={(e) => onTaskUpdate(item.opp.id, item.id, { priority: e.target.value as TaskPriority })}
-                                                                className={`text-[10px] px-2 py-0.5 rounded mr-2 border-none cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
-                                                            >
-                                                                {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
-                                                            </select>
-
-                                                            <select
-                                                                value={item.status}
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                onChange={(e) => handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
-                                                                className={`text-[10px] px-2 py-0.5 rounded-full border-none cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
-                                                            >
-                                                                {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-
-                                                            <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {viewMode === 'calendar' && (
-                                    <CalendarView<any>
-                                        items={filteredTasks}
-                                        getDate={(t) => t.dueDate}
-                                        onDateDrop={handleCalendarDrop}
-                                        renderItem={(t) => (
-                                            <div
-                                                draggable
-                                                onDragStart={(e) => handleDragStart(e, t.id, 'task', t.opp.id)}
-                                                onClick={() => setSelectedTask({ task: t, oppId: t.opp.id })}
-                                                className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
-                                                title={`${t.opp.id}: ${t.title}`}
-                                            >
-                                                {t.title}
-                                            </div>
-                                        )}
-                                    />
-                                )}
-                            </>
-                        )}
-                    </>
-                )}
-            </div>
-
-            {selectedTask && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTask(null)}>
-                    <div
-                        className={`bg-white shadow-2xl rounded-2xl flex flex-col animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-[90%] max-w-3xl h-[85vh] overflow-hidden'}`}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Left Column (Task Details) */}
-                        <div className="flex flex-col h-full overflow-y-auto">
-                            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
-                                <button onClick={deleteTaskInModal} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"><Trash2 className="w-5 h-5" /></button>
-                                <div className="text-center">
-                                    <h2 className="text-lg font-bold text-gray-900">Task Details</h2>
-                                    <div className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
-                                        {selectedTask.oppId}
-                                        <button onClick={() => onSelect(selectedTask.oppId)} className="text-[#3DCD58] hover:underline ml-2 uppercase font-bold">Open opportunity</button>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-medium bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
-                                        <Copy className="w-3 h-3" /> Summary
-                                    </button>
-                                    {!splitViewNoteId && <button onClick={() => setSelectedTask(null)} className="p-2 text-gray-500 hover:bg-gray-200 rounded transition-colors"><X className="w-6 h-6" /></button>}
-                                </div>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                                {/* ... Task details form ... */}
-                                <div className="flex items-start gap-4">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Title</label>
-                                        <input className="w-full text-2xl font-bold text-gray-900 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 px-0 py-2 placeholder-gray-300" value={selectedTask.task.title} onChange={(e) => updateSelectedTask('title', e.target.value)} />
-                                    </div>
-                                    {selectedTask.task.order && (
-                                        <div className="w-20">
-                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Order</label>
-                                            <div className="text-xl font-bold text-gray-500 py-2 border-b border-gray-200 text-center">#{selectedTask.task.order}</div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-6">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</label>
-                                        <select className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.status} onChange={(e) => updateSelectedTask('status', e.target.value)}>
-                                            {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Priority</label>
-                                        <select className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.priority || 'Medium'} onChange={(e) => updateSelectedTask('priority', e.target.value)}>
-                                            <option>High</option><option>Medium</option><option>Low</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Due Date</label>
-                                        <input type="date" className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.dueDate} onChange={(e) => updateSelectedTask('dueDate', e.target.value)} />
-                                    </div>
-                                </div>
-
-                                <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
-                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Assignment</label>
-                                    <div className="flex gap-4 items-center">
-                                        <select
-                                            className="border-gray-200 rounded-lg text-sm bg-white"
-                                            value={selectedTask.task.owner}
-                                            onChange={(e) => updateSelectedTask('owner', e.target.value)}
-                                        >
-                                            <option>Me</option>
-                                            <option>External Area</option>
-                                        </select>
-
-                                        {selectedTask.task.owner === 'External Area' && (
-                                            <div className="flex gap-2 flex-1 relative flex-col">
-                                                <MultiSelectDropdown
-                                                    label="Select Areas"
-                                                    options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
-                                                    selected={selectedTask.task.externalAreas || []}
-                                                    onChange={(vals) => updateSelectedTask('externalAreas', vals)}
-                                                />
-                                                <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Dependency Status Preview */}
-                                {(selectedTask.task.dependsOnTaskIds || []).length > 0 && (
-                                    <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <Lock className="w-4 h-4 text-orange-500" />
-                                            <label className="text-xs font-bold text-orange-700 uppercase tracking-wider">
-                                                Dependencies {selectedTask.task.blockDoneUntilDependenciesDone && "(Blocking)"}
-                                            </label>
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            {(selectedTask.task.dependsOnTaskIds || []).map((depId: string) => {
-                                                const depTask = opportunities.find(o => o.id === selectedTask.oppId)?.tasks.find(t => t.id === depId);
-                                                return depTask ? (
-                                                    <div key={depId} className="flex items-center gap-2 text-xs">
-                                                        <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                                        <span className={depTask.status === 'Done' ? 'text-gray-500 line-through' : 'text-gray-800'}>{depTask.title}</span>
-                                                    </div>
-                                                ) : null;
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Linked Documents</label>
-                                        <button className="text-[10px] font-bold text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker(true)}>+ Link Doc</button>
-                                    </div>
-                                    <div className="p-4 bg-gray-50 rounded-2xl">
-                                        <LinkedDocsList key={refreshKey} opportunityId={selectedTask.oppId} taskId={selectedTask.task.id} />
-                                    </div>
-                                </div>
-
-                                {/* NOTE LINKS - Added for General Dashboard */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Linked Notes</label>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {(selectedTask.task.linkedNoteIds || [selectedTask.task.linkedNoteId]).filter(Boolean).map((nid) => {
-                                            const opp = opportunities.find(o => o.id === selectedTask.oppId);
-                                            const note = opp?.notes.find(n => n.id === nid);
-                                            if (!note) return null;
                                             return (
-                                                <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
-                                                    <div className="flex items-center gap-2">
-                                                        <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
-                                                        <span className="text-sm font-medium">{note.title}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => onSelect(selectedTask.oppId)}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
-                                                        >
-                                                            Open Note
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setSplitViewNoteId(note.id)}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
-                                                        >
-                                                            <Columns className="w-3 h-3" /> Split View
-                                                        </button>
-                                                        <button
-                                                            onClick={() => unlinkNote(note.id)}
-                                                            className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
-                                                            title="Unlink"
-                                                        >
-                                                            <Unlink className="w-3 h-3" />
-                                                        </button>
+                                                <div key={key}>
+                                                    <h3 className={`text-xs font-bold uppercase tracking-widest mb-3 px-1 ${key === 'Overdue' ? 'text-red-500' : key === 'Today' ? 'text-orange-500' : 'text-gray-400'}`}>
+                                                        {key} <span className="ml-1 opacity-50">({groupTasks.length})</span>
+                                                    </h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                                        {groupTasks.map((item: any) => renderTaskCard(item))}
                                                     </div>
                                                 </div>
                                             );
                                         })}
-                                        {!selectedTask.task.linkedNoteIds?.length && !selectedTask.task.linkedNoteId && (
-                                            <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
+
+                                        {nextStepsData.overdue.length === 0 && nextStepsData.dueToday.length === 0 && nextStepsData.noDate.length === 0 && (
+                                            <div className="flex flex-col items-center justify-center h-64 text-gray-300">
+                                                <CheckSquare className="w-12 h-12 mb-2 opacity-20" />
+                                                <p className="font-bold">No next steps found</p>
+                                                <p className="text-xs">All caught up!</p>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
+                            ) : (
+                                <>
+                                    {viewMode === 'board' && (
+                                        <div className="flex gap-4 h-full pb-2 min-w-max">
+                                            {Object.entries(groupedTasks).map(([group, tasks]: [string, any]) => (
+                                                <div key={group} className="w-72 flex flex-col h-full" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, group, 'taskGroup')}>
+                                                    <div className="flex items-center justify-between mb-3 px-1">
+                                                        <h3 className={`text-xs font-semibold uppercase tracking-wider text-gray-600`}>{group}</h3>
+                                                        <span className="text-gray-400 text-xs">{tasks.length}</span>
+                                                    </div>
+                                                    <div className="flex-1 overflow-y-auto space-y-3 pr-2 bg-gray-100/50 p-2 rounded-xl">
+                                                        {tasks.map((item: any) => renderTaskCard(item))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
 
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Description</label>
-                                    <textarea className="w-full border-gray-200 rounded-lg text-sm h-32 resize-none bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.description} onChange={(e) => updateSelectedTask('description', e.target.value)} />
+                                    {viewMode === 'table' && (
+                                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
+                                            <div className="overflow-auto flex-1 p-4">
+                                                <div className="space-y-2">
+                                                    {filteredTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((item) => (
+                                                        <div key={item.id} className="border border-gray-100 rounded-lg hover:bg-gray-50 bg-white flex items-center gap-4 p-3 cursor-pointer group" onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
+                                                            <div className={`w-1 h-10 rounded-full ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`}></div>
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`text-xs font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
+                                                                    {item.order && <span className="text-xs font-bold text-gray-400">#{item.order}</span>}
+                                                                    <span className="text-sm font-medium text-gray-900">{item.title}</span>
+                                                                    {(item.externalAreas || []).length > 0 && <span className="text-xs bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 py-0.5 rounded flex items-center gap-1"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
+                                                                    {item.blockDoneUntilDependenciesDone && <span title="Blocking dependencies"><Lock className="w-3 h-3 text-gray-400" /></span>}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right flex items-center gap-3">
+                                                                <select
+                                                                    value={item.priority}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    onChange={(e) => onTaskUpdate(item.opp.id, item.id, { priority: e.target.value as TaskPriority })}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded mr-2 border-none cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
+                                                                >
+                                                                    {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
+                                                                </select>
+
+                                                                <select
+                                                                    value={item.status}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    onChange={(e) => handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded-full border-none cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
+                                                                >
+                                                                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                </select>
+
+                                                                <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {viewMode === 'calendar' && (
+                                        <CalendarView<any>
+                                            items={filteredTasks}
+                                            getDate={(t) => t.dueDate}
+                                            onDateDrop={handleCalendarDrop}
+                                            renderItem={(t) => (
+                                                <div
+                                                    draggable
+                                                    onDragStart={(e) => handleDragStart(e, t.id, 'task', t.opp.id)}
+                                                    onClick={() => setSelectedTask({ task: t, oppId: t.opp.id })}
+                                                    className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
+                                                    title={`${t.opp.id}: ${t.title}`}
+                                                >
+                                                    {t.title}
+                                                </div>
+                                            )}
+                                        />
+                                    )}
+                                </>
+                            )}
+                        </>
+                    )
+                )}
+            </div>
+
+            {
+                selectedTask && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTask(null)}>
+                        <div
+                            className={`bg-white shadow-2xl rounded-2xl flex flex-col animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-[90%] max-w-3xl h-[85vh] overflow-hidden'}`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Left Column (Task Details) */}
+                            <div className="flex flex-col h-full overflow-y-auto">
+                                <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
+                                    <button onClick={deleteTaskInModal} className="p-2 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"><Trash2 className="w-5 h-5" /></button>
+                                    <div className="text-center">
+                                        <h2 className="text-lg font-bold text-gray-900">Task Details</h2>
+                                        <div className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
+                                            {selectedTask.oppId}
+                                            <button onClick={() => onSelect(selectedTask.oppId)} className="text-[#3DCD58] hover:underline ml-2 uppercase font-bold">Open opportunity</button>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-medium bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
+                                            <Copy className="w-3 h-3" /> Summary
+                                        </button>
+                                        {!splitViewNoteId && <button onClick={() => setSelectedTask(null)} className="p-2 text-gray-500 hover:bg-gray-200 rounded transition-colors"><X className="w-6 h-6" /></button>}
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Subtasks</label>
-                                    <div className="space-y-2">
-                                        {/* Simplified rendering of subtasks to avoid typing issues */}
-                                        {(selectedTask.task.subtasks || []).map((sub: Subtask) => (
-                                            <div key={sub.id} className="flex items-center gap-2 group">
-                                                <input
-                                                    type="checkbox"
-                                                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
-                                                    checked={sub.completed}
-                                                    onChange={() => {
-                                                        if (!selectedTask) return;
-                                                        const currentSubs = selectedTask.task.subtasks || [];
-                                                        const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, completed: !s.completed } : s);
-                                                        updateSelectedTask('subtasks', updatedSubs);
-                                                    }}
-                                                />
-                                                <input
-                                                    className={`flex-1 border-none focus:ring-0 py-1 text-sm ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}
-                                                    value={sub.title}
-                                                    onChange={(e) => {
-                                                        if (!selectedTask) return;
-                                                        const currentSubs = selectedTask.task.subtasks || [];
-                                                        const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s);
-                                                        updateSelectedTask('subtasks', updatedSubs);
-                                                    }}
-                                                />
+                                <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                                    {/* ... Task details form ... */}
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Title</label>
+                                            <input className="w-full text-2xl font-bold text-gray-900 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 px-0 py-2 placeholder-gray-300" value={selectedTask.task.title} onChange={(e) => updateSelectedTask('title', e.target.value)} />
+                                        </div>
+                                        {selectedTask.task.order && (
+                                            <div className="w-20">
+                                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Order</label>
+                                                <div className="text-xl font-bold text-gray-500 py-2 border-b border-gray-200 text-center">#{selectedTask.task.order}</div>
                                             </div>
-                                        ))}
-                                        <button
-                                            className="text-xs text-[#3DCD58] font-medium mt-2 flex items-center gap-1 hover:underline"
-                                            onClick={() => {
-                                                if (!selectedTask) return;
-                                                const newSub: Subtask = { id: crypto.randomUUID(), title: 'New Subtask', completed: false };
-                                                const currentSubs = selectedTask.task.subtasks || [];
-                                                updateSelectedTask('subtasks', [...currentSubs, newSub]);
-                                            }}
-                                        >
-                                            <Plus className="w-3 h-3" /> Add Subtask
-                                        </button>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-6">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</label>
+                                            <select className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.status} onChange={(e) => updateSelectedTask('status', e.target.value)}>
+                                                {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Priority</label>
+                                            <select className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.priority || 'Medium'} onChange={(e) => updateSelectedTask('priority', e.target.value)}>
+                                                <option>High</option><option>Medium</option><option>Low</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Due Date</label>
+                                            <input type="date" className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.dueDate} onChange={(e) => updateSelectedTask('dueDate', e.target.value)} />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Assignment</label>
+                                        <div className="flex gap-4 items-center">
+                                            <select
+                                                className="border-gray-200 rounded-lg text-sm bg-white"
+                                                value={selectedTask.task.owner}
+                                                onChange={(e) => updateSelectedTask('owner', e.target.value)}
+                                            >
+                                                <option>Me</option>
+                                                <option>External Area</option>
+                                            </select>
+
+                                            {selectedTask.task.owner === 'External Area' && (
+                                                <div className="flex gap-2 flex-1 relative flex-col">
+                                                    <MultiSelectDropdown
+                                                        label="Select Areas"
+                                                        options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
+                                                        selected={selectedTask.task.externalAreas || []}
+                                                        onChange={(vals) => updateSelectedTask('externalAreas', vals)}
+                                                    />
+                                                    <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Dependency Status Preview */}
+                                    {(selectedTask.task.dependsOnTaskIds || []).length > 0 && (
+                                        <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Lock className="w-4 h-4 text-orange-500" />
+                                                <label className="text-xs font-bold text-orange-700 uppercase tracking-wider">
+                                                    Dependencies {selectedTask.task.blockDoneUntilDependenciesDone && "(Blocking)"}
+                                                </label>
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                {(selectedTask.task.dependsOnTaskIds || []).map((depId: string) => {
+                                                    const depTask = opportunities.find(o => o.id === selectedTask.oppId)?.tasks.find(t => t.id === depId);
+                                                    return depTask ? (
+                                                        <div key={depId} className="flex items-center gap-2 text-xs">
+                                                            <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                                            <span className={depTask.status === 'Done' ? 'text-gray-500 line-through' : 'text-gray-800'}>{depTask.title}</span>
+                                                        </div>
+                                                    ) : null;
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Linked Documents</label>
+                                            <button className="text-[10px] font-bold text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker(true)}>+ Link Doc</button>
+                                        </div>
+                                        <div className="p-4 bg-gray-50 rounded-2xl">
+                                            <LinkedDocsList key={refreshKey} opportunityId={selectedTask.oppId} taskId={selectedTask.task.id} />
+                                        </div>
+                                    </div>
+
+                                    {/* NOTE LINKS - Added for General Dashboard */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Linked Notes</label>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {(selectedTask.task.linkedNoteIds || [selectedTask.task.linkedNoteId]).filter(Boolean).map((nid) => {
+                                                const opp = opportunities.find(o => o.id === selectedTask.oppId);
+                                                const note = opp?.notes.find(n => n.id === nid);
+                                                if (!note) return null;
+                                                return (
+                                                    <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
+                                                        <div className="flex items-center gap-2">
+                                                            <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
+                                                            <span className="text-sm font-medium">{note.title}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => onSelect(selectedTask.oppId)}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
+                                                            >
+                                                                Open Note
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setSplitViewNoteId(note.id)}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
+                                                            >
+                                                                <Columns className="w-3 h-3" /> Split View
+                                                            </button>
+                                                            <button
+                                                                onClick={() => unlinkNote(note.id)}
+                                                                className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
+                                                                title="Unlink"
+                                                            >
+                                                                <Unlink className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {!selectedTask.task.linkedNoteIds?.length && !selectedTask.task.linkedNoteId && (
+                                                <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Description</label>
+                                        <textarea className="w-full border-gray-200 rounded-lg text-sm h-32 resize-none bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.description} onChange={(e) => updateSelectedTask('description', e.target.value)} />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Subtasks</label>
+                                        <div className="space-y-2">
+                                            {/* Simplified rendering of subtasks to avoid typing issues */}
+                                            {(selectedTask.task.subtasks || []).map((sub: Subtask) => (
+                                                <div key={sub.id} className="flex items-center gap-2 group">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
+                                                        checked={sub.completed}
+                                                        onChange={() => {
+                                                            if (!selectedTask) return;
+                                                            const currentSubs = selectedTask.task.subtasks || [];
+                                                            const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, completed: !s.completed } : s);
+                                                            updateSelectedTask('subtasks', updatedSubs);
+                                                        }}
+                                                    />
+                                                    <input
+                                                        className={`flex-1 border-none focus:ring-0 py-1 text-sm ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}
+                                                        value={sub.title}
+                                                        onChange={(e) => {
+                                                            if (!selectedTask) return;
+                                                            const currentSubs = selectedTask.task.subtasks || [];
+                                                            const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s);
+                                                            updateSelectedTask('subtasks', updatedSubs);
+                                                        }}
+                                                    />
+                                                </div>
+                                            ))}
+                                            <button
+                                                className="text-xs text-[#3DCD58] font-medium mt-2 flex items-center gap-1 hover:underline"
+                                                onClick={() => {
+                                                    if (!selectedTask) return;
+                                                    const newSub: Subtask = { id: crypto.randomUUID(), title: 'New Subtask', completed: false };
+                                                    const currentSubs = selectedTask.task.subtasks || [];
+                                                    updateSelectedTask('subtasks', [...currentSubs, newSub]);
+                                                }}
+                                            >
+                                                <Plus className="w-3 h-3" /> Add Subtask
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Right Column (Split View Note Editor) */}
+                            {splitViewNoteId && (
+                                <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
+                                    <div className="flex justify-between items-center mb-4 shrink-0 pt-4 pr-4">
+                                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                            <FileText className="w-5 h-5 text-[#3DCD58]" />
+                                            {opportunities.find(o => o.id === selectedTask.oppId)?.notes.find(n => n.id === splitViewNoteId)?.title}
+                                        </h3>
+                                        <button
+                                            onClick={() => setSplitViewNoteId(null)}
+                                            className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
+                                        >
+                                            Close Split View
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col mb-4 mr-4">
+                                        <RichTextEditor
+                                            key={splitViewNoteId}
+                                            content={opportunities.find(o => o.id === selectedTask.oppId)?.notes.find(n => n.id === splitViewNoteId)?.content || ''}
+                                            onChange={(val) => {
+                                                const opp = opportunities.find(o => o.id === selectedTask.oppId);
+                                                if (opp) {
+                                                    const updatedNotes = opp.notes.map(n => n.id === splitViewNoteId ? { ...n, content: val } : n);
+                                                    onOppUpdate({ ...opp, notes: updatedNotes });
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
-
-                        {/* Right Column (Split View Note Editor) */}
-                        {splitViewNoteId && (
-                            <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
-                                <div className="flex justify-between items-center mb-4 shrink-0 pt-4 pr-4">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-[#3DCD58]" />
-                                        {opportunities.find(o => o.id === selectedTask.oppId)?.notes.find(n => n.id === splitViewNoteId)?.title}
-                                    </h3>
-                                    <button
-                                        onClick={() => setSplitViewNoteId(null)}
-                                        className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
-                                    >
-                                        Close Split View
-                                    </button>
-                                </div>
-                                <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col mb-4 mr-4">
-                                    <RichTextEditor
-                                        key={splitViewNoteId}
-                                        content={opportunities.find(o => o.id === selectedTask.oppId)?.notes.find(n => n.id === splitViewNoteId)?.content || ''}
-                                        onChange={(val) => {
-                                            const opp = opportunities.find(o => o.id === selectedTask.oppId);
-                                            if (opp) {
-                                                const updatedNotes = opp.notes.map(n => n.id === splitViewNoteId ? { ...n, content: val } : n);
-                                                onOppUpdate({ ...opp, notes: updatedNotes });
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        )}
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            {showDocPicker && selectedTask && (
-                <DocumentPickerModal
-                    opportunityId={selectedTask.oppId}
-                    multi={true}
-                    onSelect={handleDocLink}
-                    onClose={() => setShowDocPicker(false)}
-                    title="Link documents to task"
-                />
-            )}
-        </div>
+            {
+                showDocPicker && selectedTask && (
+                    <DocumentPickerModal
+                        opportunityId={selectedTask.oppId}
+                        multi={true}
+                        onSelect={handleDocLink}
+                        onClose={() => setShowDocPicker(false)}
+                        title="Link documents to task"
+                    />
+                )
+            }
+        </div >
     );
 };
 

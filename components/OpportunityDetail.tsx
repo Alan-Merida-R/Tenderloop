@@ -274,7 +274,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full left-0 w-48 mt-1 bg-white border border-gray-200 shadow-lg z-20 max-h-40 overflow-y-auto rounded-lg p-1">
+                    <div className="absolute top-full right-0 w-48 mt-1 bg-white border border-gray-200 shadow-xl z-[200] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in slide-in-from-top-2 duration-200">
                         {options.map(opt => (
                             <div key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
                                 if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
@@ -721,26 +721,129 @@ const FullCalendarModal = ({
     timeline: KPITimeline,
     onUpdateTimeline: (field: keyof KPITimeline, value: string | null) => void
 }) => {
-    const [viewDate, setViewDate] = useState(new Date());
+    // Determine initial view date based on project received date
+    const getInitialDate = () => {
+        if (timeline.receivedAt) {
+            const [y, m, d] = timeline.receivedAt.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            if (!isNaN(date.getTime())) return date;
+        }
+        return new Date();
+    };
+
+    const [viewDate, setViewDate] = useState(getInitialDate());
     const [viewingHistoryDate, setViewingHistoryDate] = useState<string | null>(null);
     const [isInternalAddAreaOpen, setIsInternalAddAreaOpen] = useState(false);
+    const [visibleAreaIds, setVisibleAreaIds] = useState<string[]>(areas.map(a => a.id));
+    const [selectionStart, setSelectionStart] = useState<{ areaId: string, date: string } | null>(null);
+    const [selectionEnd, setSelectionEnd] = useState<{ areaId: string, date: string } | null>(null);
+
+    const [selectedCells, setSelectedCells] = useState<string[]>([]);
+
+    // Initial sync
+    useEffect(() => {
+        if (visibleAreaIds.length === 0 && areas.length > 0) {
+            setVisibleAreaIds(areas.map(a => a.id));
+        }
+    }, [areas]);
 
     const getDaysInMonth = (year: number, month: number) => {
-        const date = new Date(Date.UTC(year, month, 1));
+        const date = new Date(year, month, 1);
         const days = [];
-        while (date.getUTCMonth() === month) {
-            days.push(date.toISOString().split('T')[0]);
-            date.setUTCDate(date.getUTCDate() + 1);
+        while (date.getMonth() === month) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            days.push(`${y}-${m}-${d}`);
+            date.setDate(date.getDate() + 1);
         }
         return days;
     };
 
-    const days = getDaysInMonth(viewDate.getUTCFullYear(), viewDate.getUTCMonth());
+    const days = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
 
     const changeMonth = (offset: number) => {
-        const next = new Date(viewDate);
-        next.setUTCMonth(next.getUTCMonth() + offset);
+        const next = new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1);
         setViewDate(next);
+    };
+
+    const toggleCell = (areaId: string, date: string) => {
+        const area = areas.find(a => a.id === areaId);
+        if (!area) return;
+        const currentRecord = area.calendar?.[date];
+        const currentType = currentRecord?.type;
+
+        let newType: DayType | undefined = 'Worked';
+        if (currentType === 'Worked') newType = 'Waiting';
+        else if (currentType === 'Waiting') newType = 'Inactive';
+        else if (currentType === 'Inactive') newType = undefined;
+
+        const newCal = { ...(area.calendar || {}) };
+        if (!newType) delete newCal[date];
+        else newCal[date] = { ...newCal[date], type: newType };
+
+        onSaveAreaCalendar(areaId, newCal);
+    };
+
+    const handleCellClick = (areaId: string, date: string, e: React.MouseEvent) => {
+        const cellId = `${areaId}|${date}`;
+
+        if (e.altKey || e.shiftKey) {
+            // Range selection
+            if (!selectionStart) {
+                setSelectionStart({ areaId, date });
+                setSelectedCells([cellId]);
+            } else {
+                setSelectionEnd({ areaId, date });
+                // Re-calculate all cells in range
+                if (selectionStart.areaId === areaId) {
+                    const d1 = selectionStart.date < date ? selectionStart.date : date;
+                    const d2 = selectionStart.date < date ? date : selectionStart.date;
+                    const inRange = days.filter(d => d >= d1 && d <= d2).map(d => `${areaId}|${d}`);
+                    setSelectedCells(inRange);
+                }
+            }
+        } else if (e.ctrlKey || e.metaKey) {
+            // Multi-select toggle
+            setSelectionStart(null);
+            setSelectionEnd(null);
+            if (selectedCells.includes(cellId)) {
+                setSelectedCells(prev => prev.filter(c => c !== cellId));
+            } else {
+                setSelectedCells(prev => [...prev, cellId]);
+            }
+        } else {
+            // Toggle cycle
+            setSelectionStart(null);
+            setSelectionEnd(null);
+            setSelectedCells([]);
+            toggleCell(areaId, date);
+        }
+    };
+
+    const applyBatchAction = (type: DayType | null) => {
+        if (selectedCells.length === 0) return;
+
+        const updates: Record<string, Record<string, AreaDayRecord>> = {};
+
+        selectedCells.forEach(cell => {
+            const [areaId, date] = cell.split('|');
+            if (!updates[areaId]) {
+                const area = areas.find(a => a.id === areaId);
+                updates[areaId] = { ...(area?.calendar || {}) };
+            }
+            if (type === null) delete updates[areaId][date];
+            else updates[areaId][date] = { ...updates[areaId][date], type };
+        });
+
+        // Batch save for each area
+        Object.entries(updates).forEach(([areaId, cal]) => {
+            onSaveAreaCalendar(areaId, cal);
+        });
+
+        setSelectedCells([]);
+        setSelectionStart(null);
+        setSelectionEnd(null);
     };
 
     return (
@@ -757,6 +860,12 @@ const FullCalendarModal = ({
                         </div>
                         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl p-1.5 shadow-sm">
                             <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronLeft className="w-6 h-6 text-gray-600" /></button>
+                            <button
+                                onClick={() => setViewDate(new Date())}
+                                className="px-3 py-1 text-xs font-black text-[#3DCD58] hover:bg-[#3DCD58]/10 rounded-lg transition-all uppercase"
+                            >
+                                Hoy
+                            </button>
                             <span className="text-xl font-black w-56 text-center text-gray-700 capitalize">
                                 {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
                             </span>
@@ -764,6 +873,18 @@ const FullCalendarModal = ({
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-gray-400 uppercase">Areas:</span>
+                            <MultiSelect
+                                placeholder="Filter Areas..."
+                                options={areas.map(a => a.area)}
+                                selected={areas.filter(a => visibleAreaIds.includes(a.id)).map(a => a.area)}
+                                onChange={(sel) => {
+                                    const ids = areas.filter(a => sel.includes(a.area)).map(a => a.id);
+                                    setVisibleAreaIds(ids);
+                                }}
+                            />
+                        </div>
                         <button
                             onClick={() => setIsInternalAddAreaOpen(true)}
                             className="bg-white border-2 border-purple-500 text-purple-600 px-6 py-2.5 rounded-xl font-black shadow-sm hover:bg-purple-50 transition-all active:scale-95 flex items-center gap-2"
@@ -774,33 +895,34 @@ const FullCalendarModal = ({
                     </div>
                 </div>
 
-                <div className="flex-1 flex flex-col overflow-hidden">
-
-                    <div className="flex-1 overflow-auto p-4 bg-gray-50/20 shadow-inner">
-                        <div className="min-w-max pb-4">
+                <div className="flex-1 flex flex-col overflow-hidden bg-gray-200">
+                    <div className="flex-1 overflow-auto">
+                        <div className="min-w-max">
                             <div
-                                className="grid gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-xl"
+                                className="grid gap-px bg-gray-200 border-b border-gray-200 shadow-xl"
                                 style={{ gridTemplateColumns: `220px repeat(${days.length}, minmax(60px, 1fr))` }}
                             >
-                                {/* Header */}
-                                <div className="bg-gray-50 p-4 text-[11px] font-black text-gray-400 uppercase tracking-widest border-r flex items-center justify-between">
+                                {/* Top-Left Corner Header */}
+                                <div className="bg-gray-100 p-4 text-[11px] font-black text-gray-500 uppercase tracking-widest border-r border-b-2 border-gray-200 flex items-center justify-between sticky top-0 left-0 z-[50]">
                                     Area Name
                                     <Filter className="w-3 h-3" />
                                 </div>
                                 {days.map(d => {
                                     const isHoliday = holidays.includes(d);
-                                    const dayOfWeek = new Date(d).getUTCDay();
+                                    const [y, m, day] = d.split('-').map(Number);
+                                    const date = new Date(y, m - 1, day);
+                                    const dayOfWeek = date.getDay();
                                     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                                     return (
-                                        <div key={d} className={`p-2 text-center border-l transition-colors ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
-                                            <div className="text-[10px] font-black uppercase">{new Date(d).toLocaleDateString(undefined, { weekday: 'short' })}</div>
-                                            <div className="text-sm font-black">{new Date(d).getUTCDate()}</div>
+                                        <div key={d} className={`p-2 text-center border-l border-b-2 border-gray-200 transition-colors sticky top-0 z-[30] shadow-sm ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                                            <div className="text-[10px] font-black uppercase">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                                            <div className="text-sm font-black">{day}</div>
                                         </div>
                                     );
                                 })}
 
-                                {/* History Indicators Row */}
-                                <div className="bg-white p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t bg-gray-50/30">
+                                {/* History Indicators Row Label */}
+                                <div className="p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t bg-white sticky left-0 z-[30]">
                                     <HistoryIcon className="w-4 h-4" /> Events & Milestones
                                 </div>
                                 {days.map(d => {
@@ -842,9 +964,9 @@ const FullCalendarModal = ({
                                 })}
 
                                 {/* Area Rows */}
-                                {areas.map(area => (
+                                {areas.filter(a => visibleAreaIds.includes(a.id)).map(area => (
                                     <React.Fragment key={area.id}>
-                                        <div className="bg-white p-4 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center relative group">
+                                        <div className="bg-white p-4 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <div className="flex items-center justify-between group">
                                                 <span className="truncate pr-2">{area.area}</span>
                                                 <button
@@ -861,27 +983,18 @@ const FullCalendarModal = ({
                                         </div>
                                         {days.map(d => {
                                             const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
+                                            const cellId = `${area.id}|${d}`;
+                                            const isSelected = selectedCells.includes(cellId);
+
                                             return (
                                                 <div
                                                     key={d}
-                                                    className={`border-l border-t h-20 flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-[1.02] hover:z-10 hover:shadow-inner ${record?.type === 'Worked' ? 'bg-blue-50/40' :
+                                                    className={`border-l border-t h-20 flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-[1.02] hover:z-10 hover:shadow-inner ${isSelected ? 'ring-4 ring-[#3DCD58] ring-inset z-20' : ''} ${record?.type === 'Worked' ? 'bg-blue-50/40' :
                                                         record?.type === 'Waiting' ? 'bg-yellow-50/40' :
                                                             record?.type === 'Inactive' ? 'bg-red-50/30' :
                                                                 'bg-white'
                                                         }`}
-                                                    onClick={() => {
-                                                        const currentType = record?.type;
-                                                        const nextType: DayType | null =
-                                                            !currentType ? 'Worked' :
-                                                                currentType === 'Worked' ? 'Waiting' :
-                                                                    currentType === 'Waiting' ? 'Inactive' :
-                                                                        null;
-
-                                                        const newCal = { ...(area.calendar || {}) };
-                                                        if (nextType === null) delete newCal[d];
-                                                        else newCal[d] = { ...newCal[d], type: nextType };
-                                                        onSaveAreaCalendar(area.id, newCal);
-                                                    }}
+                                                    onClick={(e) => handleCellClick(area.id, d, e)}
                                                 >
                                                     {record?.type === 'Worked' && (
                                                         <div className="flex flex-col items-center gap-1 animate-in fade-in zoom-in duration-300">
@@ -984,17 +1097,43 @@ const FullCalendarModal = ({
 
                     <div className="p-6 border-t bg-gray-50 flex justify-between items-center shadow-2xl">
                         <div className="flex gap-10">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg"><Zap className="w-5 h-5 text-white" /></div>
-                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Worked Day</span>
+                            <div className="flex items-center gap-4">
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={() => applyBatchAction('Worked')}
+                                        disabled={selectedCells.length === 0}
+                                        className="bg-blue-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-lg disabled:opacity-30 hover:bg-blue-600 transition-all hover:scale-105 active:scale-95"
+                                    >
+                                        Mark Worked ({selectedCells.length})
+                                    </button>
+                                    <button
+                                        onClick={() => applyBatchAction('Waiting')}
+                                        disabled={selectedCells.length === 0}
+                                        className="bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-lg disabled:opacity-30 hover:bg-yellow-600 transition-all hover:scale-105 active:scale-95"
+                                    >
+                                        Mark Waiting ({selectedCells.length})
+                                    </button>
+                                    <button
+                                        onClick={() => applyBatchAction('Inactive')}
+                                        disabled={selectedCells.length === 0}
+                                        className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-lg disabled:opacity-30 hover:bg-red-600 transition-all hover:scale-105 active:scale-95"
+                                    >
+                                        Mark Inactive ({selectedCells.length})
+                                    </button>
+                                    <button
+                                        onClick={() => applyBatchAction(null)}
+                                        disabled={selectedCells.length === 0}
+                                        className="bg-white border border-gray-200 text-gray-400 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase shadow-sm disabled:opacity-30 hover:bg-gray-50 transition-all"
+                                    >
+                                        Clear ({selectedCells.length})
+                                    </button>
+                                </div>
                             </div>
+                            <div className="w-px h-8 bg-gray-200"></div>
                             <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-yellow-500 rounded-xl flex items-center justify-center shadow-lg"><Clock className="w-5 h-5 text-white" /></div>
-                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Waiting Day</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-red-100 rounded-xl flex items-center justify-center border-2 border-red-200"><X className="w-5 h-5 text-red-500" /></div>
-                                <span className="text-[11px] font-black uppercase text-gray-500 tracking-widest">Inactive / Holiday</span>
+                                <span className="text-[10px] font-black uppercase text-gray-500 tracking-widest bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg border border-emerald-100">
+                                    Delivered: {timeline.deliveredAt || '--'}
+                                </span>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
@@ -1071,11 +1210,32 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     useEffect(() => {
         setLocalOpp(opportunity);
         if (scrollContainerRef.current) scrollContainerRef.current.scrollTo(0, 0);
-    }, [opportunity]);
 
-    useEffect(() => {
-        localStorage.setItem(filterKey, JSON.stringify(taskStatusFilters));
-    }, [taskStatusFilters, filterKey]);
+        // Lazy KPI Migration / Initialization
+        if (activeTab === 'kpi' && (!opportunity.kpis || !opportunity.kpis.areasInvolved || !opportunity.kpis.timeline)) {
+            const baseTimeline = opportunity.kpis?.timeline || { receivedAt: opportunity.dates.requested || new Date().toISOString().split('T')[0], deliveredAt: null, cancelledAt: null, cancelledReason: null };
+            const baseKpis: KPIs = {
+                languageSkill: opportunity.kpis?.languageSkill ?? 0,
+                technicalUnderstanding: opportunity.kpis?.technicalUnderstanding ?? 0,
+                dealProbability: opportunity.kpis?.dealProbability ?? 0,
+                effortContribution: opportunity.kpis?.effortContribution ?? 0,
+                sold: opportunity.kpis?.sold ?? null,
+                proposalAmountUSD: opportunity.kpis?.proposalAmountUSD ?? opportunity.commercial.cqaOfficialSellPrice ?? 0,
+                timeline: baseTimeline,
+                execution: opportunity.kpis?.execution || { myWorkDays: 0, waitingOnOthersDays: 0 },
+                areasInvolved: opportunity.kpis?.areasInvolved || []
+            };
+
+            // Ensure Tendering area exists
+            if (!baseKpis.areasInvolved.some(a => a.area === 'Tendering')) {
+                baseKpis.areasInvolved.push({ id: crypto.randomUUID(), area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} });
+            }
+
+            const updated = { ...opportunity, kpis: baseKpis };
+            setLocalOpp(updated);
+            onUpdate(updated, opportunity.id);
+        }
+    }, [opportunity, activeTab]);
 
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
@@ -1221,12 +1381,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     };
 
     const addHistoryEntry = (date?: string, content?: string) => {
+        console.debug("[History] addHistoryEntry start", { date, content });
         const newEntry: HistoryEntry = {
             id: crypto.randomUUID(),
             date: date || new Date().toISOString().split('T')[0],
             content: content || 'New event...'
         };
         const updatedHistory = [...(localOpp.history || []), newEntry].sort((a, b) => b.date.localeCompare(a.date));
+        console.debug("[History] state update and calling onUpdate", { entriesCount: updatedHistory.length });
         handleFieldChange('history', updatedHistory);
     };
     const updateHistoryEntry = (id: string, field: keyof HistoryEntry, value: string) => {
@@ -1248,6 +1410,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             if (area.calendar) {
                 Object.entries(area.calendar).forEach(([date, record]) => {
                     const r = record as AreaDayRecord;
+                    // Only count Worked and Waiting as execution days
                     if (r.type === 'Worked' || r.type === 'Waiting') {
                         uniqueDates.add(date);
                     }
@@ -1258,7 +1421,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     }, [localOpp.kpis?.areasInvolved]);
 
     /**
-     * Tracks if any activity is recorded outside the official ReceivedAt -> DeliveredAt range.
+     * Rule B: Tracks if any activity is recorded outside the official ReceivedAt -> DeliveredAt range.
+     * If DeliveredAt doesn't exist, uses today's date as the end of the range.
      */
     const hasDaysOutsideRange = React.useMemo(() => {
         const receivedAt = localOpp.kpis?.timeline.receivedAt;
@@ -1268,6 +1432,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         (localOpp.kpis?.areasInvolved || []).forEach(area => {
             if (area.calendar) {
                 Object.keys(area.calendar).forEach(date => {
+                    // Check if date is strictly before receivedAt OR strictly after deliveredAt
                     if (receivedAt && (date < receivedAt || date > deliveredAt)) {
                         outside = true;
                     }
@@ -1278,9 +1443,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     }, [localOpp.kpis?.areasInvolved, localOpp.kpis?.timeline.receivedAt, localOpp.kpis?.timeline.deliveredAt]);
 
     const deleteHistoryEntry = (id: string) => {
-        if (!window.confirm("Are you sure?")) return;
+        if (!window.confirm("Delete this history entry?")) return;
+        console.debug("[History] deleteHistoryEntry start", { id });
         const updatedHistory = (localOpp.history || []).filter(h => h.id !== id);
         handleFieldChange('history', updatedHistory);
+        console.debug("[History] deleteHistoryEntry done");
     };
     const copyHistoryToClipboard = () => {
         const text = `Summary of SR history:\n` + (localOpp.history || []).sort((a, b) => a.date.localeCompare(b.date)).map(h => `${h.date}\n${h.content}`).join('\n');
@@ -2715,7 +2882,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                             <h3 className="font-bold text-gray-800">Change Log / Events</h3>
                             <div className="flex gap-2">
                                 <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Copy for bFO</button>
-                                <button onClick={addHistoryEntry} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
+                                <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
                             </div>
                         </div>
                         <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
