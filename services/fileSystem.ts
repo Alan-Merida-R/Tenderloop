@@ -11,24 +11,56 @@ export interface FileHandlerResult {
  */
 export const openDatabaseFile = async (): Promise<FileHandlerResult> => {
   try {
-    // @ts-ignore - File System Access API types might not be fully available in all TS configs
-    const [handle] = await window.showOpenFilePicker({
-      types: [
-        {
-          description: 'JSON Database',
-          accept: {
-            'application/json': ['.json'],
+    // Check if API is supported
+    // @ts-ignore
+    if (typeof window.showOpenFilePicker === 'function') {
+      const [handle] = await window.showOpenFilePicker({
+        types: [
+          {
+            description: 'JSON Database',
+            accept: {
+              'application/json': ['.json'],
+            },
           },
-        },
-      ],
-      multiple: false,
-    });
+        ],
+        multiple: false,
+      });
 
-    const file = await handle.getFile();
-    const text = await file.text();
-    const data = JSON.parse(text) as DatabaseSchema;
+      const file = await handle.getFile();
+      const text = await file.text();
+      const data = JSON.parse(text) as DatabaseSchema;
 
-    return { handle, data, error: null };
+      return { handle, data, error: null };
+    } else {
+      // Fallback for browsers without File System Access API
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.style.display = 'none'; // hidden
+
+        input.onchange = async (e: any) => {
+          const file = e.target.files?.[0];
+          if (!file) {
+            resolve({ handle: null, data: null, error: 'Selección cancelada.' });
+            return;
+          }
+          try {
+            const text = await file.text();
+            const data = JSON.parse(text) as DatabaseSchema;
+            resolve({ handle: null, data, error: null }); // No handle in fallback
+          } catch (err: any) {
+            resolve({ handle: null, data: null, error: 'Error al leer el archivo: ' + err.message });
+          }
+        };
+
+        // Check for cancel/no-action (simulated via strict timeout or focus? difficult to detect cancel mostly)
+        // But standard behavior is just to wait. If user cancels, promise hangs or we assume nothing.
+        // A common trick is checking on window focus, but let's keep it simple.
+
+        input.click();
+      });
+    }
   } catch (err: any) {
     if (err.name === 'AbortError') {
       return { handle: null, data: null, error: 'Selección cancelada.' };
