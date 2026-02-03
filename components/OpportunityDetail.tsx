@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3 } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -109,13 +109,104 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         return (
             <div className="flex flex-col h-full relative">
                 <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none">
+                    <select
+                        onChange={(e) => exec('fontName', e.target.value)}
+                        className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
+                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0/0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
+                    >
+                        <option value="">Font</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Calibri">Calibri</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Courier New">Courier New</option>
+                        <option value="Inter">Inter</option>
+                    </select>
+
+                    <select
+                        onChange={(e) => {
+                            // exec('fontSize') uses 1-7, so we'll uses styles for precise sizes
+                            const selection = window.getSelection()?.toString();
+                            if (selection) {
+                                insertHtml(`<span style="font-size: ${e.target.value}px">${selection}</span>`);
+                            }
+                        }}
+                        className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
+                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0/0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
+                    >
+                        <option value="">Size</option>
+                        <option value="10">10</option>
+                        <option value="12">12</option>
+                        <option value="14">14</option>
+                        <option value="16">16</option>
+                        <option value="18">18</option>
+                        <option value="24">24</option>
+                        <option value="32">32</option>
+                    </select>
+
+                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
                     <button onClick={() => exec('formatBlock', 'H1')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 1"><Heading1 className="w-4 h-4" /></button>
                     <button onClick={() => exec('bold')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
                     <button onClick={() => exec('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
+                    <button onClick={() => exec('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Type className="w-4 h-4" style={{ textDecoration: 'underline' }} /></button>
                     <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting"><Eraser className="w-4 h-4" /></button>
+
+                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                    <button onClick={() => exec('justifyLeft')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Left"><AlignLeft className="w-4 h-4" /></button>
+                    <button onClick={() => exec('justifyCenter')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Center"><AlignCenter className="w-4 h-4" /></button>
+                    <button onClick={() => exec('justifyRight')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Right"><AlignRight className="w-4 h-4" /></button>
+
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                     <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Link"><Link className="w-4 h-4" /></button>
                     <button onClick={() => exec('unlink')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Remove Link"><Unlink className="w-4 h-4" /></button>
+
+                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                    <div className="flex items-center gap-0.5">
+                        <button onClick={() => {
+                            const tableHtml = `<table style="width:100%; border-collapse: collapse; border: 1px solid #ccc;" border="1"><tbody><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr></tbody></table><p><br></p>`;
+                            insertHtml(tableHtml);
+                        }} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Table"><Table className="w-4 h-4" /></button>
+                        <button onClick={() => {
+                            const selection = window.getSelection();
+                            if (selection && selection.rangeCount > 0) {
+                                let node = selection.anchorNode;
+                                while (node && node !== editorRef.current) {
+                                    if (node instanceof HTMLElement && (node.tagName === 'TABLE' || (node as any).closest?.('table'))) {
+                                        const table = node.tagName === 'TABLE' ? (node as HTMLTableElement) : (node as any).closest('table');
+                                        const newRow = table.insertRow();
+                                        const colCount = table.rows[0].cells.length;
+                                        for (let i = 0; i < colCount; i++) {
+                                            const cell = newRow.insertCell();
+                                            cell.style.border = '1px solid #ccc';
+                                            cell.style.padding = '8px';
+                                        }
+                                        if (editorRef.current) onChange(editorRef.current.innerHTML);
+                                        return;
+                                    }
+                                    node = node.parentNode;
+                                }
+                            }
+                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-gray-500 h-7" title="Add Row">+Row</button>
+                        <button onClick={() => {
+                            const selection = window.getSelection();
+                            if (selection && selection.rangeCount > 0) {
+                                let node = selection.anchorNode;
+                                while (node && node !== editorRef.current) {
+                                    if (node instanceof HTMLElement && (node.tagName === 'TABLE' || (node as any).closest?.('table'))) {
+                                        const table = node.tagName === 'TABLE' ? (node as HTMLTableElement) : (node as any).closest('table');
+                                        for (let i = 0; i < table.rows.length; i++) {
+                                            const cell = table.rows[i].insertCell();
+                                            cell.style.border = '1px solid #ccc';
+                                            cell.style.padding = '8px';
+                                        }
+                                        if (editorRef.current) onChange(editorRef.current.innerHTML);
+                                        return;
+                                    }
+                                    node = node.parentNode;
+                                }
+                            }
+                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-gray-500 h-7" title="Add Column">+Col</button>
+                    </div>
+
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                     <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
@@ -128,6 +219,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                     <button onClick={() => exec('insertUnorderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bullet List"><ListIcon className="w-4 h-4" /></button>
                     <button onClick={() => exec('insertOrderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Numbered List"><ListOrdered className="w-4 h-4" /></button>
+                    <button onClick={() => exec('indent')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Indent"><ChevronRight className="w-4 h-4" /></button>
+                    <button onClick={() => exec('outdent')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Outdent"><ChevronLeft className="w-4 h-4" /></button>
                     <button onClick={() => insertHtml('<input type="checkbox"> ')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Checkbox"><CheckCircle className="w-4 h-4" /></button>
                     <button onClick={() => insertHtml('<hr>')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Divider">_</button>
                 </div>
@@ -136,7 +229,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     className="flex-1 p-6 overflow-y-auto focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content bg-white"
                     contentEditable
                     onInput={handleInput}
-                    onMouseUp={onSelection}
+                    onMouseUp={() => {
+                        if (onSelection) onSelection();
+                        const selection = window.getSelection();
+                        if (selection && selection.rangeCount > 0) {
+                            let node = selection.anchorNode;
+                            while (node && node !== editorRef.current) {
+                                if (node instanceof HTMLElement && node.dataset.questionId) {
+                                    onLinkClick?.(node.dataset.questionId);
+                                    break;
+                                }
+                                node = node.parentNode;
+                            }
+                        }
+                    }}
                     onClick={handleClick}
                     onKeyDown={handleKeyDown}
                     suppressContentEditableWarning={true}
@@ -149,9 +255,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
                 .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
                 .question-highlight:hover { background-color: rgba(61, 205, 88, 0.4); }
+                .editor-content table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
+                .editor-content td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
                 .editor-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.25em; }
             `}</style>
-            </div>
+            </div >
         );
     });
 
@@ -1097,10 +1205,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     };
 
     const addQuestion = (sourceId: string, quote: string) => {
+        const normalizedQuote = (quote || '').trim().replace(/\s+/g, ' ');
         const newId = crypto.randomUUID();
-        if (noteEditorRef.current) noteEditorRef.current.highlightSelection(newId, quote);
+        if (noteEditorRef.current) noteEditorRef.current.highlightSelection(newId, normalizedQuote);
         const newQ: Question = {
-            id: newId, sourceId, sourceType: 'note', quote, question: 'New Question...', answer: '', isResolved: false, createdAt: new Date().toISOString()
+            id: newId, sourceId, sourceType: 'note', quote: normalizedQuote, question: 'New Question...', answer: '', isResolved: false, createdAt: new Date().toISOString()
         };
         const updated = { ...localOpp, questions: [...(localOpp.questions || []), newQ] };
         setLocalOpp(updated); onUpdate(updated);
@@ -1949,6 +2058,90 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         return Math.min(100, Math.max(0, score));
     }, [myWorkStats.days, totalAreaDays, waitingOnOthersDays, localOpp.kpis]);
 
+    const handleExportNotePDF = async (note: MeetingNote) => {
+        if (!note) return;
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const opportunityName = localOpp.title.replace(/[/\\?%*:|"<>]/g, '-');
+        const noteTitle = note.title.replace(/[/\\?%*:|"<>]/g, '-');
+        const fileName = `Note_${opportunityName}_${noteTitle}.pdf`;
+
+        const parseText = (html: string): string => {
+            if (!html) return "";
+            let text = html;
+            text = text.replace(/<h1>/g, '\n\n# ').replace(/<\/h1>/g, '\n');
+            text = text.replace(/<p>/g, '\n').replace(/<\/p>/g, '\n');
+            text = text.replace(/<br\s*\/?>/g, '\n');
+            text = text.replace(/<li>/g, '\n• ').replace(/<\/li>/g, '');
+            text = text.replace(/<[^>]*>/g, '');
+            const txt = document.createElement('textarea');
+            txt.innerHTML = text;
+            return txt.value.trim();
+        };
+
+        doc.setFillColor(61, 205, 88);
+        doc.rect(0, 0, pageWidth, 25, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.text("Meeting Note Output", 14, 16);
+
+        let yPos = 40;
+        doc.setTextColor(0);
+        doc.setFontSize(18);
+        doc.setFont(undefined, 'bold');
+        const titleLines = doc.splitTextToSize(note.title, pageWidth - 28);
+        doc.text(titleLines, 14, yPos);
+        yPos += titleLines.length * 8 + 5;
+
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(100);
+        doc.text(`${localOpp.id} - ${localOpp.title}`, 14, yPos);
+        yPos += 5;
+        doc.text(`Date: ${note.date || 'N/A'}`, 14, yPos);
+        yPos += 15;
+
+        doc.setTextColor(0);
+
+        const contentLines = parseText(note.content).split('\n');
+        contentLines.forEach(line => {
+            if (yPos > 270) { doc.addPage(); yPos = 20; }
+            const splitLine = doc.splitTextToSize(line, pageWidth - 28);
+            doc.text(splitLine, 14, yPos);
+            yPos += splitLine.length * 5;
+        });
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = note.content;
+        const tables = tempDiv.querySelectorAll('table');
+        tables.forEach(table => {
+            if (yPos > 230) { doc.addPage(); yPos = 20; }
+            autoTable(doc, {
+                html: table,
+                startY: yPos + 5,
+                theme: 'striped',
+                headStyles: { fillColor: [61, 205, 88] }
+            });
+            yPos = (doc as any).lastAutoTable.finalY + 10;
+        });
+
+        if ('showSaveFilePicker' in window) {
+            try {
+                const handle = await (window as any).showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [{ description: 'PDF Document', accept: { 'application/pdf': ['.pdf'] } }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(doc.output('blob'));
+                await writable.close();
+            } catch (err) {
+                if ((err as Error).name !== 'AbortError') doc.save(fileName);
+            }
+        } else {
+            doc.save(fileName);
+        }
+    };
+
     const handleExportKpiPDF = async () => {
         const jsPDF = (await import('jspdf')).default;
         const autoTable = (await import('jspdf-autotable')).default;
@@ -2601,7 +2794,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 {activeTab === 'notes' && (
                     <div className={`flex h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : ''}`}>
                         {!isNoteFullScreen && (
-                            <div className="w-1/3 flex flex-col gap-3 overflow-y-auto">
+                            <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto border-r border-gray-100 pr-4">
                                 {/* Search Bar for Notes */}
                                 <div className="relative mb-1">
                                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -2650,8 +2843,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                         <div className="flex-1 flex gap-4 min-h-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col shadow-sm">
                             {currentNote ? (
                                 <>
-                                    <div className="p-4 border-b border-gray-100 flex justify-between bg-gray-50 shrink-0 items-center">
-                                        <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" />
+                                    <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
+                                        <div className="flex justify-between items-center">
+                                            <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                                                    <CalendarIcon className="w-3.5 h-3.5 text-gray-400" />
+                                                    <input
+                                                        type="date"
+                                                        value={currentNote.date || new Date().toISOString().split('T')[0]}
+                                                        onChange={(e) => updateSelectedNote('date', e.target.value)}
+                                                        className="text-xs font-bold text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div className="flex items-center gap-3">
                                             {textSelection && <button className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1" onClick={() => addQuestion(currentNote.id, textSelection)}><HelpCircle className="w-3 h-3" /> Ask Question</button>}
                                             <button
@@ -2662,6 +2868,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                                 <SplitSquareHorizontal className="w-3 h-3" />
                                                 Open Questions
                                             </button>
+                                            <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>
                                             <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
                                         </div>
                                     </div>
