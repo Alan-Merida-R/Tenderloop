@@ -1435,6 +1435,118 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         navigator.clipboard.writeText(summary); alert("Status summary copied to clipboard.");
     };
 
+    /**
+     * Shared Helper: Normalizes all images in HTML to data URLs for reliable PDF rendering.
+     */
+    const normalizeImagesForPdf = async (html: string): Promise<string> => {
+        if (!html) return "";
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        const imgs = Array.from(div.querySelectorAll('img'));
+
+        await Promise.all(imgs.map(async (img) => {
+            const src = img.getAttribute('src');
+            if (!src) return;
+
+            if (src.startsWith('data:')) {
+                if (!img.complete) {
+                    await new Promise((resolve) => {
+                        img.onload = resolve;
+                        img.onerror = resolve;
+                        setTimeout(resolve, 5000);
+                    });
+                }
+                return;
+            }
+
+            try {
+                // Handle blob: and remote URLs with CORS consideration
+                const response = await fetch(src);
+                const blob = await response.blob();
+                const dataUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                img.setAttribute('src', dataUrl);
+            } catch (e) {
+                console.warn("PDF Image Normalization Warning:", src, e);
+                // Fallback: leave as is, might fail in addImage but won't crash the loop
+            }
+        }));
+        return div.innerHTML;
+    };
+
+    /**
+     * Shared Helper: Renders note content (text, tables, images) to a jsPDF document.
+     */
+    const renderNoteContentToPdf = async (doc: any, html: string, currentY: number, pageWidth: number): Promise<number> => {
+        let y = currentY;
+        const normalizedHtml = await normalizeImagesForPdf(html);
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = normalizedHtml;
+
+        // 1. Text Content
+        const parseText = (h: string): string => {
+            let text = h;
+            text = text.replace(/<h1>/g, '\n\n# ').replace(/<\/h1>/g, '\n');
+            text = text.replace(/<h2>/g, '\n\n## ').replace(/<\/h2>/g, '\n');
+            text = text.replace(/<h3>/g, '\n\n### ').replace(/<\/h3>/g, '\n');
+            text = text.replace(/<p>/g, '\n').replace(/<\/p>/g, '\n');
+            text = text.replace(/<br\s*\/?>/g, '\n');
+            text = text.replace(/<li>/g, '\n• ').replace(/<\/li>/g, '');
+            text = text.replace(/<[^>]*>/g, '');
+            const txt = document.createElement('textarea');
+            txt.innerHTML = text;
+            return txt.value.trim();
+        };
+
+        const plainText = parseText(normalizedHtml);
+        const splitText = doc.splitTextToSize(plainText, pageWidth - 28);
+        splitText.forEach((line: string) => {
+            if (y > 275) { doc.addPage(); y = 20; }
+            doc.text(line, 14, y);
+            y += 5;
+        });
+
+        y += 8;
+
+        // 2. Images
+        const imgs = Array.from(tempDiv.querySelectorAll('img'));
+        for (const img of imgs) {
+            const src = img.getAttribute('src');
+            if (!src || !src.startsWith('data:')) continue;
+            try {
+                const imgProps = doc.getImageProperties(src);
+                const imgWidth = Math.min(pageWidth - 28, imgProps.width / 5);
+                const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+
+                if (y + imgHeight > 275) { doc.addPage(); y = 20; }
+                doc.addImage(src, 'PNG', 14, y, imgWidth, imgHeight);
+                y += imgHeight + 10;
+            } catch (e) {
+                console.warn("Failed to render image to PDF", e);
+            }
+        }
+
+        // 3. Tables
+        const tables = Array.from(tempDiv.querySelectorAll('table'));
+        for (const table of tables) {
+            if (y > 240) { doc.addPage(); y = 20; }
+            autoTable(doc, {
+                html: table,
+                startY: y + 5,
+                theme: 'striped',
+                headStyles: { fillColor: [61, 205, 88] },
+                styles: { fontSize: 8 }
+            });
+            y = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        return y;
+    };
+
     const linkNotesToTask = (taskId: string, noteIds: string[]) => {
         const task = localOpp.tasks.find(t => t.id === taskId);
         if (!task) return;
@@ -1501,82 +1613,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         const doc = new jsPDF();
         const s = localOpp;
         const pageWidth = doc.internal.pageSize.getWidth();
-
-        /**
-         * Improved HTML Parser for PDF
-         * Preserves structure for H1, H2, H3, lists, and basic formatting.
-         */
-        const parseHtmlToPdfText = (html: string): string => {
-            if (!html) return "";
-            let text = html;
-
-            // Basic block level conversion
-            text = text.replace(/<h1>/g, '\n\n# ').replace(/<\/h1>/g, '\n');
-            text = text.replace(/<h2>/g, '\n\n## ').replace(/<\/h2>/g, '\n');
-            text = text.replace(/<h3>/g, '\n\n### ').replace(/<\/h3>/g, '\n');
-            text = text.replace(/<p>/g, '\n').replace(/<\/p>/g, '\n');
-            text = text.replace(/<br\s*\/?>/g, '\n');
-
-            // Lists
-            text = text.replace(/<ul>/g, '\n').replace(/<\/ul>/g, '\n');
-            text = text.replace(/<ol>/g, '\n').replace(/<\/ol>/g, '\n');
-            text = text.replace(/<li>/g, '\n• ').replace(/<\/li>/g, '');
-
-            // Tables (simplification)
-            text = text.replace(/<tr>/g, '\n| ').replace(/<\/tr>/g, ' |');
-            text = text.replace(/<td>/g, ' ').replace(/<\/td>/g, ' |');
-            text = text.replace(/<th>/g, ' ').replace(/<\/th>/g, ' |');
-
-            // Formatting (strip but keep content)
-            text = text.replace(/<strong>/g, '').replace(/<\/strong>/g, '');
-            text = text.replace(/<em>/g, '').replace(/<\/em>/g, '');
-            text = text.replace(/<u>/g, '').replace(/<\/u>/g, '');
-
-            // Strip remaining tags
-            text = text.replace(/<[^>]*>/g, '');
-
-            // Decode entities
-            const txt = document.createElement('textarea');
-            txt.innerHTML = text;
-            return txt.value.trim();
-        };
-
-        /**
-         * Helper to look for and extract images from HTML content
-         */
-        const renderImagesFromHtml = (html: string, currentY: number): number => {
-            const imgRegex = /<img[^>]+src="([^">]+)"/g;
-            let match;
-            let y = currentY;
-            while ((match = imgRegex.exec(html)) !== null) {
-                const src = match[1];
-                try {
-                    if (src.startsWith('data:image')) {
-                        // Attempt to add base64 image
-                        const imgProps = doc.getImageProperties(src);
-                        const imgWidth = Math.min(pageWidth - 28, imgProps.width / 5); // Simple scaling
-                        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-
-                        if (y + imgHeight > 270) {
-                            doc.addPage();
-                            y = 20;
-                        }
-                        doc.addImage(src, 'PNG', 14, y, imgWidth, imgHeight);
-                        y += imgHeight + 10;
-                    } else {
-                        // External URL - render as placeholder
-                        doc.setTextColor(150);
-                        doc.setFontSize(8);
-                        doc.text(`[Image Link: ${src.substring(0, 50)}...]`, 14, y);
-                        doc.setTextColor(0);
-                        y += 10;
-                    }
-                } catch (e) {
-                    console.warn("Failed to render image in PDF", e);
-                }
-            }
-            return y;
-        };
 
         doc.setFillColor(61, 205, 88);
         doc.rect(0, 0, pageWidth, 25, 'F');
@@ -1794,19 +1830,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 doc.setTextColor(0);
                 doc.setFont(undefined, 'normal');
 
-                // 1. Render text content with improved parsing
-                const formattedContent = parseHtmlToPdfText(note.content);
-                const splitNote = doc.splitTextToSize(formattedContent, pageWidth - 28);
-                if (yPos + (splitNote.length * 5) > 280) {
-                    doc.addPage();
-                    yPos = 20;
-                }
-                doc.text(splitNote, 14, yPos);
-                yPos += (splitNote.length * 5) + 10;
-
-                // 2. Render images if present in content
-                yPos = renderImagesFromHtml(note.content, yPos);
-
+                // Render note content with centralized helper (text, images, tables)
+                yPos = await renderNoteContentToPdf(doc, note.content, yPos, pageWidth);
                 yPos += 10;
             }
         }
@@ -2066,19 +2091,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         const noteTitle = note.title.replace(/[/\\?%*:|"<>]/g, '-');
         const fileName = `Note_${opportunityName}_${noteTitle}.pdf`;
 
-        const parseText = (html: string): string => {
-            if (!html) return "";
-            let text = html;
-            text = text.replace(/<h1>/g, '\n\n# ').replace(/<\/h1>/g, '\n');
-            text = text.replace(/<p>/g, '\n').replace(/<\/p>/g, '\n');
-            text = text.replace(/<br\s*\/?>/g, '\n');
-            text = text.replace(/<li>/g, '\n• ').replace(/<\/li>/g, '');
-            text = text.replace(/<[^>]*>/g, '');
-            const txt = document.createElement('textarea');
-            txt.innerHTML = text;
-            return txt.value.trim();
-        };
-
         doc.setFillColor(61, 205, 88);
         doc.rect(0, 0, pageWidth, 25, 'F');
         doc.setTextColor(255, 255, 255);
@@ -2103,27 +2115,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
         doc.setTextColor(0);
 
-        const contentLines = parseText(note.content).split('\n');
-        contentLines.forEach(line => {
-            if (yPos > 270) { doc.addPage(); yPos = 20; }
-            const splitLine = doc.splitTextToSize(line, pageWidth - 28);
-            doc.text(splitLine, 14, yPos);
-            yPos += splitLine.length * 5;
-        });
-
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = note.content;
-        const tables = tempDiv.querySelectorAll('table');
-        tables.forEach(table => {
-            if (yPos > 230) { doc.addPage(); yPos = 20; }
-            autoTable(doc, {
-                html: table,
-                startY: yPos + 5,
-                theme: 'striped',
-                headStyles: { fillColor: [61, 205, 88] }
-            });
-            yPos = (doc as any).lastAutoTable.finalY + 10;
-        });
+        // Render note content with centralized helper (text, images, tables)
+        yPos = await renderNoteContentToPdf(doc, note.content, yPos, pageWidth);
 
         if ('showSaveFilePicker' in window) {
             try {
