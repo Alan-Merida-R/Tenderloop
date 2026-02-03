@@ -83,7 +83,7 @@ const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: 
 };
 
 interface Props {
-    mode: 'proposals' | 'tasks' | 'general' | 'tracking';
+    mode: 'proposals' | 'tasks' | 'general';
     opportunities: Opportunity[];
     onSelect: (id: string, deeplink?: DeepLink) => void;
     onCreate: (stage?: ProcessStage) => void;
@@ -1521,16 +1521,6 @@ ${noteTitles.join('\n')}
                             />
                         )}
                     </>
-                )}
-
-                {/* Tracking Mode */}
-                {mode === 'tracking' && (
-                    <TrackingView
-                        opportunities={filteredOpps}
-                        onClose={() => { }}
-                        onUpdateOpportunity={onOppUpdate}
-                        onSelectOpp={onSelect}
-                    />
                 )}
 
                 {/* ... Tasks Mode ... */}

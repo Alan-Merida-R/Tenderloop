@@ -9,7 +9,7 @@ import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/Setti
 import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays } from 'lucide-react';
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
-type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard' | 'tracking-dashboard';
+type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
 
 const SCHNEIDER_GREEN = '#3DCD58'; // Corporate Green
 
@@ -40,6 +40,14 @@ function App() {
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
   const isSavingRef = useRef(false);
+
+  // Redirect legacy tracking view
+  useEffect(() => {
+    // @ts-ignore
+    if (currentView === 'tracking-dashboard') {
+      setCurrentView('tasks-dashboard');
+    }
+  }, [currentView]);
 
   // Load Settings from LocalStorage on mount
   useEffect(() => {
@@ -378,7 +386,6 @@ function App() {
           setFallbackFileName(null);
           await rememberDb(result.handle, { name: result.handle.name });
         } else {
-          console.warn("[App] Loaded DB without handle (autosave disabled).");
           setFileHandle(null);
           setFallbackFileName(result.name || "Offline DB");
         }
@@ -700,12 +707,6 @@ function App() {
             >
               <CheckSquare className="w-4 h-4" /> Tasks
             </button>
-            <button
-              onClick={() => setCurrentView('tracking-dashboard')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black transition-all uppercase ${currentView === 'tracking-dashboard' ? 'bg-[#3DCD58] text-white shadow-lg shadow-[#3DCD58]/20' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              <CalendarDays className="w-4 h-4" /> Tracking
-            </button>
           </div>
         </div>
 
@@ -803,7 +804,7 @@ function App() {
         {/* Main Dashboard Area */}
         <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
           <Dashboard
-            mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : currentView === 'tracking-dashboard' ? 'tracking' : 'general'}
+            mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
             opportunities={db.opportunities}
             onSelect={(id, dl) => {
               setSelectedOppId(id);
