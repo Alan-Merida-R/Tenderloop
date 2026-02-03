@@ -155,8 +155,11 @@ function App() {
     if (!data || typeof data !== 'object') return false;
     // Check for essential keys that define our DB
     const hasOpps = Array.isArray(data.opportunities);
-    const hasMeta = data.meta && typeof data.meta === 'object';
-    return hasOpps && hasMeta;
+    // Relaxed validation: meta is optional for older DBs, warn but allow
+    if (data.meta && typeof data.meta !== 'object') {
+      console.warn("DB has invalid meta structure, but proceeding.");
+    }
+    return hasOpps; // Only block if opportunities array is missing
   };
 
   // Shared DB Loader
@@ -349,6 +352,12 @@ function App() {
   const handleOpenDB = async () => {
     console.debug("[App] handleOpenDB triggered.");
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    // Reset state before loading new DB to avoid stale data conflicts
+    setDb(INITIAL_DB);
+    setIsDbLoaded(false);
+    setFileHandle(null);
+
     setStatus('loading');
     setErrorMessage(null);
 
@@ -730,8 +739,8 @@ function App() {
                   <div className="relative">
                     <button
                       onClick={() => setShowRecents(!showRecents)}
-                      className="px-2 py-1.5 hover:bg-gray-50 rounded-r-lg h-full flex items-center justify-center text-gray-500"
-                      title="Recent Databases"
+                      className="px-2 py-1.5 hover:bg-gray-50 rounded-r-lg h-full flex items-center justify-center text-gray-500 border-l border-gray-200"
+                      title="Switch Database"
                     >
                       <ChevronDown className="w-3 h-3" />
                     </button>
@@ -769,22 +778,54 @@ function App() {
               {startupHint && <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>}
             </div>
           ) : (
-            <div className="flex items-center gap-2 animate-fade-in">
-              <span
-                className={`text-xs font-mono hidden lg:inline-flex border px-2 py-1.5 rounded items-center gap-1.5 transition-colors ${status === 'error' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
-                title={status === 'error' ? errorMessage || 'Database error' : (fileHandle?.name || fallbackFileName || 'Loaded Database')}
-              >
-                <FileJson className="w-3.5 h-3.5" />
-                {fileHandle?.name || fallbackFileName || 'Loaded Database'}
-                {!fileHandle && <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-bold uppercase tracking-tighter">Sandbox</span>}
+            <div className="flex items-center gap-3 animate-fade-in">
+              <span className="text-xs text-gray-400 font-mono hidden sm:inline-block border border-gray-100 px-2 py-1 rounded bg-gray-50 flex items-center gap-1">
+                <FileJson className="w-3 h-3" />
+                {fileHandle ? fileHandle.name : fallbackFileName}
               </span>
-              <button
-                onClick={handleOpenDB}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
-              >
-                <FolderOpen className="w-3.5 h-3.5" /> Change DB
-              </button>
-              <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center h-[34px]">
+
+              {/* Always allow switching DB even when loaded */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowRecents(!showRecents)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-lg transition-colors shadow-sm"
+                  title="Switch Database"
+                >
+                  <FolderOpen className="w-4 h-4" /> Switch
+                </button>
+                {showRecents && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowRecents(false)} />
+                    <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
+                      <div className="p-2 border-b border-gray-100">
+                        <button onClick={() => { setShowRecents(false); handleOpenDB(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
+                          <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> Open another file...
+                        </button>
+                      </div>
+                      <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
+                      <div className="max-h-64 overflow-y-auto">
+                        {recentDbs.map(entry => (
+                          <div key={entry.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer group" onClick={() => handleRecentClick(entry)}>
+                            <div className="flex items-center gap-2 overflow-hidden">
+                              <History className="w-3 h-3 text-gray-400 shrink-0" />
+                              <span className="text-xs font-medium text-gray-700 truncate">{entry.name}</span>
+                            </div>
+                            <button
+                              onClick={(e) => handleRemoveRecent(e, entry.id)}
+                              className="p-1 text-gray-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remove from recents"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center">
                 {renderStatusBadge()}
               </div>
             </div>
