@@ -2858,7 +2858,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                 <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
-                                <textarea value={localOpp.description} onChange={(e) => handleFieldChange('description', e.target.value)} className="w-full text-sm border-gray-200 rounded-lg min-h-[300px]" placeholder="Detailed description..." />
+                                <textarea value={localOpp.description} onChange={(e) => handleFieldChange('description', e.target.value)} className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]" placeholder="Detailed description..." />
                                 <div className="grid grid-cols-2 gap-4">
                                     <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
                                     <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
@@ -3521,7 +3521,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
                     {/* ... Tasks and other tabs unchanged in structure ... */}
                     {activeTab === 'tasks' && (
-                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm min-h-[500px] flex flex-col">
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
                             {/* Task View Content */}
                             <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gray-50/50">
                                 <div className="flex items-center gap-4">
