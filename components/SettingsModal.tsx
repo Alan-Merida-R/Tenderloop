@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search } from 'lucide-react';
-import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../types';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag } from 'lucide-react';
+import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 
 // Default Hardcoded Values (Fallback)
@@ -49,6 +49,7 @@ export interface AppSettings {
   holidays?: string[]; // ISO date strings YYYY-MM-DD
   trackedAreas?: string[]; // New: Areas for KPIs
   taskStandardTemplate?: import('../types').TaskStandardTemplate | null;
+  globalLabels?: OpportunityLabel[];
 }
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
@@ -74,7 +75,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   })),
   holidays: [],
   trackedAreas: DEFAULT_TRACKED_AREAS,
-  taskStandardTemplate: null
+  taskStandardTemplate: null,
+  globalLabels: [
+    { id: '1', text: 'Urgent', color: '#ef4444' }, // Red
+    { id: '2', text: 'Strategic', color: '#8b5cf6' }, // Violet
+    { id: '3', text: 'Low Hanging Fruit', color: '#10b981' }, // Emerald
+    { id: '4', text: 'Complex', color: '#f59e0b' }, // Amber
+  ]
 };
 
 interface Props {
@@ -117,7 +124,7 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
@@ -250,6 +257,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'notes' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <FileText className="w-4 h-4" /> Note Templates
+          </button>
+          <button
+            onClick={() => setActiveTab('labels')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'labels' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Tag className="w-4 h-4" /> Labels
           </button>
         </div>
 
@@ -515,6 +528,67 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <button onClick={addNote} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" /> Add Note Template
               </button>
+            </div>
+          )}
+
+          {/* LABELS TAB */}
+          {activeTab === 'labels' && (
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Tag className="w-4 h-4" /> Global Labels</h3>
+                    <p className="text-xs text-gray-500">Define standardized labels for opportunities. These can be selected in any opportunity.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {(settings.globalLabels || []).map((label, idx) => (
+                    <div key={label.id} className="flex items-center gap-3 p-2 border border-gray-100 rounded-lg hover:bg-gray-50">
+                      <input
+                        type="color"
+                        value={label.color}
+                        onChange={(e) => {
+                          const newLabels = [...(settings.globalLabels || [])];
+                          newLabels[idx] = { ...label, color: e.target.value };
+                          setSettings({ ...settings, globalLabels: newLabels });
+                        }}
+                        className="w-8 h-8 rounded cursor-pointer border-none p-0 bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={label.text}
+                        onChange={(e) => {
+                          const newLabels = [...(settings.globalLabels || [])];
+                          newLabels[idx] = { ...label, text: e.target.value };
+                          setSettings({ ...settings, globalLabels: newLabels });
+                        }}
+                        className="flex-1 text-sm font-bold text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
+                        placeholder="Label Name"
+                      />
+                      <button
+                        onClick={() => {
+                          const newLabels = (settings.globalLabels || []).filter(l => l.id !== label.id);
+                          setSettings({ ...settings, globalLabels: newLabels });
+                        }}
+                        className="p-2 text-gray-300 hover:text-red-500 rounded hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => {
+                    const newLabel: OpportunityLabel = { id: crypto.randomUUID(), text: 'New Label', color: '#94a3b8' };
+                    setSettings({ ...settings, globalLabels: [...(settings.globalLabels || []), newLabel] });
+                  }}
+                  className="w-full mt-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Label
+                </button>
+              </div>
             </div>
           )}
         </div>

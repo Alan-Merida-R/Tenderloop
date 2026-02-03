@@ -191,6 +191,12 @@ export interface KPIs {
   areasInvolved: KPIArea[];
 }
 
+export interface OpportunityLabel {
+  id: string;
+  text: string;
+  color: string;
+}
+
 export interface Opportunity {
   id: string;
   title: string;
@@ -214,7 +220,8 @@ export interface Opportunity {
   questions: Question[]; // New module
   history: HistoryEntry[];
   presentation: PrdPresentation;
-  tags: string[];
+  tags: string[]; // Keep for legacy
+  labels: OpportunityLabel[]; // New colored labels
 
   // Analytics
   kpis: KPIs;
