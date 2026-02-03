@@ -859,6 +859,7 @@ function App() {
             onOppUpdate={updateOpportunity}
             onTaskUpdate={updateTaskDetails}
             holidays={appSettings.holidays || []}
+            globalLabels={appSettings.globalLabels || []}
           />
         </div>
 
@@ -876,6 +877,7 @@ function App() {
                 noteTemplates={appSettings.noteTemplates}
                 holidays={appSettings.holidays || []}
                 trackedAreas={appSettings.trackedAreas || []}
+                globalLabels={appSettings.globalLabels || []}
                 deepLink={activeDeepLink || undefined}
               />
             </div>
