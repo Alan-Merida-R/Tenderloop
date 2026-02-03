@@ -2668,7 +2668,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     <button onClick={() => setShowCreateVersionModal(true)} className="p-1 hover:bg-gray-100 rounded text-green-600"><Plus className="w-4 h-4" /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-4">
-                    {Object.entries(versionGroups).map(([sr, versions]) => (
+                    {Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
                         <div key={sr}>
                             <div className="flex items-center gap-1 mb-1 px-1">
                                 <GitBranch className="w-3 h-3 text-gray-400" />
@@ -3993,7 +3993,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 </div>
             )}
         </div>
-    </div >
     );
 };
 
