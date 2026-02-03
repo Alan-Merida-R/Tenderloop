@@ -94,7 +94,20 @@ interface Props {
     holidays?: string[];
 }
 
-// Multi-select component
+// Helper: Copy text to clipboard
+const copyToClipboard = (text: string) => {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).catch(err => console.error('Failed to copy: ', err));
+    } else {
+        // Fallback
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+    }
+};
 const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: string[], selected: string[], onChange: (val: string[]) => void, label: string }) => {
     const [isOpen, setIsOpen] = useState(false);
     return (
@@ -1084,6 +1097,26 @@ ${noteTitles.join('\n')}
                             <button onClick={exportTasksToCSV} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">
                                 <Download className="w-4 h-4" /> CSV
                             </button>
+                            <button
+                                onClick={() => {
+                                    if (confirm("Copy tasks summary?\nOK = Pending Only (Pending, In Progress, On Hold)\nCancel = All Tasks")) {
+                                        // Pending Only
+                                        const pendingTasks = filteredTasks.filter(t => ['Pending', 'In Progress', 'On Hold', 'Missing Info'].includes(t.status));
+                                        const text = pendingTasks.map(t => `[${t.status}] ${t.title} - ${t.opp.customer}`).join('\n');
+                                        copyToClipboard(text);
+                                        // alert(`Copied ${pendingTasks.length} pending tasks to clipboard.`);
+                                    } else {
+                                        // All Tasks
+                                        const text = filteredTasks.map(t => `[${t.status}] ${t.title} - ${t.opp.customer}`).join('\n');
+                                        copyToClipboard(text);
+                                        // alert(`Copied ${filteredTasks.length} tasks to clipboard.`);
+                                    }
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                title="Copy Status"
+                            >
+                                <Copy className="w-4 h-4" /> Copy Status
+                            </button>
                         </>
                     )}
 
@@ -1589,7 +1622,13 @@ ${noteTitles.join('\n')}
                                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
                                             <div className="overflow-auto flex-1 p-4">
                                                 <div className="space-y-2">
-                                                    {filteredTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((item) => (
+                                                    {filteredTasks.sort((a, b) => {
+                                                        // Sort by Order field first (ascending), then by Due Date
+                                                        const orderA = a.order ?? 9999;
+                                                        const orderB = b.order ?? 9999;
+                                                        if (orderA !== orderB) return orderA - orderB;
+                                                        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+                                                    }).map((item) => (
                                                         <div key={item.id} className="border border-gray-100 rounded-lg hover:bg-gray-50 bg-white flex items-center gap-4 p-3 cursor-pointer group" onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
                                                             <div className={`w-1 h-10 rounded-full ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`}></div>
                                                             <div className="flex-1">
