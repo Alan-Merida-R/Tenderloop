@@ -3295,7 +3295,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     )}
 
                     {activeTab === 'presentation' && (
-                        <div className="space-y-8 max-w-6xl mx-auto">
+                        <div className="space-y-8 h-full flex flex-col">
                             {/* Section 1: Core Presentation Fields */}
                             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
                                 <div className="space-y-2">
