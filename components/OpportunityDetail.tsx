@@ -1313,7 +1313,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
         setLocalOpp(updated);
         // Guard: Only persist to DB if NOT viewing a version (Working Copy mode)
         if (!viewingVersionId) {
-            onUpdate(updated);
+            onUpdate(updated, opportunity.id);
         }
     };
 
