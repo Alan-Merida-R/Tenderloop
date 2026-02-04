@@ -2676,7 +2676,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     )}
 
                     <div className="p-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
-                        <div className="max-w-7xl mx-auto w-full">
+                        <div className="w-full px-4">
                             <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"><X className="w-5 h-5 text-gray-500" /></button>
@@ -2850,7 +2850,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                 </div>
 
                 <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
-                    <div className="max-w-7xl mx-auto w-full flex">
+                    <div className="w-full px-4 flex">
                         <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
                         <button onClick={() => setActiveTab('kpi')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
                         <button onClick={() => setActiveTab('presentation')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
@@ -2865,7 +2865,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
             </div>
 
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-50/30 min-h-0">
-                <div className="max-w-7xl mx-auto w-full">
+                <div className="w-full px-2 md:px-6">
                     {activeTab === 'overview' && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">

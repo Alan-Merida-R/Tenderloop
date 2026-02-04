@@ -869,18 +869,20 @@ function App() {
           const opp = db.opportunities.find(o => o.id === selectedOppId);
           if (!opp) return null;
           return (
-            <div className="fixed inset-0 z-50 bg-white animate-slide-in-right overflow-hidden flex flex-col">
-              <OpportunityDetail
-                opportunity={opp}
-                onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
-                onUpdate={updateOpportunity}
-                onDelete={() => deleteOpportunity(opp.id)}
-                noteTemplates={appSettings.noteTemplates}
-                holidays={appSettings.holidays || []}
-                trackedAreas={appSettings.trackedAreas || []}
-                globalLabels={appSettings.globalLabels || []}
-                deepLink={activeDeepLink || undefined}
-              />
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
+              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+                <OpportunityDetail
+                  opportunity={opp}
+                  onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
+                  onUpdate={updateOpportunity}
+                  onDelete={() => deleteOpportunity(opp.id)}
+                  noteTemplates={appSettings.noteTemplates}
+                  holidays={appSettings.holidays || []}
+                  trackedAreas={appSettings.trackedAreas || []}
+                  globalLabels={appSettings.globalLabels || []}
+                  deepLink={activeDeepLink || undefined}
+                />
+              </div>
             </div>
           );
         })()}
