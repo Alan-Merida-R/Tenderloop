@@ -60,7 +60,7 @@ export const MEETING_TEMPLATES = {
   </ol>
   `,
 
-  "Industrial Proposal Checklist (Schneider) – Client Research + Structure": `
+  "Industrial Checklist (Schneider)": `
   <h4>Industrial Proposal Checklist</h4>
   <p><b>Objective:</b> Comprehensive checklist for high-value industrial proposals.</p>
   <hr>
