@@ -1249,6 +1249,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
     const [taskSort, setTaskSort] = useState<'none' | 'dueDate' | 'order'>('order');
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
+    const [showLabelMenu, setShowLabelMenu] = useState(false);
 
     useEffect(() => {
         setLocalOpp(opportunity);
@@ -2796,35 +2797,45 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                                 }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
                                             </span>
                                         ))}
-                                        <div className="relative group">
-                                            <button className="flex items-center gap-1.5 px-2.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold hover:bg-gray-200 transition-colors border border-gray-200 border-dashed">
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowLabelMenu(!showLabelMenu)}
+                                                className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-colors border border-dashed ${showLabelMenu ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
+                                            >
                                                 <Plus className="w-3 h-3" /> Label
                                             </button>
-                                            <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 hidden group-hover:block z-[60] animate-in fade-in zoom-in-95 duration-100">
-                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
-                                                <div className="space-y-1 max-h-48 overflow-y-auto">
-                                                    {(globalLabels || []).map(gl => {
-                                                        const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
-                                                        return (
-                                                            <button
-                                                                key={gl.id}
-                                                                className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                                                                onClick={() => {
-                                                                    if (!isSelected) {
-                                                                        handleFieldChange('labels', [...(localOpp.labels || []), gl]);
-                                                                    }
-                                                                }}
-                                                                disabled={isSelected}
-                                                            >
-                                                                <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
-                                                                <span className="text-xs font-bold text-gray-700">{gl.text}</span>
-                                                                {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                    {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
-                                                </div>
-                                            </div>
+
+                                            {showLabelMenu && (
+                                                <>
+                                                    <div className="fixed inset-0 z-[55] cursor-default" onClick={() => setShowLabelMenu(false)} />
+                                                    <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 z-[60] animate-in fade-in zoom-in-95 duration-100">
+                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
+                                                        <div className="space-y-1 max-h-48 overflow-y-auto">
+                                                            {(globalLabels || []).map(gl => {
+                                                                const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
+                                                                return (
+                                                                    <button
+                                                                        key={gl.id}
+                                                                        className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
+                                                                        onClick={() => {
+                                                                            if (!isSelected) {
+                                                                                handleFieldChange('labels', [...(localOpp.labels || []), gl]);
+                                                                                setShowLabelMenu(false);
+                                                                            }
+                                                                        }}
+                                                                        disabled={isSelected}
+                                                                    >
+                                                                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
+                                                                        <span className="text-xs font-bold text-gray-700">{gl.text}</span>
+                                                                        {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                            {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
