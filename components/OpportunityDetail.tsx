@@ -3165,27 +3165,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                     )}
 
                     {activeTab === 'presentation' && (
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
-                                <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-8 max-w-6xl mx-auto">
+                            {/* Section 1: Core Presentation Fields */}
+                            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
-                                    <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                    <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
+                                    <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
+                                        <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
+                                        <textarea value={localOpp.presentation.requirements} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
-                                    <textarea value={localOpp.presentation.requirements} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                    <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
+                                    <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
                                 </div>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
-                                <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
                             </div>
 
-                            {/* Proposal Analysis Wizard */}
+                            {/* Section 2: Proposal Analysis Wizard (Separate Card) */}
                             <div className="bg-gradient-to-br from-gray-50 to-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6 relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-4 opacity-5">
                                     <Zap className="w-24 h-24 text-gray-900" />
