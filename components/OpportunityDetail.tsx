@@ -165,7 +165,35 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     <button onClick={() => exec('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
                     <button onClick={() => exec('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Type className="w-4 h-4" style={{ textDecoration: 'underline' }} /></button>
                     <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting (Plain Text)"><Eraser className="w-4 h-4" /></button>
-                    <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting"><Eraser className="w-4 h-4" /></button>
+                    <button onClick={() => {
+                        exec('removeFormat'); // Native cleanup
+                        exec('formatBlock', 'DIV'); // Reset headings to normal div/p
+                        exec('bold'); exec('italic'); exec('underline'); // Toggle off if on (or harmless redundant)
+
+                        // Custom cleanup for question spans in selection
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {
+                            const range = sel.getRangeAt(0);
+                            const fragment = range.cloneContents();
+                            const spans = fragment.querySelectorAll('span.question-highlight');
+                            // If selection contains our custom marks, we need to loop and unwrap them in the live DOM
+                            // This is complex with Ranges, but exec Command 'removeFormat' often misses custom spans with classes.
+                            // Simple approach: exec 'removeFormat' usually strips attributes, but let's be sure.
+
+                            // Iterate over all spans with our class in the editor and if they intersect selection, unwrap them.
+                            if (editorRef.current) {
+                                const allMarks = editorRef.current.querySelectorAll('span.question-highlight');
+                                allMarks.forEach(span => {
+                                    if (sel.containsNode(span, true)) {
+                                        const parent = span.parentNode;
+                                        while (span.firstChild) parent?.insertBefore(span.firstChild, span);
+                                        parent?.removeChild(span);
+                                    }
+                                });
+                                onChange(editorRef.current.innerHTML);
+                            }
+                        }
+                    }} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting (Styles & Marks)"><Eraser className="w-4 h-4" /></button>
 
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
                     <button onClick={() => exec('justifyLeft')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Left"><AlignLeft className="w-4 h-4" /></button>
