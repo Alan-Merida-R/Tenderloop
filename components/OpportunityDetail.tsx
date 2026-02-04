@@ -208,6 +208,58 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                                 }
                             }
                         }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-gray-500 h-7" title="Add Column">+Col</button>
+
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+
+                        <button onClick={() => {
+                            const selection = window.getSelection();
+                            if (selection && selection.rangeCount > 0) {
+                                let node = selection.anchorNode;
+                                while (node && node !== editorRef.current) {
+                                    if (node instanceof HTMLElement && ((node as any).tagName === 'TR' || (node as any).closest?.('tr'))) {
+                                        const row = (node as any).tagName === 'TR' ? (node as HTMLTableRowElement) : (node as any).closest('tr');
+                                        if (row && row.parentNode) {
+                                            row.parentNode.removeChild(row);
+                                            if (editorRef.current) onChange(editorRef.current.innerHTML);
+                                        }
+                                        return;
+                                    }
+                                    node = node.parentNode;
+                                }
+                            }
+                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-red-500 h-7" title="Delete Row">-Row</button>
+
+                        <button onClick={() => {
+                            const selection = window.getSelection();
+                            if (selection && selection.rangeCount > 0) {
+                                let node = selection.anchorNode;
+                                while (node && node !== editorRef.current) {
+                                    // Find cell td/th
+                                    if (node instanceof HTMLElement && ((node as any).tagName === 'TD' || (node as any).tagName === 'TH' || (node as any).closest?.('td') || (node as any).closest?.('th'))) {
+                                        const cell = (node as any).tagName === 'TD' || (node as any).tagName === 'TH' ? (node as HTMLTableCellElement) : ((node as any).closest('td') || (node as any).closest('th'));
+                                        const row = cell.parentNode as HTMLTableRowElement;
+                                        const table = row.parentNode?.parentNode as HTMLTableElement || row.parentNode as HTMLTableElement; // tbody or table
+
+                                        if (cell && row && table) {
+                                            const cellIndex = cell.cellIndex;
+                                            // Handle case where table might have a tbody
+                                            const finalTable = table.tagName === 'TABLE' ? table : (table as any).closest('table');
+
+                                            if (finalTable) {
+                                                for (let i = 0; i < finalTable.rows.length; i++) {
+                                                    if (finalTable.rows[i].cells.length > cellIndex) {
+                                                        finalTable.rows[i].deleteCell(cellIndex);
+                                                    }
+                                                }
+                                                if (editorRef.current) onChange(editorRef.current.innerHTML);
+                                            }
+                                        }
+                                        return;
+                                    }
+                                    node = node.parentNode;
+                                }
+                            }
+                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-red-500 h-7" title="Delete Column">-Col</button>
                     </div>
 
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
