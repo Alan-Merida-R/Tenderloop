@@ -142,6 +142,14 @@ export interface PrdPresentation {
   issues: string;
   kpis: string;
   requirements: string;
+  proposalAnalysis?: {
+    trigger: string;
+    missingInfo: string;
+    risks: string;
+    competition: string;
+    strategy: string;
+    checklist: Record<string, boolean>;
+  };
 }
 
 export interface OpportunityDates {

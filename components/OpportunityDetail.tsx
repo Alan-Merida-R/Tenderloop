@@ -150,6 +150,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     <button onClick={() => exec('bold')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
                     <button onClick={() => exec('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
                     <button onClick={() => exec('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Type className="w-4 h-4" style={{ textDecoration: 'underline' }} /></button>
+                    <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting (Plain Text)"><Eraser className="w-4 h-4" /></button>
                     <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting"><Eraser className="w-4 h-4" /></button>
 
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
@@ -2675,8 +2676,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
 
                     <div className="p-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
                         <div className="max-w-7xl mx-auto w-full">
-                            <div className="flex justify-between items-start mb-1">
-                                <div className="flex items-center gap-2">
+                            <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                     <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"><X className="w-5 h-5 text-gray-500" /></button>
                                     <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">OP</span>
@@ -3158,7 +3159,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                                 <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
                                 <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
                             </div>
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
                                     <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
@@ -3171,6 +3172,103 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
                                 <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
+                            </div>
+
+                            {/* Proposal Analysis Wizard */}
+                            <div className="bg-gradient-to-br from-gray-50 to-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-5">
+                                    <Zap className="w-24 h-24 text-gray-900" />
+                                </div>
+                                <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide flex items-center gap-2 relative z-10">
+                                    <Zap className="w-4 h-4 text-amber-500" /> Proposal Analysis Hub
+                                </h3>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
+                                    {/* Column 1: Context */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2 text-[#3DCD58] font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
+                                            <span className="bg-[#3DCD58] text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">1</span> Context
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Trigger Event & Client Motivation</label>
+                                            <textarea
+                                                className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0"
+                                                placeholder="Why are they buying now?"
+                                                value={localOpp.presentation.proposalAnalysis?.trigger || ''}
+                                                onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), trigger: e.target.value } })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Missing Info / Questions</label>
+                                            <textarea
+                                                className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0 bg-red-50/50"
+                                                placeholder="What don't we know yet?"
+                                                value={localOpp.presentation.proposalAnalysis?.missingInfo || ''}
+                                                onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), missingInfo: e.target.value } })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Column 2: Strategy */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2 text-blue-500 font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
+                                            <span className="bg-blue-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">2</span> Strategy
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Key Risks</label>
+                                            <textarea
+                                                className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
+                                                value={localOpp.presentation.proposalAnalysis?.risks || ''}
+                                                onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), risks: e.target.value } })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Competition Analysis</label>
+                                            <textarea
+                                                className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
+                                                placeholder="Who are we up against?"
+                                                value={localOpp.presentation.proposalAnalysis?.competition || ''}
+                                                onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), competition: e.target.value } })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Column 3: Action */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2 text-purple-500 font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
+                                            <span className="bg-purple-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">3</span> Execution
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Our Strategy / Next Steps</label>
+                                            <textarea
+                                                className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-purple-500 focus:ring-0"
+                                                placeholder="How do we win?"
+                                                value={localOpp.presentation.proposalAnalysis?.strategy || ''}
+                                                onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), strategy: e.target.value } })}
+                                            />
+                                        </div>
+                                        <div className="bg-white rounded-lg border border-gray-100 p-3 shadow-inner">
+                                            <label className="text-[9px] font-bold text-gray-400 uppercase mb-2 block">Readiness Checklist</label>
+                                            <div className="space-y-2">
+                                                {['Client Needs Understood', 'Scope Defined', 'Commercials Approved', 'Risks Mitigated'].map(item => (
+                                                    <label key={item} className="flex items-center gap-2 cursor-pointer group">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="rounded text-purple-500 focus:ring-purple-500 w-3 h-3"
+                                                            checked={localOpp.presentation.proposalAnalysis?.checklist?.[item] || false}
+                                                            onChange={(e) => {
+                                                                const current = localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} };
+                                                                const newChecklist = { ...current.checklist, [item]: e.target.checked };
+                                                                handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...current, checklist: newChecklist } });
+                                                            }}
+                                                        />
+                                                        <span className={`text-[10px] font-medium transition-colors ${localOpp.presentation.proposalAnalysis?.checklist?.[item] ? 'text-purple-700 line-through decoration-purple-300' : 'text-gray-600 group-hover:text-purple-600'}`}>{item}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
