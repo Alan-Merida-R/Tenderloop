@@ -41,8 +41,28 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         useImperativeHandle(ref, () => ({
             highlightSelection: (id: string, text: string) => {
-                const html = `<span class="question-highlight" data-question-id="${id}">${text}</span>`;
-                document.execCommand('insertHTML', false, html);
+                // Bug fix: Partial selection question linking
+                // insertHTML should correctly wrap whatever is in the current selection range with the span.
+                // If text is provided but doesn't match selection, we prioritize valid selection wrapping.
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const span = document.createElement('span');
+                    span.className = 'question-highlight';
+                    span.setAttribute('data-question-id', id);
+                    span.textContent = range.toString() || text; // Use actual selection text if available to preserve partial match
+
+                    range.deleteContents();
+                    range.insertNode(span);
+
+                    // Cleanup
+                    sel.removeAllRanges();
+                } else {
+                    // Fallback if no selection (unlikely if triggered from context)
+                    const html = `<span class="question-highlight" data-question-id="${id}">${text}</span>`;
+                    document.execCommand('insertHTML', false, html);
+                }
+
                 if (editorRef.current) {
                     onChange(editorRef.current.innerHTML);
                 }
