@@ -61,11 +61,11 @@ export const MEETING_TEMPLATES = {
   `,
 
   "Industrial Proposal Checklist (Schneider) – Client Research + Structure": `
-  <h3>Industrial Proposal Checklist</h3>
+  <h4>Industrial Proposal Checklist</h4>
   <p><b>Objective:</b> Comprehensive checklist for high-value industrial proposals.</p>
   <hr>
 
-  <h4>1. Proposal Essentials</h4>
+  <h5>1. Proposal Essentials</h5>
   <ul>
     <li><b>Client:</b> [Startups / Enterprise / Gov?]</li>
     <li><b>Opportunity Name:</b> </li>
@@ -75,7 +75,7 @@ export const MEETING_TEMPLATES = {
     <li><b>Tender Lead:</b> </li>
   </ul>
 
-  <h4>2. Client Research & Context</h4>
+  <h5>2. Client Research & Context</h5>
   <ul>
     <li><b>Company Profile:</b> [Brief summary of their business]</li>
     <li><b>Strategic Goals:</b> [What is their vision? Customization? Efficiency?]</li>
@@ -83,14 +83,14 @@ export const MEETING_TEMPLATES = {
     <li><b>Relationship History:</b> [New client or existing? Past wins/losses?]</li>
   </ul>
 
-  <h4>3. ROI & Value Proposition</h4>
+  <h5>3. ROI & Value Proposition</h5>
   <ul>
     <li><b>Customer Pain Points:</b> </li>
     <li><b>Our Solution's Impact:</b> [Energy saving? Process speed? Safety?]</li>
     <li><b>Why Schneider?</b> [Diffentiator vs. Competition]</li>
   </ul>
 
-  <h4>4. Pricing & Commercial Strategy</h4>
+  <h5>4. Pricing & Commercial Strategy</h5>
   <ul>
     <li><b>Budget Indication:</b> [Do we know their budget?]</li>
     <li><b>Target Winning Price:</b> </li>
@@ -98,7 +98,7 @@ export const MEETING_TEMPLATES = {
     <li><b>Terms & Conditions:</b> [Any special penalties or payment terms?]</li>
   </ul>
 
-  <h4>5. Scope Definition</h4>
+  <h5>5. Scope Definition</h5>
   <ul>
     <li><b>Hardware (BOM):</b> [Validated?]</li>
     <li><b>Software:</b> [Licenses / Subscription?]</li>
@@ -106,32 +106,32 @@ export const MEETING_TEMPLATES = {
     <li><b>Exclusions:</b> [What is strictly OUT of scope?]</li>
   </ul>
 
-  <h4>6. Installed Base Opportunities</h4>
+  <h5>6. Installed Base Opportunities</h5>
   <ul>
     <li><b>Existing Equipment:</b> [Is there Schneider legacy gear to modernize?]</li>
     <li><b>Competitor Replacement:</b> [Are we replacing Siemens/ABB/Rockwell?]</li>
   </ul>
 
-  <h4>7. Collaboration & Internal Stakeholders</h4>
+  <h5>7. Collaboration & Internal Stakeholders</h5>
   <ul>
     <li><b>Required BU Support:</b> [Digital Energy / Power / Process Automation?]</li>
     <li><b>Approvals Needed:</b> [CQA / SOC / Legal?]</li>
   </ul>
 
-  <h4>8. Delivery & Execution</h4>
+  <h5>8. Delivery & Execution</h5>
   <ul>
     <li><b>Timeline:</b> [When do they need it delivered?]</li>
     <li><b>Resource Availability:</b> [Do we have engineers available?]</li>
     <li><b>Risks:</b> [Lead times / Technical complexity]</li>
   </ul>
 
-  <h4>9. Pre-Mortem (Loss Analysis)</h4>
+  <h5>9. Pre-Mortem (Loss Analysis)</h5>
   <ul>
     <li><b>Why might we lose?</b> [Price / Compliance / Relationship]</li>
     <li><b>Mitigation Plan:</b> </li>
   </ul>
 
-  <h4>10. Competitive Intelligence</h4>
+  <h5>10. Competitive Intelligence</h5>
   <ul>
     <li><b>Primary Competitor:</b> </li>
     <li><b>Their likely strategy:</b> </li>
