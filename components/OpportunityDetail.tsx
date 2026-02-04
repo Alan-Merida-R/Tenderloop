@@ -31,6 +31,7 @@ interface Props {
 
 export interface RichTextEditorHandle {
     highlightSelection: (id: string, text: string) => void;
+    removeMark: (id: string) => void;
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void }>(
@@ -44,6 +45,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 document.execCommand('insertHTML', false, html);
                 if (editorRef.current) {
                     onChange(editorRef.current.innerHTML);
+                }
+            },
+            removeMark: (id: string) => {
+                if (editorRef.current) {
+                    const span = editorRef.current.querySelector(`span[data-question-id="${id}"]`);
+                    if (span) {
+                        const parent = span.parentNode;
+                        while (span.firstChild) {
+                            parent?.insertBefore(span.firstChild, span);
+                        }
+                        parent?.removeChild(span);
+                        onChange(editorRef.current.innerHTML);
+                    }
                 }
             }
         }));
@@ -1503,6 +1517,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, onBack, onUpdate, onD
     const updateQuestion = (qId: string, field: keyof Question, value: any) => {
         const updatedQs = localOpp.questions.map(q => q.id === qId ? { ...q, [field]: value } : q);
         handleFieldChange('questions', updatedQs);
+    };
+
+    const deleteQuestion = (qId: string) => {
+        if (!window.confirm("Are you sure you want to delete this question?")) return;
+
+        // Remove from data
+        const updatedQs = localOpp.questions.filter(q => q.id !== qId);
+
+        // Remove visual mark in editor if active note matches
+        const question = localOpp.questions.find(q => q.id === qId);
+        if (question && question.sourceId === selectedNoteId && noteEditorRef.current) {
+            noteEditorRef.current.removeMark(qId);
+        }
+
+        handleFieldChange('questions', updatedQs);
+        if (highlightedQuestionId === qId) setHighlightedQuestionId(null);
     };
 
     const addHistoryEntry = (date?: string, content?: string) => {
