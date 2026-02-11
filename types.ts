@@ -25,6 +25,16 @@ export interface DeepLink {
   focusDate?: string;
 }
 
+export type FloatingTabType = 'task' | 'note' | 'opportunity' | 'tracking';
+
+export interface FloatingTab {
+  id: string;
+  type: FloatingTabType;
+  title: string;
+  color: string;
+  data: any;
+}
+
 export interface CommercialRow {
   cost: number;
   margin: number; // %
@@ -61,6 +71,14 @@ export interface Commercial {
   // Official CQA Reference Values
   cqaOfficialSellPrice: number;
   cqaOfficialMargin: number;
+}
+
+export interface QuickLinkItem {
+  id: string;
+  type: 'link' | 'separator' | 'heading'; // Separators and Headings
+  label: string;
+  url?: string;
+  order?: number; // Maintained for legacy, array index is preferred
 }
 
 export interface QuickLinks {
@@ -108,6 +126,18 @@ export interface Task {
   order: number | null;
   dependsOnTaskIds: string[]; // Array of Task IDs that must be completed before this one
   blockDoneUntilDependenciesDone: boolean; // If true, prevents marking as Done until dependencies are met
+
+  // Timer & Tracking
+  calendarized?: boolean; // New flag for specific calendar tracking
+  timeLogs?: TimeLog[];
+}
+
+export interface TimeLog {
+  id: string;
+  start: string; // ISO
+  end?: string; // ISO
+  durationSeconds: number; // Accumulated
+  note?: string;
 }
 
 export interface MeetingNote {
@@ -221,7 +251,7 @@ export interface Opportunity {
   // Details
   description: string;
   commercial: Commercial;
-  links: QuickLinks;
+  links: QuickLinks | QuickLinkItem[]; // Supported legacy object or new array
 
   // Lists
   notes: MeetingNote[];

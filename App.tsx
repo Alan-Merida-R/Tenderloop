@@ -1,12 +1,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
-import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays } from 'lucide-react';
+import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus } from 'lucide-react';
+import { TimerProvider } from './contexts/TimerContext';
+import { TimerWidget } from './components/TimerWidget';
+import { QuickNavDock } from './components/QuickNavDock';
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
@@ -36,6 +39,10 @@ function App() {
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+
+  // Quick Nav State
+  const [floatingTabs, setFloatingTabs] = useState<FloatingTab[]>([]);
+  const [splitTab, setSplitTab] = useState<FloatingTab | null>(null);
 
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
@@ -195,6 +202,77 @@ function App() {
       setErrorMessage("Failed to load database: " + err.message);
       setStatus('error');
     }
+  };
+
+  // --- Dock Helpers ---
+  const minimizeToDock = (tab: FloatingTab) => {
+    setFloatingTabs(prev => {
+      if (prev.find(t => t.id === tab.id)) return prev;
+      return [...prev, tab];
+    });
+    // Close overlays if we are minimizing their specific entity
+    if (tab.type === 'opportunity' || tab.type === 'task' || tab.type === 'note') {
+      setSelectedOppId(null);
+      setActiveDeepLink(null);
+    }
+  };
+
+  const removeTab = (tabId: string) => {
+    setFloatingTabs(prev => prev.filter(t => t.id !== tabId));
+  };
+
+  const updateTabColor = (tabId: string, color: string) => {
+    setFloatingTabs(prev => prev.map(t => t.id === tabId ? { ...t, color } : t));
+  };
+
+  const updateTabTitle = (tabId: string, title: string) => {
+    setFloatingTabs(prev => prev.map(t => t.id === tabId ? { ...t, title } : t));
+  };
+
+  const restoreFromDock = (tabId: string) => {
+    const tab = floatingTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Toggle logic: If clicking the same tab that is already open in sub-view, minimize it
+    if (splitTab && splitTab.id === tabId) {
+      setSplitTab(null);
+      return;
+    }
+
+    // Always open in sub-view (overlay right) as requested "sub vista"
+    setSplitTab({ ...tab, data: { ...tab.data, isSubView: true } });
+  };
+
+  const renderSplitTabContent = (tab: FloatingTab) => {
+    const oppId = tab.data.oppId || (tab.type === 'opportunity' ? tab.id : null);
+    if (!oppId) return null;
+    const opp = db.opportunities.find(o => o.id === oppId);
+    if (!opp) return null;
+
+    return (
+      <OpportunityDetail
+        opportunity={opp}
+        opportunities={db.opportunities}
+        onBack={() => setSplitTab(null)}
+        onUpdate={updateOpportunity}
+        onDelete={() => { deleteOpportunity(opp.id); setSplitTab(null); }}
+        onSelectOpp={(id, dl) => {
+          setSelectedOppId(id);
+          setActiveDeepLink(dl || null);
+        }}
+        noteTemplates={appSettings.noteTemplates}
+        holidays={appSettings.holidays || []}
+        trackedAreas={appSettings.trackedAreas || []}
+        globalLabels={appSettings.globalLabels || []}
+        deepLink={tab.data.deepLink}
+        onMinimize={(payload?: FloatingTab) => {
+          if (payload) minimizeToDock(payload);
+          else minimizeToDock(tab);
+          setSplitTab(null);
+        }}
+        isSubView={tab.data.isSubView}
+      />
+    );
   };
 
   // Migration Helper (Extracted to reuse)
@@ -687,215 +765,331 @@ function App() {
     }));
   };
 
+  const handleTimerLog = (taskId: string, oppId: string, seconds: number, status?: TaskStatus) => {
+    setDb(prev => {
+      const newOpps = prev.opportunities.map(o => {
+        if (o.id !== oppId) return o;
+
+        const taskIndex = o.tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) return o;
+
+        const updatedTasks = [...o.tasks];
+        const task = { ...updatedTasks[taskIndex] };
+
+        const now = new Date();
+        const nowIso = now.toISOString();
+        // Use local date for calendar instead of UTC, to fix timezone issues (e.g. 8PM Tuesday becoming Wednesday)
+        const dateStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+        const start = new Date(Date.now() - seconds * 1000).toISOString();
+
+        const newLog: any = {
+          id: crypto.randomUUID(),
+          startTime: start,
+          endTime: nowIso,
+          durationSeconds: seconds,
+          description: 'Timer Log'
+        };
+
+        task.timeLogs = [...(task.timeLogs || []), newLog];
+
+        if (status) {
+          task.status = status;
+        }
+
+        updatedTasks[taskIndex] = task;
+
+        // --- Link to Tracker (KPI Areas) ---
+        const hoursLogged = parseFloat((seconds / 3600).toFixed(2));
+        let updatedAreas = [...(o.kpis.areasInvolved || [])];
+
+        // Determine Target Area
+        let targetAreaName = 'General';
+        if (task.externalAreas && task.externalAreas.length > 0) {
+          targetAreaName = task.externalAreas[0];
+        } else if (task.owner === 'External Area') {
+          targetAreaName = 'External';
+        }
+
+        // Find or Create Area
+        let areaIndex = updatedAreas.findIndex(a => a.area === targetAreaName);
+        if (areaIndex === -1) {
+          updatedAreas.push({
+            id: crypto.randomUUID(),
+            area: targetAreaName,
+            daysSpent: 0,
+            waitingDays: 0,
+            calendar: {}
+          });
+          areaIndex = updatedAreas.length - 1;
+        }
+
+        // Update Calendar for Date
+        const area = { ...updatedAreas[areaIndex] };
+        const calendar = { ...(area.calendar || {}) };
+        const existingRecord = calendar[dateStr];
+
+        calendar[dateStr] = {
+          type: 'Worked',
+          hours: (existingRecord?.hours || 0) + hoursLogged
+        };
+
+        area.calendar = calendar;
+        updatedAreas[areaIndex] = area;
+
+        return {
+          ...o,
+          tasks: updatedTasks,
+          kpis: { ...o.kpis, areasInvolved: updatedAreas },
+          lastUpdated: new Date().toISOString()
+        };
+      });
+
+      return { ...prev, opportunities: newOpps };
+    });
+  };
+
   return (
-    <div className="h-screen flex flex-col bg-[#f1f3f4] overflow-hidden">
-      {/* Top Navigation */}
-      <div className="bg-white border-b border-gray-200 h-14 px-4 flex justify-between items-center select-none sticky top-0 z-40 shadow-sm shrink-0">
-        <div className="flex items-center gap-6">
-          <div
-            className="flex items-center gap-2 font-bold text-gray-800 tracking-tight cursor-pointer hover:text-[#3DCD58] text-lg transition-colors"
-            onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); setCurrentView('general-dashboard'); }}
-          >
-            <HardDrive className="w-5 h-5 text-[#3DCD58]" />
-            TenderLoop
-          </div>
-          <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
-            <button
-              onClick={() => { setCurrentView('general-dashboard'); }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'general-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+    <TimerProvider onLogTime={handleTimerLog} opportunities={db.opportunities}>
+      <div className="h-screen flex flex-col bg-white text-gray-900 font-sans overflow-hidden relative">
+        {/* Top Navigation */}
+        <div className="bg-white border-b border-gray-200 h-14 px-4 flex justify-between items-center select-none sticky top-0 z-40 shadow-sm shrink-0">
+          <div className="flex items-center gap-6">
+            <div
+              className="flex items-center gap-2 font-bold text-gray-800 tracking-tight cursor-pointer hover:text-[#3DCD58] text-lg transition-colors"
+              onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); setCurrentView('general-dashboard'); }}
             >
-              <BarChart3 className="w-4 h-4" /> General
-            </button>
-            <button
-              onClick={() => { setCurrentView('proposals-dashboard'); }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'proposals-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              <Layout className="w-4 h-4" /> Proposals
-            </button>
-            <button
-              onClick={() => { setCurrentView('tasks-dashboard'); }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              <CheckSquare className="w-4 h-4" /> Tasks
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors"
-            title="Configure Defaults"
-          >
-            <SettingsIcon className="w-4 h-4" /> Settings
-          </button>
-          <div className="w-px h-6 bg-gray-200 mx-1"></div>
-          {!isDbLoaded ? (
-            <div className="flex items-center gap-2 relative">
-              <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm">
-                <button onClick={handleOpenDB} className="flex items-center gap-2 px-3 py-1.5 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-l-lg transition-colors border-r border-gray-200">
-                  <FolderOpen className="w-4 h-4" /> Open DB
-                </button>
-                {recentDbs.length > 0 && (
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowRecents(!showRecents)}
-                      className="px-2 py-1.5 hover:bg-gray-50 rounded-r-lg h-full flex items-center justify-center text-gray-500 border-l border-gray-200"
-                      title="Switch Database"
-                    >
-                      <ChevronDown className="w-3 h-3" />
-                    </button>
-                    {showRecents && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setShowRecents(false)} />
-                        <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
-                          <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
-                          <div className="max-h-64 overflow-y-auto">
-                            {recentDbs.map(entry => (
-                              <div key={entry.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer group" onClick={() => handleRecentClick(entry)}>
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  <History className="w-3 h-3 text-gray-400 shrink-0" />
-                                  <span className="text-xs font-medium text-gray-700 truncate">{entry.name}</span>
-                                </div>
-                                <button
-                                  onClick={(e) => handleRemoveRecent(e, entry.id)}
-                                  className="p-1 text-gray-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                  title="Remove from recents"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-              <button onClick={handleCreateDB} className="flex items-center gap-2 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
-                <PlusCircle className="w-4 h-4" /> New DB
+              <HardDrive className="w-5 h-5 text-[#3DCD58]" />
+              TenderLoop
+            </div>
+            <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
+              <button
+                onClick={() => { setCurrentView('general-dashboard'); }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'general-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <BarChart3 className="w-4 h-4" /> General
               </button>
-              {startupHint && <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>}
+              <button
+                onClick={() => { setCurrentView('proposals-dashboard'); }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'proposals-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Layout className="w-4 h-4" /> Proposals
+              </button>
+              <button
+                onClick={() => { setCurrentView('tasks-dashboard'); }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <CheckSquare className="w-4 h-4" /> Tasks
+              </button>
             </div>
-          ) : (
-            <div className="flex items-center gap-3 animate-fade-in">
-              <span className="text-xs text-gray-400 font-mono hidden sm:inline-block border border-gray-100 px-2 py-1 rounded bg-gray-50 flex items-center gap-1">
-                <FileJson className="w-3 h-3" />
-                {fileHandle ? fileHandle.name : fallbackFileName}
-              </span>
+          </div>
 
-              {/* Always allow switching DB even when loaded */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowRecents(!showRecents)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-lg transition-colors shadow-sm"
-                  title="Switch Database"
-                >
-                  <FolderOpen className="w-4 h-4" /> Switch
-                </button>
-                {showRecents && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowRecents(false)} />
-                    <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
-                      <div className="p-2 border-b border-gray-100">
-                        <button onClick={() => { setShowRecents(false); handleOpenDB(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
-                          <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> Open another file...
-                        </button>
-                      </div>
-                      <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {recentDbs.map(entry => (
-                          <div key={entry.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer group" onClick={() => handleRecentClick(entry)}>
-                            <div className="flex items-center gap-2 overflow-hidden">
-                              <History className="w-3 h-3 text-gray-400 shrink-0" />
-                              <span className="text-xs font-medium text-gray-700 truncate">{entry.name}</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors"
+              title="Configure Defaults"
+            >
+              <SettingsIcon className="w-4 h-4" /> Settings
+            </button>
+            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+            {!isDbLoaded ? (
+              <div className="flex items-center gap-2 relative">
+                <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm">
+                  <button onClick={handleOpenDB} className="flex items-center gap-2 px-3 py-1.5 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-l-lg transition-colors border-r border-gray-200">
+                    <FolderOpen className="w-4 h-4" /> Open DB
+                  </button>
+                  {recentDbs.length > 0 && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowRecents(!showRecents)}
+                        className="px-2 py-1.5 hover:bg-gray-50 rounded-r-lg h-full flex items-center justify-center text-gray-500 border-l border-gray-200"
+                        title="Switch Database"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                      {showRecents && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowRecents(false)} />
+                          <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
+                            <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
+                            <div className="max-h-64 overflow-y-auto">
+                              {recentDbs.map(entry => (
+                                <div key={entry.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer group" onClick={() => handleRecentClick(entry)}>
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    <History className="w-3 h-3 text-gray-400 shrink-0" />
+                                    <span className="text-xs font-medium text-gray-700 truncate">{entry.name}</span>
+                                  </div>
+                                  <button
+                                    onClick={(e) => handleRemoveRecent(e, entry.id)}
+                                    className="p-1 text-gray-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Remove from recents"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
                             </div>
-                            <button
-                              onClick={(e) => handleRemoveRecent(e, entry.id)}
-                              className="p-1 text-gray-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Remove from recents"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
                           </div>
-                        ))}
-                      </div>
+                        </>
+                      )}
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
+                <button onClick={handleCreateDB} className="flex items-center gap-2 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
+                  <PlusCircle className="w-4 h-4" /> New DB
+                </button>
+                {startupHint && <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>}
               </div>
+            ) : (
+              <div className="flex items-center gap-3 animate-fade-in">
+                <span className="text-xs text-gray-400 font-mono hidden sm:inline-block border border-gray-100 px-2 py-1 rounded bg-gray-50 flex items-center gap-1">
+                  <FileJson className="w-3 h-3" />
+                  {fileHandle ? fileHandle.name : fallbackFileName}
+                </span>
 
-              <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center">
-                {renderStatusBadge()}
+                {/* Always allow switching DB even when loaded */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowRecents(!showRecents)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-lg transition-colors shadow-sm"
+                    title="Switch Database"
+                  >
+                    <FolderOpen className="w-4 h-4" /> Switch
+                  </button>
+                  {showRecents && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowRecents(false)} />
+                      <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
+                        <div className="p-2 border-b border-gray-100">
+                          <button onClick={() => { setShowRecents(false); handleOpenDB(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
+                            <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> Open another file...
+                          </button>
+                        </div>
+                        <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
+                        <div className="max-h-64 overflow-y-auto">
+                          {recentDbs.map(entry => (
+                            <div key={entry.id} className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 cursor-pointer group" onClick={() => handleRecentClick(entry)}>
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <History className="w-3 h-3 text-gray-400 shrink-0" />
+                                <span className="text-xs font-medium text-gray-700 truncate">{entry.name}</span>
+                              </div>
+                              <button
+                                onClick={(e) => handleRemoveRecent(e, entry.id)}
+                                className="p-1 text-gray-300 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Remove from recents"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center">
+                  {renderStatusBadge()}
+                </div>
               </div>
+            )}
+          </div>
+        </div>
+
+        {errorMessage && (
+          <div className="bg-red-50 border-b border-red-100 px-4 py-2 flex justify-between items-center shrink-0">
+            <span className="text-sm text-red-600 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {errorMessage}
+            </span>
+            <button onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-red-600 text-sm">Dismiss</button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-hidden relative flex min-h-0">
+          {/* Main Content Area */}
+          <div className={`flex-1 flex min-h-0 overflow-hidden transition-all duration-300`}>
+            {/* Dashboard / Primary Content */}
+            <div className={`h-full overflow-hidden transition-all duration-300 ${splitTab ? 'w-1/2 border-r border-gray-100' : 'w-full'}`}>
+              <Dashboard
+                key={fileHandle?.name || 'sandbox'}
+                mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
+                opportunities={db.opportunities}
+                onSelect={(id, dl) => {
+                  setSelectedOppId(id);
+                  setActiveDeepLink(dl || null);
+                }}
+                onCreate={() => createOpportunity('1. Recepción')}
+                onStageChange={moveOpportunityStage}
+                onDateChange={changeOpportunityDate}
+                onOppUpdate={updateOpportunity}
+                onTaskUpdate={updateTaskDetails}
+                holidays={appSettings.holidays || []}
+                globalLabels={appSettings.globalLabels || []}
+                onMinimize={minimizeToDock}
+              />
             </div>
-          )}
-        </div>
-      </div>
 
-      {errorMessage && (
-        <div className="bg-red-50 border-b border-red-100 px-4 py-2 flex justify-between items-center shrink-0">
-          <span className="text-sm text-red-600 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" /> {errorMessage}
-          </span>
-          <button onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-red-600 text-sm">Dismiss</button>
-        </div>
-      )}
+            {/* Sub-View Overlay Panel (Full Screen) */}
+            {splitTab && (
+              <div className="fixed inset-0 bg-white z-[150] animate-in slide-in-from-right duration-300 flex flex-col">
+                <div className="flex-1 overflow-hidden">
+                  {renderSplitTabContent(splitTab)}
+                </div>
+              </div>
+            )}
+          </div>
 
-      <div className="flex-1 overflow-hidden relative flex min-h-0">
-        {/* Main Dashboard Area */}
-        <div className={`flex-1 h-full overflow-hidden transition-all duration-300`}>
-          <Dashboard
-            key={fileHandle?.name || 'sandbox'}
-            mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
-            opportunities={db.opportunities}
-            onSelect={(id, dl) => {
-              setSelectedOppId(id);
-              setActiveDeepLink(dl || null);
-            }}
-            onCreate={() => createOpportunity('1. Recepción')}
-            onStageChange={moveOpportunityStage}
-            onDateChange={changeOpportunityDate}
-            onOppUpdate={updateOpportunity}
-            onTaskUpdate={updateTaskDetails}
-            holidays={appSettings.holidays || []}
-            globalLabels={appSettings.globalLabels || []}
+          {/* Right Navigation Dock */}
+          <QuickNavDock
+            tabs={floatingTabs}
+            onRestore={restoreFromDock}
+            onRemove={removeTab}
+            onUpdateColor={updateTabColor}
+            onUpdateTitle={updateTabTitle}
+            onReorder={setFloatingTabs}
+            activeTabId={splitTab?.id || (selectedOppId && !activeDeepLink ? selectedOppId : null)}
           />
+
+          {/* Opportunity Detail Overlay */}
+          {selectedOppId && (() => {
+            const opp = db.opportunities.find(o => o.id === selectedOppId);
+            if (!opp) return null;
+            return (
+              <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
+                <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+                  <OpportunityDetail
+                    opportunity={opp}
+                    opportunities={db.opportunities}
+                    onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
+                    onUpdate={updateOpportunity}
+                    onDelete={() => deleteOpportunity(opp.id)}
+                    onSelectOpp={(id, dl) => {
+                      setSelectedOppId(id);
+                      setActiveDeepLink(dl || null);
+                    }}
+                    noteTemplates={appSettings.noteTemplates}
+                    holidays={appSettings.holidays || []}
+                    trackedAreas={appSettings.trackedAreas || []}
+                    globalLabels={appSettings.globalLabels || []}
+                    deepLink={activeDeepLink || undefined}
+                    onMinimize={minimizeToDock}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
-        {/* Opportunity Detail Overlay */}
-        {selectedOppId && (() => {
-          const opp = db.opportunities.find(o => o.id === selectedOppId);
-          if (!opp) return null;
-          return (
-            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
-              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
-                <OpportunityDetail
-                  opportunity={opp}
-                  onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
-                  onUpdate={updateOpportunity}
-                  onDelete={() => deleteOpportunity(opp.id)}
-                  noteTemplates={appSettings.noteTemplates}
-                  holidays={appSettings.holidays || []}
-                  trackedAreas={appSettings.trackedAreas || []}
-                  globalLabels={appSettings.globalLabels || []}
-                  deepLink={activeDeepLink || undefined}
-                />
-              </div>
-            </div>
-          );
-        })()}
+        <SettingsModal
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          onSave={handleSaveSettings}
+          initialSettings={appSettings}
+          opportunities={db.opportunities}
+        />
+        <TimerWidget />
       </div>
-
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        onSave={handleSaveSettings}
-        initialSettings={appSettings}
-        opportunities={db.opportunities}
-      />
-    </div>
+    </TimerProvider>
   );
 }
 

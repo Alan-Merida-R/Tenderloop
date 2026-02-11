@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3 } from 'lucide-react';
+import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab } from '../types';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -11,8 +10,9 @@ import { exportOpportunity, importOpportunity, downloadJSON } from '../services/
 import { RichTextEditor } from './OpportunityDetail';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { TrackingView } from '../features/tracking/TrackingView';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
+import { useTimer } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
 
 
@@ -85,7 +85,7 @@ const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: 
 interface Props {
     mode: 'proposals' | 'tasks' | 'general';
     opportunities: Opportunity[];
-    onSelect: (id: string, deeplink?: DeepLink) => void;
+    onSelect: (id: string, deepLink?: DeepLink) => void;
     onCreate: (stage?: ProcessStage) => void;
     onStageChange: (id: string, newStage: ProcessStage) => void;
     onDateChange: (id: string, type: 'expected' | 'dueDate', newDate: string) => void;
@@ -93,6 +93,7 @@ interface Props {
     onTaskUpdate: (oppId: string, taskId: string, updates: Partial<Task>) => void;
     holidays?: string[];
     globalLabels: OpportunityLabel[];
+    onMinimize?: (tab: FloatingTab) => void;
 }
 
 // Helper: Copy text to clipboard
@@ -155,7 +156,8 @@ const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: 
     );
 };
 
-const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [] }) => {
+const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
+    const { timerState, startTimer, pauseTimer } = useTimer();
     const [viewMode, setViewMode] = useState<'board' | 'table' | 'calendar'>('board');
     const [filterText, setFilterText] = useState('');
     const [labelFilters, setLabelFilters] = useState<string[]>([]);
@@ -197,7 +199,21 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
     // Add Task Modal State
     const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
-    const [newTaskData, setNewTaskData] = useState({ oppId: '', title: '' });
+    const [newTaskData, setNewTaskData] = useState<{ oppId: string, title: string }>({ oppId: '', title: '' });
+
+    // Start Timer Modal State
+    const [showStartTimerModal, setShowStartTimerModal] = useState(false);
+    const [startTimerData, setStartTimerData] = useState<{ oppId: string, taskId: string }>({ oppId: '', taskId: '' });
+    const [timerSearch, setTimerSearch] = useState('');
+    const [newTaskSearch, setNewTaskSearch] = useState('');
+
+    // Task Selection and Bulk Actions
+    const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+    const [showCopyToOppModal, setShowCopyToOppModal] = useState(false);
+    const [copyTargetOppId, setCopyTargetOppId] = useState('');
+
+    // Close Task Modal State
+    const [closeTaskData, setCloseTaskData] = useState<{ task: Task, oppId: string } | null>(null);
 
     // Load persistent filters
     useEffect(() => {
@@ -264,11 +280,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         if (status === 'In Progress' || status === 'On Hold') {
             if (!opp.dates.expected) return null;
 
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = new Date().toLocaleDateString('en-CA');
 
             // Calculate business days between today and expected
             // If expected > today: Positive business days left (exclusive start, inclusive end logic in util roughly matches)
-            // If expected < today: Negative business days overdue
+            // If expected < today:Negative business days overdue
             const diffDays = countBusinessDays(todayStr, opp.dates.expected, holidays);
 
             if (diffDays < 0) return { text: `${Math.abs(diffDays)}d overdue`, color: 'bg-red-500 text-white' };
@@ -303,10 +319,20 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     };
 
     // --- Filter Logic ---
+    // Deduplicate opportunities to prevent double rendering
+    const uniqueOpps = useMemo(() => {
+        const seen = new Set();
+        return opportunities.filter(o => {
+            if (seen.has(o.id)) return false;
+            seen.add(o.id);
+            return true;
+        });
+    }, [opportunities]);
+
     const filteredOpps = useMemo(() => {
         const booleanMatcher = parseBooleanQuery(filterText);
 
-        return opportunities.filter(opp => {
+        return uniqueOpps.filter(opp => {
             let matchesText = true;
             if (booleanMatcher) {
                 const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel}`.toLowerCase();
@@ -536,7 +562,23 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return true;
     };
 
-    const handleTaskStatusChange = (oppId: string, taskId: string, newStatus: TaskStatus) => {
+    const handleTaskStatusChange = (oppId: string, taskId: string, newStatus: TaskStatus): void => {
+        if (newStatus === 'Done') {
+            const opp = opportunities.find(o => o.id === oppId);
+            const task = opp?.tasks.find(t => t.id === taskId);
+            // Allow checking validation first or assume validation passes?
+            // Existing logic checked validateTaskCompletion which might alert.
+            // We should check it first.
+            if (validateTaskCompletion(oppId, taskId, newStatus)) {
+                if (task) {
+                    setCloseTaskData({ task, oppId });
+                    return;
+                }
+            } else {
+                return; // Validation failed
+            }
+        }
+
         if (validateTaskCompletion(oppId, taskId, newStatus)) {
             onTaskUpdate(oppId, taskId, { status: newStatus });
         }
@@ -574,7 +616,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
     // --- Next Steps Logic ---
     const nextStepsData = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
+        // Use local date for "Today" comparison to fix timezone issues
+        const today = new Date().toLocaleDateString('en-CA');
         const overdue: any[] = [];
         const dueToday: any[] = [];
         const noDate: any[] = [];
@@ -800,7 +843,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             owner: 'Me',
             externalAreas: [],
             responsible: '',
-            dueDate: new Date().toISOString().split('T')[0],
+            dueDate: new Date().toLocaleDateString('en-CA'),
             stageContext: opp.stage,
             subtasks: [],
             order: null,
@@ -846,21 +889,21 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         const subtasksList = (t.subtasks as any as Subtask[]) || [];
 
         const summary = `
-Task: ${t.title}
-Due Date: ${t.dueDate}
-Status: ${t.status} | Priority: ${t.priority}
-Description: 
-${t.description}
+                    Task: ${t.title}
+                    Due Date: ${t.dueDate}
+                    Status: ${t.status} | Priority: ${t.priority}
+                    Description:
+                    ${t.description}
 
-Subtasks:
-${subtasksList.map(s => `- [${s.completed ? 'x' : ' '}] ${s.title}`).join('\n')}
+                    Subtasks:
+                    ${subtasksList.map(s => `- [${s.completed ? 'x' : ' '}] ${s.title}`).join('\n')}
 
-Linked documents:
-${docTitles.join('\n')}
+                    Linked documents:
+                    ${docTitles.join('\n')}
 
-Linked notes:
-${noteTitles.join('\n')}
-      `.trim();
+                    Linked notes:
+                    ${noteTitles.join('\n')}
+                    `.trim();
         navigator.clipboard.writeText(summary);
         alert("Task summary with links copied to clipboard!");
     };
@@ -975,6 +1018,27 @@ ${noteTitles.join('\n')}
                     onChange={(e) => onTaskUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
                     className="text-[10px] text-gray-400 ml-auto border-none p-0 bg-transparent text-right w-16 focus:ring-0"
                 />
+            </div>
+
+            <div className="absolute bottom-3 right-20 flex items-center gap-2">
+                {(() => {
+                    const total = (item.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+                    if (total === 0 && (!timerState.taskId || timerState.taskId !== item.id)) return null;
+                    const h = Math.floor(total / 3600);
+                    const m = Math.floor((total % 3600) / 60);
+                    return <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 shadow-sm">{h}h {m}m</span>;
+                })()}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (timerState.taskId === item.id && timerState.isRunning) pauseTimer();
+                        else startTimer(item.id, item.opp.id, item.title);
+                    }}
+                    className={`p-1.5 rounded-full transition-colors z-10 bg-white border border-gray-100 shadow-sm ${timerState.taskId === item.id && timerState.isRunning ? 'text-red-500 animate-pulse border-red-200' : 'text-gray-400 hover:text-green-500 hover:border-green-200 opacity-0 group-hover:opacity-100'}`}
+                    title={timerState.taskId === item.id && timerState.isRunning ? 'Pause Timer' : 'Start Timer'}
+                >
+                    {timerState.taskId === item.id && timerState.isRunning ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                </button>
             </div>
         </div>
     );
@@ -1119,10 +1183,16 @@ ${noteTitles.join('\n')}
                     )}
 
                     {mode !== 'general' && (
-                        <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
-                            <button onClick={() => setViewMode('board')} className={`p-2 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
-                            <button onClick={() => setViewMode('table')} className={`p-2 rounded ${viewMode === 'table' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-700'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
-                            <button onClick={() => setViewMode('calendar')} className={`px-4 py-2 rounded-xl text-xs font-black transition-all uppercase flex items-center gap-2 ${viewMode === 'calendar' ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}><CalendarIcon className="w-4 h-4" /> Calendar</button>
+                        <div className="flex items-center gap-2">
+                            <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
+                                <button onClick={() => setViewMode('board')} className={`p-1.5 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
+                                <button onClick={() => setViewMode('table')} className={`p-1.5 rounded ${viewMode === 'table' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
+                                <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                            </div>
+
+                            <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors">
+                                <Play className="w-4 h-4" /> Start Timer
+                            </button>
                         </div>
                     )}
 
@@ -1174,6 +1244,23 @@ ${noteTitles.join('\n')}
                             >
                                 <Copy className="w-4 h-4" /> Copy Status
                             </button>
+                            {selectedTaskIds.length > 0 && (
+                                <div className="ml-4 flex items-center gap-2 animate-in slide-in-from-left fade-in">
+                                    <span className="text-xs font-bold text-gray-500">{selectedTaskIds.length} Selected</span>
+                                    <button
+                                        onClick={() => setShowCopyToOppModal(true)}
+                                        className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                    >
+                                        <Copy className="w-4 h-4" /> Copy to Opp
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedTaskIds([])}
+                                        className="px-2 py-2 text-gray-400 hover:text-gray-600 rounded-lg text-xs font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
                         </>
                     )}
 
@@ -1461,7 +1548,8 @@ ${noteTitles.join('\n')}
                                                         )}
                                                         <div className="flex flex-col gap-1 mt-2">
                                                             <span className="text-[10px] font-mono text-gray-400 w-fit">{opp.id}</span>
-                                                            <p className="text-xs text-gray-500 font-medium">{opp.customer}</p>
+                                                            <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
+                                                            <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
 
                                                             <div className="flex flex-wrap gap-1 mt-1">
                                                                 {(opp.labels || []).map(l => (
@@ -1696,46 +1784,110 @@ ${noteTitles.join('\n')}
                                     {viewMode === 'table' && (
                                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
                                             <div className="overflow-auto flex-1 p-4">
-                                                <div className="space-y-2">
-                                                    {filteredTasks.sort((a, b) => {
-                                                        // Sort by Order field first (ascending), then by Due Date
-                                                        const orderA = a.order ?? 9999;
-                                                        const orderB = b.order ?? 9999;
-                                                        if (orderA !== orderB) return orderA - orderB;
-                                                        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-                                                    }).map((item) => (
-                                                        <div key={item.id} className="border border-gray-100 rounded-lg hover:bg-gray-50 bg-white flex items-center gap-4 p-3 cursor-pointer group" onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
-                                                            <div className={`w-1 h-10 rounded-full ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`}></div>
-                                                            <div className="flex-1">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={`text-xs font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
-                                                                    {item.order && <span className="text-xs font-bold text-gray-400">#{item.order}</span>}
-                                                                    <span className="text-sm font-medium text-gray-900">{item.title}</span>
-                                                                    {(item.externalAreas || []).length > 0 && <span className="text-xs bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 py-0.5 rounded flex items-center gap-1"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
-                                                                    {item.blockDoneUntilDependenciesDone && <span title="Blocking dependencies"><Lock className="w-3 h-3 text-gray-400" /></span>}
+                                                <div className="space-y-0 divide-y divide-gray-100">
+                                                    {(taskGroupBy === 'none' ? [['All Tasks', filteredTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())]] : Object.entries(groupedTasks)).map(([group, tasks]) => (
+                                                        <div key={group}>
+                                                            {taskGroupBy !== 'none' && (
+                                                                <div className="bg-gray-50/80 backdrop-blur px-4 py-2 font-bold text-[10px] uppercase tracking-widest text-gray-500 border-b border-gray-200 sticky top-0 z-10">
+                                                                    {group} <span className="opacity-50 ml-1">({tasks.length})</span>
+                                                                </div>
+                                                            )}
+                                                            {tasks.map((item: any) => <div key={item.id} className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${selectedTaskIds.includes(item.id) ? 'bg-blue-50/50' : ''}`} onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
+                                                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                                    <div onClick={(e) => e.stopPropagation()} className="pl-2">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={selectedTaskIds.includes(item.id)}
+                                                                            onChange={(e) => {
+                                                                                if (e.target.checked) setSelectedTaskIds([...selectedTaskIds, item.id]);
+                                                                                else setSelectedTaskIds(selectedTaskIds.filter(id => id !== item.id));
+                                                                            }}
+                                                                            className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
+                                                                        />
+                                                                    </div>
+                                                                    <div className={`w-1 h-10 rounded-full shrink-0 ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`} title={`Stage: ${item.stageContext}`}></div>
+                                                                    <div className="flex flex-col min-w-0">
+                                                                        <div className="flex items-center gap-2 mb-0.5">
+                                                                            <span className={`text-[10px] font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
+                                                                            <span className="text-[10px] font-bold text-gray-400 truncate max-w-[150px]" title={item.opp.title}>{item.opp.title}</span>
+                                                                            <span className={`hidden md:inline-block text-[9px] px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[item.opp.statusLabel] || 'border-gray-200 text-gray-400'}`}>{item.opp.statusLabel}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            {item.order && <span className="text-xs font-bold text-gray-400 shrink-0">#{item.order}</span>}
+                                                                            <span className="text-sm font-bold text-gray-900 truncate" title={item.title}>{item.title}</span>
+                                                                            {(item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
+                                                                            {item.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400 shrink-0" />}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-4 pl-4 shrink-0">
+                                                                    <div className="text-right flex items-center gap-3">
+                                                                        <div className="flex items-center gap-2 mr-2">
+                                                                            {(() => {
+                                                                                const total = (item.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+                                                                                if (total === 0 && (!timerState.taskId || timerState.taskId !== item.id)) return null;
+                                                                                const h = Math.floor(total / 3600);
+                                                                                const m = Math.floor((total % 3600) / 60);
+                                                                                return <span className="text-xs font-mono font-bold text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-200">{h}h {m}m</span>;
+                                                                            })()}
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (timerState.taskId === item.id && timerState.isRunning) pauseTimer();
+                                                                                    else startTimer(item.id, item.opp.id, item.title);
+                                                                                }}
+                                                                                className={`p-1.5 rounded-full transition-colors ${timerState.taskId === item.id && timerState.isRunning ? 'text-red-500 animate-pulse bg-red-50' : 'text-gray-400 hover:text-green-500 hover:bg-green-50'}`}
+                                                                                title={timerState.taskId === item.id && timerState.isRunning ? 'Pause Timer' : 'Start Timer'}
+                                                                            >
+                                                                                {timerState.taskId === item.id && timerState.isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="text-xs font-bold text-gray-700 flex items-center gap-1 justify-end">
+                                                                            <CalendarIcon className="w-3 h-3 text-gray-400" />
+                                                                            <input
+                                                                                type="date"
+                                                                                value={item.dueDate}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                onChange={(e) => onTaskUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
+                                                                                className="bg-transparent border-none p-0 text-xs text-gray-700 font-bold focus:ring-0 text-right w-24 cursor-pointer"
+                                                                            />
+                                                                        </div>
+                                                                        {(() => {
+                                                                            const today = new Date();
+                                                                            today.setHours(0, 0, 0, 0);
+                                                                            const target = new Date(item.dueDate + 'T00:00:00');
+                                                                            const diff = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                                                                            return (
+                                                                                <div className={`text-[9px] font-bold ${diff < 0 ? 'text-red-500' : diff === 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                                                                                    {diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Due today' : `${diff}d left`}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+
+                                                                    <select
+                                                                        value={item.priority || 'Medium'}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        onChange={(e) => onTaskUpdate(item.opp.id, item.id, { priority: e.target.value as any })}
+                                                                        className={`text-[10px] px-2 py-1 rounded border-none cursor-pointer font-bold uppercase w-20 ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
+                                                                    >
+                                                                        {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
+                                                                    </select>
+
+                                                                    <select
+                                                                        value={item.status}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        onChange={(e) => handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
+                                                                        className={`text-[10px] px-2 py-1 rounded-full border-none cursor-pointer font-bold uppercase w-24 text-center ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
+                                                                    >
+                                                                        {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                    </select>
+
+                                                                    <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
                                                                 </div>
                                                             </div>
-                                                            <div className="text-right flex items-center gap-3">
-                                                                <select
-                                                                    value={item.priority}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    onChange={(e) => onTaskUpdate(item.opp.id, item.id, { priority: e.target.value as TaskPriority })}
-                                                                    className={`text-[10px] px-2 py-0.5 rounded mr-2 border-none cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
-                                                                >
-                                                                    {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
-                                                                </select>
-
-                                                                <select
-                                                                    value={item.status}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    onChange={(e) => handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
-                                                                    className={`text-[10px] px-2 py-0.5 rounded-full border-none cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
-                                                                >
-                                                                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                                                                </select>
-
-                                                                <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                                                            </div>
+                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1783,12 +1935,28 @@ ${noteTitles.join('\n')}
                                         <h2 className="text-lg font-bold text-gray-900">Task Details</h2>
                                         <div className="text-[10px] text-gray-500 font-medium flex items-center justify-center gap-1">
                                             {selectedTask.oppId}
-                                            <button onClick={() => onSelect(selectedTask.oppId)} className="text-[#3DCD58] hover:underline ml-2 uppercase font-bold">Open opportunity</button>
+                                            <button onClick={() => onSelect(selectedTask.oppId, { tab: 'tasks', taskId: selectedTask.task.id })} className="text-[#3DCD58] hover:underline ml-2 uppercase font-bold">Open task in expediente</button>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
                                         <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-medium bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                             <Copy className="w-3 h-3" /> Summary
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                onMinimize?.({
+                                                    id: selectedTask.task.id,
+                                                    type: 'task',
+                                                    title: `Tarea: ${selectedTask.task.title}`,
+                                                    color: '#3B82F6',
+                                                    data: { oppId: selectedTask.oppId, deepLink: { tab: 'tasks', taskId: selectedTask.task.id } }
+                                                });
+                                                setSelectedTask(null);
+                                            }}
+                                            className="p-2 text-gray-500 hover:bg-gray-200 rounded transition-colors"
+                                            title="Minimizar Tarea"
+                                        >
+                                            <Minus className="w-5 h-5 text-gray-400" />
                                         </button>
                                         {!splitViewNoteId && <button onClick={() => setSelectedTask(null)} className="p-2 text-gray-500 hover:bg-gray-200 rounded transition-colors"><X className="w-6 h-6" /></button>}
                                     </div>
@@ -1933,6 +2101,43 @@ ${noteTitles.join('\n')}
                                         </div>
                                     </div>
 
+                                    {/* TIME TRACKING HISTORY */}
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Time Tracking History</label>
+                                        <div className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
+                                            <div className="p-3 border-b border-gray-200 flex justify-between items-center bg-gray-100/50">
+                                                <span className="text-xs font-bold text-gray-500">Total Time</span>
+                                                <span className="text-sm font-mono font-black text-gray-700">
+                                                    {(() => {
+                                                        const total = (selectedTask.task.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+                                                        const h = Math.floor(total / 3600);
+                                                        const m = Math.floor((total % 3600) / 60);
+                                                        return `${h}h ${m}m`;
+                                                    })()}
+                                                </span>
+                                            </div>
+                                            {(selectedTask.task.timeLogs || []).length > 0 ? (
+                                                <div className="max-h-32 overflow-y-auto">
+                                                    <table className="w-full text-[10px] text-left">
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {[...selectedTask.task.timeLogs].reverse().map((log: any) => (
+                                                                <tr key={log.id} className="hover:bg-white transition-colors">
+                                                                    <td className="p-2 text-gray-500">{new Date(log.startTime).toLocaleDateString()}</td>
+                                                                    <td className="p-2 text-gray-400 font-mono">{new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(log.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                                                    <td className="p-2 text-right font-bold text-gray-700">
+                                                                        {Math.floor(log.durationSeconds / 3600)}h {Math.floor((log.durationSeconds % 3600) / 60)}m
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <div className="p-4 text-center text-xs text-gray-400 italic">No time recorded yet.</div>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Description</label>
                                         <textarea className="w-full border-gray-200 rounded-lg text-sm h-32 resize-none bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.description} onChange={(e) => updateSelectedTask('description', e.target.value)} />
@@ -2029,6 +2234,190 @@ ${noteTitles.join('\n')}
                     />
                 )
             }
+            {/* Add Task Modal */}
+            {
+                showCreateTaskModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+                            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                                <h3 className="font-black text-gray-800 flex items-center gap-2"><Plus className="w-5 h-5 text-[#3DCD58]" /> New Task</h3>
+                                <button onClick={() => setShowCreateTaskModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity</label>
+                                    <OpportunitySearchInput
+                                        opportunities={opportunities}
+                                        selectedIds={newTaskData.oppId ? [newTaskData.oppId] : []}
+                                        onSelect={(id) => {
+                                            setNewTaskData({ ...newTaskData, oppId: id });
+                                            setNewTaskSearch('');
+                                        }}
+                                        onRemove={() => setNewTaskData({ ...newTaskData, oppId: '' })}
+                                        value={newTaskSearch}
+                                        onChange={setNewTaskSearch}
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Task Title</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm font-bold"
+                                        placeholder="Enter task title..."
+                                        value={newTaskData.title}
+                                        onChange={(e) => setNewTaskData({ ...newTaskData, title: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="p-4 bg-gray-50 border-t flex gap-3">
+                                <button onClick={() => setShowCreateTaskModal(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-600 font-bold hover:bg-gray-100 transition-all">Cancel</button>
+                                <button onClick={handleConfirmCreateTask} className="flex-1 py-2.5 rounded-xl bg-[#3DCD58] text-white font-bold hover:bg-[#2db64a] shadow-lg transition-all">Create Task</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* Start Timer Modal */}
+            {
+                showStartTimerModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+                            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                                <h3 className="font-black text-gray-800 flex items-center gap-2"><Play className="w-5 h-5 text-[#3DCD58]" /> Start New Timer</h3>
+                                <button onClick={() => setShowStartTimerModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity</label>
+                                    <OpportunitySearchInput
+                                        opportunities={opportunities}
+                                        selectedIds={startTimerData.oppId ? [startTimerData.oppId] : []}
+                                        onSelect={(id) => {
+                                            setStartTimerData({ ...startTimerData, oppId: id, taskId: '' });
+                                            setTimerSearch('');
+                                        }}
+                                        onRemove={() => setStartTimerData({ ...startTimerData, oppId: '', taskId: '' })}
+                                        value={timerSearch}
+                                        onChange={setTimerSearch}
+                                    />
+                                </div>
+                                {startTimerData.oppId && (
+                                    <div className="space-y-1 animate-in fade-in slide-in-from-top-2">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Select Task</label>
+                                        <select
+                                            className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm font-bold bg-gray-50 hover:bg-white transition-colors"
+                                            value={startTimerData.taskId}
+                                            onChange={(e) => setStartTimerData({ ...startTimerData, taskId: e.target.value })}
+                                            size={5}
+                                        >
+                                            <option value="" disabled className="text-gray-400 italic">Select a task...</option>
+                                            {opportunities.find(o => o.id === startTimerData.oppId)?.tasks.map(t => (
+                                                <option key={t.id} value={t.id} className="py-1">{t.title}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 bg-gray-50 border-t flex gap-3">
+                                <button onClick={() => setShowStartTimerModal(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-600 font-bold hover:bg-gray-100 transition-all">Cancel</button>
+                                <button
+                                    onClick={() => {
+                                        if (startTimerData.oppId && startTimerData.taskId) {
+                                            const opp = opportunities.find(o => o.id === startTimerData.oppId);
+                                            const task = opp?.tasks.find(t => t.id === startTimerData.taskId);
+                                            if (opp && task) {
+                                                startTimer(task.id, opp.id, task.title);
+                                                setShowStartTimerModal(false);
+                                            }
+                                        }
+                                    }}
+                                    disabled={!startTimerData.oppId || !startTimerData.taskId}
+                                    className="flex-1 py-2.5 rounded-xl bg-[#3DCD58] text-white font-bold hover:bg-[#2db64a] shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Start Timer
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* Close Task Modal with Time Logs */}
+            {closeTaskData && (
+                <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                <CheckSquare className="w-5 h-5 text-green-500" /> Complete Task
+                            </h3>
+                            <button onClick={() => setCloseTaskData(null)}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Task</label>
+                                <div className="text-gray-900 font-medium">{closeTaskData.task.title}</div>
+                            </div>
+
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex justify-between items-center">
+                                <span className="text-sm font-bold text-blue-800">Total Time Spent</span>
+                                <span className="text-2xl font-mono font-black text-blue-600">
+                                    {(() => {
+                                        const total = (closeTaskData.task.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+                                        const h = Math.floor(total / 3600);
+                                        const m = Math.floor((total % 3600) / 60);
+                                        return `${h}h ${m}m`;
+                                    })()}
+                                </span>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Session History</label>
+                                <div className="border rounded-lg overflow-hidden max-h-48 overflow-y-auto bg-gray-50/50">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-100 text-gray-500 font-bold sticky top-0">
+                                            <tr>
+                                                <th className="p-2">Date</th>
+                                                <th className="p-2">Start</th>
+                                                <th className="p-2">End</th>
+                                                <th className="p-2 text-right">Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100 bg-white">
+                                            {(closeTaskData.task.timeLogs || []).map((log: any) => (
+                                                <tr key={log.id}>
+                                                    <td className="p-2 text-gray-600">{new Date(log.startTime).toLocaleDateString()}</td>
+                                                    <td className="p-2 text-gray-500 font-mono">{new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                                    <td className="p-2 text-gray-500 font-mono">{new Date(log.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                                    <td className="p-2 text-gray-900 font-mono font-bold text-right">
+                                                        {Math.floor(log.durationSeconds / 3600)}h {Math.floor((log.durationSeconds % 3600) / 60)}m
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {(!closeTaskData.task.timeLogs || closeTaskData.task.timeLogs.length === 0) && (
+                                                <tr>
+                                                    <td colSpan={4} className="p-4 text-center text-gray-400 italic">No time logs recorded.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 justify-end pt-4 border-t">
+                                <button onClick={() => setCloseTaskData(null)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                                <button
+                                    onClick={() => {
+                                        onTaskUpdate(closeTaskData.oppId, closeTaskData.task.id, { status: 'Done' });
+                                        setCloseTaskData(null);
+                                    }}
+                                    className="px-6 py-2 text-sm font-bold text-white bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg shadow-md flex items-center gap-2"
+                                >
+                                    <CheckSquare className="w-4 h-4" /> Confirm & Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

@@ -11,6 +11,7 @@ interface TrackingViewProps {
 }
 
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
+    const getLocalToday = () => new Date().toLocaleDateString('en-CA');
     const [viewMode, setViewMode] = useState<TrackingViewMode>('month');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [filters, setFilters] = useState<TrackingFilters>(() => {
@@ -26,7 +27,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
         };
     });
 
-    const [selectedDay, setSelectedDay] = useState<string | null>(new Date().toISOString().split('T')[0]);
+    const [selectedDay, setSelectedDay] = useState<string | null>(getLocalToday());
     const [showFilters, setShowFilters] = useState(false);
     const [selectedItem, setSelectedItem] = useState<TrackingWorkItem | null>(null);
 
@@ -38,7 +39,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
     const [formData, setFormData] = useState({
         title: '',
         content: '',
-        date: new Date().toISOString().split('T')[0],
+        date: new Date().toLocaleDateString('en-CA'),
         hours: 0,
         areaId: '',
         priority: 'Medium' as any,
@@ -230,7 +231,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
         else if (viewMode === 'day') next.setDate(next.getDate() + amount);
         setCurrentDate(next);
         if (viewMode === 'day') {
-            setSelectedDay(next.toISOString().split('T')[0]);
+            setSelectedDay(next.toLocaleDateString('en-CA'));
         }
     };
 
@@ -290,7 +291,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             onClick={() => {
                                 const now = new Date();
                                 setCurrentDate(now);
-                                setSelectedDay(now.toISOString().split('T')[0]);
+                                setSelectedDay(getLocalToday());
                             }}
                             className="px-3 py-1 text-xs font-bold text-gray-600 hover:text-[#3DCD58] uppercase"
                         >
@@ -545,38 +546,51 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         </div>
                         <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} flex-1 overflow-y-auto content-start`}>
                             {days.map((d, i) => {
-                                const dateStr = d.toISOString().split('T')[0];
+                                const dateStr = d.toLocaleDateString('en-CA');
                                 const isSelected = selectedDay === dateStr;
-                                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                                const isToday = dateStr === getLocalToday();
                                 const isCurrentMonth = d.getMonth() === currentDate.getMonth();
                                 const dayItems = workItems.filter(item => item.date === dateStr);
 
                                 return (
                                     <div
                                         key={i}
+                                        onDragOver={(e) => e.preventDefault()}
+                                        onDrop={(e) => {
+                                            e.preventDefault();
+                                            try {
+                                                const itemData = JSON.parse(e.dataTransfer.getData('application/json'));
+                                                if (itemData && itemData.date !== dateStr) {
+                                                    updateItem(itemData, { date: dateStr, dueDate: dateStr });
+                                                }
+                                            } catch (err) { console.error("Drop failed", err); }
+                                        }}
                                         onClick={() => setSelectedDay(dateStr)}
-                                        className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[120px] max-h-[120px] overflow-hidden'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
+                                        className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'h-40 overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
                                     >
-                                        <div className="flex justify-between items-center mb-1 shrink-0">
+                                        <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
                                             <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
                                                 {d.getDate()}
                                             </span>
                                             {dayItems.length > 0 && <span className="text-[8px] font-black text-[#3DCD58] bg-[#3DCD58]/10 px-1 py-0.5 rounded-full">{dayItems.length}</span>}
                                         </div>
-                                        <div className="flex flex-col gap-0.5 overflow-hidden">
-                                            {(viewMode === 'day' ? dayItems : dayItems.slice(0, 3)).map(item => (
+                                        <div className="flex flex-col gap-0.5">
+                                            {(viewMode === 'day' || viewMode === 'week' ? dayItems : dayItems).map(item => (
                                                 <div
                                                     key={item.id}
+                                                    draggable
+                                                    onDragStart={(e) => {
+                                                        e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                                    }}
                                                     className={`w-full max-w-full truncate px-1 py-0.5 rounded shadow-sm border ${viewMode === 'day' ? 'text-xs p-2 mb-1' : 'text-[8px]'} ${item.type === 'task' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                                                         item.type === 'history' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                                                             item.type === 'note' ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                                                                'bg-orange-50 text-orange-600 border-orange-100'
+                                                                'bg-orange-50 text-orange-700 border-orange-200 font-black'
                                                         }`}
                                                 >
-                                                    <span className="font-bold">{item.type.toUpperCase()}:</span> {item.title}
+                                                    <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.title}
                                                 </div>
                                             ))}
-                                            {dayItems.length > 3 && viewMode !== 'day' && <div className="text-[7px] font-bold text-gray-400 pl-0.5 italic">+ {dayItems.length - 3} more</div>}
                                         </div>
                                     </div>
                                 );
@@ -591,18 +605,18 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         <div className="flex items-center justify-between mb-2">
                             <h3 className="text-lg font-black text-gray-800">{LABELS.agenda}</h3>
                             <span className="text-sm font-bold text-gray-500">
-                                {selectedDay ? new Date(selectedDay).toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' }) : LABELS.selectDay}
+                                {selectedDay ? new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' }) : LABELS.selectDay}
                             </span>
                         </div>
                         <button
-                            onClick={() => { setFormData({ ...formData, date: selectedDay || new Date().toISOString().split('T')[0] }); setShowCreateModal(true); }}
+                            onClick={() => { setFormData({ ...formData, date: selectedDay || getLocalToday() }); setShowCreateModal(true); }}
                             className="w-full flex items-center justify-center gap-2 bg-[#3DCD58] text-white py-2 rounded-xl text-xs font-black hover:bg-[#2db64a] transition-all shadow-md active:scale-95"
                         >
                             <Plus className="w-4 h-4" /> {LABELS.newItem}
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30 overflow-x-hidden">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30 overflow-x-hidden pb-24">
                         {selectedDayItems.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4 opacity-60">
                                 <Info className="w-12 h-12" />
@@ -610,7 +624,14 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                         ) : (
                             selectedDayItems.map(item => (
-                                <div key={item.id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all group flex flex-col gap-3">
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                    }}
+                                    className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all group flex flex-col gap-3 cursor-move"
+                                >
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                             <div className={`p-2 rounded-xl shrink-0 ${item.type === 'task' ? 'bg-blue-100 text-blue-600' : item.type === 'history' ? 'bg-emerald-100 text-emerald-600' : item.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>

@@ -94,19 +94,33 @@ interface Props {
 
 export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   return (
     <div className="relative">
-      <button onClick={() => setIsOpen(!isOpen)} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">
+      <button onClick={() => { setIsOpen(!isOpen); setSearchTerm(''); }} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">
         <span className="truncate">{selected.length ? `${selected.length} selected` : placeholder}</span>
         <ChevronDown className="w-3 h-3" />
       </button>
       {isOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute top-full left-0 w-64 mt-1 bg-white border border-gray-200 shadow-lg z-20 max-h-40 overflow-y-auto rounded-lg p-1">
-            {options.length === 0 ? <div className="text-[10px] p-2 text-gray-400">No other tasks available</div> :
-              options.map(opt => (
-                <div key={opt.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
+          <div className="absolute top-full left-0 w-64 mt-1 bg-white border border-gray-200 shadow-lg z-20 max-h-60 overflow-y-auto rounded-lg p-1 flex flex-col">
+            <div className="p-1 sticky top-0 bg-white border-b border-gray-100 z-30 mb-1">
+              <div className="relative">
+                <Search className="w-3 h-3 absolute left-1.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  className="w-full pl-6 pr-2 py-1 text-[10px] border border-gray-200 rounded focus:border-[#3DCD58] focus:ring-0"
+                  placeholder="Search..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            </div>
+            {options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 ? <div className="text-[10px] p-2 text-gray-400">No matches found</div> :
+              options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase())).map(opt => (
+                <div key={opt.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded shrink-0" onClick={() => {
                   if (selected.includes(opt.id)) onChange(selected.filter(s => s !== opt.id));
                   else onChange([...selected, opt.id]);
                 }}>
