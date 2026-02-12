@@ -63,8 +63,13 @@ function App() {
       if (saved) {
         setAppSettings(JSON.parse(saved));
       }
+      // NEW: Restore minimized records
+      const savedTabs = localStorage.getItem('TenderLoop_FloatingTabs_V1');
+      if (savedTabs) {
+        setFloatingTabs(JSON.parse(savedTabs));
+      }
     } catch (e) {
-      console.error("Failed to load settings", e);
+      console.error("Failed to load settings or tabs", e);
     }
   }, []);
 
@@ -72,6 +77,11 @@ function App() {
     setAppSettings(newSettings);
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
   };
+
+  // NEW: Save minimized records whenever they change
+  useEffect(() => {
+    localStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
+  }, [floatingTabs]);
 
   // Load Recents & Auto-open last DB
   useEffect(() => {
@@ -207,11 +217,12 @@ function App() {
   // --- Dock Helpers ---
   const minimizeToDock = (tab: FloatingTab) => {
     setFloatingTabs(prev => {
+      // Unique check by ID - our callers will provide unique IDs for different views
       if (prev.find(t => t.id === tab.id)) return prev;
       return [...prev, tab];
     });
     // Close overlays if we are minimizing their specific entity
-    if (tab.type === 'opportunity' || tab.type === 'task' || tab.type === 'note') {
+    if (tab.type === 'opportunity' || tab.type === 'task' || tab.type === 'note' || tab.type === 'tracking') {
       setSelectedOppId(null);
       setActiveDeepLink(null);
     }
@@ -379,12 +390,14 @@ function App() {
               expected: o.dates?.expected || '',
               assigned: (o.dates as any)?.assigned || new Date().toISOString().split('T')[0]
             },
-            links: {
-              ...o.links,
-              ba: (o.links as any).ba || '',
-              srLink: (o.links as any).srLink || '',
-              geet: (o.links as any).geet || ''
-            },
+            links: Array.isArray(o.links)
+              ? o.links
+              : {
+                ...o.links,
+                ba: (o.links as any).ba || '',
+                srLink: (o.links as any).srLink || '',
+                geet: (o.links as any).geet || ''
+              },
             commercial: newCommercial as any,
             kpis: kpis,
             history: o.history || [],
@@ -778,8 +791,7 @@ function App() {
 
         const now = new Date();
         const nowIso = now.toISOString();
-        // Use local date for calendar instead of UTC, to fix timezone issues (e.g. 8PM Tuesday becoming Wednesday)
-        const dateStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+        const dateStr = now.toLocaleDateString('en-CA');
         const start = new Date(Date.now() - seconds * 1000).toISOString();
 
         const newLog: any = {
@@ -794,6 +806,8 @@ function App() {
 
         if (status) {
           task.status = status;
+        } else if (task.status === 'Pending') {
+          task.status = 'In Progress';
         }
 
         updatedTasks[taskIndex] = task;

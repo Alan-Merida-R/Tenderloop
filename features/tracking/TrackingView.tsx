@@ -23,6 +23,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             searchQuery: '',
             areas: [],
             activeOnly: true,
+            calendarizedFilter: 'all',
             itemTypes: ['task', 'history', 'note', 'hours']
         };
     });
@@ -108,10 +109,10 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
         const searchLower = filters.searchQuery.toLowerCase();
 
         opportunities.forEach(opp => {
-            if (filters.activeOnly && (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled')) {
+            if (filters.opportunityIds.length > 0 && !filters.opportunityIds.includes(opp.id)) {
                 return;
             }
-            if (filters.opportunityIds.length > 0 && !filters.opportunityIds.includes(opp.id)) {
+            if (filters.activeOnly && (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled')) {
                 return;
             }
 
@@ -120,6 +121,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 opp.tasks.forEach(task => {
                     if (filters.taskStatuses.length > 0 && !filters.taskStatuses.includes(task.status)) return;
                     if (filters.taskPriorities.length > 0 && !filters.taskPriorities.includes(task.priority)) return;
+                    if (filters.calendarizedFilter === 'calendarized' && !task.calendarized) return;
+                    if (filters.calendarizedFilter === 'not-calendarized' && task.calendarized) return;
                     if (searchLower && !task.title.toLowerCase().includes(searchLower) && !task.description?.toLowerCase().includes(searchLower)) return;
 
                     if (task.dueDate) {
@@ -276,7 +279,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
     };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-140px)] bg-gray-50 overflow-hidden rounded-2xl border border-gray-200">
+        <div className="flex flex-col h-full bg-gray-50 overflow-hidden rounded-2xl border border-gray-200">
             {/* Header / Controls */}
             <div className="p-4 bg-white border-b flex items-center justify-between shadow-sm z-10 shrink-0">
                 <div className="flex items-center gap-6">
@@ -336,9 +339,9 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 </div>
             </div>
 
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex min-h-0 overflow-hidden">
                 {/* Main Calendar Area */}
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
                     {/* Filters Panel */}
                     {showFilters && (
                         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-xl animate-in slide-in-from-top duration-300">
@@ -417,18 +420,29 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     </div>
 
                                     <div className="pt-2">
-                                        <label className="flex items-center gap-2 cursor-pointer group w-fit">
+                                        <div className="flex items-center gap-2 group">
                                             <input
                                                 type="checkbox"
+                                                id="fActive"
                                                 checked={filters.activeOnly}
                                                 onChange={e => setFilters({ ...filters, activeOnly: e.target.checked })}
-                                                className="hidden"
+                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
                                             />
-                                            <div className={`w-8 h-4 rounded-full transition-all relative ${filters.activeOnly ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}>
-                                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${filters.activeOnly ? 'left-4.5' : 'left-0.5'}`}></div>
-                                            </div>
-                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-gray-700">{LABELS.activeOnly}</span>
-                                        </label>
+                                            <label htmlFor="fActive" className="text-sm text-gray-700 cursor-pointer">{LABELS.activeOnly}</label>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 group border-t border-gray-100 pt-3">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none">Calendarized:</label>
+                                            <select
+                                                className="text-[10px] font-bold text-gray-700 bg-gray-50 border-none rounded focus:ring-1 focus:ring-[#3DCD58] p-1"
+                                                value={filters.calendarizedFilter}
+                                                onChange={e => setFilters({ ...filters, calendarizedFilter: e.target.value as any })}
+                                            >
+                                                <option value="all">All</option>
+                                                <option value="calendarized">Only Calendarized</option>
+                                                <option value="not-calendarized">Not Calendarized</option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -515,6 +529,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                 searchQuery: '',
                                                 areas: [],
                                                 activeOnly: true,
+                                                calendarizedFilter: 'all',
                                                 itemTypes: ['task', 'history', 'note', 'hours']
                                             })}
                                             className="text-[10px] text-red-500 font-bold hover:underline"
@@ -534,7 +549,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                     )}
 
                     {/* Calendar Grid */}
-                    <div className="bg-white rounded-2xl flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col h-[600px] shrink-0">
+                    <div className="bg-white rounded-2xl flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
                         <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b`}>
                             {viewMode === 'day' ? (
                                 <div className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{days[0]?.toLocaleDateString('en-US', { weekday: 'long' })}</div>
@@ -566,7 +581,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             } catch (err) { console.error("Drop failed", err); }
                                         }}
                                         onClick={() => setSelectedDay(dateStr)}
-                                        className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'h-40 overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
+                                        className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
                                     >
                                         <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
                                             <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
@@ -616,7 +631,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30 overflow-x-hidden pb-24">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30 overflow-x-hidden pb-40">
                         {selectedDayItems.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4 opacity-60">
                                 <Info className="w-12 h-12" />
@@ -640,7 +655,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS[item.type as keyof typeof LABELS]}</div>
                                                 <input
-                                                    className="text-sm font-black text-gray-800 bg-transparent border-none p-0 w-full focus:ring-0 focus:bg-gray-50 rounded truncate transition-colors"
+                                                    className="text-sm font-black text-gray-800 bg-transparent border-none p-0 w-full focus:ring-0 focus:bg-gray-50 rounded transition-colors"
                                                     value={item.title}
                                                     onChange={(e) => updateItem(item, item.type === 'history' ? { content: e.target.value } : { title: e.target.value })}
                                                 />
@@ -803,7 +818,21 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.date}</label>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.date}</label>
+                                            {selectedItem.type === 'task' && (
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="trackModalCalendarized"
+                                                        checked={selectedItem.data.calendarized || false}
+                                                        onChange={(e) => updateItem(selectedItem, { calendarized: e.target.checked })}
+                                                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58] w-3 h-3"
+                                                    />
+                                                    <label htmlFor="trackModalCalendarized" className="text-[9px] font-bold text-gray-500 uppercase cursor-pointer">Calendarized</label>
+                                                </div>
+                                            )}
+                                        </div>
                                         <input type="date" className="w-full text-sm text-gray-700 bg-gray-50 p-2 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.date} onChange={(e) => updateItem(selectedItem, selectedItem.type === 'task' ? { dueDate: e.target.value } : { date: e.target.value })} />
                                     </div>
                                     {selectedItem.type === 'task' && (

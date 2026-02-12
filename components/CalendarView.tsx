@@ -124,41 +124,45 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
         </div>
       </div>
 
-      {/* Grid */}
-      <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : 'grid-cols-5'} gap-px bg-gray-200 flex-1 overflow-hidden rounded-b-xl`}>
-        {(viewMode === 'month' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(d => (
-          <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100">
-            {d}
-          </div>
-        ))}
-        {days.map((d, i) => {
-          const dateStr = d.toISOString().split('T')[0];
-          const isToday = dateStr === new Date().toISOString().split('T')[0];
-          const isCurrentMonth = d.getMonth() === month;
-          const dayItems = items.filter(item => getDate(item) === dateStr);
-
-          return (
-            <div
-              key={i}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, dateStr)}
-              className={`bg-white p-2 min-h-[100px] flex flex-col gap-1 transition-colors hover:bg-gray-50/50 ${!isCurrentMonth && viewMode === 'month' ? 'bg-gray-50/30' : ''}`}
-            >
-              <div className="flex justify-between items-start mb-1">
-                <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
-                  {d.getDate()}
-                </span>
-              </div>
-              <div className="flex-1 flex flex-col gap-1 overflow-y-auto scrollbar-hide max-h-[120px]">
-                {dayItems.map(item => (
-                  <div key={item.id}>
-                    {renderItem(item)}
-                  </div>
-                ))}
-              </div>
+      {/* Grid wrapper with scroll if needed */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : 'grid-cols-5'} gap-px bg-gray-200 rounded-b-xl border-t border-gray-200 shadow-inner`}>
+          {(viewMode === 'month' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(d => (
+            <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 sticky top-0 z-20">
+              {d}
             </div>
-          );
-        })}
+          ))}
+          {days.map((d, i) => {
+            const dateStr = d.toISOString().split('T')[0];
+            const isToday = dateStr === new Date().toISOString().split('T')[0];
+            const isCurrentMonth = d.getMonth() === month;
+            const dayItems = items.filter(item => getDate(item) === dateStr);
+
+            return (
+              <div
+                key={i}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, dateStr)}
+                className={`bg-white p-2 min-h-[140px] flex flex-col gap-1 transition-colors hover:bg-gray-50/50 ${!isCurrentMonth && viewMode === 'month' ? 'bg-gray-50/30' : ''}`}
+              >
+                <div className="flex justify-between items-start mb-1 shrink-0">
+                  <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
+                    {d.getDate()}
+                  </span>
+                </div>
+                <div className="flex-1 flex flex-col gap-1 overflow-y-auto scrollbar-hide max-h-[180px]">
+                  {dayItems.map(item => (
+                    <div key={item.id}>
+                      {renderItem(item)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Padding at the bottom to ensure the last day is fully visible */}
+        <div className="h-20 bg-transparent pointer-events-none"></div>
       </div>
     </div>
   );

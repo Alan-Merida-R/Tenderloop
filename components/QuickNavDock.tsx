@@ -101,7 +101,7 @@ export const QuickNavDock: React.FC<QuickNavDockProps> = ({ tabs, onRestore, onR
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
                             </button>
 
-                            <span className="text-[6px] font-bold text-gray-400 uppercase tracking-tighter truncate w-full text-center px-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none h-3 shrink-0">
+                            <span className="text-[7px] font-bold text-gray-500 uppercase tracking-tighter truncate w-full text-center px-1 transition-opacity pointer-events-none h-3 shrink-0">
                                 {tab.title}
                             </span>
 

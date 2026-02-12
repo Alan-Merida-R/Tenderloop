@@ -29,6 +29,7 @@ export interface TrackingFilters {
     searchQuery: string;
     areas: string[];
     activeOnly: boolean;
+    calendarizedFilter: 'all' | 'calendarized' | 'not-calendarized';
     itemTypes: TrackingItemType[];
 }
 

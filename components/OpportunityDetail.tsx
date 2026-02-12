@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -1305,8 +1305,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
 
-    // --- VERSION MANAGER STATE (Moved Up) ---
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
+    const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (deepLink?.tab) {
+            setActiveTab(deepLink.tab as any);
+        }
+    }, [deepLink?.tab]);
+
+    useEffect(() => {
+        if (deepLink?.taskId) {
+            setHighlightTaskId(deepLink.taskId);
+            // Scroll to task if in list or board view
+            setTimeout(() => {
+                const el = document.getElementById(`task-${deepLink.taskId}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 500);
+
+            // Clear highlight after 3 seconds
+            setTimeout(() => setHighlightTaskId(null), 3000);
+        }
+    }, [deepLink?.taskId, activeTab]);
     const [showVersionMenu, setShowVersionMenu] = useState(false);
     const [showMoreActionsMenu, setShowMoreActionsMenu] = useState(false);
     const [showCreateVersionModal, setShowCreateVersionModal] = useState(false);
@@ -1427,8 +1447,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
 
             if (deepLink.tab === 'tasks' && deepLink.taskId) {
-                const task = localOpp.tasks.filter(t => t.id === deepLink.taskId)[0];
-                if (task) setSelectedTaskForEdit({ task });
+                // Task highlighting and scrolling is handled by the other useEffect
             }
 
             // Small delay to ensure tab content is rendered
@@ -1683,10 +1702,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const copyHistoryToClipboard = () => {
         // Sort descending: Newest (most recent/cercana) to Oldest (más lejana)
         const sortedHistory = [...(localOpp.history || [])].sort((a, b) => b.date.localeCompare(a.date));
-        const text = `Summary of SR history:\n` + sortedHistory.map(h => {
+        const text = sortedHistory.map(h => {
             const parts = h.date.split('-');
             const dateStr = parts.length === 3 ? `${parts[1]}/${parts[2]}` : h.date;
-            return `${dateStr} ${h.content}`;
+            return `${dateStr}: ${h.content}`;
         }).join('\n');
         navigator.clipboard.writeText(text);
         alert("History copied to clipboard for bFO.");
@@ -2883,7 +2902,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     onMinimize?.({
                                                         id: task.id,
                                                         type: 'task',
-                                                        title: `Tarea: ${task.title}`,
+                                                        title: `TSK: ${task.title.slice(0, 10)}`,
                                                         color: '#3B82F6',
                                                         data: { oppId: opportunity.id, deepLink: { tab: 'tasks', taskId: task.id } }
                                                     });
@@ -2896,7 +2915,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     onMinimize?.({
                                                         id: note.id,
                                                         type: 'note',
-                                                        title: `Nota: ${note.title}`,
+                                                        title: `NOT: ${note.title.slice(0, 10)}`,
                                                         color: '#F59E0B',
                                                         data: { oppId: opportunity.id, deepLink: { tab: 'notes', noteId: note.id } }
                                                     });
@@ -2904,11 +2923,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 }
                                             }
                                             onMinimize?.({
-                                                id: opportunity.id,
+                                                id: `${opportunity.id}-${activeTab}`,
                                                 type: 'opportunity',
-                                                title: `${opportunity.customer} - ${opportunity.title}`,
+                                                title: `${activeTab.toUpperCase().slice(0, 4)}: ${opportunity.customer.slice(0, 10)}`,
                                                 color: '#34d399',
-                                                data: { oppId: opportunity.id }
+                                                data: { oppId: opportunity.id, deepLink: { tab: activeTab } }
                                             });
                                         }}
                                         className="p-2 hover:bg-gray-100 rounded-xl transition-all"
@@ -3377,11 +3396,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 onClick={() => {
                                                     const label = prompt("Heading Text:");
                                                     if (label) {
-                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links).map(([k, v]) => ({
+                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
                                                             id: k,
                                                             type: 'link',
-                                                            label: typeof v === 'object' ? (v as any).title || k : k,
-                                                            url: typeof v === 'object' ? (v as any).url || '' : v
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                         } as QuickLinkItem));
                                                         handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'heading', label }]);
                                                     }
@@ -3392,11 +3411,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </button>
                                             <button
                                                 onClick={() => {
-                                                    const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links).map(([k, v]) => ({
+                                                    const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
                                                         id: k,
                                                         type: 'link',
-                                                        label: typeof v === 'object' ? (v as any).title || k : k,
-                                                        url: typeof v === 'object' ? (v as any).url || '' : v
+                                                        label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                        url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                     } as QuickLinkItem));
                                                     handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'separator', label: '---' }]);
                                                 }}
@@ -3406,14 +3425,32 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </button>
                                             <button
                                                 onClick={() => {
+                                                    const views = ['overview', 'kpi', 'presentation', 'history', 'tasks', 'commercial', 'notes', 'folder', 'questions'];
+                                                    const view = prompt(`Enter view name (${views.join(', ')}):`);
+                                                    if (view && views.includes(view.toLowerCase())) {
+                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
+                                                            id: k,
+                                                            type: 'link',
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
+                                                        } as QuickLinkItem));
+                                                        handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'view', label: `View: ${view.toUpperCase()}`, url: view.toLowerCase() }]);
+                                                    }
+                                                }}
+                                                className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add View Link"
+                                            >
+                                                <Layout className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => {
                                                     const label = prompt("Link Label:");
                                                     if (label) {
                                                         const url = prompt("URL:", "https://");
-                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links).map(([k, v]) => ({
+                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
                                                             id: k,
                                                             type: 'link',
-                                                            label: typeof v === 'object' ? (v as any).title || k : k,
-                                                            url: typeof v === 'object' ? (v as any).url || '' : v
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                         } as QuickLinkItem));
                                                         handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'link', label, url: url || '' }]);
                                                     }
@@ -3426,11 +3463,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
 
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                                        {(Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links).map(([k, v]) => ({
+                                        {(Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
                                             id: k,
                                             type: 'link',
-                                            // Fix: Check if value is object and has title, else if value is string use it as url and key as label, else fallback
-                                            label: typeof v === 'object' && v !== null ? (v as any).title || k : k,
+                                            // Robust label/url extraction to avoid [object Object]
+                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
                                             url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                         } as QuickLinkItem))).map((item, idx, arr) => (
                                             <div key={item.id} className="flex gap-2 items-center group bg-gray-50 p-1.5 rounded hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 transition-all">
@@ -3488,6 +3525,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             placeholder="https://..."
                                                         />
                                                         {item.url && <a href={item.url} target="_blank" className="p-1 bg-white rounded shadow-sm hover:text-blue-500 border border-gray-200"><ExternalLink className="w-3 h-3" /></a>}
+                                                    </>
+                                                )}
+
+                                                {item.type === 'view' && (
+                                                    <>
+                                                        <div className="flex-1 flex items-center gap-2">
+                                                            <div className="w-20 text-[10px] text-blue-500 font-bold uppercase truncate">{item.label}</div>
+                                                            <div className="text-[10px] text-gray-400 font-mono">({item.url})</div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                if (item.url) {
+                                                                    // Open as a new floating tab for simultaneous viewing
+                                                                    onMinimize?.({
+                                                                        id: `${opportunity.id}-${item.url}`,
+                                                                        type: 'opportunity',
+                                                                        title: `${item.url.toUpperCase().slice(0, 4)}: ${opportunity.customer.slice(0, 10)}`,
+                                                                        color: '#34d399',
+                                                                        data: { oppId: opportunity.id, deepLink: { tab: item.url } }
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-100 shadow-sm"
+                                                            title="Pin View to Dock"
+                                                        >
+                                                            <Pin className="w-3 h-3" />
+                                                        </button>
                                                     </>
                                                 )}
 
@@ -4093,7 +4157,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             onMinimize?.({
                                                                 id: currentNote.id,
                                                                 type: 'note',
-                                                                title: `Nota: ${currentNote.title}`,
+                                                                title: `NOT: ${currentNote.title.slice(0, 10)}`,
                                                                 color: '#F59E0B',
                                                                 data: { oppId: opportunity.id, deepLink: { tab: 'notes', noteId: currentNote.id } }
                                                             });
@@ -4306,7 +4370,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {filteredTasks.length === 0 ? (
                                                 <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
                                             ) : filteredTasks.map(task => (
-                                                <div key={task.id} id={`task-${task.id}`} className="group border border-gray-100 p-4 rounded-xl flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-all hover:border-[#3DCD58]/30 hover:shadow-md" onClick={() => setSelectedTaskForEdit({ task })}>
+                                                <div key={task.id} id={`task-${task.id}`} className={`group border p-4 rounded-xl flex items-center justify-between cursor-pointer transition-all ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : 'border-gray-100 hover:bg-gray-50 hover:border-[#3DCD58]/30 hover:shadow-md'}`} onClick={() => setSelectedTaskForEdit({ task })}>
                                                     <div className="flex items-center gap-4">
                                                         <div
                                                             className="text-xs font-bold text-gray-300 w-6 text-center"
@@ -4424,7 +4488,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             onMinimize?.({
                                                 id: selectedTaskForEdit.task.id,
                                                 type: 'task',
-                                                title: `Tarea: ${selectedTaskForEdit.task.title}`,
+                                                title: `TSK: ${selectedTaskForEdit.task.title.slice(0, 10)}`,
                                                 color: '#3B82F6',
                                                 data: { oppId: opportunity.id, deepLink: { tab: 'tasks', taskId: selectedTaskForEdit.task.id } }
                                             });

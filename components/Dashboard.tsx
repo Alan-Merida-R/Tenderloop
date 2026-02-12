@@ -192,6 +192,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [taskAreaFilters, setTaskAreaFilters] = useState<string[]>([]);
     const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>([]);
     const [taskGroupBy, setTaskGroupBy] = useState<'status' | 'area' | 'priority' | 'opportunity'>('status');
+    const [taskCalendarizedFilter, setTaskCalendarizedFilter] = useState<'all' | 'calendarized' | 'not-calendarized'>('all');
 
     // Next Steps Toggle
     const [showNextSteps, setShowNextSteps] = useState(false);
@@ -611,8 +612,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         if (taskOppStatusFilters.length > 0) {
             tasks = tasks.filter(t => taskOppStatusFilters.includes(t.opp.statusLabel));
         }
+        if (taskCalendarizedFilter === 'calendarized') {
+            tasks = tasks.filter(t => t.calendarized);
+        } else if (taskCalendarizedFilter === 'not-calendarized') {
+            tasks = tasks.filter(t => !t.calendarized);
+        }
         return tasks;
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters]);
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter]);
 
     // --- Next Steps Logic ---
     const nextStepsData = useMemo(() => {
@@ -1147,7 +1153,19 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 selected={taskOppStatusFilters}
                                 onChange={setTaskOppStatusFilters}
                             />
-                            <div className="h-6 w-px bg-gray-300 mx-2"></div>
+                            <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none">Calendarized:</label>
+                                <select
+                                    className="text-[10px] font-bold text-gray-700 bg-transparent border-none focus:ring-0 p-0"
+                                    value={taskCalendarizedFilter}
+                                    onChange={(e) => setTaskCalendarizedFilter(e.target.value as any)}
+                                >
+                                    <option value="all">All</option>
+                                    <option value="calendarized">Only Calendarized</option>
+                                    <option value="not-calendarized">Not Calendarized</option>
+                                </select>
+                            </div>
+                            <div className="h-6 w-px bg-gray-300 mx-1"></div>
                             <span className="text-xs text-gray-500 font-medium ml-2">Group by:</span>
                             <select
                                 className="text-sm border-gray-200 rounded-lg p-2 bg-white shadow-sm"
@@ -1947,7 +1965,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                 onMinimize?.({
                                                     id: selectedTask.task.id,
                                                     type: 'task',
-                                                    title: `Tarea: ${selectedTask.task.title}`,
+                                                    title: `TSK: ${selectedTask.task.title.slice(0, 10)}`,
                                                     color: '#3B82F6',
                                                     data: { oppId: selectedTask.oppId, deepLink: { tab: 'tasks', taskId: selectedTask.task.id } }
                                                 });
@@ -1991,7 +2009,19 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Due Date</label>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Due Date</label>
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="modalCalendarized"
+                                                        checked={selectedTask.task.calendarized || false}
+                                                        onChange={(e) => updateSelectedTask('calendarized', e.target.checked)}
+                                                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58] w-3 h-3"
+                                                    />
+                                                    <label htmlFor="modalCalendarized" className="text-[9px] font-bold text-gray-500 uppercase cursor-pointer">Calendarized</label>
+                                                </div>
+                                            </div>
                                             <input type="date" className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.dueDate} onChange={(e) => updateSelectedTask('dueDate', e.target.value)} />
                                         </div>
                                     </div>

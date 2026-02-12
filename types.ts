@@ -75,7 +75,7 @@ export interface Commercial {
 
 export interface QuickLinkItem {
   id: string;
-  type: 'link' | 'separator' | 'heading'; // Separators and Headings
+  type: 'link' | 'separator' | 'heading' | 'view'; // Added 'view' for internal tabs
   label: string;
   url?: string;
   order?: number; // Maintained for legacy, array index is preferred
