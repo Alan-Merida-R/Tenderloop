@@ -387,47 +387,60 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const filteredOpps = useMemo(() => {
         const booleanMatcher = parseBooleanQuery(filterText);
 
-        return uniqueOpps.filter(opp => {
+        const applyAllFilters = (opp: Opportunity) => {
+            // Use boolean matcher for text search
             let matchesText = true;
             if (booleanMatcher) {
                 const labelsText = (opp.labels || []).map(l => l.text).join(' ');
                 const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
                 matchesText = booleanMatcher(raw);
             }
+            if (!matchesText) return false;
 
-            let matchesChips = true;
-            if (selectedOppChips.length > 0) {
-                matchesChips = selectedOppChips.includes(opp.id);
-            }
+            // Chips filter
+            if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) return false;
 
-            let matchesStatus = true;
+            // Status/Stage filter
             if (statusFilters.length > 0) {
                 const isStageFilter = Object.keys(STAGE_COLORS).some(s => statusFilters.includes(s));
                 if (isStageFilter) {
-                    matchesStatus = statusFilters.includes(opp.stage);
+                    if (!statusFilters.includes(opp.stage)) return false;
                 } else {
-                    matchesStatus = statusFilters.includes(opp.statusLabel);
+                    if (!statusFilters.includes(opp.statusLabel)) return false;
                 }
             }
 
-            let matchesDate = true;
+            // Date filter (Only if NOT in tasks mode, where tasks handle their own date filtering)
             if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
-                // In General mode, we prioritize Delivery date for KPI analysis, falling back to Expected
                 const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
                     ? opp.kpis.timeline.deliveredAt
                     : opp.dates.expected;
 
-                if (dateFilterStart && dateToCheck < dateFilterStart) matchesDate = false;
-                if (dateFilterEnd && dateToCheck > dateFilterEnd) matchesDate = false;
+                if (dateFilterStart && dateToCheck < dateFilterStart) return false;
+                if (dateFilterEnd && dateToCheck > dateFilterEnd) return false;
             }
 
-            let matchesLabels = true;
+            // Labels filter
             if (labelFilters.length > 0) {
-                matchesLabels = (opp.labels || []).some(l => labelFilters.includes(l.id));
+                if (!(opp.labels || []).some(l => labelFilters.includes(l.id))) return false;
             }
 
-            return matchesText && matchesChips && matchesStatus && matchesDate && matchesLabels;
-        });
+            return true;
+        };
+
+        const results = uniqueOpps.filter(applyAllFilters);
+
+        // FALLBACK: If search term is present but results are empty with filters, 
+        // show everything that matches the search term regardless of filters.
+        if (results.length === 0 && filterText.trim() !== '' && booleanMatcher) {
+            return uniqueOpps.filter(opp => {
+                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
+                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
+                return booleanMatcher(raw);
+            });
+        }
+
+        return results;
     }, [uniqueOpps, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters, mode]);
 
     // --- KPI Aggregation Logic ---
