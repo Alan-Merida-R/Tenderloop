@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Calendar as CalendarIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Calendar as CalendarIcon, Maximize2 } from 'lucide-react';
 
 export type CalendarViewMode = 'month' | 'week';
 
@@ -8,10 +8,24 @@ interface Props<T> {
   getDate: (item: T) => string;
   renderItem: (item: T) => React.ReactNode;
   onDateDrop: (id: string, type: string, newDate: string, extra?: string) => void;
+  onDateClick?: (date: string) => void;
+  selectedDate?: string | null;
+  isMaximized?: boolean;
+  onMaximize?: () => void;
   className?: string;
 }
 
-export function CalendarView<T extends { id: string }>({ items, getDate, renderItem, onDateDrop, className = "" }: Props<T>) {
+export function CalendarView<T extends { id: string }>({
+  items,
+  getDate,
+  renderItem,
+  onDateDrop,
+  onDateClick,
+  selectedDate,
+  isMaximized = false,
+  onMaximize,
+  className = ""
+}: Props<T>) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -60,81 +74,114 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent, dateStr: string) => {
     e.preventDefault();
-    const id = e.dataTransfer.getData('id');
-    const type = e.dataTransfer.getData('type');
-    const extra = e.dataTransfer.getData('extra');
-    onDateDrop(id, type, dateStr, extra);
+    try {
+      const id = e.dataTransfer.getData('id');
+      const type = e.dataTransfer.getData('type');
+      const extra = e.dataTransfer.getData('extra');
+
+      // Also check for modern JSON data (like Tracker uses)
+      let finalId = id;
+      let finalType = type;
+      let finalExtra = extra;
+
+      const raw = e.dataTransfer.getData('application/json');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        finalId = parsed.id;
+        finalType = parsed.type;
+        finalExtra = parsed.opportunityId;
+      }
+
+      if (finalId) {
+        onDateDrop(finalId, finalType, dateStr, finalExtra);
+      }
+    } catch (err) { }
   };
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full ${className}`}>
+    <div className={`bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full bg-gray-50/20 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+      <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white shadow-sm shrink-0">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-bold text-gray-800 min-w-[160px]">
+          <h2 className="text-xl font-black text-gray-800 min-w-[180px]">
             {monthName} {year}
           </h2>
-          <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm text-xs font-medium">
+          <div className="flex bg-gray-100 rounded-xl p-1 border border-gray-200/50 shadow-inner">
             <button
               onClick={() => navigate(-1, 'year')}
-              className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Prev Year"
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all" title="Prev Year"
             >
               <ChevronsLeft className="w-4 h-4" />
             </button>
             <button
               onClick={() => navigate(-1, viewMode === 'month' ? 'month' : 'week')}
-              className="p-1 hover:bg-gray-100 rounded text-gray-500 border-r border-gray-100 mr-1" title="Prev"
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all mr-1" title="Prev"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setCurrentDate(new Date())}
-              className="px-2 py-1 hover:bg-gray-100 rounded text-gray-700"
+              onClick={() => {
+                const now = new Date();
+                setCurrentDate(now);
+                if (onDateClick) onDateClick(now.toISOString().split('T')[0]);
+              }}
+              className="px-4 py-1 text-[10px] font-black uppercase text-gray-500 hover:text-[#3DCD58] transition-all"
             >
-              Hoy
+              Today
             </button>
             <button
               onClick={() => navigate(1, viewMode === 'month' ? 'month' : 'week')}
-              className="p-1 hover:bg-gray-100 rounded text-gray-500 border-l border-gray-100 ml-1" title="Next"
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all ml-1" title="Next"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
             <button
               onClick={() => navigate(1, 'year')}
-              className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Next Year"
+              className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all" title="Next Year"
             >
               <ChevronsRight className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
-          <button
-            onClick={() => setViewMode('month')}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'month' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            Month
-          </button>
-          <button
-            onClick={() => setViewMode('week')}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${viewMode === 'week' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-          >
-            Work Week
-          </button>
+        <div className="flex items-center gap-2">
+          {onMaximize && (
+            <button
+              onClick={onMaximize}
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-lg text-[10px] font-black text-gray-500 hover:bg-white hover:text-[#3DCD58] hover:border-[#3DCD58] transition-all shadow-inner mr-2"
+            >
+              <Maximize2 className={`w-3.5 h-3.5 ${isMaximized ? 'rotate-180' : ''}`} /> {isMaximized ? 'Minimize' : 'Full View'}
+            </button>
+          )}
+          <div className="flex bg-gray-100 rounded-xl p-1 border border-gray-200/50">
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${viewMode === 'month' ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              Month
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${viewMode === 'week' ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              Work Week
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Grid wrapper with scroll if needed */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : 'grid-cols-5'} gap-px bg-gray-200 rounded-b-xl border-t border-gray-200 shadow-inner`}>
+      {/* Grid wrapper */}
+      <div className="flex-1 overflow-y-auto min-h-0 relative">
+        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : 'grid-cols-5'} gap-px bg-gray-200 h-full min-h-[600px]`}>
           {(viewMode === 'month' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(d => (
-            <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 sticky top-0 z-20">
+            <div key={d} className="bg-gray-50 p-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100 sticky top-0 z-20">
               {d}
             </div>
           ))}
           {days.map((d, i) => {
             const dateStr = d.toISOString().split('T')[0];
             const isToday = dateStr === new Date().toISOString().split('T')[0];
+            const isSelected = selectedDate === dateStr;
             const isCurrentMonth = d.getMonth() === month;
             const dayItems = items.filter(item => getDate(item) === dateStr);
 
@@ -143,16 +190,22 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
                 key={i}
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, dateStr)}
-                className={`bg-white p-2 min-h-[140px] flex flex-col gap-1 transition-colors hover:bg-gray-50/50 ${!isCurrentMonth && viewMode === 'month' ? 'bg-gray-50/30' : ''}`}
+                onClick={() => onDateClick?.(dateStr)}
+                className={`bg-white p-3 min-h-[140px] flex flex-col gap-1.5 transition-all relative group cursor-pointer ${!isCurrentMonth && viewMode === 'month' ? 'opacity-40' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#3DCD58] bg-[#3DCD58]/5 z-10' : 'hover:bg-gray-50/80'}`}
               >
-                <div className="flex justify-between items-start mb-1 shrink-0">
-                  <span className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
+                <div className="flex justify-between items-center mb-1 shrink-0">
+                  <span className={`text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-lg shadow-sm transition-all ${isToday ? 'bg-[#3DCD58] text-white' : isSelected ? 'bg-[#3DCD58]/20 text-[#3DCD58]' : 'text-gray-400 group-hover:text-gray-600'}`}>
                     {d.getDate()}
                   </span>
+                  {dayItems.length > 0 && (
+                    <span className="text-[9px] font-black text-[#3DCD58] bg-[#3DCD58]/10 px-1.5 py-0.5 rounded-full border border-[#3DCD58]/20">
+                      {dayItems.length}
+                    </span>
+                  )}
                 </div>
-                <div className="flex-1 flex flex-col gap-1 overflow-y-auto scrollbar-hide max-h-[180px]">
+                <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto scrollbar-hide">
                   {dayItems.map(item => (
-                    <div key={item.id}>
+                    <div key={item.id} className="animate-in fade-in slide-in-from-bottom-1 duration-300">
                       {renderItem(item)}
                     </div>
                   ))}
@@ -161,8 +214,6 @@ export function CalendarView<T extends { id: string }>({ items, getDate, renderI
             );
           })}
         </div>
-        {/* Padding at the bottom to ensure the last day is fully visible */}
-        <div className="h-20 bg-transparent pointer-events-none"></div>
       </div>
     </div>
   );

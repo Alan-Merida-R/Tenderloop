@@ -68,6 +68,15 @@ function App() {
       if (savedTabs) {
         setFloatingTabs(JSON.parse(savedTabs));
       }
+
+      // Restore Navigation State
+      const savedNav = localStorage.getItem('TenderLoop_Navigation_V1');
+      if (savedNav) {
+        const nav = JSON.parse(savedNav);
+        if (nav.currentView) setCurrentView(nav.currentView);
+        if (nav.selectedOppId) setSelectedOppId(nav.selectedOppId);
+        if (nav.activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
+      }
     } catch (e) {
       console.error("Failed to load settings or tabs", e);
     }
@@ -82,6 +91,16 @@ function App() {
   useEffect(() => {
     localStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
   }, [floatingTabs]);
+
+  // NEW: Save navigation state whenever it changes
+  useEffect(() => {
+    const navState = {
+      currentView,
+      selectedOppId,
+      activeDeepLink
+    };
+    localStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
+  }, [currentView, selectedOppId, activeDeepLink]);
 
   // Load Recents & Auto-open last DB
   useEffect(() => {
@@ -221,8 +240,9 @@ function App() {
       if (prev.find(t => t.id === tab.id)) return prev;
       return [...prev, tab];
     });
-    // Close overlays if we are minimizing their specific entity
-    if (tab.type === 'opportunity' || tab.type === 'task' || tab.type === 'note' || tab.type === 'tracking') {
+    // Fix: Only close overlays if we are minimizing the MAIN opportunity 
+    // This allows minimizing a task or note without closing the expediente
+    if (tab.type === 'opportunity' || tab.type === 'tracking') {
       setSelectedOppId(null);
       setActiveDeepLink(null);
     }
@@ -384,6 +404,8 @@ function App() {
             statusLabel: newStatus,
             qlk: o.qlk || '',
             revision: o.revision || 'R0',
+            priorityOrder: (o as any).priorityOrder ?? null,
+            alias: (o as any).alias || '',
             presentation: o.presentation || emptyPrd,
             dates: {
               requested: o.dates?.requested || '',
@@ -598,7 +620,7 @@ function App() {
   /**
    * Create New Opportunity with Configurable Defaults
    */
-  const createOpportunity = (stage: ProcessStage = '1. Recepción') => {
+  const createOpportunity = (stage: ProcessStage = '1. Intake') => {
     // 1. Generate Unique OP ID
     let maxNum = 1000;
     db.opportunities.forEach(o => {
@@ -654,18 +676,19 @@ function App() {
         return {
           id: newTaskId,
           title: tmpl.title,
-          description: '',
+          description: tmpl.description || '',
           status: tmpl.status || 'Pending',
           priority: tmpl.priority || 'Medium',
           owner: tmpl.owner || 'Me',
-          externalAreas: [],
+          externalAreas: tmpl.externalAreas || [],
           responsible: '',
           dueDate: new Date().toISOString().split('T')[0],
           stageContext: stage,
-          subtasks: [],
+          subtasks: (tmpl.subtasks || []).map(st => ({ ...st, id: crypto.randomUUID(), status: 'Pending' })),
           order: tmpl.order,
           dependsOnTaskIds: mappedDependencies,
-          blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false
+          blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false,
+          calendarized: tmpl.calendarized || false
         };
       });
     }
@@ -691,6 +714,8 @@ function App() {
       statusLabel: 'In Progress',
       dates: { requested: new Date().toISOString().split('T')[0], expected: '', assigned: new Date().toISOString().split('T')[0] },
       priority: 'Medium',
+      priorityOrder: null,
+      alias: '',
       description: '',
       tags: [],
       labels: [],
@@ -734,18 +759,80 @@ function App() {
       lastUpdated: new Date().toISOString()
     };
 
-    setDb(prev => ({ ...prev, opportunities: [newOpp, ...prev.opportunities] }));
+    const initialOpps = [newOpp, ...db.opportunities];
+    const rebalanced = rebalancePriorities(initialOpps, newOpp.id, 1, true);
+    setDb(prev => ({ ...prev, opportunities: rebalanced }));
     setSelectedOppId(newId);
+  };
+
+  const rebalancePriorities = (opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
+    const statuses: OpportunityStatus[] = ['In Progress', 'On Hold', 'Submitted', 'Won', 'Lost', 'Canceled'];
+
+    let allUpdatedOpps = [...opps];
+
+    statuses.forEach(status => {
+      let group = allUpdatedOpps.filter(o => o.statusLabel === status);
+      if (group.length === 0) return;
+
+      const targetInGroup = changedId ? group.find(o => o.id === changedId) : null;
+
+      if (targetInGroup && statusChanged) {
+        // Al cambiar de estado, forzar al inicio (puesto 1)
+        group = [targetInGroup, ...group.filter(o => o.id !== changedId)];
+      } else if (targetInGroup && newOrder !== undefined && newOrder !== null) {
+        // Reordenamiento manual dentro del mismo estado
+        const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
+        const newGroup: Opportunity[] = [];
+        let inserted = false;
+
+        const targetPos = Math.max(1, newOrder);
+
+        others.forEach((o, idx) => {
+          if (idx + 1 === targetPos) {
+            newGroup.push(targetInGroup);
+            inserted = true;
+          }
+          newGroup.push(o);
+        });
+        if (!inserted) newGroup.push(targetInGroup);
+        group = newGroup;
+      } else {
+        // Orden natural por prioridad existente
+        group.sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
+      }
+
+      // Re-indexar 1..N para este status
+      group.forEach((o, idx) => {
+        o.priorityOrder = idx + 1;
+      });
+
+      // Actualizar en el resultado global
+      allUpdatedOpps = allUpdatedOpps.map(o => {
+        const found = group.find(g => g.id === o.id);
+        return found ? found : o;
+      });
+    });
+
+    return allUpdatedOpps;
   };
 
   const updateOpportunity = (updatedOpp: Opportunity, id?: string) => {
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
     }
-    setDb(prev => ({
-      ...prev,
-      opportunities: prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? updatedOpp : o)
-    }));
+    setDb(prev => {
+      const oldOpp = prev.opportunities.find(o => o.id === (id || updatedOpp.id));
+      const orderChanged = oldOpp?.priorityOrder !== updatedOpp.priorityOrder;
+      const statusChanged = oldOpp?.statusLabel !== updatedOpp.statusLabel;
+
+      const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? updatedOpp : o);
+      const rebalanced = rebalancePriorities(initialMap, updatedOpp.id, orderChanged ? updatedOpp.priorityOrder : undefined, statusChanged);
+
+      return {
+        ...prev,
+        opportunities: rebalanced
+      };
+    });
   };
 
   const moveOpportunityStage = (id: string, newStage: ProcessStage) => {
@@ -813,12 +900,13 @@ function App() {
         updatedTasks[taskIndex] = task;
 
         // --- Link to Tracker (KPI Areas) ---
-        const hoursLogged = parseFloat((seconds / 3600).toFixed(2));
         let updatedAreas = [...(o.kpis.areasInvolved || [])];
 
         // Determine Target Area
         let targetAreaName = 'General';
-        if (task.externalAreas && task.externalAreas.length > 0) {
+        if (task.owner === 'Me') {
+          targetAreaName = 'Tendering';
+        } else if (task.externalAreas && task.externalAreas.length > 0) {
           targetAreaName = task.externalAreas[0];
         } else if (task.owner === 'External Area') {
           targetAreaName = 'External';
@@ -840,11 +928,17 @@ function App() {
         // Update Calendar for Date
         const area = { ...updatedAreas[areaIndex] };
         const calendar = { ...(area.calendar || {}) };
-        const existingRecord = calendar[dateStr];
+        const existingRecord = calendar[dateStr] || { type: 'Worked', hours: 0, minutes: 0 };
+
+        // Calculate total seconds to ensure precision when adding
+        const existingTotalSeconds = ((existingRecord.hours || 0) * 3600) + ((existingRecord.minutes || 0) * 60);
+        const totalSeconds = existingTotalSeconds + seconds;
 
         calendar[dateStr] = {
+          ...existingRecord,
           type: 'Worked',
-          hours: (existingRecord?.hours || 0) + hoursLogged
+          hours: Math.floor(totalSeconds / 3600),
+          minutes: Math.floor((totalSeconds % 3600) / 60)
         };
 
         area.calendar = calendar;
@@ -1032,7 +1126,7 @@ function App() {
                   setSelectedOppId(id);
                   setActiveDeepLink(dl || null);
                 }}
-                onCreate={() => createOpportunity('1. Recepción')}
+                onCreate={() => createOpportunity('1. Intake')}
                 onStageChange={moveOpportunityStage}
                 onDateChange={changeOpportunityDate}
                 onOppUpdate={updateOpportunity}

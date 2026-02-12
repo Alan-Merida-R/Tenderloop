@@ -144,6 +144,16 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     window.open(href, '_blank', 'noopener,noreferrer');
                 }
             }
+            // Fix: Handle checkbox clicks to sync 'checked' attribute for persistence in innerHTML
+            if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+                if (target.checked) {
+                    target.setAttribute('checked', 'checked');
+                } else {
+                    target.removeAttribute('checked');
+                }
+                isInternalUpdate.current = true;
+                if (editorRef.current) onChange(editorRef.current.innerHTML);
+            }
         };
 
         const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -400,7 +410,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full right-0 w-48 mt-1 bg-white border border-gray-200 shadow-xl z-[200] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="absolute top-full right-0 w-48 mt-1 bg-white border border-gray-200 shadow-xl z-[500] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in slide-in-from-top-2 duration-200">
                         {options.map(opt => (
                             <div key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
                                 if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
@@ -1129,19 +1139,37 @@ const FullCalendarModal = ({
                                                             </div>
                                                             {area.area === 'Tendering' && (
                                                                 <div className="flex items-center gap-1 mt-1 px-1 bg-blue-50/50 rounded-lg border border-blue-100/50" onClick={(e) => e.stopPropagation()}>
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-7 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
-                                                                        placeholder="0"
-                                                                        value={(record as AreaDayRecord).hours || ''}
-                                                                        onChange={(e) => {
-                                                                            const val = parseFloat(e.target.value) || 0;
-                                                                            const newCal = { ...(area.calendar || {}) };
-                                                                            newCal[d] = { ...newCal[d], hours: val, type: 'Worked' };
-                                                                            onSaveAreaCalendar(area.id, newCal);
-                                                                        }}
-                                                                    />
-                                                                    <span className="text-[8px] font-black text-blue-400 uppercase">h</span>
+                                                                    <div className="flex items-center gap-0.5">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-6 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
+                                                                            placeholder="0"
+                                                                            value={(record as AreaDayRecord).hours || ''}
+                                                                            onChange={(e) => {
+                                                                                const val = parseFloat(e.target.value) || 0;
+                                                                                const newCal = { ...(area.calendar || {}) };
+                                                                                newCal[d] = { ...newCal[d], hours: val, type: 'Worked' };
+                                                                                onSaveAreaCalendar(area.id, newCal);
+                                                                            }}
+                                                                        />
+                                                                        <span className="text-[8px] font-black text-blue-400 uppercase">h</span>
+                                                                    </div>
+                                                                    <div className="w-[1px] h-3 bg-blue-200/50 mx-0.5" />
+                                                                    <div className="flex items-center gap-0.5">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="w-6 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
+                                                                            placeholder="0"
+                                                                            value={(record as AreaDayRecord).minutes || ''}
+                                                                            onChange={(e) => {
+                                                                                const val = parseFloat(e.target.value) || 0;
+                                                                                const newCal = { ...(area.calendar || {}) };
+                                                                                newCal[d] = { ...newCal[d], minutes: val, type: 'Worked' };
+                                                                                onSaveAreaCalendar(area.id, newCal);
+                                                                            }}
+                                                                        />
+                                                                        <span className="text-[8px] font-black text-blue-400 uppercase">m</span>
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1447,7 +1475,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
 
             if (deepLink.tab === 'tasks' && deepLink.taskId) {
-                // Task highlighting and scrolling is handled by the other useEffect
+                // Fix: Sync selectedTaskForEdit ONLY if we are in sub-view mode (restoring a minimized tab)
+                // If opening the main expediente from a dashboard, we only want to highlight/scroll, not open the modal.
+                if (isSubView) {
+                    const task = localOpp.tasks.find(t => t.id === deepLink.taskId);
+                    if (task && (!selectedTaskForEdit || selectedTaskForEdit.task.id !== task.id)) {
+                        setSelectedTaskForEdit({ task });
+                    }
+                }
             }
 
             // Small delay to ensure tab content is rendered
@@ -1467,7 +1502,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 }
             }, 300);
         }
-    }, [deepLink]);
+    }, [deepLink, localOpp.tasks]);
 
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
@@ -1742,7 +1777,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         Object.values(calendar).forEach(r => {
             if (r.type === 'Worked') {
                 if (area.area === 'Tendering') {
-                    if ((r.hours || 0) >= 1) worked++;
+                    const totalHours = (r.hours || 0) + (r.minutes || 0) / 60;
+                    if (totalHours >= 1) worked++;
                 } else {
                     worked++;
                 }
@@ -1787,6 +1823,31 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         };
         handleFieldChange('tasks', [...localOpp.tasks, newTask]);
         setSelectedTaskForEdit({ task: newTask });
+    };
+
+
+
+    const handleCopyTasks = (taskIds: string[], targetOppId: string, targetStatus: TaskStatus) => {
+        const tasksToCopy = localOpp.tasks.filter(t => taskIds.includes(t.id));
+        const targetOpp = opportunities?.find(o => o.id === targetOppId);
+        if (!targetOpp) return;
+
+        const newConvertedTasks: Task[] = tasksToCopy.map(t => ({
+            ...t,
+            id: crypto.randomUUID(),
+            status: targetStatus,
+            linkedNoteIds: [],
+            subtasks: t.subtasks?.map(s => ({ ...s, id: crypto.randomUUID(), completed: false })) || []
+        }));
+
+        const updatedTargetOpp = {
+            ...targetOpp,
+            tasks: [...(targetOpp.tasks || []), ...newConvertedTasks],
+            lastUpdated: new Date().toISOString()
+        };
+
+        onUpdate(updatedTargetOpp, targetOppId);
+        alert(`Successfully copied ${newConvertedTasks.length} tasks to ${targetOpp.customer}`);
     };
 
     const copyTask = (task: Task) => {
@@ -2891,7 +2952,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         <div className="w-full px-4">
                             <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1" title={isSubView ? "Cerrar" : "Regresar"}>
+                                    <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1" title={isSubView ? "Close" : "Back"}>
                                         {isSubView ? <X className="w-5 h-5 text-gray-500" /> : <ArrowLeft className="w-5 h-5 text-gray-500" />}
                                     </button>
                                     <button
@@ -2904,7 +2965,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         type: 'task',
                                                         title: `TSK: ${task.title.slice(0, 10)}`,
                                                         color: '#3B82F6',
-                                                        data: { oppId: opportunity.id, deepLink: { tab: 'tasks', taskId: task.id } }
+                                                        data: { oppId: opportunity.id, isSubView: true, deepLink: { tab: 'tasks', taskId: task.id } }
                                                     });
                                                     return;
                                                 }
@@ -2917,7 +2978,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         type: 'note',
                                                         title: `NOT: ${note.title.slice(0, 10)}`,
                                                         color: '#F59E0B',
-                                                        data: { oppId: opportunity.id, deepLink: { tab: 'notes', noteId: note.id } }
+                                                        data: { oppId: opportunity.id, isSubView: true, deepLink: { tab: 'notes', noteId: note.id } }
                                                     });
                                                     return;
                                                 }
@@ -2931,13 +2992,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             });
                                         }}
                                         className="p-2 hover:bg-gray-100 rounded-xl transition-all"
-                                        title="Minimizar"
+                                        title="Minimize"
                                     >
                                         <Minus className="w-5 h-5 text-gray-400" />
                                     </button>
                                     {isSubView ? (
                                         <div className="flex flex-col">
-                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{deepLink?.tab === 'tasks' ? 'Sub Vista de Tarea' : 'Sub Vista de Nota'}</span>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{deepLink?.tab === 'tasks' ? 'Task Sub View' : 'Note Sub View'}</span>
                                             <span className="text-xs font-bold text-gray-600 truncate max-w-[200px]">{opportunity.customer} - {opportunity.title}</span>
                                         </div>
                                     ) : (
@@ -3386,6 +3447,29 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
                                         <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-[#3DCD58] uppercase tracking-wider mb-1">Priority Rank (1-N)</label>
+                                            <input
+                                                type="number"
+                                                value={localOpp.priorityOrder || ''}
+                                                onChange={(e) => handleFieldChange('priorityOrder', e.target.value ? parseInt(e.target.value) : null)}
+                                                className="w-full text-sm border-gray-200 rounded-lg font-bold"
+                                                placeholder="e.g. 1"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Short Alias (1-2 words)</label>
+                                            <input
+                                                type="text"
+                                                value={localOpp.alias || ''}
+                                                onChange={(e) => handleFieldChange('alias', e.target.value)}
+                                                className="w-full text-sm border-gray-200 rounded-lg"
+                                                placeholder="e.g. Project X"
+                                                maxLength={20}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
@@ -4861,6 +4945,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 </div>
             )}
 
+            {showCopyTasksModal && (
+                <CopyTasksModal
+                    isOpen={showCopyTasksModal}
+                    onClose={() => setShowCopyTasksModal(false)}
+                    sourceOpp={localOpp}
+                    opportunities={opportunities || []}
+                    onCopy={handleCopyTasks}
+                />
+            )}
             {showDiffModal && (
                 <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">

@@ -1,13 +1,13 @@
 
 export type ProcessStage =
-  | '1. Recepción'
-  | '2. Análisis Técnico'
-  | '3. Arquitectura'
+  | '1. Intake'
+  | '2. Technical Analysis'
+  | '3. Architecture'
   | '4. Basket/BOM'
-  | '5. Costeo'
-  | '6. Propuesta'
-  | '7. Validación'
-  | '8. Entrega/Soporte'
+  | '5. Costing'
+  | '6. Proposal'
+  | '7. Validation'
+  | '8. Delivery/Support'
   | '9. Won/Lost';
 
 export type TaskStatus = 'Pending' | 'In Progress' | 'Done' | 'On Hold' | 'Missing Info' | 'Canceled';
@@ -195,6 +195,7 @@ export type DayType = 'Worked' | 'Waiting' | 'Inactive';
 export interface AreaDayRecord {
   type: DayType;
   hours?: number; // Only for Tendering
+  minutes?: number; // Extra precision for Tendering
 }
 
 export interface KPIArea {
@@ -247,6 +248,8 @@ export interface Opportunity {
 
   dates: OpportunityDates;
   priority: 'High' | 'Medium' | 'Low';
+  priorityOrder: number | null; // 1-N rank
+  alias?: string; // Quick identification nickname (1-2 words)
 
   // Details
   description: string;
@@ -318,14 +321,14 @@ export const INITIAL_DB: DatabaseSchema = {
 };
 
 export const STAGE_COLORS: Record<ProcessStage, string> = {
-  '1. Recepción': 'bg-gray-100 text-gray-700',
-  '2. Análisis Técnico': 'bg-blue-100 text-blue-700',
-  '3. Arquitectura': 'bg-indigo-100 text-indigo-700',
+  '1. Intake': 'bg-gray-100 text-gray-700',
+  '2. Technical Analysis': 'bg-blue-100 text-blue-700',
+  '3. Architecture': 'bg-indigo-100 text-indigo-700',
   '4. Basket/BOM': 'bg-purple-100 text-purple-700',
-  '5. Costeo': 'bg-pink-100 text-pink-700',
-  '6. Propuesta': 'bg-orange-100 text-orange-700',
-  '7. Validación': 'bg-yellow-100 text-yellow-800',
-  '8. Entrega/Soporte': 'bg-green-100 text-green-700',
+  '5. Costing': 'bg-pink-100 text-pink-700',
+  '6. Proposal': 'bg-orange-100 text-orange-700',
+  '7. Validation': 'bg-yellow-100 text-yellow-800',
+  '8. Delivery/Support': 'bg-green-100 text-green-700',
   '9. Won/Lost': 'bg-emerald-100 text-emerald-800'
 };
 

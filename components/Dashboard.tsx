@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2 } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -126,7 +126,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: 
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}></div>
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto p-2">
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] max-h-60 overflow-y-auto p-2">
                         {options.map(opt => (
                             <label key={opt} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
                                 <input
@@ -250,6 +250,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [showDocPicker, setShowDocPicker] = useState<boolean>(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
+    const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(new Date().toLocaleDateString('en-CA'));
+    const [showCalendarSidebar, setShowCalendarSidebar] = useState(true);
+    const [isCalendarMaximized, setIsCalendarMaximized] = useState(false);
 
     // Bulk selection state for export
     const [selectedForExport, setSelectedForExport] = useState<string[]>([]);
@@ -277,36 +280,87 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const getBadgeInfo = (opp: Opportunity) => {
         const status = opp.statusLabel;
 
-        // A) Active states: Check Due Date (Business Days)
+        // A) Active states: Check Due Date (Expected Date)
         if (status === 'In Progress' || status === 'On Hold') {
-            if (!opp.dates.expected) return null;
+            if (!opp.dates.expected) {
+                return { text: opp.alias || opp.id, color: 'bg-gray-100 text-gray-500' };
+            }
 
             const todayStr = new Date().toLocaleDateString('en-CA');
-
-            // Calculate business days between today and expected
-            // If expected > today: Positive business days left (exclusive start, inclusive end logic in util roughly matches)
-            // If expected < today:Negative business days overdue
             const diffDays = countBusinessDays(todayStr, opp.dates.expected, holidays);
 
-            if (diffDays < 0) return { text: `${Math.abs(diffDays)}d overdue`, color: 'bg-red-500 text-white' };
-            if (diffDays === 0) return { text: 'Due today', color: 'bg-orange-500 text-white' };
-            return { text: `${diffDays}d left`, color: 'bg-gray-800 text-white' };
+            let colorClass = '';
+            let style: React.CSSProperties = {};
+
+            if (diffDays < -10) {
+                // Extreme Alert: White with red diagonals
+                style = {
+                    background: 'repeating-linear-gradient(45deg, #ffffff, #ffffff 10px, #fecaca 10px, #fecaca 20px)',
+                    color: '#991b1b',
+                    border: '1px solid #f87171'
+                };
+            } else if (diffDays <= -6) {
+                // Overdue > 5 days: Purple
+                colorClass = 'bg-purple-600 text-white shadow-md shadow-purple-200';
+            } else if (diffDays < 0) {
+                colorClass = 'bg-red-500 text-white';
+            } else if (diffDays <= 2) {
+                colorClass = 'bg-orange-500 text-white';
+            } else if (diffDays <= 5) {
+                colorClass = 'bg-yellow-400 text-gray-900';
+            } else {
+                colorClass = 'bg-[#3DCD58] text-white';
+            }
+
+            return {
+                text: opp.alias || opp.id,
+                color: colorClass,
+                style: style,
+                tooltip: diffDays < 0 ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `${diffDays}d left`
+            };
         }
 
-        // B) Delivered states: Check Duration (Calendar Days)
+        // B) Delivered states
         if (['Submitted', 'Won', 'Lost'].includes(status)) {
             const received = opp.kpis?.timeline?.receivedAt;
             const delivered = opp.kpis?.timeline?.deliveredAt;
 
             if (received && delivered) {
                 const days = countCalendarDays(received, delivered);
-                // Ensure non-negative display if dates are messed up
                 const displayDays = Math.max(0, days);
-                return { text: `${displayDays}d to deliver`, color: 'bg-blue-50 text-blue-600' };
+                return { text: opp.alias || opp.id, color: 'bg-blue-50 text-blue-600', tooltip: `${displayDays}d to deliver` };
             }
         }
 
-        return null;
+        return { text: opp.alias || opp.id, color: 'bg-gray-100 text-gray-400' };
+    };
+
+    const getCalendarItemStyles = (item: any, type: 'task' | 'opp') => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let dateStr = type === 'task' ? item.dueDate : item.dates.expected;
+
+        const isCompleted = type === 'task'
+            ? item.status === 'Done' || item.status === 'Canceled'
+            : ['Submitted', 'Won', 'Lost', 'Canceled'].includes(item.statusLabel);
+
+        if (dateStr && !isCompleted) {
+            const itemDate = new Date(dateStr + 'T00:00:00');
+            const diffTime = today.getTime() - itemDate.getTime();
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 6) {
+                return "bg-purple-900 text-white border-purple-950 font-black shadow-lg shadow-purple-900/20";
+            }
+        }
+
+        if (type === 'task') return "bg-blue-50 text-blue-700 border-blue-100 font-bold hover:bg-blue-100/80 mb-0.5";
+        return `${STAGE_COLORS[item.stage as ProcessStage] || 'bg-gray-100'} border-transparent font-bold mb-0.5`;
+    };
+
+    const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false) => {
+        return "bg-[#3DCD58]/10 text-[#0f5132] border border-[#3DCD58]/20 shadow-sm";
     };
 
     const calculateProgress = (stage: ProcessStage) => {
@@ -336,7 +390,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return uniqueOpps.filter(opp => {
             let matchesText = true;
             if (booleanMatcher) {
-                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel}`.toLowerCase();
+                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
+                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
                 matchesText = booleanMatcher(raw);
             }
 
@@ -617,7 +672,23 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         } else if (taskCalendarizedFilter === 'not-calendarized') {
             tasks = tasks.filter(t => !t.calendarized);
         }
-        return tasks;
+        return tasks.sort((a, b) => {
+            // 1. Sort by Opportunity priorityOrder (1, 2, 3...)
+            const orderA = a.opp.priorityOrder ?? 999;
+            const orderB = b.opp.priorityOrder ?? 999;
+            if (orderA !== orderB) return orderA - orderB;
+
+            // 2. Sort by Opportunity Priority ('High' > 'Medium' > 'Low')
+            const pMap = { 'High': 0, 'Medium': 1, 'Low': 2 };
+            const pA = pMap[a.opp.priority] ?? 1;
+            const pB = pMap[b.opp.priority] ?? 1;
+            if (pA !== pB) return pA - pB;
+
+            // 3. Sort by Due Date
+            if (!a.dueDate) return 1;
+            if (!b.dueDate) return -1;
+            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        });
     }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter]);
 
     // --- Next Steps Logic ---
@@ -667,11 +738,15 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
         if (kanbanGroupBy === 'status') {
             Object.keys(STATUS_COLORS).forEach(status => {
-                groups[status] = filteredOpps.filter(o => o.statusLabel === status);
+                groups[status] = filteredOpps
+                    .filter(o => o.statusLabel === status)
+                    .sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999));
             });
         } else {
             Object.keys(STAGE_COLORS).forEach(stage => {
-                groups[stage] = filteredOpps.filter(o => o.stage === stage);
+                groups[stage] = filteredOpps
+                    .filter(o => o.stage === stage)
+                    .sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999));
             });
         }
         return groups;
@@ -982,6 +1057,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 text-[10px] text-gray-500">
                     <span className="font-mono bg-gray-100 px-1 rounded">{item.opp.id}</span>
+                    {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded font-black uppercase tracking-tight">{item.opp.alias}</span>}
                     {item.order && <span className="bg-gray-100 px-1 rounded font-bold text-gray-600" title="Execution Order">#{item.order}</span>}
                     {(item.opp.labels || []).map((l: OpportunityLabel) => (
                         <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
@@ -1236,6 +1312,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                             >
                                 <ListChecks className="w-4 h-4" /> Next steps
                             </button>
+
                             <button onClick={handleCreateTask} className="flex items-center gap-2 bg-[#3DCD58] hover:bg-[#2db64a] text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors">
                                 <Plus className="w-4 h-4" /> Add Task
                             </button>
@@ -1375,87 +1452,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                             )}
                         </div>
 
-                        {/* KPI PROGRESS OVER TIME */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm shrink-0">
-                            <div className="flex items-center justify-between mb-6 pb-2 border-b border-gray-100">
-                                <div className="flex flex-col gap-1">
-                                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                        <TrendingUp className="w-5 h-5 text-blue-500" /> KPI Progress Over Time
-                                    </h3>
-                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">
-                                        Based on Delivered / Tendered date
-                                    </p>
-                                </div>
-                                <div className="flex gap-2">
-                                    {(['weekly', 'monthly', 'quarterly', 'semester', 'yearly'] as const).map(range => (
-                                        <button
-                                            key={range}
-                                            onClick={() => setKpiTimeRange(range)}
-                                            className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg border transition-all ${kpiTimeRange === range ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105' : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300'}`}
-                                        >
-                                            {range}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
 
-                            {!kpiHistoricalData || kpiHistoricalData.length < 2 ? (
-                                <div className="text-center py-20 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                                    <div className="flex flex-col items-center gap-2 opacity-40">
-                                        <BarChart3 className="w-10 h-10 text-gray-400" />
-                                        <p className="text-sm font-bold text-gray-500 italic">Not enough data to display evolution charts (min. 2 periods with delivered dates required).</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-8">
-                                    {/* Skills & Probability Chart */}
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between">
-                                                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Skills & Probability Evolution (%)</h4>
-                                                <div className="flex gap-3">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[10px] font-bold text-gray-500">Lang</span></div>
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-[10px] font-bold text-gray-500">Tech</span></div>
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-bold text-gray-500">Deal Prob.</span></div>
-                                                    <div className="flex items-center gap-1.5" title="Effort Contribution Trends"><div className="w-2 h-2 rounded-full bg-pink-500"></div><span className="text-[10px] font-bold text-gray-500">Effort</span></div>
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-orange-500"></div><span className="text-[10px] font-bold text-gray-500">Win Rate</span></div>
-                                                </div>
-                                            </div>
-                                            <KPIEvolutionChart
-                                                data={kpiHistoricalData}
-                                                metrics={[
-                                                    { key: 'avgLang', color: '#3b82f6', label: 'Language' },
-                                                    { key: 'avgTech', color: '#6366f1', label: 'Technical' },
-                                                    { key: 'avgDeal', color: '#10b981', label: 'Deal Prob.' },
-                                                    { key: 'avgEffort', color: '#ec4899', label: 'Effort Contrib.' },
-                                                    { key: 'winRate', color: '#f97316', label: 'Win Rate' }
-                                                ]}
-                                                maxValue={100}
-                                            />
-                                        </div>
-
-                                        {/* Timings Chart */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center justify-between">
-                                                <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Efficiency Trends (Avg Days)</h4>
-                                                <div className="flex gap-3">
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-500"></div><span className="text-[10px] font-bold text-gray-500">Delivery</span></div>
-                                                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#3DCD58]"></div><span className="text-[10px] font-bold text-gray-500">My Work</span></div>
-                                                </div>
-                                            </div>
-                                            <KPIEvolutionChart
-                                                data={kpiHistoricalData}
-                                                metrics={[
-                                                    { key: 'avgDelivery', color: '#a855f7', label: 'Delivery Time' },
-                                                    { key: 'avgWork', color: '#3DCD58', label: 'Work Time' }
-                                                ]}
-                                                maxValue={Math.max(...(kpiHistoricalData || []).map(d => Math.max(d.avgDelivery || 0, d.avgWork || 0))) * 1.2 || 10}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
 
                         {/* List */}
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[400px]">
@@ -1560,7 +1557,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                     >
                                                         <div className={`absolute top-0 left-0 right-0 h-1 ${opp.statusLabel === 'Won' ? 'bg-green-500' : 'bg-gray-200'}`}></div>
                                                         {badge && (
-                                                            <div className={`absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm ${badge.color}`}>
+                                                            <div
+                                                                className={`absolute top-3 right-3 text-[10px] font-black px-2.5 py-1 rounded-lg shadow-sm tracking-tight uppercase ${badge.color}`}
+                                                                style={badge.style}
+                                                                title={badge.tooltip}
+                                                            >
                                                                 {badge.text}
                                                             </div>
                                                         )}
@@ -1708,31 +1709,36 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                         )}
 
                         {viewMode === 'calendar' && (
-                            /* Explicitly passing Opportunity generic to fix Property 'dates', 'stage', 'title' missing on {id: string} */
-                            <CalendarView<Opportunity>
-                                items={filteredOpps}
-                                getDate={(o) => o.dates.expected}
-                                onDateDrop={handleCalendarDrop}
-                                renderItem={(o) => (
-                                    <div
-                                        draggable
-                                        onDragStart={(e) => handleDragStart(e, o.id, 'opp')}
-                                        onClick={() => onSelect(o.id)}
-                                        className={`text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform ${STAGE_COLORS[o.stage]}`}
-                                        title={o.title}
-                                    >
-                                        <div className="flex justify-between items-center">
-                                            <span className="font-bold">{o.id}</span>
-                                            <div className="flex gap-0.5">
-                                                {(o.labels || []).slice(0, 2).map((l, i) => (
-                                                    <div key={i} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
-                                                ))}
-                                                {(o.labels || []).length > 2 && <span className="text-[8px] text-gray-500 leading-none">+{o.labels!.length - 2}</span>}
+                            <div className={isCalendarMaximized ? "fixed inset-0 z-[60] bg-[#f1f3f4] p-6 flex flex-col animate-in fade-in duration-300" : "flex h-full gap-4 overflow-hidden relative"}>
+
+                                <div className="flex-1 min-w-0 h-full">
+                                    <CalendarView<Opportunity>
+                                        items={filteredOpps}
+                                        getDate={(o) => o.dates.expected}
+                                        onDateDrop={handleCalendarDrop}
+                                        isMaximized={isCalendarMaximized}
+                                        onMaximize={() => setIsCalendarMaximized(!isCalendarMaximized)}
+                                        renderItem={(o) => (
+                                            <div
+                                                draggable
+                                                onDragStart={(e) => handleDragStart(e, o.id, 'opp')}
+                                                onClick={() => onSelect(o.id)}
+                                                className={`text-[10px] p-1.5 rounded-lg border truncate cursor-pointer shadow-sm active:scale-95 transition-all mb-0.5 group ${getCalendarItemStyles(o, 'opp')}`}
+                                                title={o.title}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    {o.alias && (
+                                                        <span className={`${getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled')} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shrink-0 shadow-sm`}>
+                                                            {o.alias}
+                                                        </span>
+                                                    )}
+                                                    <span className="truncate">{o.id}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </div>
-                                )}
-                            />
+                                        )}
+                                    />
+                                </div>
+                            </div>
                         )}
                     </>
                 )}
@@ -1827,6 +1833,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                                     <div className="flex flex-col min-w-0">
                                                                         <div className="flex items-center gap-2 mb-0.5">
                                                                             <span className={`text-[10px] font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
+                                                                            {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded text-[9px] font-black uppercase tracking-tight">{item.opp.alias}</span>}
                                                                             <span className="text-[10px] font-bold text-gray-400 truncate max-w-[150px]" title={item.opp.title}>{item.opp.title}</span>
                                                                             <span className={`hidden md:inline-block text-[9px] px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[item.opp.statusLabel] || 'border-gray-200 text-gray-400'}`}>{item.opp.statusLabel}</span>
                                                                         </div>
@@ -1914,22 +1921,104 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     )}
 
                                     {viewMode === 'calendar' && (
-                                        <CalendarView<any>
-                                            items={filteredTasks}
-                                            getDate={(t) => t.dueDate}
-                                            onDateDrop={handleCalendarDrop}
-                                            renderItem={(t) => (
-                                                <div
-                                                    draggable
-                                                    onDragStart={(e) => handleDragStart(e, t.id, 'task', t.opp.id)}
-                                                    onClick={() => setSelectedTask({ task: t, oppId: t.opp.id })}
-                                                    className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
-                                                    title={`${t.opp.id}: ${t.title}`}
-                                                >
-                                                    {t.title}
+                                        <div className={isCalendarMaximized ? "fixed inset-0 z-[60] bg-[#f1f3f4] p-6 flex flex-col animate-in fade-in duration-300" : "flex h-full gap-4 overflow-hidden relative"}>
+
+
+                                            <div className="flex-1 min-w-0 h-full flex gap-4 overflow-hidden relative">
+                                                <div className="flex-1 min-w-0 h-full">
+                                                    <CalendarView<any>
+                                                        items={filteredTasks}
+                                                        getDate={(t) => t.dueDate}
+                                                        onDateDrop={handleCalendarDrop}
+                                                        onDateClick={setSelectedCalendarDate}
+                                                        selectedDate={selectedCalendarDate}
+                                                        isMaximized={isCalendarMaximized}
+                                                        onMaximize={() => setIsCalendarMaximized(!isCalendarMaximized)}
+                                                        renderItem={(t) => (
+                                                            <div
+                                                                draggable
+                                                                onDragStart={(e) => {
+                                                                    handleDragStart(e, t.id, 'task', t.opp.id);
+                                                                    // Also add JSON for Tracker-style dragging compatibility
+                                                                    e.dataTransfer.setData('application/json', JSON.stringify({ id: t.id, type: 'task', date: t.dueDate, opportunityId: t.opp.id }));
+                                                                }}
+                                                                onClick={(e) => { e.stopPropagation(); setSelectedTask({ task: t, oppId: t.opp.id }); }}
+                                                                className={`text-[10px] p-1.5 rounded-lg border flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all mb-0.5 group ${getCalendarItemStyles(t, 'task')}`}
+                                                                title={`${t.opp.id}: ${t.title}`}
+                                                            >
+                                                                {t.opp.alias && (
+                                                                    <span className={`${getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled')} px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0`}>
+                                                                        {t.opp.alias}
+                                                                    </span>
+                                                                )}
+                                                                <span className="truncate">{t.title}</span>
+                                                            </div>
+                                                        )}
+                                                    />
                                                 </div>
-                                            )}
-                                        />
+
+                                                {showCalendarSidebar && (
+                                                    <div className="w-80 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-300">
+                                                        <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between shrink-0">
+                                                            <div className="flex flex-col">
+                                                                <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest leading-none">Schedule</h3>
+                                                                {selectedCalendarDate && <span className="text-[10px] font-bold text-gray-400 mt-1">{new Date(selectedCalendarDate + 'T00:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</span>}
+                                                            </div>
+                                                            <button onClick={() => setShowCalendarSidebar(false)} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 transition-colors">
+                                                                <ChevronRight className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/20">
+                                                            {filteredTasks.filter(t => t.dueDate === selectedCalendarDate).length === 0 ? (
+                                                                <div className="flex flex-col items-center justify-center h-40 text-gray-300 opacity-60">
+                                                                    <Info className="w-8 h-8 mb-2" />
+                                                                    <p className="text-[10px] font-black uppercase">No Tasks</p>
+                                                                </div>
+                                                            ) : (
+                                                                filteredTasks
+                                                                    .filter(t => t.dueDate === selectedCalendarDate)
+                                                                    .sort((a, b) => (a.opp.priorityOrder ?? 999) - (b.opp.priorityOrder ?? 999))
+                                                                    .map(t => (
+                                                                        <div
+                                                                            key={t.id}
+                                                                            draggable
+                                                                            onDragStart={(e) => {
+                                                                                handleDragStart(e, t.id, 'task', t.opp.id);
+                                                                                e.dataTransfer.setData('application/json', JSON.stringify({ id: t.id, type: 'task', date: t.dueDate, opportunityId: t.opp.id }));
+                                                                            }}
+                                                                            className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group"
+                                                                            onClick={() => setSelectedTask({ task: t, oppId: t.opp.id })}
+                                                                        >
+                                                                            <div className="flex flex-col gap-2">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <div className={`w-1.5 h-1.5 rounded-full ${PRIORITY_COLORS[t.priority as TaskPriority] || 'bg-gray-300'}`}></div>
+                                                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.opp.id}</span>
+                                                                                    {t.opp.alias && <span className={`${getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled')} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight`}>{t.opp.alias}</span>}
+                                                                                </div>
+                                                                                <p className="text-xs font-bold text-gray-800 leading-snug">{t.title}</p>
+                                                                                <div className="flex items-center justify-between mt-1 pt-2 border-t border-gray-50">
+                                                                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{t.status}</span>
+                                                                                    {t.responsible && <span className="text-[8px] font-bold text-gray-400 flex items-center gap-1"><User className="w-2.5 h-2.5" /> {t.responsible}</span>}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {!showCalendarSidebar && (
+                                                    <button
+                                                        onClick={() => setShowCalendarSidebar(true)}
+                                                        className="absolute right-0 top-1/2 -translate-y-1/2 bg-white p-1.5 rounded-l-xl border-l border-y border-gray-200 shadow-xl text-gray-400 hover:text-[#3DCD58] transition-all z-20 group"
+                                                        title="Show Schedule"
+                                                    >
+                                                        <ChevronLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
                                     )}
                                 </>
                             )}
@@ -1967,7 +2056,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                     type: 'task',
                                                     title: `TSK: ${selectedTask.task.title.slice(0, 10)}`,
                                                     color: '#3B82F6',
-                                                    data: { oppId: selectedTask.oppId, deepLink: { tab: 'tasks', taskId: selectedTask.task.id } }
+                                                    data: { oppId: selectedTask.oppId, isSubView: true, deepLink: { tab: 'tasks', taskId: selectedTask.task.id } }
                                                 });
                                                 setSelectedTask(null);
                                             }}

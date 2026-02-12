@@ -112,7 +112,9 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 !selectedIds.includes(o.id) && (
                     o.title.toLowerCase().includes(lower) ||
                     o.id.toLowerCase().includes(lower) ||
-                    o.customer.toLowerCase().includes(lower)
+                    o.customer.toLowerCase().includes(lower) ||
+                    (o.alias || '').toLowerCase().includes(lower) ||
+                    (o.labels || []).some(l => l.text.toLowerCase().includes(lower))
                 ))
             .slice(0, 20); // Limit 20
     }, [opportunities, value, selectedIds]);
@@ -184,7 +186,7 @@ export const OpportunitySearchInput: React.FC<Props> = ({
 
             {/* Dropdown */}
             {isOpen && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-80 overflow-y-auto z-50 animate-in slide-in-from-top-2 duration-200">
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-80 overflow-y-auto z-[500] animate-in slide-in-from-top-2 duration-200">
                     <div className="p-2 grid gap-1">
                         {suggestions.map(opp => (
                             <button

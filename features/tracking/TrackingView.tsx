@@ -132,6 +132,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             date: task.dueDate.split('T')[0],
                             opportunityId: opp.id,
                             opportunityTitle: opp.title,
+                            opportunityAlias: opp.alias,
                             title: task.title,
                             status: task.status,
                             data: task
@@ -150,6 +151,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         date: h.date.split('T')[0],
                         opportunityId: opp.id,
                         opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
                         title: h.content,
                         data: h
                     });
@@ -166,6 +168,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         date: n.date.split('T')[0],
                         opportunityId: opp.id,
                         opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
                         title: n.title,
                         data: n
                     });
@@ -186,6 +189,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     date: date,
                                     opportunityId: opp.id,
                                     opportunityTitle: opp.title,
+                                    opportunityAlias: opp.alias,
                                     title: `${area.area}: ${r.hours}h`,
                                     data: { area: area.area, hours: r.hours }
                                 });
@@ -603,7 +607,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                                 'bg-orange-50 text-orange-700 border-orange-200 font-black'
                                                         }`}
                                                 >
-                                                    <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.title}
+                                                    <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.opportunityAlias ? `[${item.opportunityAlias}] ` : ''}{item.title}
                                                 </div>
                                             ))}
                                         </div>
@@ -668,6 +672,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     <div className="flex items-center justify-between pt-3 border-t border-gray-50">
                                         <div className="flex items-center gap-2 truncate pr-2">
                                             <div className="p-1 bg-gray-100 rounded text-gray-500 shrink-0"><Briefcase className="w-3 h-3" /></div>
+                                            {item.opportunityAlias && <span className="text-[10px] font-black text-[#3DCD58] shrink-0 uppercase tracking-tight">[{item.opportunityAlias}]</span>}
                                             <span className="text-[10px] font-bold text-gray-500 truncate">{item.opportunityTitle}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
@@ -805,7 +810,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-xl font-black text-gray-800">{LABELS[selectedItem.type as keyof typeof LABELS]} {LABELS.details}</h3>
-                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest truncate">{selectedItem.opportunityTitle}</p>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest truncate">{selectedItem.opportunityAlias ? `[${selectedItem.opportunityAlias}] ` : ''}{selectedItem.opportunityTitle}</p>
                                 </div>
                             </div>
                             <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500" /></button>

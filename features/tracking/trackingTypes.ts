@@ -16,6 +16,7 @@ export interface TrackingWorkItem {
     date: string;
     opportunityId: string;
     opportunityTitle: string;
+    opportunityAlias?: string;
     title: string;
     description?: string;
     status?: string;

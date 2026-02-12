@@ -3,37 +3,22 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
-
-// Default Hardcoded Values (Fallback)
-const DEFAULT_TASKS_STRINGS = [
-  "BFO SR Receive",
-  "Create Quotelink number and link to SR",
-  "Set up and manage project folder",
-  "Download CQA Import Template",
-  "Create SR for support / Initiate KOM",
-  "Review available information",
-  "Publish CQA",
-  "KOM",
-  "Generate/Finalize BOM (BuyAutomation)",
-  "Consolidate costing (PACost)",
-  "Create preliminary GEET for Delivery",
-  "CQA Costing Consolidation & Approval",
-  "Generate Preliminary Draft Proposal",
-  "Convert to PDF and send to Sales",
-  "TSC Assigned to Opportunity",
-  "Email structure setup"
-];
+import { STANDARD_TASKS } from './StandardTasks';
 
 export interface TaskTemplate {
   id: string;
   title: string;
+  description: string;
   status: TaskStatus;
   priority: TaskPriority;
   owner: TaskOwner;
   order: number | null;
   dependsOnTaskIds: string[];
   blockDoneUntilDependenciesDone: boolean;
-  dueDateOffset?: number; // Optional visual placeholder if needed, mostly for future
+  dueDateOffset?: number;
+  subtasks?: { id: string; title: string; completed: boolean }[];
+  externalAreas?: string[];
+  calendarized?: boolean;
 }
 
 export interface NoteTemplate {
@@ -57,15 +42,19 @@ export const DEFAULT_TRACKED_AREAS = [
 
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  defaultTasks: DEFAULT_TASKS_STRINGS.map((t, i) => ({
+  defaultTasks: STANDARD_TASKS.map((t) => ({
     id: crypto.randomUUID(),
-    title: t,
-    status: 'Pending',
-    priority: 'Medium',
-    owner: 'Me',
-    order: i + 1,
-    dependsOnTaskIds: [],
-    blockDoneUntilDependenciesDone: false
+    title: t.title || 'New Task',
+    description: t.description || '',
+    status: t.status || 'Pending',
+    priority: t.priority || 'Medium',
+    owner: t.owner || 'Me',
+    order: t.order || 0,
+    dependsOnTaskIds: t.dependsOnTaskIds || [],
+    blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false,
+    subtasks: t.subtasks || [],
+    externalAreas: t.externalAreas || [],
+    calendarized: t.calendarized || false
   })),
   noteTemplates: Object.entries(MEETING_TEMPLATES).map(([key, content]) => ({
     id: crypto.randomUUID(),

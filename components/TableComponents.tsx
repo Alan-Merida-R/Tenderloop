@@ -75,8 +75,8 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
     }
 
     return (
-        <div 
-            onClick={() => setIsEditing(true)} 
+        <div
+            onClick={() => setIsEditing(true)}
             className={`cursor-pointer hover:bg-gray-100/50 p-1 rounded border border-transparent hover:border-gray-200 min-h-[20px] flex items-center ${className}`}
             title="Click to edit"
         >
@@ -121,9 +121,9 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
             >
                 <Columns className="w-3.5 h-3.5" /> Columns
             </button>
-            
+
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-2 animate-in fade-in zoom-in duration-200">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-2 animate-in fade-in zoom-in duration-200">
                     <div className="text-xs font-bold text-gray-400 uppercase mb-2 px-2">Visible Columns</div>
                     <div className="space-y-1 max-h-60 overflow-y-auto">
                         {columns.map(col => (
