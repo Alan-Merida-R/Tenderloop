@@ -12,6 +12,7 @@ import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
+import { TaskSearchInput } from './TaskSearchInput';
 import { useTimer } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
 
@@ -186,6 +187,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
     // Task specific filters with persistence
     const taskFilterKey = 'generalTasksFilters';
+    const [taskSearchText, setTaskSearchText] = useState('');
     const [taskStatusFilters, setTaskStatusFilters] = useState<string[]>([]);
     const [taskPriorityFilters, setTaskPriorityFilters] = useState<string[]>([]);
     const [taskOppFilters, setTaskOppFilters] = useState<string[]>([]);
@@ -696,6 +698,14 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             });
         }
 
+        const taskMatcher = parseBooleanQuery(taskSearchText);
+        if (taskMatcher) {
+            tasks = tasks.filter(t => {
+                const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
+                return taskMatcher(raw);
+            });
+        }
+
         return tasks.sort((a, b) => {
             // 1. Sort by Opportunity priorityOrder (1, 2, 3...)
             const orderA = a.opp.priorityOrder ?? 999;
@@ -713,7 +723,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             if (!b.dueDate) return -1;
             return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
         });
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd]);
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd, taskSearchText]);
 
     // --- Next Steps Logic ---
     const nextStepsData = useMemo(() => {
@@ -1205,6 +1215,16 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                             onRemove={(id) => setSelectedOppChips(prev => prev.filter(p => p !== id))}
                         />
                     </div>
+
+                    {mode === 'tasks' && (
+                        <div className="relative z-20">
+                            <TaskSearchInput
+                                tasks={filteredTasks}
+                                value={taskSearchText}
+                                onChange={setTaskSearchText}
+                            />
+                        </div>
+                    )}
 
                     {(mode === 'proposals' || mode === 'general') && (
                         <MultiSelectDropdown
