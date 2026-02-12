@@ -411,7 +411,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             }
 
             let matchesDate = true;
-            if (dateFilterStart || dateFilterEnd) {
+            if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
                 // In General mode, we prioritize Delivery date for KPI analysis, falling back to Expected
                 const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
                     ? opp.kpis.timeline.deliveredAt
@@ -428,7 +428,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
             return matchesText && matchesChips && matchesStatus && matchesDate && matchesLabels;
         });
-    }, [opportunities, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters]);
+    }, [uniqueOpps, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters, mode]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -672,6 +672,17 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         } else if (taskCalendarizedFilter === 'not-calendarized') {
             tasks = tasks.filter(t => !t.calendarized);
         }
+
+        if (dateFilterStart || dateFilterEnd) {
+            tasks = tasks.filter(t => {
+                const dt = t.dueDate;
+                if (!dt) return false;
+                if (dateFilterStart && dt < dateFilterStart) return false;
+                if (dateFilterEnd && dt > dateFilterEnd) return false;
+                return true;
+            });
+        }
+
         return tasks.sort((a, b) => {
             // 1. Sort by Opportunity priorityOrder (1, 2, 3...)
             const orderA = a.opp.priorityOrder ?? 999;
@@ -689,7 +700,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             if (!b.dueDate) return -1;
             return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
         });
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter]);
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd]);
 
     // --- Next Steps Logic ---
     const nextStepsData = useMemo(() => {
