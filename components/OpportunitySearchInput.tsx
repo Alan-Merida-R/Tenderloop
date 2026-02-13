@@ -109,19 +109,22 @@ export const OpportunitySearchInput: React.FC<Props> = ({
 
     // Typeahead suggestions
     const suggestions = useMemo(() => {
-        if (!value.trim()) return [];
-
-        // Use the passed filtered opportunities directly for suggestions
+        // Always return suggestions, filtered by text if present
         const lower = value.toLowerCase().trim();
+
         return opportunities
-            .filter(o =>
-                !selectedIds.includes(o.id) && (
+            .filter(o => {
+                if (selectedIds.includes(o.id)) return false;
+                if (!lower) return true; // Show all if no search text
+
+                return (
                     o.title.toLowerCase().includes(lower) ||
                     o.id.toLowerCase().includes(lower) ||
                     o.customer.toLowerCase().includes(lower) ||
                     (o.alias || '').toLowerCase().includes(lower) ||
                     (o.labels || []).some(l => l.text.toLowerCase().includes(lower))
-                ))
+                );
+            })
             .slice(0, 50); // Increased limit
     }, [opportunities, value, selectedIds]);
 
@@ -167,20 +170,16 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                     type="text"
                     value={value}
                     onFocus={() => {
-                        if (value.trim() && suggestions.length > 0) {
+                        if (suggestions.length > 0) {
                             if (onToggle) onToggle(true);
                             else setInternalIsOpen(true);
                         }
                     }}
                     onChange={(e) => {
                         onChange(e.target.value);
-                        // Always open on user typing if there is content
-                        // We rely on parent to handle if suggestions exist, but here we just signal intent.
-                        // Actually, better to check if we should open.
-                        if (e.target.value.trim()) {
-                            if (onToggle) onToggle(true);
-                            else setInternalIsOpen(true);
-                        }
+                        // Always open on user typing
+                        if (onToggle) onToggle(true);
+                        else setInternalIsOpen(true);
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Backspace' && value === '' && selectedIds.length > 0) {
@@ -220,9 +219,13 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                                 onClick={() => {
                                     onSelect(opp.id);
                                     onChange('');
-                                    if (onToggle) onToggle(false);
-                                    else setInternalIsOpen(false);
+                                    // Don't close automatically to allow multiple selections
                                     // Keep focus on input?
+                                    // We need to keep the dropdown open.
+                                    // If we want it to close only when clicking outside, we do nothing here.
+                                    // But typically a "select" action might want to give feedback.
+                                    // User asked: "haz que siempre te despliegue las opciones aun que sea la segunda busqueda"
+                                    // Keeping it open is the most robust way to ensure they see they can select more.
                                 }}
                                 className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
                             >

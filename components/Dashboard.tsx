@@ -481,24 +481,10 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     // --- Derived Data: Filtered Opportunities ---
     // Consolidated filter logic to ensure Tasks inherit all filters (Text, Status, etc.) 
     // BUT date filtering is handled contextually.
-    const filteredOpps = useMemo(() => {
-        // Use deferred text to prevent typing lag
-        const booleanMatcher = parseBooleanQuery(deferredFilterText);
-
-        const applyAllFilters = (opp: Opportunity) => {
-            // 1. Text Search (Global)
-            let matchesText = true;
-            if (booleanMatcher) {
-                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
-                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
-                matchesText = booleanMatcher(raw);
-            }
-            if (!matchesText) return false;
-
-            // 2. Chips filter
-            if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) return false;
-
-            // 3. Status/Stage filter
+    // Base filter (Status, Date, Labels) - used for Search Suggestions to provide candidates
+    const baseFilteredOpps = useMemo(() => {
+        return uniqueOpps.filter(opp => {
+            // Status/Stage filter
             if (statusFilters.length > 0) {
                 const isStageFilter = Object.keys(STAGE_COLORS).some(s => statusFilters.includes(s));
                 if (isStageFilter) {
@@ -508,10 +494,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 }
             }
 
-            // 4. Date filter (Context-Aware)
-            // If in 'tasks' mode, we DO NOT filter opportunities by date here.
-            // We want to show tasks from ALL opportunities that match the task's Due Date, 
-            // even if the opportunity's expected date is outside the global range.
+            // Date filter
             if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
                 const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
                     ? opp.kpis.timeline.deliveredAt
@@ -521,16 +504,33 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) return false;
             }
 
-            // 5. Labels filter
+            // Labels filter
             if (labelFilters.length > 0) {
                 if (!(opp.labels || []).some(l => labelFilters.includes(l.id))) return false;
             }
 
             return true;
-        };
+        });
+    }, [uniqueOpps, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters]);
 
-        return uniqueOpps.filter(applyAllFilters);
-    }, [uniqueOpps, deferredFilterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters, mode]);
+    // Final filter (Text, Chips) - used for Dashboard display
+    const filteredOpps = useMemo(() => {
+        const booleanMatcher = parseBooleanQuery(deferredFilterText);
+
+        return baseFilteredOpps.filter(opp => {
+            // Text Search
+            if (booleanMatcher) {
+                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
+                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
+                if (!booleanMatcher(raw)) return false;
+            }
+
+            // Chips filter
+            if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) return false;
+
+            return true;
+        });
+    }, [baseFilteredOpps, deferredFilterText, selectedOppChips]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -1294,7 +1294,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                             // If I backspace, filteredOpps grows.
                             // This works fine.
                             // To fix slowness, we need useDeferredValue in the Dashboard component logic mainly.
-                            opportunities={filteredOpps}
+                            // Use baseFilteredOpps so the dropdown suggestions include all candidates,
+                            // not just the ones currently shown on the dashboard (which are filtered by chips).
+                            opportunities={baseFilteredOpps}
                             value={filterText}
                             onChange={setFilterText}
                             selectedIds={selectedOppChips}
