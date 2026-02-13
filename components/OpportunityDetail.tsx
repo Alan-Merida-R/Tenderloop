@@ -1427,7 +1427,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     useEffect(() => {
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
         // This prevents overwriting local state while typing Title/ID due to parent re-renders.
-        if (opportunity.id !== localOpp.id || (opportunity.versions?.length !== localOpp.versions?.length)) {
+        // Only sync from props if ID changed (navigation) or versions changed (external update/restore) 
+        // OR if lastUpdated changed (syncing from other tabs or background timer)
+        if (opportunity.id !== localOpp.id ||
+            (opportunity.versions?.length !== localOpp.versions?.length) ||
+            (opportunity.lastUpdated !== localOpp.lastUpdated)) {
             setLocalOpp(opportunity);
         }
 

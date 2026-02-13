@@ -12,6 +12,8 @@ interface Props {
     onRemove: (id: string) => void;
     placeholder?: string;
     className?: string;
+    isOpen?: boolean;
+    onToggle?: (isOpen: boolean) => void;
 }
 
 export const parseBooleanQuery = (query: string) => {
@@ -96,17 +98,21 @@ export const OpportunitySearchInput: React.FC<Props> = ({
     onSelect,
     onRemove,
     placeholder = "Search opportunities...",
-    className
+    className,
+    isOpen: controlledIsOpen,
+    onToggle
 }) => {
-    const [isOpen, setIsOpen] = useState(false);
+    // Internal state fallback if not controlled
+    const [internalIsOpen, setInternalIsOpen] = useState(false);
+    const isDropdownOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Typeahead suggestions
     const suggestions = useMemo(() => {
         if (!value.trim()) return [];
 
-        // Simple filter for suggestions (not the full boolean logic, just quick match)
-        const lower = value.toLowerCase();
+        // Use the passed filtered opportunities directly for suggestions
+        const lower = value.toLowerCase().trim();
         return opportunities
             .filter(o =>
                 !selectedIds.includes(o.id) && (
@@ -116,29 +122,30 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                     (o.alias || '').toLowerCase().includes(lower) ||
                     (o.labels || []).some(l => l.text.toLowerCase().includes(lower))
                 ))
-            .slice(0, 20); // Limit 20
+            .slice(0, 50); // Increased limit
     }, [opportunities, value, selectedIds]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
+            // Only close if CURRENTLY open. 
+            // If we don't check isDropdownOpen, a click on another dropdown (valid click) 
+            // is seen as "outside" this component, causing this component to call onToggle(false),
+            // which in the parent resets ALL dropdowns to null.
+            if (isDropdownOpen && containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                if (onToggle) onToggle(false);
+                else setInternalIsOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+    }, [onToggle, isDropdownOpen]);
 
-    useEffect(() => {
-        if (value.trim() && suggestions.length > 0) {
-            setIsOpen(true);
-        } else if (!value.trim()) {
-            setIsOpen(false);
-        }
-    }, [value, suggestions.length]);
+    // Removed useEffect that auto-toggles state based on value/suggestions. 
+    // This was likely causing the "open/close fast" flickering by fighting with other events or renders.
+    // We will rely on explicit user interaction (focus, change) to open.
 
     return (
-        <div ref={containerRef} className={`relative flex items-center min-w-[300px] max-w-[600px] ${className}`}>
+        <div ref={containerRef} className={`relative flex items-center w-full ${className}`}>
             <div className="flex flex-wrap items-center flex-1 gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm focus-within:ring-2 focus-within:ring-[#3DCD58] focus-within:border-transparent transition-all">
                 <Search className="w-4 h-4 text-gray-400 shrink-0" />
 
@@ -159,18 +166,37 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 <input
                     type="text"
                     value={value}
+                    onFocus={() => {
+                        if (value.trim() && suggestions.length > 0) {
+                            if (onToggle) onToggle(true);
+                            else setInternalIsOpen(true);
+                        }
+                    }}
                     onChange={(e) => {
                         onChange(e.target.value);
-                        setIsOpen(true);
+                        // Always open on user typing if there is content
+                        // We rely on parent to handle if suggestions exist, but here we just signal intent.
+                        // Actually, better to check if we should open.
+                        if (e.target.value.trim()) {
+                            if (onToggle) onToggle(true);
+                            else setInternalIsOpen(true);
+                        }
                     }}
                     onKeyDown={(e) => {
                         if (e.key === 'Backspace' && value === '' && selectedIds.length > 0) {
                             onRemove(selectedIds[selectedIds.length - 1]);
                         }
-                        if (e.key === 'Enter' && suggestions.length > 0 && isOpen) {
+                        if (e.key === 'Enter' && suggestions.length > 0 && isDropdownOpen) {
                             onSelect(suggestions[0].id);
                             onChange('');
-                            setIsOpen(false);
+                            if (onToggle) onToggle(false);
+                            else setInternalIsOpen(false);
+                        }
+                        // Close on Escape
+                        if (e.key === 'Escape') {
+                            if (onToggle) onToggle(false);
+                            else setInternalIsOpen(false);
+                            e.currentTarget.blur();
                         }
                     }}
                     placeholder={selectedIds.length > 0 ? "" : placeholder}
@@ -185,7 +211,7 @@ export const OpportunitySearchInput: React.FC<Props> = ({
             </div>
 
             {/* Dropdown */}
-            {isOpen && suggestions.length > 0 && (
+            {isDropdownOpen && suggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-80 overflow-y-auto z-[500] animate-in slide-in-from-top-2 duration-200">
                     <div className="p-2 grid gap-1">
                         {suggestions.map(opp => (
@@ -194,7 +220,8 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                                 onClick={() => {
                                     onSelect(opp.id);
                                     onChange('');
-                                    setIsOpen(false);
+                                    if (onToggle) onToggle(false);
+                                    else setInternalIsOpen(false);
                                     // Keep focus on input?
                                 }}
                                 className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"

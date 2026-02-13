@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Calendar as CalendarIcon, Maximize2 } from 'lucide-react';
 
-export type CalendarViewMode = 'month' | 'week';
+export type CalendarViewMode = 'month' | 'week' | 'day';
 
 interface Props<T> {
   items: T[];
@@ -45,7 +45,7 @@ export function CalendarView<T extends { id: string }>({
         startDate.setDate(startDate.getDate() + 1);
       }
       return days;
-    } else {
+    } else if (viewMode === 'week') {
       // Work week (Mon-Fri)
       const d = new Date(currentDate);
       const day = d.getDay();
@@ -57,17 +57,21 @@ export function CalendarView<T extends { id: string }>({
         monday.setDate(monday.getDate() + 1);
       }
       return days;
+    } else {
+      // Day view
+      return [new Date(currentDate)];
     }
   };
 
   const days = getDays();
   const monthName = currentDate.toLocaleString('en-US', { month: 'long' });
 
-  const navigate = (amount: number, unit: 'month' | 'week' | 'year') => {
+  const navigate = (amount: number, unit: 'month' | 'week' | 'year' | 'day') => {
     const next = new Date(currentDate);
     if (unit === 'month') next.setMonth(next.getMonth() + amount);
     else if (unit === 'year') next.setFullYear(next.getFullYear() + amount);
     else if (unit === 'week') next.setDate(next.getDate() + (amount * 7));
+    else if (unit === 'day') next.setDate(next.getDate() + amount);
     setCurrentDate(next);
   };
 
@@ -98,13 +102,19 @@ export function CalendarView<T extends { id: string }>({
     } catch (err) { }
   };
 
+  const getDayNames = () => {
+    if (viewMode === 'month') return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    if (viewMode === 'week') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    return [currentDate.toLocaleString('en-US', { weekday: 'long' })];
+  };
+
   return (
     <div className={`bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full bg-gray-50/20 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white shadow-sm shrink-0">
+      <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white shadow-sm shrink-0 flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-black text-gray-800 min-w-[180px]">
-            {monthName} {year}
+            {viewMode === 'day' ? currentDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : `${monthName} ${year}`}
           </h2>
           <div className="flex bg-gray-100 rounded-xl p-1 border border-gray-200/50 shadow-inner">
             <button
@@ -114,7 +124,7 @@ export function CalendarView<T extends { id: string }>({
               <ChevronsLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => navigate(-1, viewMode === 'month' ? 'month' : 'week')}
+              onClick={() => navigate(-1, viewMode === 'month' ? 'month' : viewMode === 'week' ? 'week' : 'day')}
               className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all mr-1" title="Prev"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -130,7 +140,7 @@ export function CalendarView<T extends { id: string }>({
               Today
             </button>
             <button
-              onClick={() => navigate(1, viewMode === 'month' ? 'month' : 'week')}
+              onClick={() => navigate(1, viewMode === 'month' ? 'month' : viewMode === 'week' ? 'week' : 'day')}
               className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg text-gray-400 hover:text-gray-900 transition-all ml-1" title="Next"
             >
               <ChevronRight className="w-4 h-4" />
@@ -166,14 +176,20 @@ export function CalendarView<T extends { id: string }>({
             >
               Work Week
             </button>
+            <button
+              onClick={() => setViewMode('day')}
+              className={`px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${viewMode === 'day' ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              Day
+            </button>
           </div>
         </div>
       </div>
 
       {/* Grid wrapper */}
       <div className="flex-1 overflow-y-auto min-h-0 relative">
-        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : 'grid-cols-5'} gap-px bg-gray-200 h-full min-h-[600px]`}>
-          {(viewMode === 'month' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).map(d => (
+        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-5' : 'grid-cols-1'} gap-px bg-gray-200 h-full min-h-[600px]`}>
+          {getDayNames().map(d => (
             <div key={d} className="bg-gray-50 p-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100 sticky top-0 z-20">
               {d}
             </div>
@@ -191,7 +207,7 @@ export function CalendarView<T extends { id: string }>({
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, dateStr)}
                 onClick={() => onDateClick?.(dateStr)}
-                className={`bg-white p-3 min-h-[140px] flex flex-col gap-1.5 transition-all relative group cursor-pointer ${!isCurrentMonth && viewMode === 'month' ? 'opacity-40' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#3DCD58] bg-[#3DCD58]/5 z-10' : 'hover:bg-gray-50/80'}`}
+                className={`bg-white p-3 min-h-[140px] flex flex-col gap-1.5 transition-all relative group cursor-pointer ${!isCurrentMonth && viewMode === 'month' ? 'opacity-40' : ''} ${isSelected ? 'ring-2 ring-inset ring-[#3DCD58] bg-[#3DCD58]/5 z-10' : 'hover:bg-gray-50/80'} ${viewMode === 'day' ? 'min-h-[600px]' : ''}`}
               >
                 <div className="flex justify-between items-center mb-1 shrink-0">
                   <span className={`text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-lg shadow-sm transition-all ${isToday ? 'bg-[#3DCD58] text-white' : isSelected ? 'bg-[#3DCD58]/20 text-[#3DCD58]' : 'text-gray-400 group-hover:text-gray-600'}`}>

@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2 } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -111,12 +111,34 @@ const copyToClipboard = (text: string) => {
         document.body.removeChild(textArea);
     }
 };
-const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: string[], selected: string[], onChange: (val: string[]) => void, label: string }) => {
-    const [isOpen, setIsOpen] = useState(false);
+interface MultiSelectDropdownProps {
+    options: string[];
+    selected: string[];
+    onChange: (val: string[]) => void;
+    label: string;
+    isOpen: boolean;
+    onToggle: () => void;
+}
+
+const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onToggle }: MultiSelectDropdownProps) => {
+    // Internal search for dropdown
+    const [searchTerm, setSearchTerm] = useState("");
+    const deferredSearchTerm = useDeferredValue(searchTerm);
+
+    // Filter options for display
+    const visibleOptions = useMemo(() => {
+        if (!deferredSearchTerm && options.length <= 50) return options;
+        const lower = deferredSearchTerm.toLowerCase();
+        return options.filter(opt => opt.toLowerCase().includes(lower));
+    }, [options, deferredSearchTerm]);
+
+    // Limit rendered items to keep DOM light
+    const renderedOptions = visibleOptions.slice(0, 50);
+
     return (
         <div className="relative">
             <button
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={(e) => { e.stopPropagation(); onToggle(); }}
                 className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 shadow-sm hover:bg-gray-50 whitespace-nowrap"
             >
                 <Filter className="w-4 h-4 text-gray-400" />
@@ -126,26 +148,47 @@ const MultiSelectDropdown = ({ options, selected, onChange, label }: { options: 
 
             {isOpen && (
                 <>
-                    <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}></div>
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] max-h-60 overflow-y-auto p-2">
-                        {options.map(opt => (
-                            <label key={opt} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                    <div className="fixed inset-0 z-10" onClick={() => onToggle()}></div>
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] max-h-80 overflow-y-auto p-2 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                        {options.length > 10 && (
+                            <div className="px-2 sticky top-0 bg-white z-20 pb-2 border-b border-gray-100">
                                 <input
-                                    type="checkbox"
-                                    checked={selected.includes(opt)}
-                                    onChange={() => {
-                                        if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
-                                        else onChange([...selected, opt]);
-                                    }}
-                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                    autoFocus
+                                    placeholder="Search..."
+                                    className="w-full text-xs p-1.5 border border-gray-200 rounded bg-gray-50 focus:bg-white focus:ring-1 focus:ring-[#3DCD58] outline-none transition-colors"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                    // Prevent closing when typing
+                                    onClick={e => e.stopPropagation()}
                                 />
-                                <span className="text-sm text-gray-700 truncate">{opt}</span>
-                            </label>
-                        ))}
+                            </div>
+                        )}
+                        <div className="flex flex-col gap-1 overflow-y-auto">
+                            {renderedOptions.map(opt => (
+                                <label key={opt} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer group">
+                                    <input
+                                        type="checkbox"
+                                        checked={selected.includes(opt)}
+                                        onChange={() => {
+                                            if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
+                                            else onChange([...selected, opt]);
+                                        }}
+                                        className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
+                                    />
+                                    <span className="text-sm text-gray-700 group-hover:text-gray-900 truncate" title={opt}>{opt}</span>
+                                </label>
+                            ))}
+                            {visibleOptions.length > 50 && (
+                                <div className="text-xs text-center text-gray-400 py-1 italic">
+                                    + {visibleOptions.length - 50} more...
+                                </div>
+                            )}
+                        </div>
+
                         {selected.length > 0 && (
                             <button
-                                onClick={() => { onChange([]); setIsOpen(false); }}
-                                className="w-full text-center text-xs text-red-500 hover:text-red-700 mt-2 py-1 border-t border-gray-100"
+                                onClick={() => { onChange([]); onToggle(); }}
+                                className="w-full text-center text-xs text-red-500 hover:text-red-700 py-2 border-t border-gray-100 mt-1"
                             >
                                 Clear All
                             </button>
@@ -161,6 +204,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const { timerState, startTimer, pauseTimer } = useTimer();
     const [viewMode, setViewMode] = useState<'board' | 'table' | 'calendar'>('board');
     const [filterText, setFilterText] = useState('');
+    const deferredFilterText = useDeferredValue(filterText); // Optimize search performance
     const [labelFilters, setLabelFilters] = useState<string[]>([]);
     const [selectedOppChips, setSelectedOppChips] = useState<string[]>([]);
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
@@ -190,6 +234,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [taskSearchText, setTaskSearchText] = useState('');
     const [taskStatusFilters, setTaskStatusFilters] = useState<string[]>([]);
     const [taskPriorityFilters, setTaskPriorityFilters] = useState<string[]>([]);
+
+    // UI State for filtering (Dropdowns)
+    const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+    const toggleDropdown = (name: string) => {
+        setOpenDropdown(prev => prev === name ? null : name);
+    };
     const [taskOppFilters, setTaskOppFilters] = useState<string[]>([]);
     const [taskAreaFilters, setTaskAreaFilters] = useState<string[]>([]);
     const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>([]);
@@ -358,11 +408,53 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         }
 
         if (type === 'task') return "bg-blue-50 text-blue-700 border-blue-100 font-bold hover:bg-blue-100/80 mb-0.5";
+
+        // Distinguishable colors for proposals with alias
+        if (type === 'opp' && item.alias) {
+            const distColors = [
+                'bg-blue-600 text-white border-blue-700 shadow-blue-500/20',
+                'bg-emerald-600 text-white border-emerald-700 shadow-emerald-500/20',
+                'bg-orange-600 text-white border-orange-700 shadow-orange-500/20',
+                'bg-rose-600 text-white border-rose-700 shadow-rose-500/20',
+                'bg-cyan-600 text-white border-cyan-700 shadow-cyan-500/20',
+                'bg-indigo-600 text-white border-indigo-700 shadow-indigo-500/20',
+                'bg-teal-600 text-white border-teal-700 shadow-teal-500/20',
+                'bg-pink-600 text-white border-pink-700 shadow-pink-500/20',
+                'bg-amber-600 text-white border-amber-700 shadow-amber-500/20',
+                'bg-fuchsia-600 text-white border-fuchsia-700 shadow-fuchsia-500/20',
+            ];
+            let hash = 0;
+            const seed = item.alias + item.id;
+            for (let i = 0; i < seed.length; i++) {
+                hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const index = Math.abs(hash) % distColors.length;
+            return `${distColors[index]} font-bold mb-0.5 shadow-sm active:scale-95 transition-all`;
+        }
+
         return `${STAGE_COLORS[item.stage as ProcessStage] || 'bg-gray-100'} border-transparent font-bold mb-0.5`;
     };
 
+    const handleResetFilters = () => {
+        setFilterText('');
+        setTaskSearchText('');
+        setSelectedOppChips([]);
+        setStatusFilters([]);
+        setLabelFilters([]);
+        setDateFilterStart('');
+        setDateFilterEnd('');
+        // Task specific
+        setTaskStatusFilters([]);
+        setTaskPriorityFilters([]);
+        setTaskOppFilters([]);
+        setTaskAreaFilters([]);
+        setTaskOppStatusFilters([]);
+        setTaskCalendarizedFilter('all');
+    };
+
     const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false) => {
-        return "bg-[#3DCD58]/10 text-[#0f5132] border border-[#3DCD58]/20 shadow-sm";
+        if (isCompleted) return "bg-gray-100 text-gray-500";
+        return "bg-white/90 text-gray-800 border border-black/10 shadow-sm backdrop-blur-[2px]";
     };
 
     const calculateProgress = (stage: ProcessStage) => {
@@ -386,11 +478,15 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         });
     }, [opportunities]);
 
+    // --- Derived Data: Filtered Opportunities ---
+    // Consolidated filter logic to ensure Tasks inherit all filters (Text, Status, etc.) 
+    // BUT date filtering is handled contextually.
     const filteredOpps = useMemo(() => {
-        const booleanMatcher = parseBooleanQuery(filterText);
+        // Use deferred text to prevent typing lag
+        const booleanMatcher = parseBooleanQuery(deferredFilterText);
 
         const applyAllFilters = (opp: Opportunity) => {
-            // Use boolean matcher for text search
+            // 1. Text Search (Global)
             let matchesText = true;
             if (booleanMatcher) {
                 const labelsText = (opp.labels || []).map(l => l.text).join(' ');
@@ -399,10 +495,10 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             }
             if (!matchesText) return false;
 
-            // Chips filter
+            // 2. Chips filter
             if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) return false;
 
-            // Status/Stage filter
+            // 3. Status/Stage filter
             if (statusFilters.length > 0) {
                 const isStageFilter = Object.keys(STAGE_COLORS).some(s => statusFilters.includes(s));
                 if (isStageFilter) {
@@ -412,17 +508,20 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 }
             }
 
-            // Date filter (Only if NOT in tasks mode, where tasks handle their own date filtering)
+            // 4. Date filter (Context-Aware)
+            // If in 'tasks' mode, we DO NOT filter opportunities by date here.
+            // We want to show tasks from ALL opportunities that match the task's Due Date, 
+            // even if the opportunity's expected date is outside the global range.
             if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
                 const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
                     ? opp.kpis.timeline.deliveredAt
                     : opp.dates.expected;
 
-                if (dateFilterStart && dateToCheck < dateFilterStart) return false;
-                if (dateFilterEnd && dateToCheck > dateFilterEnd) return false;
+                if (dateFilterStart && (!dateToCheck || dateToCheck < dateFilterStart)) return false;
+                if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) return false;
             }
 
-            // Labels filter
+            // 5. Labels filter
             if (labelFilters.length > 0) {
                 if (!(opp.labels || []).some(l => labelFilters.includes(l.id))) return false;
             }
@@ -430,20 +529,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             return true;
         };
 
-        const results = uniqueOpps.filter(applyAllFilters);
-
-        // FALLBACK: If search term is present but results are empty with filters, 
-        // show everything that matches the search term regardless of filters.
-        if (results.length === 0 && filterText.trim() !== '' && booleanMatcher) {
-            return uniqueOpps.filter(opp => {
-                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
-                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
-                return booleanMatcher(raw);
-            });
-        }
-
-        return results;
-    }, [uniqueOpps, filterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters, mode]);
+        return uniqueOpps.filter(applyAllFilters);
+    }, [uniqueOpps, deferredFilterText, selectedOppChips, statusFilters, dateFilterStart, dateFilterEnd, labelFilters, mode]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -662,58 +749,51 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
     // Derived Tasks for Task View
     const filteredTasks = useMemo(() => {
-        let tasks = filteredOpps.flatMap(opp => opp.tasks.map(t => ({ ...t, opp })));
+        // Use filteredOpps as base (respects global text/status filters on Opps)
+        const candidates = filteredOpps.flatMap(opp => opp.tasks.map(t => ({ ...t, opp })));
 
-        if (taskOppFilters.length > 0) {
-            tasks = tasks.filter(t => taskOppFilters.includes(t.opp.id));
-        }
-        if (taskStatusFilters.length > 0) {
-            tasks = tasks.filter(t => taskStatusFilters.includes(t.status));
-        }
-        if (taskPriorityFilters.length > 0) {
-            tasks = tasks.filter(t => taskPriorityFilters.includes(t.priority));
-        }
-        if (taskAreaFilters.length > 0) {
-            tasks = tasks.filter(t => {
-                if (t.owner === 'Me' && taskAreaFilters.includes('Internal')) return true;
-                return t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
-            });
-        }
-        if (taskOppStatusFilters.length > 0) {
-            tasks = tasks.filter(t => taskOppStatusFilters.includes(t.opp.statusLabel));
-        }
-        if (taskCalendarizedFilter === 'calendarized') {
-            tasks = tasks.filter(t => t.calendarized);
-        } else if (taskCalendarizedFilter === 'not-calendarized') {
-            tasks = tasks.filter(t => !t.calendarized);
-        }
+        // Pre-compute matcher for task-specific search
+        const taskMatcher = parseBooleanQuery(taskSearchText);
 
-        if (dateFilterStart || dateFilterEnd) {
-            tasks = tasks.filter(t => {
+        return candidates.filter(t => {
+            // 1. Task Search (Local)
+            if (taskMatcher) {
+                const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
+                if (!taskMatcher(raw)) return false;
+            }
+
+            // 2. Global Date Filter (Applied to Task Due Date)
+            if (dateFilterStart || dateFilterEnd) {
                 const dt = t.dueDate;
                 if (!dt) return false;
                 if (dateFilterStart && dt < dateFilterStart) return false;
                 if (dateFilterEnd && dt > dateFilterEnd) return false;
-                return true;
-            });
-        }
+            }
 
-        const taskMatcher = parseBooleanQuery(taskSearchText);
-        if (taskMatcher) {
-            tasks = tasks.filter(t => {
-                const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
-                return taskMatcher(raw);
-            });
-        }
+            // 3. Task Specific Filters
+            if (taskOppFilters.length > 0 && !taskOppFilters.includes(t.opp.id)) return false;
+            if (taskStatusFilters.length > 0 && !taskStatusFilters.includes(t.status)) return false;
+            if (taskPriorityFilters.length > 0 && !taskPriorityFilters.includes(t.priority)) return false;
+            if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(t.opp.statusLabel)) return false;
 
-        return tasks.sort((a, b) => {
+            if (taskAreaFilters.length > 0) {
+                const isInternal = t.owner === 'Me' && taskAreaFilters.includes('Internal');
+                const isExternal = t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
+                if (!isInternal && !isExternal) return false;
+            }
+
+            if (taskCalendarizedFilter === 'calendarized' && !t.calendarized) return false;
+            if (taskCalendarizedFilter === 'not-calendarized' && t.calendarized) return false;
+
+            return true;
+        }).sort((a, b) => {
             // 1. Sort by Opportunity priorityOrder (1, 2, 3...)
             const orderA = a.opp.priorityOrder ?? 999;
             const orderB = b.opp.priorityOrder ?? 999;
             if (orderA !== orderB) return orderA - orderB;
 
             // 2. Sort by Opportunity Priority ('High' > 'Medium' > 'Low')
-            const pMap = { 'High': 0, 'Medium': 1, 'Low': 2 };
+            const pMap: Record<string, number> = { 'High': 0, 'Medium': 1, 'Low': 2 };
             const pA = pMap[a.opp.priority] ?? 1;
             const pB = pMap[b.opp.priority] ?? 1;
             if (pA !== pB) return pA - pB;
@@ -1207,12 +1287,21 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
                     <div className="relative z-20">
                         <OpportunitySearchInput
-                            opportunities={opportunities}
+                            // Pass base opportunities filtered by STATUS/DATE/LABELS but NOT text, 
+                            // so suggestions can work on the subset of relevant items.
+                            // Actually, if we pass 'filteredOpps', it includes the text filter.
+                            // If I type "Pro", filteredOpps becomes small. Suggestions are small.
+                            // If I backspace, filteredOpps grows.
+                            // This works fine.
+                            // To fix slowness, we need useDeferredValue in the Dashboard component logic mainly.
+                            opportunities={filteredOpps}
                             value={filterText}
                             onChange={setFilterText}
                             selectedIds={selectedOppChips}
                             onSelect={(id) => setSelectedOppChips(prev => [...prev, id])}
                             onRemove={(id) => setSelectedOppChips(prev => prev.filter(p => p !== id))}
+                            isOpen={openDropdown === 'search'}
+                            onToggle={(isOpen) => setOpenDropdown(isOpen ? 'search' : null)}
                         />
                     </div>
 
@@ -1232,19 +1321,21 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                             options={mode === 'general' ? Object.keys(STATUS_COLORS) : Object.keys(STAGE_COLORS)}
                             selected={statusFilters}
                             onChange={setStatusFilters}
+                            isOpen={openDropdown === 'status'}
+                            onToggle={() => toggleDropdown('status')}
                         />
                     )}
 
                     <MultiSelectDropdown
                         label="Labels"
-                        options={globalLabels.map(l => l.text)} // We need IDs internally but MultiSelectDropdown is simple strings. Let's fix this limitation or map text.
-                        // Actually MultiSelectDropdown takes strings. We'll map back and forth or just filter by ID if options were better. 
-                        // To keep it simple ensuring labels have unique text or just filter usage. 
+                        options={globalLabels.map(l => l.text)}
                         selected={labelFilters.map(id => globalLabels.find(l => l.id === id)?.text || id)}
                         onChange={(texts) => {
                             const ids = texts.map(t => globalLabels.find(l => l.text === t)?.id).filter(Boolean) as string[];
                             setLabelFilters(ids);
                         }}
+                        isOpen={openDropdown === 'labels'}
+                        onToggle={() => toggleDropdown('labels')}
                     />
 
                     {mode === 'tasks' && (
@@ -1254,24 +1345,32 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 options={oppFilterOptions}
                                 selected={taskOppFilters}
                                 onChange={setTaskOppFilters}
+                                isOpen={openDropdown === 'taskOpp'}
+                                onToggle={() => toggleDropdown('taskOpp')}
                             />
                             <MultiSelectDropdown
                                 label="Status"
                                 options={Object.keys(TASK_STATUS_COLORS)}
                                 selected={taskStatusFilters}
                                 onChange={setTaskStatusFilters}
+                                isOpen={openDropdown === 'taskStatus'}
+                                onToggle={() => toggleDropdown('taskStatus')}
                             />
                             <MultiSelectDropdown
                                 label="Priority"
                                 options={Object.keys(PRIORITY_COLORS)}
                                 selected={taskPriorityFilters}
                                 onChange={setTaskPriorityFilters}
+                                isOpen={openDropdown === 'taskPriority'}
+                                onToggle={() => toggleDropdown('taskPriority')}
                             />
                             <MultiSelectDropdown
                                 label="Opp Status"
                                 options={Object.keys(STATUS_COLORS)}
                                 selected={taskOppStatusFilters}
                                 onChange={setTaskOppStatusFilters}
+                                isOpen={openDropdown === 'taskOppStatus'}
+                                onToggle={() => toggleDropdown('taskOppStatus')}
                             />
                             <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm">
                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none">Calendarized:</label>
@@ -1328,8 +1427,16 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
                             </div>
 
-                            <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors">
+                            <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors mr-2">
                                 <Play className="w-4 h-4" /> Start Timer
+                            </button>
+
+                            <button
+                                onClick={handleResetFilters}
+                                className="bg-white hover:bg-orange-50 text-gray-400 hover:text-orange-500 p-2 rounded-lg border border-gray-200 transition-colors shadow-sm"
+                                title="Reset All Filters"
+                            >
+                                <RefreshCw className="w-5 h-5" />
                             </button>
                         </div>
                     )}
@@ -1842,7 +1949,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                         <span className="text-gray-400 text-xs">{tasks.length}</span>
                                                     </div>
                                                     <div className="flex-1 overflow-y-auto space-y-3 pr-2 bg-gray-100/50 p-2 rounded-xl">
-                                                        {tasks.map((item: any) => renderTaskCard(item))}
+                                                        {tasks.slice(0, 50).map((item: any) => renderTaskCard(item))}
+                                                        {tasks.length > 50 && (
+                                                            <div className="text-center py-2 text-xs text-gray-400 font-bold uppercase tracking-wider">
+                                                                Showing 50 of {tasks.length} tasks
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
@@ -1860,7 +1972,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                                     {group} <span className="opacity-50 ml-1">({tasks.length})</span>
                                                                 </div>
                                                             )}
-                                                            {tasks.map((item: any) => <div key={item.id} className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${selectedTaskIds.includes(item.id) ? 'bg-blue-50/50' : ''}`} onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
+
+                                                            {tasks.slice(0, 50).map((item: any) => <div key={item.id} className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${selectedTaskIds.includes(item.id) ? 'bg-blue-50/50' : ''}`} onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
                                                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                                                     <div onClick={(e) => e.stopPropagation()} className="pl-2">
                                                                         <input
@@ -2178,6 +2291,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                         options={['Internal', 'Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
                                                         selected={selectedTask.task.externalAreas || []}
                                                         onChange={(vals) => updateSelectedTask('externalAreas', vals)}
+                                                        isOpen={openDropdown === 'taskExternalAreas'}
+                                                        onToggle={() => toggleDropdown('taskExternalAreas')}
                                                     />
                                                     <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
                                                 </div>
@@ -2444,8 +2559,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             {
                 showStartTimerModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
-                            <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-in zoom-in duration-200">
+                            <div className="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-2xl">
                                 <h3 className="font-black text-gray-800 flex items-center gap-2"><Play className="w-5 h-5 text-[#3DCD58]" /> Start New Timer</h3>
                                 <button onClick={() => setShowStartTimerModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
                             </div>
@@ -2453,7 +2568,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <div className="space-y-1">
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity</label>
                                     <OpportunitySearchInput
-                                        opportunities={opportunities}
+                                        opportunities={opportunities.filter(o => o.statusLabel === 'In Progress' || o.statusLabel === 'On Hold' || !o.statusLabel)}
                                         selectedIds={startTimerData.oppId ? [startTimerData.oppId] : []}
                                         onSelect={(id) => {
                                             setStartTimerData({ ...startTimerData, oppId: id, taskId: '' });
@@ -2481,7 +2596,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     </div>
                                 )}
                             </div>
-                            <div className="p-4 bg-gray-50 border-t flex gap-3">
+                            <div className="p-4 bg-gray-50 border-t flex gap-3 rounded-b-2xl">
                                 <button onClick={() => setShowStartTimerModal(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-600 font-bold hover:bg-gray-100 transition-all">Cancel</button>
                                 <button
                                     onClick={() => {

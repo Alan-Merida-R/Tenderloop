@@ -128,9 +128,59 @@ function App() {
     init();
   }, []);
 
+  // Tab Synchronization State
+  const tabId = useRef(crypto.randomUUID()).current;
+  const isBroadcastingRef = useRef(false);
+  const syncChannel = useRef<BroadcastChannel | null>(null);
+
+  // Initialize sync channel
+  useEffect(() => {
+    syncChannel.current = new BroadcastChannel('tenderloop_db_sync');
+    syncChannel.current.onmessage = (event) => {
+      if (event.data.type === 'DB_UPDATE' && event.data.originTabId !== tabId) {
+        console.debug("[Sync] Received DB update from another tab");
+        isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
+        setDb(event.data.db);
+        setStatus('saved');
+      }
+    };
+    return () => syncChannel.current?.close();
+  }, []);
+
+  // Listen for storage changes (Tab Sync for Navigation & Floating Tabs)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'TenderLoop_Navigation_V1' && e.newValue) {
+        try {
+          const nav = JSON.parse(e.newValue);
+          // Only update if coming from another tab (implied by storage event firing in others)
+          if (nav.currentView !== currentView) setCurrentView(nav.currentView);
+          if (nav.selectedOppId !== selectedOppId) setSelectedOppId(nav.selectedOppId);
+          if (nav.activeDeepLink !== activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
+        } catch (e) { }
+      }
+      if (e.key === 'TenderLoop_FloatingTabs_V1' && e.newValue) {
+        try {
+          setFloatingTabs(JSON.parse(e.newValue));
+        } catch (e) { }
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [selectedOppId, currentView, activeDeepLink]);
+
   // Auto-save Effect
   useEffect(() => {
     if (!db || !fileHandle || status === 'loading') return;
+
+    // Broadcast local changes to other tabs
+    if (!isBroadcastingRef.current) {
+      syncChannel.current?.postMessage({ type: 'DB_UPDATE', db, originTabId: tabId });
+    } else {
+      // Reset flag for next local change
+      isBroadcastingRef.current = false;
+      return; // DO NOT save to disk if change came from broadcast (the originating tab will save)
+    }
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
@@ -179,7 +229,7 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, 2000);
+    }, 1000); // Reduced delay to 1s for better responsiveness
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -777,8 +827,13 @@ function App() {
       const targetInGroup = changedId ? group.find(o => o.id === changedId) : null;
 
       if (targetInGroup && statusChanged) {
-        // Al cambiar de estado, forzar al inicio (puesto 1)
-        group = [targetInGroup, ...group.filter(o => o.id !== changedId)];
+        // Al cambiar de estado o nuevo, forzar al segundo lugar (puesto 2) si hay otros
+        const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
+        if (others.length > 0) {
+          group = [others[0], targetInGroup, ...others.slice(1)];
+        } else {
+          group = [targetInGroup];
+        }
       } else if (targetInGroup && newOrder !== undefined && newOrder !== null) {
         // Reordenamiento manual dentro del mismo estado
         const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
