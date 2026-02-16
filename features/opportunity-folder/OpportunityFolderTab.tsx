@@ -72,6 +72,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [isApiSupported, setIsApiSupported] = useState(true);
   const [rootPathInput, setRootPathInput] = useState('');
   const [rootPathDisplay, setRootPathDisplayVal] = useState('');
+  const [isEditingPath, setIsEditingPath] = useState(false);
   const [goToPath, setGoToPath] = useState('');
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
 
@@ -207,10 +208,17 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         rootHandle,
         searchQuery,
         (item) => {
-          setSearchResults(prev => [...prev, item]);
+          setSearchResults(prev => {
+            if (prev.some(p => p.relativePath.join('/') === item.relativePath.join('/'))) return prev;
+            return [...prev, item];
+          });
         },
         () => searchAbortRef.current,
-        []
+        [],
+        async (key) => {
+          const m = await getMeta(opportunityId, key);
+          return m?.alias;
+        }
       );
       setIsSearching(false);
     };
@@ -220,7 +228,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       clearTimeout(timer);
       searchAbortRef.current = true;
     };
-  }, [searchQuery, rootHandle]);
+  }, [searchQuery, rootHandle, opportunityId]);
 
   // --- Handlers ---
 
@@ -228,10 +236,17 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     try {
       // @ts-ignore
       const handle = await window.showDirectoryPicker();
+      const suggestedPath = prompt("Enter the absolute base path for this folder (e.g. C:\\Projects\\...):", rootPathDisplay);
+
       await setFolderHandle(opportunityId, handle);
+      if (suggestedPath !== null) {
+        await setRootPathDisplay(opportunityId, suggestedPath.trim());
+        setRootPathDisplayVal(suggestedPath.trim());
+      }
+
       setRootHandle(handle);
       navigateTo(handle, [], true);
-      alert("Root folder updated. Document links will resolve relative to this new root.");
+      alert("Root folder linked successfully.");
     } catch (e) { }
   };
 
@@ -240,7 +255,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
     // Clean path
     let cleanPath = goToPath.trim().replace(/\\/g, '/');
-    let rootDisplay = rootPathDisplay.replace(/\\/g, '/');
+    let rootDisplay = (rootPathInput || rootPathDisplay).replace(/\\/g, '/');
 
     if (!cleanPath.toLowerCase().startsWith(rootDisplay.toLowerCase())) {
       alert("Path is outside the linked folder root.");
@@ -326,7 +341,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         try {
           for (const item of clipboard.items) {
             // 2. Verify Source Permissions
-            // For move: need write (to delete) on source parent usually, 
+            // For move: need write (to delete) on source parent usually,
             // or at least read on item. We check item handle permission.
             if (clipboard.op === 'move') {
               if (!(await verifyPermission(item.handle, true))) {
@@ -389,22 +404,22 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0 || !currentHandle) return;
+    const filesList = Array.from(e.dataTransfer.files) as File[];
+    if (filesList.length === 0 || !currentHandle) return;
 
     setConfirmation({
       op: 'upload',
       title: 'Confirm Upload',
-      source: `${files.length} files`,
+      source: `${filesList.length} files`,
       sourcePath: 'External OS Drag & Drop',
       destPath: path.join('/'),
-      files: files,
+      files: filesList,
       onConfirm: async () => {
-        if (currentHandle && files.length > 0) {
+        if (currentHandle && filesList.length > 0) {
           // Request permission to write
           if (await verifyPermission(currentHandle, true)) {
             try {
-              await uploadFiles(currentHandle, files);
+              await uploadFiles(currentHandle, filesList);
               loadCurrentDirectory();
             } catch (e) {
               console.error("Upload failed", e);
@@ -434,7 +449,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     <table className="w-full text-left border-collapse min-w-[800px]">
       <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
         <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-          <th className="px-4 py-3 w-[40%]">Name</th>
+          <th className="px-4 py-3 w-[30%]">Name</th>
+          <th className="px-4 py-3 w-[25%]">Alias / Label</th>
           <th className="px-4 py-3">Path</th>
           <th className="px-4 py-3 w-32 text-center">Class</th>
           <th className="px-4 py-3 w-20 text-right">Size</th>
@@ -453,18 +469,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               onDoubleClick={() => {
                 if (item.kind === 'directory') {
                   navigateTo(item.handle as FileSystemDirectoryHandle, item.relativePath);
-                } else if (searchQuery) {
-                  const parentPath = item.relativePath.slice(0, -1);
-                  if (rootHandle) {
-                    let h = rootHandle;
-                    (async () => {
-                      for (const s of parentPath) h = await h.getDirectoryHandle(s);
-                      navigateTo(h, parentPath);
-                      setTimeout(() => setSelectedItem(item), 100);
-                    })();
-                  }
-                } else {
-                  openFileNative(item.handle as FileSystemFileHandle);
                 }
               }}
               className={`group hover:bg-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : ''}`}
@@ -478,6 +482,17 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                   <div className="shrink-0">{getFileIcon(item.extension, item.kind === 'directory')}</div>
                   <span className={`text-sm font-medium whitespace-normal break-words py-1 ${item.kind === 'directory' ? 'font-bold' : ''}`}>{item.name}</span>
                 </div>
+              </td>
+              <td className="px-4 py-2">
+                {item.kind === 'file' && (
+                  <input
+                    value={meta?.alias || ''}
+                    onChange={(e) => updateMetaField(key, 'alias', e.target.value)}
+                    placeholder="Add alias..."
+                    className="w-full bg-transparent border-none text-xs font-bold text-[#3DCD58] focus:ring-1 focus:ring-[#3DCD58]/20 rounded p-1 placeholder:text-gray-300 placeholder:font-normal"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
               </td>
               <td className="px-4 py-2 text-xs text-gray-400 truncate max-w-[200px]">
                 {searchQuery ? item.relativePath.slice(0, -1).join('/') || 'Root' : ''}
@@ -531,31 +546,87 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <ArrowRightLeft className="w-3 h-3" /> Change Linked Folder
           </button>
 
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Global Search</label>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
-                placeholder="Search entire root..."
-              />
-              {isSearching && <RefreshCw className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-[#3DCD58]" />}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Base Path</label>
+              <div className="bg-white border border-gray-200 rounded-lg p-2 space-y-2">
+                {isEditingPath ? (
+                  <div className="space-y-2 animate-in fade-in duration-200">
+                    <input
+                      autoFocus
+                      value={rootPathInput}
+                      onChange={e => setRootPathInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleSaveRootPath();
+                        if (e.key === 'Escape') setIsEditingPath(false);
+                      }}
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:ring-[#3DCD58] focus:border-[#3DCD58] font-mono"
+                      placeholder="e.g. C:/Users/Docs/..."
+                    />
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => {
+                          handleSaveRootPath();
+                          setIsEditingPath(false);
+                        }}
+                        className="flex-1 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded hover:bg-[#2db64a] transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setIsEditingPath(false)}
+                        className="flex-1 py-1.5 bg-gray-100 text-gray-500 text-[10px] font-black uppercase rounded hover:bg-gray-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-[10px] font-mono text-gray-500 break-all bg-gray-50 p-1.5 rounded border border-gray-100 min-h-[2.5rem] flex items-center">
+                      {rootPathDisplay || 'Not set'}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setRootPathInput(rootPathDisplay);
+                        setIsEditingPath(true);
+                      }}
+                      className="w-full py-1.5 px-3 bg-[#3DCD58] text-white text-[10px] font-black uppercase tracking-widest rounded-md hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Edit3 className="w-3 h-3" /> Edit Base Path
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="text-[9px] text-gray-400 leading-tight">Must match your physical local path for links to work.</p>
             </div>
-          </div>
 
-          <div className="mt-4 space-y-2">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Go To Path</label>
-            <div className="flex gap-1">
-              <input
-                value={goToPath}
-                onChange={e => setGoToPath(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleGoToPath()}
-                className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
-                placeholder="C:/..."
-              />
-              <button onClick={handleGoToPath} className="p-1.5 bg-gray-200 rounded-lg hover:bg-gray-300"><ArrowRight className="w-3.5 h-3.5" /></button>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Global Search</label>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                  placeholder="Search entire root..."
+                />
+                {isSearching && <RefreshCw className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-[#3DCD58]" />}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Go To Path</label>
+              <div className="flex gap-1">
+                <input
+                  value={goToPath}
+                  onChange={e => setGoToPath(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleGoToPath()}
+                  className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                  placeholder="C:/..."
+                />
+                <button onClick={handleGoToPath} className="p-1.5 bg-gray-200 rounded-lg hover:bg-gray-300"><ArrowRight className="w-3.5 h-3.5" /></button>
+              </div>
             </div>
           </div>
         </div>
@@ -622,18 +693,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           </div>
         </div>
 
-        {!rootPathDisplay && (
-          <div className="bg-amber-50 p-2 border-b border-amber-100 flex items-center gap-2 justify-center shrink-0">
-            <span className="text-[10px] font-bold text-amber-700">Set Root Path to enable "Copy Path":</span>
-            <input value={rootPathInput} onChange={e => setRootPathInput(e.target.value)} placeholder="e.g. C:\Projects\Opp" className="text-[10px] p-1 border rounded w-48" />
-            <button onClick={handleSaveRootPath} className="text-[10px] bg-amber-200 px-2 py-1 rounded hover:bg-amber-300">Save</button>
-          </div>
-        )}
-
-
-
         {/* Content */}
-        <div className="flex-1 overflow-y-auto pb-24">
+        <div className="flex-1 overflow-y-auto pb-48">
           {isSearching && searchResults.length === 0 && (
             <div className="p-8 text-center text-gray-400 text-sm">Searching...</div>
           )}
@@ -760,17 +821,15 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
       {/* Linked Items Sidebar */}
       {/* Floating Action Bar (Bottom Overlay) */}
-      {selectedItem && !showPreview && !confirmation && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-6 animate-slide-in-up border border-gray-700/50">
+      {selectedItem && !confirmation && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-6 animate-slide-in-up border border-gray-700/50">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold truncate max-w-[250px]">{selectedItem.name}</span>
             <div className="w-px h-5 bg-gray-700 mx-1"></div>
             {selectedItem.kind === 'file' ? (
               <div className="flex items-center gap-2">
-                <button onClick={() => setShowPreview(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all"><Eye className="w-3.5 h-3.5" /> Preview</button>
                 <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy Path"><Copy className="w-3.5 h-3.5" /></button>
                 <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Manage Links"><LinkIcon className="w-3.5 h-3.5" /></button>
-                <button onClick={() => openFileNative(selectedItem.handle as FileSystemFileHandle)} className="flex items-center gap-1.5 px-4 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-[#3DCD58]/20">Open File</button>
               </div>
             ) : (
               <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all"><Copy className="w-3.5 h-3.5" /> Copy Path</button>

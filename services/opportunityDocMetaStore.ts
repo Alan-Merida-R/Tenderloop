@@ -12,6 +12,7 @@ export interface DocMeta {
   docType: string;
   linkedTaskIds: string[];
   linkedNoteIds: string[];
+  alias?: string;
   editableStatus?: string;
   internalNotes?: string;
   updatedAt: string;
@@ -50,6 +51,7 @@ export const saveMeta = async (opportunityId: string, fileKey: string, meta: Par
     docType: meta.docType ?? existing?.docType ?? '',
     linkedTaskIds: meta.linkedTaskIds ?? existing?.linkedTaskIds ?? [],
     linkedNoteIds: meta.linkedNoteIds ?? existing?.linkedNoteIds ?? [],
+    alias: meta.alias ?? existing?.alias ?? '',
     editableStatus: meta.editableStatus ?? existing?.editableStatus ?? 'Not started',
     internalNotes: meta.internalNotes ?? existing?.internalNotes ?? '',
     updatedAt: new Date().toISOString()
