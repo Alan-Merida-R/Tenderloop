@@ -102,7 +102,6 @@ const copyToClipboard = (text: string) => {
     if (navigator.clipboard) {
         navigator.clipboard.writeText(text).catch(err => console.error('Failed to copy: ', err));
     } else {
-        // Fallback
         const textArea = document.createElement("textarea");
         textArea.value = text;
         document.body.appendChild(textArea);
@@ -111,6 +110,250 @@ const copyToClipboard = (text: string) => {
         document.body.removeChild(textArea);
     }
 };
+
+// --- Sub-components for better performance ---
+
+
+const TaskTimerControls = React.memo(({
+    item,
+    isTable = false
+}: {
+    item: any,
+    isTable?: boolean
+}) => {
+    const { timerState, startTimer, pauseTimer } = useTimer();
+    const isActive = timerState.taskId === item.id;
+    const isRunning = isActive && timerState.isRunning;
+
+    const total = (item.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+    const displaySeconds = isActive ? timerState.elapsedSeconds : total;
+
+    if (displaySeconds === 0 && !isActive) return null;
+
+    const h = Math.floor(displaySeconds / 3600);
+    const m = Math.floor((displaySeconds % 3600) / 60);
+
+    if (isTable) {
+        return (
+            <div className="flex items-center gap-2 mr-2">
+                <span className="text-xs font-mono font-bold text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-200">
+                    {h}h {m}m
+                </span>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (isRunning) pauseTimer();
+                        else startTimer(item.id, item.opp.id, item.title);
+                    }}
+                    className={`p-1.5 rounded-full transition-colors ${isRunning ? 'text-red-500 animate-pulse bg-red-50' : 'text-gray-400 hover:text-green-500 hover:bg-green-50'}`}
+                    title={isRunning ? 'Pause Timer' : 'Start Timer'}
+                >
+                    {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="absolute bottom-3 right-20 flex items-center gap-2">
+            <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 shadow-sm">
+                {h}h {m}m
+            </span>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (isRunning) pauseTimer();
+                    else startTimer(item.id, item.opp.id, item.title);
+                }}
+                className={`p-1.5 rounded-full transition-colors z-10 bg-white border border-gray-100 shadow-sm ${isRunning ? 'text-red-500 animate-pulse border-red-200' : 'text-gray-400 hover:text-green-500 hover:border-green-200 opacity-0 group-hover:opacity-100'}`}
+                title={isRunning ? 'Pause Timer' : 'Start Timer'}
+            >
+                {isRunning ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+            </button>
+        </div>
+    );
+});
+
+const TaskCard = React.memo(({
+    item,
+    onSelect,
+    onDelete,
+    onUpdate,
+    onStatusChange,
+    onDragStart
+}: {
+    item: any,
+    onSelect: (t: any) => void,
+    onDelete: (e: React.MouseEvent, oppId: string, taskId: string) => void,
+    onUpdate: (oppId: string, taskId: string, updates: any) => void,
+    onStatusChange: (oppId: string, taskId: string, status: TaskStatus) => void,
+    onDragStart: (e: React.DragEvent, id: string, type: 'task', oppId: string) => void
+}) => {
+    return (
+        <div
+            className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 text-sm cursor-pointer hover:border-[#3DCD58] transition-all relative group"
+            onClick={() => onSelect({ task: item, oppId: item.opp.id })}
+            draggable
+            onDragStart={(e) => onDragStart(e, item.id, 'task', item.opp.id)}
+        >
+            <button
+                onClick={(e) => onDelete(e, item.opp.id, item.id)}
+                className="absolute top-2 right-2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+                <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <div className="font-medium text-gray-800 mb-1 pr-6">{item.title}</div>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 text-[10px] text-gray-500">
+                    <span className="font-mono bg-gray-100 px-1 rounded">{item.opp.id}</span>
+                    {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded font-black uppercase tracking-tight">{item.opp.alias}</span>}
+                    {item.order && <span className="bg-gray-100 px-1 rounded font-bold text-gray-600" title="Execution Order">#{item.order}</span>}
+                    {(item.opp.labels || []).map((l: OpportunityLabel) => (
+                        <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
+                    ))}
+                </div>
+                <div className="flex gap-1 items-center">
+                    {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400" />}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const order: TaskPriority[] = ['Low', 'Medium', 'High'];
+                            const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
+                            onUpdate(item.opp.id, item.id, { priority: next });
+                        }}
+                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]?.split(' ')[1]}`}
+                        title={`Priority: ${item.priority} (Click to cycle)`}
+                    ></button>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2 mt-2">
+                <select
+                    value={item.status}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
+                    className={`text-[10px] border-none p-0 bg-transparent font-medium cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus].split(' ')[1]}`}
+                >
+                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+            </div>
+
+            <div className="flex justify-between mt-2 pt-2 border-t border-gray-50">
+                {(item.externalAreas || []).length > 0 && <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-1 rounded truncate max-w-[100px]">{(item.externalAreas || []).join(', ')}</span>}
+                <input
+                    type="date"
+                    value={item.dueDate}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
+                    className="text-[10px] text-gray-400 ml-auto border-none p-0 bg-transparent text-right w-16 focus:ring-0"
+                />
+            </div>
+
+            <TaskTimerControls item={item} />
+        </div>
+    );
+});
+
+const TaskRow = React.memo(({
+    item,
+    isSelected,
+    onSelect,
+    onSelectionToggle,
+    onUpdate,
+    onStatusChange
+}: {
+    item: any,
+    isSelected: boolean,
+    onSelect: (t: any) => void,
+    onSelectionToggle: (id: string, checked: boolean) => void,
+    onUpdate: (oppId: string, taskId: string, updates: any) => void,
+    onStatusChange: (oppId: string, taskId: string, status: TaskStatus) => void
+}) => {
+    // Optimized date diff
+    const diff = useMemo(() => {
+        if (!item.dueDate) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const target = new Date(item.dueDate + 'T00:00:00');
+        return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    }, [item.dueDate]);
+
+    return (
+        <div
+            className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}
+            onClick={() => onSelect({ task: item, oppId: item.opp.id })}
+        >
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div onClick={(e) => e.stopPropagation()} className="pl-2">
+                    <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => onSelectionToggle(item.id, e.target.checked)}
+                        className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
+                    />
+                </div>
+                <div className={`w-1 h-10 rounded-full shrink-0 ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`} title={`Stage: ${item.stageContext}`}></div>
+                <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                        <span className={`text-[10px] font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
+                        {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded text-[9px] font-black uppercase tracking-tight">{item.opp.alias}</span>}
+                        <span className="text-[10px] font-bold text-gray-400 truncate max-w-[150px]" title={item.opp.title}>{item.opp.title}</span>
+                        <span className={`hidden md:inline-block text-[9px] px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[item.opp.statusLabel] || 'border-gray-200 text-gray-400'}`}>{item.opp.statusLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {item.order && <span className="text-xs font-bold text-gray-400 shrink-0">#{item.order}</span>}
+                        <span className="text-sm font-bold text-gray-900 truncate" title={item.title}>{item.title}</span>
+                        {(item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
+                        {item.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400 shrink-0" />}
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-4 pl-4 shrink-0">
+                <div className="text-right flex items-center gap-3">
+                    <TaskTimerControls item={item} isTable={true} />
+                    <div className="text-xs font-bold text-gray-700 flex items-center gap-1 justify-end">
+                        <CalendarIcon className="w-3 h-3 text-gray-400" />
+                        <input
+                            type="date"
+                            value={item.dueDate}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => onUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
+                            className="bg-transparent border-none p-0 text-xs text-gray-700 font-bold focus:ring-0 text-right w-24 cursor-pointer"
+                        />
+                    </div>
+                    {diff !== null && (
+                        <div className={`text-[9px] font-bold ${diff < 0 ? 'text-red-500' : diff === 0 ? 'text-orange-500' : 'text-gray-400'}`}>
+                            {diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Due today' : `${diff}d left`}
+                        </div>
+                    )}
+                </div>
+
+                <select
+                    value={item.priority || 'Medium'}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onUpdate(item.opp.id, item.id, { priority: e.target.value as any })}
+                    className={`text-[10px] px-2 py-1 rounded border-none cursor-pointer font-bold uppercase w-20 ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
+                >
+                    {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+
+                <select
+                    value={item.status}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
+                    className={`text-[10px] px-2 py-1 rounded border-none cursor-pointer font-bold uppercase w-28 ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
+                >
+                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+            </div>
+        </div>
+    );
+});
+
+
+
+
 interface MultiSelectDropdownProps {
     options: string[];
     selected: string[];
@@ -201,8 +444,15 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
 };
 
 const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
-    const { timerState, startTimer, pauseTimer } = useTimer();
-    const [viewMode, setViewMode] = useState<'board' | 'table' | 'calendar'>('board');
+    const { startTimer, pauseTimer } = useTimer(); // Only consume methods, not ticking state if possible
+    // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
+    const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
+    const [tasksViewMode, setTasksViewMode] = useState<'board' | 'table' | 'calendar'>('board');
+
+    // Derived current view mode based on component 'mode' prop
+    const viewMode = mode === 'tasks' ? tasksViewMode : proposalsViewMode;
+    const setViewMode = mode === 'tasks' ? setTasksViewMode : setProposalsViewMode;
+
     const [filterText, setFilterText] = useState('');
     const deferredFilterText = useDeferredValue(filterText); // Optimize search performance
     const [labelFilters, setLabelFilters] = useState<string[]>([]);
@@ -268,10 +518,10 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     // Close Task Modal State
     const [closeTaskData, setCloseTaskData] = useState<{ task: Task, oppId: string } | null>(null);
 
-    // Load persistent filters
+    // Load persistent filters (Tab Independent)
     useEffect(() => {
         try {
-            const saved = localStorage.getItem(taskFilterKey);
+            const saved = sessionStorage.getItem(taskFilterKey);
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed.status) setTaskStatusFilters(parsed.status);
@@ -279,21 +529,25 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 if (parsed.opp) setTaskOppFilters(parsed.opp);
                 if (parsed.area) setTaskAreaFilters(parsed.area);
                 if (parsed.groupBy) setTaskGroupBy(parsed.groupBy);
+                if (parsed.tasksViewMode) setTasksViewMode(parsed.tasksViewMode);
+                if (parsed.proposalsViewMode) setProposalsViewMode(parsed.proposalsViewMode);
             }
         } catch (e) { }
     }, []);
 
-    // Save persistent filters
+    // Save persistent filters (Tab Independent)
     useEffect(() => {
         const state = {
             status: taskStatusFilters,
             priority: taskPriorityFilters,
             opp: taskOppFilters,
             area: taskAreaFilters,
-            groupBy: taskGroupBy
+            groupBy: taskGroupBy,
+            tasksViewMode,
+            proposalsViewMode
         };
-        localStorage.setItem(taskFilterKey, JSON.stringify(state));
-    }, [taskStatusFilters, taskPriorityFilters, taskOppFilters, taskAreaFilters, taskGroupBy]);
+        sessionStorage.setItem(taskFilterKey, JSON.stringify(state));
+    }, [taskStatusFilters, taskPriorityFilters, taskOppFilters, taskAreaFilters, taskGroupBy, tasksViewMode, proposalsViewMode]);
 
     // Kanban Grouping State
     const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage'>('status');
@@ -747,86 +1001,122 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return filteredOpps.map(o => o.id);
     }, [filteredOpps]);
 
-    // Derived Tasks for Task View
-    const filteredTasks = useMemo(() => {
-        // Use filteredOpps as base (respects global text/status filters on Opps)
-        const candidates = filteredOpps.flatMap(opp => opp.tasks.map(t => ({ ...t, opp })));
+    // --- Consolidated Task Processing (Filtering, Grouping, Next Steps) ---
+    // Single pass through possibilities to avoid multiple heavy flatMaps and filter/sort cycles.
+    const taskData = useMemo(() => {
+        const result = {
+            filtered: [] as any[],
+            grouped: {} as Record<string, any[]>,
+            nextSteps: { overdue: [] as any[], dueToday: [] as any[], noDate: [] as any[] }
+        };
 
-        // Pre-compute matcher for task-specific search
+        // Cache constants
+        const today = new Date().toLocaleDateString('en-CA');
         const taskMatcher = parseBooleanQuery(taskSearchText);
 
-        return candidates.filter(t => {
-            // 1. Task Search (Local)
-            if (taskMatcher) {
-                const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
-                if (!taskMatcher(raw)) return false;
-            }
+        // Initialize groups if in tasks mode
+        if (mode === 'tasks') {
+            if (taskGroupBy === 'status') Object.keys(TASK_STATUS_COLORS).forEach(k => result.grouped[k] = []);
+            else if (taskGroupBy === 'priority') ['High', 'Medium', 'Low'].forEach(k => result.grouped[k] = []);
+        }
 
-            // 2. Global Date Filter (Applied to Task Due Date)
-            if (dateFilterStart || dateFilterEnd) {
-                const dt = t.dueDate;
-                if (!dt) return false;
-                if (dateFilterStart && dt < dateFilterStart) return false;
-                if (dateFilterEnd && dt > dateFilterEnd) return false;
-            }
+        filteredOpps.forEach(opp => {
+            opp.tasks.forEach(t => {
+                // 1. Task Search (Local)
+                if (taskMatcher) {
+                    const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
+                    if (!taskMatcher(raw)) return;
+                }
 
-            // 3. Task Specific Filters
-            if (taskOppFilters.length > 0 && !taskOppFilters.includes(t.opp.id)) return false;
-            if (taskStatusFilters.length > 0 && !taskStatusFilters.includes(t.status)) return false;
-            if (taskPriorityFilters.length > 0 && !taskPriorityFilters.includes(t.priority)) return false;
-            if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(t.opp.statusLabel)) return false;
+                // 2. Global Date Filter (Applied to Task Due Date)
+                if (dateFilterStart || dateFilterEnd) {
+                    if (!t.dueDate) return;
+                    if (dateFilterStart && t.dueDate < dateFilterStart) return;
+                    if (dateFilterEnd && t.dueDate > dateFilterEnd) return;
+                }
 
-            if (taskAreaFilters.length > 0) {
-                const isInternal = t.owner === 'Me' && taskAreaFilters.includes('Internal');
-                const isExternal = t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
-                if (!isInternal && !isExternal) return false;
-            }
+                // 3. Task Specific Filters
+                if (taskOppFilters.length > 0 && !taskOppFilters.includes(opp.id)) return;
+                if (taskStatusFilters.length > 0 && !taskStatusFilters.includes(t.status)) return;
+                if (taskPriorityFilters.length > 0 && !taskPriorityFilters.includes(t.priority)) return;
+                if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) return;
 
-            if (taskCalendarizedFilter === 'calendarized' && !t.calendarized) return false;
-            if (taskCalendarizedFilter === 'not-calendarized' && t.calendarized) return false;
+                if (taskAreaFilters.length > 0) {
+                    const isInternal = t.owner === 'Me' && taskAreaFilters.includes('Internal');
+                    const isExternal = t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
+                    if (!isInternal && !isExternal) return;
+                }
 
-            return true;
-        }).sort((a, b) => {
-            // 1. Sort by Opportunity priorityOrder (1, 2, 3...)
+                if (taskCalendarizedFilter === 'calendarized' && !t.calendarized) return;
+                if (taskCalendarizedFilter === 'not-calendarized' && t.calendarized) return;
+
+                // Create task object with context (Only for items that pass filters!)
+                const taskWithOpp = { ...t, opp };
+                result.filtered.push(taskWithOpp);
+
+                // --- Grouping ---
+                if (mode === 'tasks') {
+                    let key = 'Other';
+                    if (taskGroupBy === 'status') key = t.status;
+                    else if (taskGroupBy === 'priority') key = t.priority;
+                    else if (taskGroupBy === 'area') {
+                        if (t.owner === 'Me') key = 'Internal';
+                        else if (t.externalAreas && t.externalAreas.length > 0) key = 'External';
+                    } else if (taskGroupBy === 'opportunity') {
+                        key = `${opp.id} - ${opp.title}`;
+                    }
+                    if (!result.grouped[key]) result.grouped[key] = [];
+                    result.grouped[key].push(taskWithOpp);
+
+                    // --- Next Steps (Pending items only) ---
+                    if (t.status !== 'Done' && t.status !== 'Canceled') {
+                        if (!t.dueDate) result.nextSteps.noDate.push(taskWithOpp);
+                        else if (t.dueDate < today) result.nextSteps.overdue.push(taskWithOpp);
+                        else if (t.dueDate === today) result.nextSteps.dueToday.push(taskWithOpp);
+                    }
+                }
+            });
+        });
+
+        // --- Optimized Final Sorts ---
+
+        // Table View Sort
+        result.filtered.sort((a, b) => {
             const orderA = a.opp.priorityOrder ?? 999;
             const orderB = b.opp.priorityOrder ?? 999;
             if (orderA !== orderB) return orderA - orderB;
 
-            // 2. Sort by Opportunity Priority ('High' > 'Medium' > 'Low')
             const pMap: Record<string, number> = { 'High': 0, 'Medium': 1, 'Low': 2 };
             const pA = pMap[a.opp.priority] ?? 1;
             const pB = pMap[b.opp.priority] ?? 1;
             if (pA !== pB) return pA - pB;
 
-            // 3. Sort by Due Date
             if (!a.dueDate) return 1;
             if (!b.dueDate) return -1;
-            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-        });
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd, taskSearchText]);
-
-    // --- Next Steps Logic ---
-    const nextStepsData = useMemo(() => {
-        // Use local date for "Today" comparison to fix timezone issues
-        const today = new Date().toLocaleDateString('en-CA');
-        const overdue: any[] = [];
-        const dueToday: any[] = [];
-        const noDate: any[] = [];
-
-        filteredTasks.forEach(task => {
-            if (task.status === 'Done' || task.status === 'Canceled') return;
-
-            if (!task.dueDate) {
-                noDate.push(task);
-            } else if (task.dueDate < today) {
-                overdue.push(task);
-            } else if (task.dueDate === today) {
-                dueToday.push(task);
-            }
+            return a.dueDate.localeCompare(b.dueDate);
         });
 
-        return { overdue, dueToday, noDate };
-    }, [filteredTasks]);
+        // Kanban Groups Sort
+        if (mode === 'tasks') {
+            Object.keys(result.grouped).forEach(key => {
+                result.grouped[key].sort((a, b) => {
+                    const orderA = a.order ?? 9999;
+                    const orderB = b.order ?? 9999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    const dateA = a.dueDate || "9999-12-31";
+                    const dateB = b.dueDate || "9999-12-31";
+                    return dateA.localeCompare(dateB);
+                });
+            });
+        }
+
+        return result;
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd, taskSearchText, taskGroupBy, mode]);
+
+    // Convenient aliases to keep rest of code working
+    const filteredTasks = taskData.filtered;
+    const groupedTasks = taskData.grouped;
+    const nextStepsData = taskData.nextSteps;
 
     const kpiTotalAmount = useMemo(() => {
         return filteredOpps.reduce((sum, opp) => sum + getSellPrice(opp), 0);
@@ -866,45 +1156,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return groups;
     }, [filteredOpps, kanbanGroupBy]);
 
-    const groupedTasks = useMemo(() => {
-        const groups: Record<string, any[]> = {};
-        if (taskGroupBy === 'status') {
-            Object.keys(TASK_STATUS_COLORS).forEach(k => groups[k] = []);
-        } else if (taskGroupBy === 'priority') {
-            ['High', 'Medium', 'Low'].forEach(k => groups[k] = []);
-        } else {
-            groups['Internal'] = [];
-            groups['External'] = [];
-        }
 
-        filteredTasks.forEach(task => {
-            let key = 'Other';
-            if (taskGroupBy === 'status') key = task.status;
-            else if (taskGroupBy === 'priority') key = task.priority;
-            else if (taskGroupBy === 'area') {
-                if (task.owner === 'Me') key = 'Internal';
-                else if (task.externalAreas.length > 0) key = 'External';
-            }
-            else if (taskGroupBy === 'opportunity') {
-                key = `${task.opp.id} - ${task.opp.title}`;
-            }
-
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(task);
-        });
-
-        // Sort tasks within groups by Order, then Due Date
-        Object.keys(groups).forEach(key => {
-            groups[key].sort((a, b) => {
-                const orderA = a.order ?? 9999;
-                const orderB = b.order ?? 9999;
-                if (orderA !== orderB) return orderA - orderB;
-                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-            });
-        });
-
-        return groups;
-    }, [filteredTasks, taskGroupBy]);
 
     const handleDragStart = (e: React.DragEvent, id: string, type: 'opp' | 'task' = 'opp', extra?: string) => {
         e.dataTransfer.setData('id', id);
@@ -1164,80 +1416,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     };
 
     // Reusable Task Card Renderer for Next Steps
-    const renderTaskCard = (item: any) => (
-        <div key={`${item.opp.id}-${item.id}`} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 text-sm cursor-pointer hover:border-[#3DCD58] transition-all relative group" onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })} draggable onDragStart={(e) => handleDragStart(e, item.id, 'task', item.opp.id)}>
-            <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="absolute top-2 right-2 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
-            <div className="font-medium text-gray-800 mb-1 pr-6">{item.title}</div>
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                    <span className="font-mono bg-gray-100 px-1 rounded">{item.opp.id}</span>
-                    {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded font-black uppercase tracking-tight">{item.opp.alias}</span>}
-                    {item.order && <span className="bg-gray-100 px-1 rounded font-bold text-gray-600" title="Execution Order">#{item.order}</span>}
-                    {(item.opp.labels || []).map((l: OpportunityLabel) => (
-                        <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
-                    ))}
-                </div>
-                <div className="flex gap-1 items-center">
-                    {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400" />}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const order: TaskPriority[] = ['Low', 'Medium', 'High'];
-                            const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
-                            onTaskUpdate(item.opp.id, item.id, { priority: next });
-                        }}
-                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]?.split(' ')[1]}`}
-                        title={`Priority: ${item.priority} (Click to cycle)`}
-                    ></button>
-                </div>
-            </div>
 
-            <div className="flex items-center gap-2 mt-2">
-                <select
-                    value={item.status}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => {
-                        handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus);
-                    }}
-                    className={`text-[10px] border-none p-0 bg-transparent font-medium cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus].split(' ')[1]}`}
-                >
-                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-            </div>
-
-            <div className="flex justify-between mt-2 pt-2 border-t border-gray-50">
-                {(item.externalAreas || []).length > 0 && <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-1 rounded truncate max-w-[100px]">{(item.externalAreas || []).join(', ')}</span>}
-                <input
-                    type="date"
-                    value={item.dueDate}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => onTaskUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
-                    className="text-[10px] text-gray-400 ml-auto border-none p-0 bg-transparent text-right w-16 focus:ring-0"
-                />
-            </div>
-
-            <div className="absolute bottom-3 right-20 flex items-center gap-2">
-                {(() => {
-                    const total = (item.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
-                    if (total === 0 && (!timerState.taskId || timerState.taskId !== item.id)) return null;
-                    const h = Math.floor(total / 3600);
-                    const m = Math.floor((total % 3600) / 60);
-                    return <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 shadow-sm">{h}h {m}m</span>;
-                })()}
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (timerState.taskId === item.id && timerState.isRunning) pauseTimer();
-                        else startTimer(item.id, item.opp.id, item.title);
-                    }}
-                    className={`p-1.5 rounded-full transition-colors z-10 bg-white border border-gray-100 shadow-sm ${timerState.taskId === item.id && timerState.isRunning ? 'text-red-500 animate-pulse border-red-200' : 'text-gray-400 hover:text-green-500 hover:border-green-200 opacity-0 group-hover:opacity-100'}`}
-                    title={timerState.taskId === item.id && timerState.isRunning ? 'Pause Timer' : 'Start Timer'}
-                >
-                    {timerState.taskId === item.id && timerState.isRunning ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                </button>
-            </div>
-        </div>
-    );
 
     return (
         <div className="flex flex-col h-full bg-[#f1f3f4] p-6 gap-6 relative">
@@ -1925,7 +2104,17 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                         {key} <span className="ml-1 opacity-50">({groupTasks.length})</span>
                                                     </h3>
                                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                                        {groupTasks.map((item: any) => renderTaskCard(item))}
+                                                        {groupTasks.map((item: any) => (
+                                                            <TaskCard
+                                                                key={`${item.opp.id}-${item.id}`}
+                                                                item={item}
+                                                                onSelect={setSelectedTask}
+                                                                onDelete={handleDeleteTask}
+                                                                onUpdate={onTaskUpdate}
+                                                                onStatusChange={handleTaskStatusChange}
+                                                                onDragStart={handleDragStart}
+                                                            />
+                                                        ))}
                                                     </div>
                                                 </div>
                                             );
@@ -1951,7 +2140,17 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                         <span className="text-gray-400 text-xs">{tasks.length}</span>
                                                     </div>
                                                     <div className="flex-1 overflow-y-auto space-y-3 pr-2 bg-gray-100/50 p-2 rounded-xl">
-                                                        {tasks.slice(0, 50).map((item: any) => renderTaskCard(item))}
+                                                        {tasks.slice(0, 50).map((item: any) => (
+                                                            <TaskCard
+                                                                key={`${item.opp.id}-${item.id}`}
+                                                                item={item}
+                                                                onSelect={setSelectedTask}
+                                                                onDelete={handleDeleteTask}
+                                                                onUpdate={onTaskUpdate}
+                                                                onStatusChange={handleTaskStatusChange}
+                                                                onDragStart={handleDragStart}
+                                                            />
+                                                        ))}
                                                         {tasks.length > 50 && (
                                                             <div className="text-center py-2 text-xs text-gray-400 font-bold uppercase tracking-wider">
                                                                 Showing 50 of {tasks.length} tasks
@@ -1975,103 +2174,20 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                                 </div>
                                                             )}
 
-                                                            {tasks.slice(0, 50).map((item: any) => <div key={item.id} className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${selectedTaskIds.includes(item.id) ? 'bg-blue-50/50' : ''}`} onClick={() => setSelectedTask({ task: item, oppId: item.opp.id })}>
-                                                                <div className="flex items-center gap-4 flex-1 min-w-0">
-                                                                    <div onClick={(e) => e.stopPropagation()} className="pl-2">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={selectedTaskIds.includes(item.id)}
-                                                                            onChange={(e) => {
-                                                                                if (e.target.checked) setSelectedTaskIds([...selectedTaskIds, item.id]);
-                                                                                else setSelectedTaskIds(selectedTaskIds.filter(id => id !== item.id));
-                                                                            }}
-                                                                            className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
-                                                                        />
-                                                                    </div>
-                                                                    <div className={`w-1 h-10 rounded-full shrink-0 ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`} title={`Stage: ${item.stageContext}`}></div>
-                                                                    <div className="flex flex-col min-w-0">
-                                                                        <div className="flex items-center gap-2 mb-0.5">
-                                                                            <span className={`text-[10px] font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
-                                                                            {item.opp.alias && <span className="bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 rounded text-[9px] font-black uppercase tracking-tight">{item.opp.alias}</span>}
-                                                                            <span className="text-[10px] font-bold text-gray-400 truncate max-w-[150px]" title={item.opp.title}>{item.opp.title}</span>
-                                                                            <span className={`hidden md:inline-block text-[9px] px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[item.opp.statusLabel] || 'border-gray-200 text-gray-400'}`}>{item.opp.statusLabel}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {item.order && <span className="text-xs font-bold text-gray-400 shrink-0">#{item.order}</span>}
-                                                                            <span className="text-sm font-bold text-gray-900 truncate" title={item.title}>{item.title}</span>
-                                                                            {(item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
-                                                                            {item.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400 shrink-0" />}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="flex items-center gap-4 pl-4 shrink-0">
-                                                                    <div className="text-right flex items-center gap-3">
-                                                                        <div className="flex items-center gap-2 mr-2">
-                                                                            {(() => {
-                                                                                const total = (item.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
-                                                                                if (total === 0 && (!timerState.taskId || timerState.taskId !== item.id)) return null;
-                                                                                const h = Math.floor(total / 3600);
-                                                                                const m = Math.floor((total % 3600) / 60);
-                                                                                return <span className="text-xs font-mono font-bold text-gray-500 bg-gray-50 px-2 py-0.5 rounded border border-gray-200">{h}h {m}m</span>;
-                                                                            })()}
-                                                                            <button
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    if (timerState.taskId === item.id && timerState.isRunning) pauseTimer();
-                                                                                    else startTimer(item.id, item.opp.id, item.title);
-                                                                                }}
-                                                                                className={`p-1.5 rounded-full transition-colors ${timerState.taskId === item.id && timerState.isRunning ? 'text-red-500 animate-pulse bg-red-50' : 'text-gray-400 hover:text-green-500 hover:bg-green-50'}`}
-                                                                                title={timerState.taskId === item.id && timerState.isRunning ? 'Pause Timer' : 'Start Timer'}
-                                                                            >
-                                                                                {timerState.taskId === item.id && timerState.isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                                                                            </button>
-                                                                        </div>
-                                                                        <div className="text-xs font-bold text-gray-700 flex items-center gap-1 justify-end">
-                                                                            <CalendarIcon className="w-3 h-3 text-gray-400" />
-                                                                            <input
-                                                                                type="date"
-                                                                                value={item.dueDate}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                onChange={(e) => onTaskUpdate(item.opp.id, item.id, { dueDate: e.target.value })}
-                                                                                className="bg-transparent border-none p-0 text-xs text-gray-700 font-bold focus:ring-0 text-right w-24 cursor-pointer"
-                                                                            />
-                                                                        </div>
-                                                                        {(() => {
-                                                                            const today = new Date();
-                                                                            today.setHours(0, 0, 0, 0);
-                                                                            const target = new Date(item.dueDate + 'T00:00:00');
-                                                                            const diff = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                                                                            return (
-                                                                                <div className={`text-[9px] font-bold ${diff < 0 ? 'text-red-500' : diff === 0 ? 'text-orange-500' : 'text-gray-400'}`}>
-                                                                                    {diff < 0 ? `${Math.abs(diff)}d overdue` : diff === 0 ? 'Due today' : `${diff}d left`}
-                                                                                </div>
-                                                                            );
-                                                                        })()}
-                                                                    </div>
-
-                                                                    <select
-                                                                        value={item.priority || 'Medium'}
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        onChange={(e) => onTaskUpdate(item.opp.id, item.id, { priority: e.target.value as any })}
-                                                                        className={`text-[10px] px-2 py-1 rounded border-none cursor-pointer font-bold uppercase w-20 ${PRIORITY_COLORS[item.priority as TaskPriority]}`}
-                                                                    >
-                                                                        {Object.keys(PRIORITY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
-                                                                    </select>
-
-                                                                    <select
-                                                                        value={item.status}
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        onChange={(e) => handleTaskStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
-                                                                        className={`text-[10px] px-2 py-1 rounded-full border-none cursor-pointer font-bold uppercase w-24 text-center ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
-                                                                    >
-                                                                        {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-                                                                    </select>
-
-                                                                    <button onClick={(e) => handleDeleteTask(e, item.opp.id, item.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4" /></button>
-                                                                </div>
-                                                            </div>
-                                                            )}
+                                                            {tasks.slice(0, 50).map((item: any) => (
+                                                                <TaskRow
+                                                                    key={item.id}
+                                                                    item={item}
+                                                                    isSelected={selectedTaskIds.includes(item.id)}
+                                                                    onSelect={setSelectedTask}
+                                                                    onSelectionToggle={(id, checked) => {
+                                                                        if (checked) setSelectedTaskIds([...selectedTaskIds, id]);
+                                                                        else setSelectedTaskIds(selectedTaskIds.filter(prevId => prevId !== id));
+                                                                    }}
+                                                                    onUpdate={onTaskUpdate}
+                                                                    onStatusChange={handleTaskStatusChange}
+                                                                />
+                                                            ))}
                                                         </div>
                                                     ))}
                                                 </div>

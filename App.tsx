@@ -31,6 +31,7 @@ function App() {
 
   // Navigation
   const [currentView, setCurrentView] = useState<AppView>('general-dashboard');
+  const [isPending, startTransition] = React.useTransition();
 
   // Detail Overlay State (Notion-like)
   const [selectedOppId, setSelectedOppId] = useState<string | null>(null);
@@ -64,18 +65,21 @@ function App() {
         setAppSettings(JSON.parse(saved));
       }
       // NEW: Restore minimized records
-      const savedTabs = localStorage.getItem('TenderLoop_FloatingTabs_V1');
+      // Restore Session State (Tab Independent)
+      const savedTabs = sessionStorage.getItem('TenderLoop_FloatingTabs_V1');
       if (savedTabs) {
-        setFloatingTabs(JSON.parse(savedTabs));
+        try { setFloatingTabs(JSON.parse(savedTabs)); } catch (e) { }
       }
 
       // Restore Navigation State
-      const savedNav = localStorage.getItem('TenderLoop_Navigation_V1');
+      const savedNav = sessionStorage.getItem('TenderLoop_Navigation_V1');
       if (savedNav) {
-        const nav = JSON.parse(savedNav);
-        if (nav.currentView) setCurrentView(nav.currentView);
-        if (nav.selectedOppId) setSelectedOppId(nav.selectedOppId);
-        if (nav.activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
+        try {
+          const nav = JSON.parse(savedNav);
+          if (nav.currentView) setCurrentView(nav.currentView);
+          if (nav.selectedOppId) setSelectedOppId(nav.selectedOppId);
+          if (nav.activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
+        } catch (e) { }
       }
     } catch (e) {
       console.error("Failed to load settings or tabs", e);
@@ -89,7 +93,7 @@ function App() {
 
   // NEW: Save minimized records whenever they change
   useEffect(() => {
-    localStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
+    sessionStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
   }, [floatingTabs]);
 
   // NEW: Save navigation state whenever it changes
@@ -99,7 +103,7 @@ function App() {
       selectedOppId,
       activeDeepLink
     };
-    localStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
+    sessionStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
   }, [currentView, selectedOppId, activeDeepLink]);
 
   // Load Recents & Auto-open last DB
@@ -133,41 +137,22 @@ function App() {
   const isBroadcastingRef = useRef(false);
   const syncChannel = useRef<BroadcastChannel | null>(null);
 
-  // Initialize sync channel
+  // Data Synchronization (Database only, not UI state/navigation)
   useEffect(() => {
-    syncChannel.current = new BroadcastChannel('tenderloop_db_sync');
-    syncChannel.current.onmessage = (event) => {
-      if (event.data.type === 'DB_UPDATE' && event.data.originTabId !== tabId) {
-        console.debug("[Sync] Received DB update from another tab");
-        isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
-        setDb(event.data.db);
-        setStatus('saved');
-      }
+    const initSync = () => {
+      syncChannel.current = new BroadcastChannel('tenderloop_db_sync');
+      syncChannel.current.onmessage = (event) => {
+        if (event.data.type === 'DB_UPDATE' && event.data.originTabId !== tabId) {
+          console.debug("[Sync] Received DB update from another tab");
+          isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
+          setDb(event.data.db);
+          setStatus('saved');
+        }
+      };
     };
+    initSync();
     return () => syncChannel.current?.close();
-  }, []);
-
-  // Listen for storage changes (Tab Sync for Navigation & Floating Tabs)
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'TenderLoop_Navigation_V1' && e.newValue) {
-        try {
-          const nav = JSON.parse(e.newValue);
-          // Only update if coming from another tab (implied by storage event firing in others)
-          if (nav.currentView !== currentView) setCurrentView(nav.currentView);
-          if (nav.selectedOppId !== selectedOppId) setSelectedOppId(nav.selectedOppId);
-          if (nav.activeDeepLink !== activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
-        } catch (e) { }
-      }
-      if (e.key === 'TenderLoop_FloatingTabs_V1' && e.newValue) {
-        try {
-          setFloatingTabs(JSON.parse(e.newValue));
-        } catch (e) { }
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [selectedOppId, currentView, activeDeepLink]);
+  }, [tabId]);
 
   // Auto-save Effect
   useEffect(() => {
@@ -298,8 +283,36 @@ function App() {
     }
   };
 
+  const handleTimerTaskClick = (taskId: string, oppId: string) => {
+    const opp = db.opportunities.find(o => o.id === oppId);
+    if (!opp) return;
+    const task = opp.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    // Create or show floating tab
+    const tabId = task.id;
+    const existing = floatingTabs.find(t => t.id === tabId);
+
+    if (existing) {
+      setSplitTab({ ...existing, data: { ...existing.data, isSubView: true } });
+    } else {
+      const newTab: FloatingTab = {
+        id: tabId,
+        type: 'task',
+        title: `TSK: ${task.title.slice(0, 15)}`,
+        color: '#3B82F6',
+        data: { oppId, isSubView: true, deepLink: { tab: 'tasks', taskId: task.id } }
+      };
+      setFloatingTabs(prev => [...prev, newTab]);
+      setSplitTab(newTab);
+    }
+  };
+
   const removeTab = (tabId: string) => {
     setFloatingTabs(prev => prev.filter(t => t.id !== tabId));
+    if (splitTab?.id === tabId) {
+      setSplitTab(null);
+    }
   };
 
   const updateTabColor = (tabId: string, color: string) => {
@@ -338,8 +351,13 @@ function App() {
         onUpdate={updateOpportunity}
         onDelete={() => { deleteOpportunity(opp.id); setSplitTab(null); }}
         onSelectOpp={(id, dl) => {
-          setSelectedOppId(id);
-          setActiveDeepLink(dl || null);
+          if (tab.data.isSubView && !dl?.fullView) {
+            setSplitTab({ ...tab, data: { ...tab.data, oppId: id, deepLink: dl } });
+          } else {
+            setSelectedOppId(id);
+            setActiveDeepLink(dl || null);
+            setSplitTab(null); // Close subview when jumping to full view
+          }
         }}
         noteTemplates={appSettings.noteTemplates}
         holidays={appSettings.holidays || []}
@@ -351,6 +369,7 @@ function App() {
           else minimizeToDock(tab);
           setSplitTab(null);
         }}
+        onCloseTab={() => removeTab(tab.id)}
         isSubView={tab.data.isSubView}
       />
     );
@@ -1024,21 +1043,21 @@ function App() {
               <HardDrive className="w-5 h-5 text-[#3DCD58]" />
               TenderLoop
             </div>
-            <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
+            <div className={`flex gap-1 bg-gray-50 p-1 rounded-lg ${isPending ? 'opacity-70 pointer-events-none' : ''}`}>
               <button
-                onClick={() => { setCurrentView('general-dashboard'); }}
+                onClick={() => { startTransition(() => setCurrentView('general-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'general-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <BarChart3 className="w-4 h-4" /> General
               </button>
               <button
-                onClick={() => { setCurrentView('proposals-dashboard'); }}
+                onClick={() => { startTransition(() => setCurrentView('proposals-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'proposals-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <Layout className="w-4 h-4" /> Proposals
               </button>
               <button
-                onClick={() => { setCurrentView('tasks-dashboard'); }}
+                onClick={() => { startTransition(() => setCurrentView('tasks-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <CheckSquare className="w-4 h-4" /> Tasks
@@ -1250,7 +1269,7 @@ function App() {
           initialSettings={appSettings}
           opportunities={db.opportunities}
         />
-        <TimerWidget />
+        <TimerWidget onTaskClick={handleTimerTaskClick} />
       </div>
     </TimerProvider>
   );

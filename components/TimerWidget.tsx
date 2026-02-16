@@ -3,7 +3,7 @@ import React from 'react';
 import { useTimer } from '../contexts/TimerContext';
 import { Play, Pause, StopCircle, Clock } from 'lucide-react';
 
-export const TimerWidget = () => {
+export const TimerWidget = ({ onTaskClick }: { onTaskClick?: (taskId: string, oppId: string) => void }) => {
     const { timerState, startTimer, pauseTimer, stopTimer, formatTime, openStartModal } = useTimer();
 
     React.useEffect(() => {
@@ -32,7 +32,13 @@ export const TimerWidget = () => {
     return (
         <div className="fixed bottom-4 right-4 bg-gray-900/90 backdrop-blur-md text-white p-3 rounded-full flex items-center gap-4 shadow-2xl z-[100] animate-slide-in-up border border-gray-700 transition-all hover:scale-105">
             <div className="flex flex-col">
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider max-w-[150px] truncate">{timerState.taskTitle || 'No Task'}</span>
+                <button
+                    onClick={() => timerState.taskId && onTaskClick?.(timerState.taskId, timerState.oppId!)}
+                    className="text-[10px] text-gray-400 font-bold uppercase tracking-wider max-w-[150px] truncate hover:text-[#3DCD58] transition-colors text-left focus:outline-none"
+                    title="View Task Details"
+                >
+                    {timerState.taskTitle || 'No Task'}
+                </button>
                 <span className="text-xl font-mono font-bold leading-none">{formatTime(timerState.elapsedSeconds)}</span>
             </div>
 

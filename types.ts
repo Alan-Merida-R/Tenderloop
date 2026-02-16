@@ -23,6 +23,7 @@ export interface DeepLink {
   eventId?: string;
   path?: string;
   focusDate?: string;
+  fullView?: boolean;
 }
 
 export type FloatingTabType = 'task' | 'note' | 'opportunity' | 'tracking';

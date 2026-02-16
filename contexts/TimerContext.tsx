@@ -60,6 +60,22 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
         localStorage.setItem(STORAGE_KEY, JSON.stringify(timerState));
     }, [timerState]);
 
+    // Cross-tab Sync
+    const syncChannel = useRef<BroadcastChannel | null>(null);
+    useEffect(() => {
+        syncChannel.current = new BroadcastChannel('tenderloop_timer_sync');
+        syncChannel.current.onmessage = (event) => {
+            if (event.data.type === 'TIMER_SYNC') {
+                setTimerState(event.data.state);
+            }
+        };
+        return () => syncChannel.current?.close();
+    }, []);
+
+    const broadcastState = (state: TimerState) => {
+        syncChannel.current?.postMessage({ type: 'TIMER_SYNC', state });
+    };
+
     // Timer Tick
     useEffect(() => {
         if (timerState.isRunning) {
@@ -75,31 +91,29 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
     }, [timerState.isRunning]);
 
     const startTimer = (taskId: string, oppId: string, taskTitle: string) => {
-        setTimerState(prev => {
-            if (prev.isRunning && prev.taskId === taskId) return prev;
-            return {
-                isRunning: true,
-                taskId,
-                oppId,
-                taskTitle,
-                startTime: Date.now(),
-                elapsedSeconds: (prev.taskId === taskId ? prev.elapsedSeconds : 0) // Resume if same task, else reset
-            };
-        });
+        const newState: TimerState = {
+            isRunning: true,
+            taskId,
+            oppId,
+            taskTitle,
+            startTime: Date.now(),
+            elapsedSeconds: (timerState.taskId === taskId ? timerState.elapsedSeconds : 0)
+        };
+        setTimerState(newState);
+        broadcastState(newState);
     };
 
     const pauseTimer = () => {
-        setTimerState(prev => {
-            if (!prev.isRunning) return prev;
-            const now = Date.now();
-            const additional = prev.startTime ? Math.floor((now - prev.startTime) / 1000) : 0;
-            return {
-                ...prev,
-                isRunning: false,
-                startTime: null,
-                elapsedSeconds: prev.elapsedSeconds + additional
-            };
-        });
+        const now = Date.now();
+        const additional = timerState.startTime ? Math.floor((now - timerState.startTime) / 1000) : 0;
+        const newState: TimerState = {
+            ...timerState,
+            isRunning: false,
+            startTime: null,
+            elapsedSeconds: timerState.elapsedSeconds + additional
+        };
+        setTimerState(newState);
+        broadcastState(newState);
     };
 
     const stopTimer = () => {
@@ -115,14 +129,16 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
             if (onLogTime) onLogTime(timerState.taskId, timerState.oppId, total, status);
         }
 
-        setTimerState({
+        const resetState: TimerState = {
             isRunning: false,
             taskId: null,
             oppId: null,
             taskTitle: null,
             startTime: null,
             elapsedSeconds: 0
-        });
+        };
+        setTimerState(resetState);
+        broadcastState(resetState);
         setShowStopModal(false);
     };
 

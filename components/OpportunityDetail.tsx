@@ -35,6 +35,7 @@ interface Props {
     deepLink?: DeepLink;
     globalLabels?: OpportunityLabel[];
     onMinimize?: (tab: FloatingTab) => void;
+    onCloseTab?: () => void;
     isSubView?: boolean;
 }
 
@@ -1325,7 +1326,7 @@ const FullCalendarModal = ({
     );
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, isSubView }) => {
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
     const { timerState, startTimer, pauseTimer } = useTimer();
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
@@ -2956,12 +2957,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         <div className="w-full px-4">
                             <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <button onClick={onBack} className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1" title={isSubView ? "Close" : "Back"}>
+                                    <button
+                                        onClick={() => {
+                                            if (isSubView && onCloseTab) onCloseTab();
+                                            else onBack();
+                                        }}
+                                        className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"
+                                        title={isSubView ? "Close Tab" : "Back"}
+                                    >
                                         {isSubView ? <X className="w-5 h-5 text-gray-500" /> : <ArrowLeft className="w-5 h-5 text-gray-500" />}
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (isSubView && deepLink?.taskId) {
+                                            if (isSubView) {
+                                                onBack();
+                                                return;
+                                            }
+                                            if (deepLink?.taskId) {
                                                 const task = localOpp.tasks.find(t => t.id === deepLink.taskId);
                                                 if (task) {
                                                     onMinimize?.({
@@ -2974,7 +2986,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     return;
                                                 }
                                             }
-                                            if (isSubView && deepLink?.noteId) {
+                                            if (deepLink?.noteId) {
                                                 const note = localOpp.notes.find(n => n.id === deepLink.noteId);
                                                 if (note) {
                                                     onMinimize?.({
@@ -2996,14 +3008,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             });
                                         }}
                                         className="p-2 hover:bg-gray-100 rounded-xl transition-all"
-                                        title="Minimize"
+                                        title={isSubView ? "Close" : "Minimize"}
                                     >
                                         <Minus className="w-5 h-5 text-gray-400" />
                                     </button>
                                     {isSubView ? (
                                         <div className="flex flex-col">
                                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{deepLink?.tab === 'tasks' ? 'Task Sub View' : 'Note Sub View'}</span>
-                                            <span className="text-xs font-bold text-gray-600 truncate max-w-[200px]">{opportunity.customer} - {opportunity.title}</span>
+                                            <span className="text-xs font-bold text-gray-600 truncate max-w-[200px]">{opportunity.id} {opportunity.alias ? `— ${opportunity.alias}` : ''}</span>
                                         </div>
                                     ) : (
                                         <>
@@ -3252,7 +3264,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
                                             <div>
                                                 <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
-                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
+                                                    {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
+                                                    {isSubView && (
+                                                        <button
+                                                            onClick={() => {
+                                                                onSelectOpp(opportunity.id, { tab: 'tasks', taskId: selectedTaskForEdit.task.id, fullView: true });
+                                                            }}
+                                                            className="text-[10px] font-black text-[#3DCD58] hover:underline uppercase ml-2 flex items-center gap-1"
+                                                        >
+                                                            <Layout className="w-3 h-3" /> Open Task in Expediente
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -3392,6 +3417,48 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Notes</label>
                                                 <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowNotePickerForTask(selectedTaskForEdit.task.id)}>+ Link Note</button>
                                             </div>
+
+                                            {showNotePickerForTask === selectedTaskForEdit.task.id && (
+                                                <div className="relative z-10 p-4 bg-white border border-gray-100 shadow-xl rounded-2xl mb-4 animate-fade-in">
+                                                    <div className="flex justify-between items-center mb-3">
+                                                        <h5 className="font-black text-[10px] text-gray-400 uppercase tracking-widest">Select Notes</h5>
+                                                        <button onClick={() => setShowNotePickerForTask(null)}><X className="w-4 h-4 text-gray-400 hover:text-red-500 transition-colors" /></button>
+                                                    </div>
+                                                    <input
+                                                        className="w-full text-xs border-gray-100 rounded-lg mb-2 focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                                        placeholder="Search notes..."
+                                                        value={noteSearch}
+                                                        onChange={(e) => setNoteSearch(e.target.value)}
+                                                    />
+                                                    <div className="max-h-40 overflow-y-auto space-y-1 mb-3 custom-scrollbar">
+                                                        {localOpp.notes.filter(n => n.title.toLowerCase().includes(noteSearch.toLowerCase())).map(n => (
+                                                            <label key={n.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded-xl cursor-pointer group transition-colors">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selectedNotesToLink.includes(n.id)}
+                                                                    onChange={() => {
+                                                                        if (selectedNotesToLink.includes(n.id)) setSelectedNotesToLink(prev => prev.filter(id => id !== n.id));
+                                                                        else setSelectedNotesToLink(prev => [...prev, n.id]);
+                                                                    }}
+                                                                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-200"
+                                                                />
+                                                                <span className="text-xs font-medium text-gray-600 group-hover:text-gray-900 truncate">{n.title}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            linkNotesToTask(selectedTaskForEdit.task.id, selectedNotesToLink);
+                                                            setShowNotePickerForTask(null);
+                                                            setSelectedNotesToLink([]);
+                                                        }}
+                                                        className="w-full bg-[#3DCD58] text-white text-[10px] font-black uppercase py-2.5 rounded-xl shadow-lg shadow-[#3DCD58]/20 hover:scale-[1.02] active:scale-95 transition-all"
+                                                    >
+                                                        Link Selected
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             <div className="space-y-2">
                                                 {(selectedTaskForEdit.task.linkedNoteIds || [selectedTaskForEdit.task.linkedNoteId]).filter(Boolean).map((nid) => {
                                                     const note = localOpp.notes.find(n => n.id === nid);
@@ -3403,8 +3470,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 <span className="text-sm font-medium">{note.title}</span>
                                                             </div>
                                                             <div className="flex items-center gap-2">
-                                                                <button onClick={() => setSplitViewNoteId(note.id)} className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1">
-                                                                    <Columns className="w-3 h-3" /> Split
+                                                                <button onClick={() => isSubView ? onSelectOpp(opportunity.id, { tab: 'notes', noteId: note.id }) : setSplitViewNoteId(note.id)} className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1">
+                                                                    {isSubView ? <ExternalLink className="w-3 h-3" /> : <Columns className="w-3 h-3" />} {isSubView ? 'Open' : 'Split'}
                                                                 </button>
                                                                 <button onClick={() => unlinkNoteFromTask(selectedTaskForEdit.task.id, note.id)} className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded">
                                                                     <Unlink className="w-3 h-3" />
