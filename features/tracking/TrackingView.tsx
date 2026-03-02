@@ -10,6 +10,18 @@ interface TrackingViewProps {
     onSelectOpp?: (id: string, deeplink?: DeepLink) => void;
 }
 
+// Virtual Inbox — stored in localStorage, no opportunity needed
+interface InboxItem {
+    id: string;
+    type: 'task' | 'note' | 'history';
+    title: string;
+    content: string;
+    date: string;
+    priority: 'High' | 'Medium' | 'Low';
+    createdAt: string;
+}
+const INBOX_KEY = 'tenderloop.inbox.v1';
+
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
     const getLocalToday = () => new Date().toLocaleDateString('en-CA');
     const [viewMode, setViewMode] = useState<TrackingViewMode>('month');
@@ -32,6 +44,18 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
     const [showFilters, setShowFilters] = useState(false);
     const [selectedItem, setSelectedItem] = useState<TrackingWorkItem | null>(null);
     const [showInbox, setShowInbox] = useState(false);
+
+    // Inbox state — independent of opportunities
+    const [inboxItems, setInboxItems] = useState<InboxItem[]>(() => {
+        try { return JSON.parse(localStorage.getItem(INBOX_KEY) || '[]'); } catch { return []; }
+    });
+    useEffect(() => { localStorage.setItem(INBOX_KEY, JSON.stringify(inboxItems)); }, [inboxItems]);
+    const [useInbox, setUseInbox] = useState(false);
+    // Edit inbox item
+    const [editingInboxItem, setEditingInboxItem] = useState<InboxItem | null>(null);
+    // Assign inbox item to opp on drag-drop
+    const [assignDrop, setAssignDrop] = useState<{ item: InboxItem; date: string } | null>(null);
+    const [assignOppSearch, setAssignOppSearch] = useState('');
 
     // Creation Modal State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -370,10 +394,10 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setShowInbox(!showInbox)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showInbox ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showInbox ? 'bg-amber-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                     >
-                        <Info className="w-4 h-4" />
-                        Inbox ({unorganizedItems.length})
+                        <span>📥</span>
+                        Inbox {inboxItems.length > 0 && <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${showInbox ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-600'}`}>{inboxItems.length}</span>}
                     </button>
                     <button
                         onClick={() => setShowFilters(!showFilters)}
@@ -623,11 +647,17 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             onDrop={(e) => {
                                                 e.preventDefault();
                                                 try {
-                                                    const itemData = JSON.parse(e.dataTransfer.getData('application/json'));
-                                                    if (itemData) {
+                                                    const raw = e.dataTransfer.getData('application/json');
+                                                    const itemData = JSON.parse(raw);
+                                                    if (!itemData) return;
+                                                    // Check if it's an inbox item
+                                                    if (itemData.__isInbox) {
+                                                        setAssignDrop({ item: itemData as InboxItem, date: dateStr });
+                                                        setAssignOppSearch('');
+                                                    } else {
                                                         updateItem(itemData, { date: dateStr, dueDate: dateStr });
                                                     }
-                                                } catch (err) { console.error("Drop failed", err); }
+                                                } catch (err) { console.error('Drop failed', err); }
                                             }}
                                             onClick={() => setSelectedDay(dateStr)}
                                             className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
@@ -652,7 +682,12 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                                     'bg-orange-50 text-orange-700 border-orange-200 font-black'
                                                             }`}
                                                     >
-                                                        <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.opportunityAlias ? `[${item.opportunityAlias}] ` : ''}{item.title}
+                                                        <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span>{' '}
+                                                        {item.opportunityAlias
+                                                            ? `[${item.opportunityAlias}] `
+                                                            : item.opportunityTitle
+                                                                ? `[${item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}] `
+                                                                : ''}{item.title}
                                                     </div>
                                                 ))}
                                             </div>
@@ -665,49 +700,75 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         {/* Inbox Sidebar */}
                         {showInbox && (
                             <div className="w-80 bg-white border border-gray-200 rounded-2xl flex flex-col shadow-xl animate-in slide-in-from-right duration-300 overflow-hidden">
-                                <div className="p-4 border-b bg-orange-50/50 flex items-center justify-between">
-                                    <h4 className="text-xs font-black text-orange-700 uppercase tracking-widest flex items-center gap-2">
-                                        <Info className="w-4 h-4" /> Unorganized Items
+                                <div className="p-4 border-b bg-amber-50/80 flex items-center justify-between">
+                                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-widest flex items-center gap-2">
+                                        <span>📥</span> Inbox
+                                        {inboxItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{inboxItems.length}</span>}
                                     </h4>
                                     <button onClick={() => setShowInbox(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30">
-                                    {unorganizedItems.length === 0 ? (
-                                        <div className="text-center py-20 opacity-40">
-                                            <Info className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-                                            <p className="text-xs font-bold">Inbox is empty</p>
-                                            <p className="text-[9px]">Add items without dates to see them here.</p>
+                                <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50/30">
+                                    {inboxItems.length === 0 ? (
+                                        <div className="text-center py-16 opacity-40">
+                                            <span className="text-4xl block mb-2">📥</span>
+                                            <p className="text-xs font-bold">Inbox vacío</p>
+                                            <p className="text-[9px] text-gray-400">Usa "+ New Item" y selecciona "Guardar en Inbox"</p>
                                         </div>
                                     ) : (
-                                        unorganizedItems.map(item => (
+                                        inboxItems.map(item => (
                                             <div
                                                 key={item.id}
                                                 draggable
                                                 onDragStart={(e) => {
-                                                    e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                                    e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isInbox: true }));
                                                     e.dataTransfer.effectAllowed = 'move';
                                                 }}
-                                                className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-orange-500 cursor-grab active:cursor-grabbing transition-all group"
+                                                className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-amber-300 transition-all group cursor-grab active:cursor-grabbing"
                                             >
-                                                <div className="flex items-center gap-2 mb-1.5">
-                                                    <span className={`w-2 h-2 rounded-full ${item.type === 'task' ? 'bg-blue-500' : 'bg-purple-500'}`}></span>
-                                                    <span className="text-[9px] font-black text-[#3DCD58] uppercase truncate tracking-tighter">[{item.opportunityAlias || item.opportunityId}]</span>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                        <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
+                                                        <span className="text-[9px] font-black text-gray-400 uppercase">{item.type}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button
+                                                            onClick={() => setEditingInboxItem({ ...item })}
+                                                            className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-all"
+                                                            title="Editar"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setInboxItems(prev => prev.filter(i => i.id !== item.id))}
+                                                            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
+                                                            title="Eliminar"
+                                                        >
+                                                            <X className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                                <p className="text-xs font-bold text-gray-700 line-clamp-2 leading-tight">{item.title}</p>
+                                                <p className="text-xs font-bold text-gray-800 mt-1 line-clamp-2 leading-tight">{item.title}</p>
+                                                {item.content && <p className="text-[10px] text-gray-400 mt-0.5 line-clamp-1">{item.content}</p>}
+                                                <div className="flex items-center gap-2 mt-1.5">
+                                                    {item.date && <span className="text-[9px] text-gray-300">{item.date}</span>}
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.priority === 'High' ? 'bg-red-100 text-red-600' : item.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>{item.priority}</span>
+                                                    <span className="text-[9px] text-gray-300 ml-auto">↔ arrastra al calendario</span>
+                                                </div>
                                             </div>
                                         ))
                                     )}
                                 </div>
-                                <div className="p-4 border-t bg-white">
+                                <div className="p-3 border-t bg-white">
                                     <button
                                         onClick={() => {
-                                            setFormData({ ...formData, date: '' });
+                                            setUseInbox(true);
+                                            setFormData({ ...formData, date: '', title: '', content: '' });
                                             setNewItemType('task');
                                             setShowCreateModal(true);
                                         }}
-                                        className="w-full py-2.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-xl hover:bg-[#2db64a] transition-all shadow-md flex items-center justify-center gap-2"
+                                        className="w-full py-2.5 bg-amber-500 text-white text-[10px] font-black uppercase rounded-xl hover:bg-amber-600 transition-all shadow-md flex items-center justify-center gap-2"
                                     >
-                                        <Plus className="w-4 h-4" /> Quick Draft
+                                        <Plus className="w-4 h-4" /> Agregar al Inbox
                                     </button>
                                 </div>
                             </div>
@@ -803,21 +864,39 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         </div>
                         <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
                             <div className="space-y-2">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.opportunity} <span className="text-red-500">*</span></label>
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                    <input type="text" placeholder={LABELS.searchOpp} value={targetOppId ? opportunities.find(o => o.id === targetOppId)?.title || targetOppId : oppSearch} onChange={(e) => { setOppSearch(e.target.value); if (targetOppId) setTargetOppId(''); }} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3DCD58] outline-none text-sm transition-all" />
-                                    {!targetOppId && filteredOppsForSearch.length > 0 && (
-                                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                                            {filteredOppsForSearch.map(opp => (
-                                                <button key={opp.id} onClick={() => { setTargetOppId(opp.id); setOppSearch(''); }} className="w-full text-left p-3 hover:bg-gray-50 border-b last:border-0">
-                                                    <div className="text-sm font-bold text-gray-800">{opp.title}</div>
-                                                    <div className="text-[10px] text-gray-400 font-mono">{opp.id}</div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.opportunity} <span className="text-red-500">*</span><span className="text-gray-300 font-normal ml-1">(or use Inbox below)</span></label>
+
+                                {/* Inbox quick-select chip */}
+                                <button
+                                    onClick={() => { setUseInbox(!useInbox); setTargetOppId(''); setOppSearch(''); }}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all w-full ${useInbox
+                                        ? 'bg-amber-50 border-amber-400 text-amber-700'
+                                        : 'bg-gray-50 border-dashed border-gray-300 text-gray-500 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50'
+                                        }`}
+                                >
+                                    <span className="text-lg">📥</span>
+                                    <span>Guardar en Inbox</span>
+                                    <span className="text-[10px] font-normal text-gray-400 ml-1">— organiza después</span>
+                                    {useInbox && <span className="ml-auto text-xs font-black text-amber-600">✓ Seleccionado</span>}
+                                </button>
+
+                                {/* Or search for an opportunity */}
+                                {!useInbox && (
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                        <input type="text" placeholder={LABELS.searchOpp} value={targetOppId ? opportunities.find(o => o.id === targetOppId)?.title || targetOppId : oppSearch} onChange={(e) => { setOppSearch(e.target.value); if (targetOppId) setTargetOppId(''); }} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3DCD58] outline-none text-sm transition-all" />
+                                        {!targetOppId && filteredOppsForSearch.length > 0 && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                                                {filteredOppsForSearch.map(opp => (
+                                                    <button key={opp.id} onClick={() => { setTargetOppId(opp.id); setOppSearch(''); }} className="w-full text-left p-3 hover:bg-gray-50 border-b last:border-0">
+                                                        <div className="text-sm font-bold text-gray-800">{opp.title}</div>
+                                                        <div className="text-[10px] text-gray-400 font-mono">{opp.id}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div className="grid grid-cols-4 gap-2">
                                 {(['task', 'history', 'note', 'hours'] as TrackingItemType[]).map(type => (
@@ -867,12 +946,29 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         <div className="p-6 bg-gray-50 border-t flex gap-3">
                             <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
                             <button onClick={() => {
-                                let finalTargetId = targetOppId;
-                                if (!finalTargetId) {
-                                    const fallback = opportunities.find(o => o.title.toLowerCase() === 'inbox' || o.alias === 'INBOX');
-                                    if (!fallback) return alert('Select an opportunity or create one named "Inbox" to use the quick add feature.');
-                                    finalTargetId = fallback.id;
+                                // --- INBOX PATH ---
+                                if (useInbox) {
+                                    if (!formData.title.trim()) return alert('Enter a title');
+                                    const newInboxItem: InboxItem = {
+                                        id: crypto.randomUUID(),
+                                        type: newItemType === 'hours' ? 'note' : newItemType as 'task' | 'note' | 'history',
+                                        title: formData.title,
+                                        content: formData.content,
+                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        priority: formData.priority,
+                                        createdAt: new Date().toISOString()
+                                    };
+                                    setInboxItems(prev => [newInboxItem, ...prev]);
+                                    setShowCreateModal(false);
+                                    setFormData({ ...formData, title: '', content: '', hours: 0 });
+                                    setUseInbox(false);
+                                    setShowInbox(true);
+                                    return;
                                 }
+
+                                // --- OPPORTUNITY PATH ---
+                                const finalTargetId = targetOppId;
+                                if (!finalTargetId) return alert('Selecciona una oportunidad o usa el Inbox.');
 
                                 const opp = opportunities.find(o => o.id === finalTargetId);
                                 if (!opp) return;
@@ -918,7 +1014,6 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     if (!updatedOpp.kpis) return;
                                     const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.id === formData.areaId);
                                     if (areaIdx === -1) return;
-
                                     const calendar = { ...(updatedOpp.kpis.areasInvolved[areaIdx].calendar || {}) };
                                     calendar[formData.date] = { type: 'Worked', hours: formData.hours };
                                     const updatedAreas = [...updatedOpp.kpis.areasInvolved];
@@ -932,7 +1027,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 setTargetOppId('');
                                 setOppSearch('');
                             }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all">
-                                {LABELS.create}
+                                {useInbox ? '📥 Guardar en Inbox' : LABELS.create}
                             </button>
                         </div>
                     </div>
@@ -1027,6 +1122,160 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             }} className="flex-[1.5] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all flex items-center justify-center gap-2">
                                 <ExternalLink className="w-4 h-4" /> {LABELS.view} {LABELS[selectedItem.type as keyof typeof LABELS]}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Inbox Item Modal */}
+            {editingInboxItem && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setEditingInboxItem(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b bg-amber-50/60 flex justify-between items-center">
+                            <h3 className="text-lg font-black text-amber-800 flex items-center gap-2"><span>📥</span> Editar Item de Inbox</h3>
+                            <button onClick={() => setEditingInboxItem(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
+                        </div>
+                        <div className="p-5 space-y-4 overflow-y-auto">
+                            {/* Type */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo</label>
+                                <div className="flex gap-2">
+                                    {(['task', 'note', 'history'] as const).map(t => (
+                                        <button key={t} onClick={() => setEditingInboxItem({ ...editingInboxItem, type: t })}
+                                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-colors ${editingInboxItem.type === t ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300'}`}>
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* Title */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Título</label>
+                                <input type="text" value={editingInboxItem.title}
+                                    onChange={e => setEditingInboxItem({ ...editingInboxItem, title: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300" />
+                            </div>
+                            {/* Content */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Descripción / Contenido</label>
+                                <textarea value={editingInboxItem.content} rows={3}
+                                    onChange={e => setEditingInboxItem({ ...editingInboxItem, content: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300 resize-none" />
+                            </div>
+                            {/* Date + Priority */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha <span className="text-gray-300 font-normal">(opcional)</span></label>
+                                    <input type="date" value={editingInboxItem.date}
+                                        onChange={e => setEditingInboxItem({ ...editingInboxItem, date: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Prioridad</label>
+                                    <select value={editingInboxItem.priority}
+                                        onChange={e => setEditingInboxItem({ ...editingInboxItem, priority: e.target.value as any })}
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm">
+                                        <option value="High">High</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="Low">Low</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-5 border-t bg-gray-50 flex gap-3">
+                            <button onClick={() => setEditingInboxItem(null)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancelar</button>
+                            <button onClick={() => {
+                                if (!editingInboxItem.title.trim()) return alert('El título no puede estar vacío');
+                                setInboxItems(prev => prev.map(i => i.id === editingInboxItem.id ? editingInboxItem : i));
+                                setEditingInboxItem(null);
+                            }} className="flex-[2] px-4 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-black shadow hover:bg-amber-600 transition-all">
+                                Guardar cambios
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Assign Inbox Item to Opportunity Modal (on drag-drop) */}
+            {assignDrop && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200">
+                        <div className="p-5 border-b bg-blue-50/60 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-lg font-black text-blue-800">Asignar a Oportunidad</h3>
+                                <p className="text-[10px] text-blue-500 mt-0.5">📅 {assignDrop.date} · 📥 <span className="font-bold">{assignDrop.item.title}</span></p>
+                            </div>
+                            <button onClick={() => setAssignDrop(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
+                        </div>
+                        <div className="p-5 space-y-3">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">¿A qué oportunidad lo vinculas?</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input type="text" placeholder="Buscar oportunidad..." value={assignOppSearch}
+                                    onChange={e => setAssignOppSearch(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-300 outline-none text-sm" autoFocus />
+                            </div>
+                            <div className="max-h-56 overflow-y-auto space-y-1">
+                                {opportunities
+                                    .filter(o => !assignOppSearch || o.title.toLowerCase().includes(assignOppSearch.toLowerCase()) || (o.alias || '').toLowerCase().includes(assignOppSearch.toLowerCase()))
+                                    .slice(0, 8)
+                                    .map(opp => (
+                                        <button key={opp.id}
+                                            onClick={() => {
+                                                const item = assignDrop.item;
+                                                const updatedOpp = { ...opp };
+                                                if (item.type === 'task') {
+                                                    const newTask: Task = {
+                                                        id: crypto.randomUUID(),
+                                                        title: item.title,
+                                                        description: item.content,
+                                                        status: 'Pending',
+                                                        priority: item.priority,
+                                                        owner: 'Me',
+                                                        responsible: '',
+                                                        externalAreas: [],
+                                                        dueDate: assignDrop.date,
+                                                        subtasks: [],
+                                                        order: (opp.tasks?.length || 0) + 1,
+                                                        stageContext: opp.stage,
+                                                        dependsOnTaskIds: [],
+                                                        blockDoneUntilDependenciesDone: false
+                                                    };
+                                                    updatedOpp.tasks = [...(opp.tasks || []), newTask];
+                                                } else if (item.type === 'note') {
+                                                    updatedOpp.notes = [...(opp.notes || []), {
+                                                        id: crypto.randomUUID(),
+                                                        date: assignDrop.date,
+                                                        type: 'General',
+                                                        title: item.title,
+                                                        content: item.content,
+                                                        attendees: ''
+                                                    }];
+                                                } else if (item.type === 'history') {
+                                                    updatedOpp.history = [...(opp.history || []), {
+                                                        id: crypto.randomUUID(),
+                                                        date: assignDrop.date,
+                                                        content: item.title
+                                                    }];
+                                                }
+                                                onUpdateOpportunity?.(updatedOpp);
+                                                // Remove from inbox
+                                                setInboxItems(prev => prev.filter(i => i.id !== item.id));
+                                                setAssignDrop(null);
+                                            }}
+                                            className="w-full text-left p-3 rounded-xl hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                {opp.alias && <span className="text-[9px] font-black text-[#3DCD58] bg-green-50 px-1.5 py-0.5 rounded">[{opp.alias}]</span>}
+                                                <span className="text-sm font-bold text-gray-800 truncate">{opp.title}</span>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 mt-0.5">{opp.stage}</p>
+                                        </button>
+                                    ))}
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-gray-50">
+                            <button onClick={() => setAssignDrop(null)} className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancelar — mantener en Inbox</button>
                         </div>
                     </div>
                 </div>
