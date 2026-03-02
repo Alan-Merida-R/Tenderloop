@@ -397,7 +397,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showInbox ? 'bg-amber-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                     >
                         <span>📥</span>
-                        Inbox {inboxItems.length > 0 && <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${showInbox ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-600'}`}>{inboxItems.length}</span>}
+                        Inbox {(inboxItems.length + unorganizedItems.length) > 0 && <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${showInbox ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-600'}`}>{inboxItems.length + unorganizedItems.length}</span>}
                     </button>
                     <button
                         onClick={() => setShowFilters(!showFilters)}
@@ -650,10 +650,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                     const raw = e.dataTransfer.getData('application/json');
                                                     const itemData = JSON.parse(raw);
                                                     if (!itemData) return;
-                                                    // Check if it's an inbox item
+                                                    // Check if it's an inbox item (localStorage, no opp)
                                                     if (itemData.__isInbox) {
                                                         setAssignDrop({ item: itemData as InboxItem, date: dateStr });
                                                         setAssignOppSearch('');
+                                                    } else if (itemData.__isUnorganized) {
+                                                        // Already belongs to an opp — just set the date
+                                                        updateItem(itemData, { dueDate: dateStr, date: dateStr });
                                                     } else {
                                                         updateItem(itemData, { date: dateStr, dueDate: dateStr });
                                                     }
@@ -708,54 +711,92 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     <button onClick={() => setShowInbox(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50/30">
-                                    {inboxItems.length === 0 ? (
+                                    {/* Inbox: localStorage items + unorganized opp items (no date) */}
+                                    {(inboxItems.length === 0 && unorganizedItems.length === 0) ? (
                                         <div className="text-center py-16 opacity-40">
                                             <span className="text-4xl block mb-2">📥</span>
                                             <p className="text-xs font-bold">Inbox empty</p>
                                             <p className="text-[9px] text-gray-400">Use "+ New Item" and select "Save to Inbox"</p>
                                         </div>
                                     ) : (
-                                        inboxItems.map(item => (
-                                            <div
-                                                key={item.id}
-                                                draggable
-                                                onDragStart={(e) => {
-                                                    e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isInbox: true }));
-                                                    e.dataTransfer.effectAllowed = 'move';
-                                                }}
-                                                className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-amber-300 transition-all group cursor-grab active:cursor-grabbing"
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="flex items-center gap-1.5 min-w-0">
-                                                        <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
-                                                        <span className="text-[9px] font-black text-gray-400 uppercase">{item.type}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 shrink-0">
-                                                        <button
-                                                            onClick={() => setEditingInboxItem({ ...item })}
-                                                            className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-all"
-                                                            title="Edit"
+                                        <div className="space-y-2">
+                                            {/* Unorganized opp items (tasks/notes with no date) */}
+                                            {unorganizedItems.length > 0 && (
+                                                <>
+                                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest px-1">Unscheduled</p>
+                                                    {unorganizedItems.map(item => (
+                                                        <div
+                                                            key={item.id}
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isUnorganized: true }));
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                            }}
+                                                            className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm hover:border-blue-200 transition-all group cursor-grab active:cursor-grabbing"
                                                         >
-                                                            <Edit2 className="w-3.5 h-3.5" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setInboxItems(prev => prev.filter(i => i.id !== item.id))}
-                                                            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
-                                                            title="Delete"
+                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
+                                                                <span className="text-[9px] font-black text-gray-400 uppercase shrink-0">{item.type}</span>
+                                                                {(item.opportunityAlias || item.opportunityTitle) && (
+                                                                    <span className="text-[9px] font-black text-[#3DCD58] shrink-0 uppercase">
+                                                                        [{item.opportunityAlias || item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}]
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-xs font-semibold text-gray-800 truncate flex-1">{item.title}</span>
+                                                            </div>
+                                                            <p className="text-[9px] text-gray-300 mt-1">↔ drag to calendar to schedule</p>
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            )}
+                                            {/* localStorage Inbox items */}
+                                            {inboxItems.length > 0 && (
+                                                <>
+                                                    {unorganizedItems.length > 0 && <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest px-1 pt-1">Inbox</p>}
+                                                    {inboxItems.map(item => (
+                                                        <div
+                                                            key={item.id}
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isInbox: true }));
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                            }}
+                                                            className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-amber-300 transition-all group cursor-grab active:cursor-grabbing"
                                                         >
-                                                            <X className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <p className="text-xs font-bold text-gray-800 mt-1 line-clamp-2 leading-tight">{item.title}</p>
-                                                {item.content && <p className="text-[10px] text-gray-400 mt-0.5 line-clamp-1">{item.content}</p>}
-                                                <div className="flex items-center gap-2 mt-1.5">
-                                                    {item.date && <span className="text-[9px] text-gray-300">{item.date}</span>}
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.priority === 'High' ? 'bg-red-100 text-red-600' : item.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>{item.priority}</span>
-                                                    <span className="text-[9px] text-gray-300 ml-auto">↔ drag to calendar</span>
-                                                </div>
-                                            </div>
-                                        ))
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
+                                                                    <span className="text-[9px] font-black text-gray-400 uppercase">{item.type}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        onClick={() => setEditingInboxItem({ ...item })}
+                                                                        className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-all"
+                                                                        title="Edit"
+                                                                    >
+                                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setInboxItems(prev => prev.filter(i => i.id !== item.id))}
+                                                                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <X className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs font-bold text-gray-800 mt-1 line-clamp-2 leading-tight">{item.title}</p>
+                                                            {item.content && <p className="text-[10px] text-gray-400 mt-0.5 line-clamp-1">{item.content}</p>}
+                                                            <div className="flex items-center gap-2 mt-1.5">
+                                                                {item.date && <span className="text-[9px] text-gray-300">{item.date}</span>}
+                                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.priority === 'High' ? 'bg-red-100 text-red-600' : item.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>{item.priority}</span>
+                                                                <span className="text-[9px] text-gray-300 ml-auto">↔ drag to calendar</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                                 <div className="p-3 border-t bg-white">
@@ -808,7 +849,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     }}
                                     className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 transition-all group flex items-center gap-2 cursor-move"
                                 >
-                                    {/* Type icon - tiny */}
+                                    {/* Type icon */}
                                     <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${item.type === 'task' ? 'bg-blue-100 text-blue-600' : item.type === 'history' ? 'bg-emerald-100 text-emerald-600' : item.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
                                         {item.type === 'task' ? <CheckCircle className="w-2.5 h-2.5" /> : item.type === 'history' ? <History className="w-2.5 h-2.5" /> : item.type === 'note' ? <FileText className="w-2.5 h-2.5" /> : <Timer className="w-2.5 h-2.5" />}
                                     </div>
@@ -818,13 +859,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             [{item.opportunityAlias || item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}]
                                         </span>
                                     )}
-                                    {/* Title */}
+                                    {/* Title - BIGGER */}
                                     <input
-                                        className="text-[11px] font-semibold text-gray-800 bg-transparent border-none p-0 flex-1 min-w-0 focus:ring-0 focus:bg-gray-50 rounded transition-colors truncate"
+                                        className="text-sm font-semibold text-gray-800 bg-transparent border-none p-0 flex-1 min-w-0 focus:ring-0 focus:bg-gray-50 rounded transition-colors truncate"
                                         value={item.title}
                                         onChange={(e) => updateItem(item, item.type === 'history' ? { content: e.target.value } : { title: e.target.value })}
                                     />
-                                    {/* Actions - right side */}
+                                    {/* Right side actions */}
                                     <div className="flex items-center gap-1 shrink-0">
                                         {item.type === 'task' && (
                                             <select
@@ -837,6 +878,16 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                         )}
                                         {item.type === 'hours' && (
                                             <input type="number" step="0.5" className="w-10 text-[8px] font-black bg-orange-50 text-orange-700 border-none p-0.5 rounded focus:ring-0" value={item.data.hours} onChange={(e) => updateItem(item, { hours: parseFloat(e.target.value) })} />
+                                        )}
+                                        {/* Clear date — sends item back to Inbox */}
+                                        {item.type !== 'hours' && (
+                                            <button
+                                                onClick={() => updateItem(item, item.type === 'task' ? { dueDate: '' } : { date: '' })}
+                                                title="Remove date — return to Inbox"
+                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-colors text-red-400 hover:text-red-600"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
                                         )}
                                         <button onClick={() => setSelectedItem(item)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-colors text-[#3DCD58]" title="Details">
                                             <ArrowRight className="w-3 h-3" />

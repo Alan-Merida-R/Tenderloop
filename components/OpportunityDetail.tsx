@@ -1837,7 +1837,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const addTask = () => {
         const newTask: Task = {
             id: crypto.randomUUID(), title: 'New Task', description: '', status: 'Pending', priority: 'Medium', owner: 'Me',
-            externalAreas: [], responsible: '', dueDate: getTodayStr(), stageContext: localOpp.stage, subtasks: [], linkedNoteIds: [],
+            externalAreas: [], responsible: '', dueDate: '', stageContext: localOpp.stage, subtasks: [], linkedNoteIds: [],
             order: null, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
         };
         handleFieldChange('tasks', [...localOpp.tasks, newTask]);
