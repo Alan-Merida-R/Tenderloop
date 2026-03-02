@@ -711,8 +711,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     {inboxItems.length === 0 ? (
                                         <div className="text-center py-16 opacity-40">
                                             <span className="text-4xl block mb-2">📥</span>
-                                            <p className="text-xs font-bold">Inbox vacío</p>
-                                            <p className="text-[9px] text-gray-400">Usa "+ New Item" y selecciona "Guardar en Inbox"</p>
+                                            <p className="text-xs font-bold">Inbox empty</p>
+                                            <p className="text-[9px] text-gray-400">Use "+ New Item" and select "Save to Inbox"</p>
                                         </div>
                                     ) : (
                                         inboxItems.map(item => (
@@ -734,14 +734,14 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                         <button
                                                             onClick={() => setEditingInboxItem({ ...item })}
                                                             className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-all"
-                                                            title="Editar"
+                                                            title="Edit"
                                                         >
                                                             <Edit2 className="w-3.5 h-3.5" />
                                                         </button>
                                                         <button
                                                             onClick={() => setInboxItems(prev => prev.filter(i => i.id !== item.id))}
                                                             className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
-                                                            title="Eliminar"
+                                                            title="Delete"
                                                         >
                                                             <X className="w-3.5 h-3.5" />
                                                         </button>
@@ -752,7 +752,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                 <div className="flex items-center gap-2 mt-1.5">
                                                     {item.date && <span className="text-[9px] text-gray-300">{item.date}</span>}
                                                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.priority === 'High' ? 'bg-red-100 text-red-600' : item.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>{item.priority}</span>
-                                                    <span className="text-[9px] text-gray-300 ml-auto">↔ arrastra al calendario</span>
+                                                    <span className="text-[9px] text-gray-300 ml-auto">↔ drag to calendar</span>
                                                 </div>
                                             </div>
                                         ))
@@ -768,7 +768,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                         }}
                                         className="w-full py-2.5 bg-amber-500 text-white text-[10px] font-black uppercase rounded-xl hover:bg-amber-600 transition-all shadow-md flex items-center justify-center gap-2"
                                     >
-                                        <Plus className="w-4 h-4" /> Agregar al Inbox
+                                        <Plus className="w-4 h-4" /> Add to Inbox
                                     </button>
                                 </div>
                             </div>
@@ -806,46 +806,41 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                     onDragStart={(e) => {
                                         e.dataTransfer.setData('application/json', JSON.stringify(item));
                                     }}
-                                    className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-all group flex flex-col gap-3 cursor-move"
+                                    className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 transition-all group flex items-center gap-2 cursor-move"
                                 >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                                            <div className={`p-2 rounded-xl shrink-0 ${item.type === 'task' ? 'bg-blue-100 text-blue-600' : item.type === 'history' ? 'bg-emerald-100 text-emerald-600' : item.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
-                                                {item.type === 'task' ? <CheckCircle className="w-5 h-5" /> : item.type === 'history' ? <History className="w-5 h-5" /> : item.type === 'note' ? <FileText className="w-5 h-5" /> : <Timer className="w-5 h-5" />}
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS[item.type as keyof typeof LABELS]}</div>
-                                                <input
-                                                    className="text-sm font-black text-gray-800 bg-transparent border-none p-0 w-full focus:ring-0 focus:bg-gray-50 rounded transition-colors"
-                                                    value={item.title}
-                                                    onChange={(e) => updateItem(item, item.type === 'history' ? { content: e.target.value } : { title: e.target.value })}
-                                                />
-                                            </div>
-                                        </div>
-                                        <button onClick={() => setSelectedItem(item)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100 text-[#3DCD58] flex items-center gap-1 text-[10px] font-bold uppercase shrink-0">
-                                            {LABELS.details} <ArrowRight className="w-3 h-3" />
-                                        </button>
+                                    {/* Type icon - tiny */}
+                                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${item.type === 'task' ? 'bg-blue-100 text-blue-600' : item.type === 'history' ? 'bg-emerald-100 text-emerald-600' : item.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
+                                        {item.type === 'task' ? <CheckCircle className="w-2.5 h-2.5" /> : item.type === 'history' ? <History className="w-2.5 h-2.5" /> : item.type === 'note' ? <FileText className="w-2.5 h-2.5" /> : <Timer className="w-2.5 h-2.5" />}
                                     </div>
-                                    <div className="flex items-center justify-between pt-3 border-t border-gray-50">
-                                        <div className="flex items-center gap-2 truncate pr-2">
-                                            <div className="p-1 bg-gray-100 rounded text-gray-500 shrink-0"><Briefcase className="w-3 h-3" /></div>
-                                            {item.opportunityAlias && <span className="text-[10px] font-black text-[#3DCD58] shrink-0 uppercase tracking-tight">[{item.opportunityAlias}]</span>}
-                                            <span className="text-[10px] font-bold text-gray-500 truncate">{item.opportunityTitle}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            {item.type === 'task' && (
-                                                <select
-                                                    className={`text-[9px] px-2 py-0.5 rounded-full font-black uppercase border-none focus:ring-0 cursor-pointer ${item.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
-                                                    value={item.status}
-                                                    onChange={(e) => updateItem(item, { status: e.target.value })}
-                                                >
-                                                    <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Canceled">Canceled</option>
-                                                </select>
-                                            )}
-                                            {item.type === 'hours' && (
-                                                <input type="number" step="0.5" className="w-12 text-[9px] font-black bg-orange-50 text-orange-700 border-none p-1 rounded focus:ring-0" value={item.data.hours} onChange={(e) => updateItem(item, { hours: parseFloat(e.target.value) })} />
-                                            )}
-                                        </div>
+                                    {/* Alias */}
+                                    {(item.opportunityAlias || item.opportunityTitle) && (
+                                        <span className="text-[9px] font-black text-[#3DCD58] shrink-0 uppercase tracking-tight">
+                                            [{item.opportunityAlias || item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}]
+                                        </span>
+                                    )}
+                                    {/* Title */}
+                                    <input
+                                        className="text-[11px] font-semibold text-gray-800 bg-transparent border-none p-0 flex-1 min-w-0 focus:ring-0 focus:bg-gray-50 rounded transition-colors truncate"
+                                        value={item.title}
+                                        onChange={(e) => updateItem(item, item.type === 'history' ? { content: e.target.value } : { title: e.target.value })}
+                                    />
+                                    {/* Actions - right side */}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {item.type === 'task' && (
+                                            <select
+                                                className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase border-none focus:ring-0 cursor-pointer leading-none ${item.status === 'Done' ? 'bg-green-100 text-green-700' : item.status === 'In Progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+                                                value={item.status}
+                                                onChange={(e) => updateItem(item, { status: e.target.value })}
+                                            >
+                                                <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Canceled">Canceled</option>
+                                            </select>
+                                        )}
+                                        {item.type === 'hours' && (
+                                            <input type="number" step="0.5" className="w-10 text-[8px] font-black bg-orange-50 text-orange-700 border-none p-0.5 rounded focus:ring-0" value={item.data.hours} onChange={(e) => updateItem(item, { hours: parseFloat(e.target.value) })} />
+                                        )}
+                                        <button onClick={() => setSelectedItem(item)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-colors text-[#3DCD58]" title="Details">
+                                            <ArrowRight className="w-3 h-3" />
+                                        </button>
                                     </div>
                                 </div>
                             ))
@@ -875,9 +870,9 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                         }`}
                                 >
                                     <span className="text-lg">📥</span>
-                                    <span>Guardar en Inbox</span>
-                                    <span className="text-[10px] font-normal text-gray-400 ml-1">— organiza después</span>
-                                    {useInbox && <span className="ml-auto text-xs font-black text-amber-600">✓ Seleccionado</span>}
+                                    <span>Save to Inbox</span>
+                                    <span className="text-[10px] font-normal text-gray-400 ml-1">— organize later</span>
+                                    {useInbox && <span className="ml-auto text-xs font-black text-amber-600">✓ Selected</span>}
                                 </button>
 
                                 {/* Or search for an opportunity */}
@@ -968,7 +963,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
                                 // --- OPPORTUNITY PATH ---
                                 const finalTargetId = targetOppId;
-                                if (!finalTargetId) return alert('Selecciona una oportunidad o usa el Inbox.');
+                                if (!finalTargetId) return alert('Select an opportunity or use the Inbox.');
 
                                 const opp = opportunities.find(o => o.id === finalTargetId);
                                 if (!opp) return;
@@ -1027,7 +1022,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 setTargetOppId('');
                                 setOppSearch('');
                             }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all">
-                                {useInbox ? '📥 Guardar en Inbox' : LABELS.create}
+                                {useInbox ? '📥 Save to Inbox' : LABELS.create}
                             </button>
                         </div>
                     </div>
@@ -1132,13 +1127,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setEditingInboxItem(null)}>
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                         <div className="p-5 border-b bg-amber-50/60 flex justify-between items-center">
-                            <h3 className="text-lg font-black text-amber-800 flex items-center gap-2"><span>📥</span> Editar Item de Inbox</h3>
+                            <h3 className="text-lg font-black text-amber-800 flex items-center gap-2"><span>📥</span> Edit Inbox Item</h3>
                             <button onClick={() => setEditingInboxItem(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
                         </div>
                         <div className="p-5 space-y-4 overflow-y-auto">
                             {/* Type */}
                             <div className="space-y-1">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Type</label>
                                 <div className="flex gap-2">
                                     {(['task', 'note', 'history'] as const).map(t => (
                                         <button key={t} onClick={() => setEditingInboxItem({ ...editingInboxItem, type: t })}
@@ -1150,14 +1145,14 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                             {/* Title */}
                             <div className="space-y-1">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Título</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Title</label>
                                 <input type="text" value={editingInboxItem.title}
                                     onChange={e => setEditingInboxItem({ ...editingInboxItem, title: e.target.value })}
                                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300" />
                             </div>
                             {/* Content */}
                             <div className="space-y-1">
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Descripción / Contenido</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Description / Content</label>
                                 <textarea value={editingInboxItem.content} rows={3}
                                     onChange={e => setEditingInboxItem({ ...editingInboxItem, content: e.target.value })}
                                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300 resize-none" />
@@ -1165,13 +1160,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             {/* Date + Priority */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1">
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Fecha <span className="text-gray-300 font-normal">(opcional)</span></label>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Date <span className="text-gray-300 font-normal">(optional)</span></label>
                                     <input type="date" value={editingInboxItem.date}
                                         onChange={e => setEditingInboxItem({ ...editingInboxItem, date: e.target.value })}
                                         className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm" />
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Prioridad</label>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Priority</label>
                                     <select value={editingInboxItem.priority}
                                         onChange={e => setEditingInboxItem({ ...editingInboxItem, priority: e.target.value as any })}
                                         className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm">
@@ -1183,13 +1178,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                         </div>
                         <div className="p-5 border-t bg-gray-50 flex gap-3">
-                            <button onClick={() => setEditingInboxItem(null)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancelar</button>
+                            <button onClick={() => setEditingInboxItem(null)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancel</button>
                             <button onClick={() => {
-                                if (!editingInboxItem.title.trim()) return alert('El título no puede estar vacío');
+                                if (!editingInboxItem.title.trim()) return alert('Title cannot be empty');
                                 setInboxItems(prev => prev.map(i => i.id === editingInboxItem.id ? editingInboxItem : i));
                                 setEditingInboxItem(null);
                             }} className="flex-[2] px-4 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-black shadow hover:bg-amber-600 transition-all">
-                                Guardar cambios
+                                Save changes
                             </button>
                         </div>
                     </div>
@@ -1202,16 +1197,16 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200">
                         <div className="p-5 border-b bg-blue-50/60 flex justify-between items-center">
                             <div>
-                                <h3 className="text-lg font-black text-blue-800">Asignar a Oportunidad</h3>
+                                <h3 className="text-lg font-black text-blue-800">Assign to Opportunity</h3>
                                 <p className="text-[10px] text-blue-500 mt-0.5">📅 {assignDrop.date} · 📥 <span className="font-bold">{assignDrop.item.title}</span></p>
                             </div>
                             <button onClick={() => setAssignDrop(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
                         </div>
                         <div className="p-5 space-y-3">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">¿A qué oportunidad lo vinculas?</label>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Which opportunity to link it to?</label>
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                <input type="text" placeholder="Buscar oportunidad..." value={assignOppSearch}
+                                <input type="text" placeholder="Search opportunity..." value={assignOppSearch}
                                     onChange={e => setAssignOppSearch(e.target.value)}
                                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-300 outline-none text-sm" autoFocus />
                             </div>
@@ -1275,7 +1270,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                         </div>
                         <div className="p-4 border-t bg-gray-50">
-                            <button onClick={() => setAssignDrop(null)} className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancelar — mantener en Inbox</button>
+                            <button onClick={() => setAssignDrop(null)} className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancel — keep in Inbox</button>
                         </div>
                     </div>
                 </div>
