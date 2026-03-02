@@ -13,11 +13,13 @@ interface StartTimerModalProps {
 export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClose, opportunities, onStart }) => {
     const [startTimerData, setStartTimerData] = useState({ oppId: '', taskId: '' });
     const [timerSearch, setTimerSearch] = useState('');
+    const [taskSearch, setTaskSearch] = useState('');
 
     useEffect(() => {
         if (!isOpen) {
             setStartTimerData({ oppId: '', taskId: '' });
             setTimerSearch('');
+            setTaskSearch('');
         }
     }, [isOpen]);
 
@@ -39,6 +41,7 @@ export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClos
                             onSelect={(id) => {
                                 setStartTimerData({ ...startTimerData, oppId: id, taskId: '' });
                                 setTimerSearch('');
+                                setTaskSearch('');
                             }}
                             onRemove={() => setStartTimerData({ ...startTimerData, oppId: '', taskId: '' })}
                             value={timerSearch}
@@ -46,19 +49,33 @@ export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClos
                         />
                     </div>
                     {startTimerData.oppId && (
-                        <div className="space-y-1 animate-in fade-in slide-in-from-top-2">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Select Task</label>
-                            <select
-                                className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm font-bold bg-gray-50 hover:bg-white transition-colors"
-                                value={startTimerData.taskId}
-                                onChange={(e) => setStartTimerData({ ...startTimerData, taskId: e.target.value })}
-                                size={5}
-                            >
-                                <option value="" disabled className="text-gray-400 italic">Select a task...</option>
-                                {opportunities.find(o => o.id === startTimerData.oppId)?.tasks.map(t => (
-                                    <option key={t.id} value={t.id} className="py-1">{t.title}</option>
-                                ))}
-                            </select>
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Filter Tasks</label>
+                                <input
+                                    type="text"
+                                    className="w-full p-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-xs"
+                                    placeholder="Search by task title..."
+                                    value={taskSearch}
+                                    onChange={(e) => setTaskSearch(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Select Task</label>
+                                <select
+                                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm font-bold bg-gray-50 hover:bg-white transition-colors"
+                                    value={startTimerData.taskId}
+                                    onChange={(e) => setStartTimerData({ ...startTimerData, taskId: e.target.value })}
+                                    size={5}
+                                >
+                                    <option value="" disabled className="text-gray-400 italic">Select a task...</option>
+                                    {opportunities.find(o => o.id === startTimerData.oppId)?.tasks
+                                        .filter(t => !taskSearch || t.title.toLowerCase().includes(taskSearch.toLowerCase()))
+                                        .map(t => (
+                                            <option key={t.id} value={t.id} className="py-1">{t.title}</option>
+                                        ))}
+                                </select>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -76,18 +76,15 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
         syncChannel.current?.postMessage({ type: 'TIMER_SYNC', state });
     };
 
-    // Timer Tick
+    // Timer Persistence only on changes (isRunning, taskId, etc)
+    // We REMOVE the 1s tick to avoid app-wide re-renders. 
+    // Individual widgets can implement local ticking.
     useEffect(() => {
         if (timerState.isRunning) {
-            intervalRef.current = window.setInterval(() => {
-                setTimerState(prev => ({ ...prev }));
-            }, 1000);
+            // No interval needed here anymore
         } else {
             if (intervalRef.current) clearInterval(intervalRef.current);
         }
-        return () => {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-        };
     }, [timerState.isRunning]);
 
     const startTimer = (taskId: string, oppId: string, taskTitle: string) => {

@@ -14,7 +14,8 @@ export type TaskStatus = 'Pending' | 'In Progress' | 'Done' | 'On Hold' | 'Missi
 export type TaskOwner = 'Me' | 'External Area';
 export type ExternalArea = 'Delivery' | 'SCM' | 'Sales' | 'Legal' | 'Finance' | 'TSC' | 'Other' | string;
 export type TaskPriority = 'High' | 'Medium' | 'Low';
-export type OpportunityStatus = 'In Progress' | 'On Hold' | 'Canceled' | 'Submitted' | 'Won' | 'Lost';
+export type OpportunityStatus = 'In Progress' | 'On Hold' | 'Submitted' | 'Won' | 'Lost' | 'Canceled';
+export type DetailedStatus = 'No Status' | 'Waiting' | 'Info Needed' | 'Paused' | 'Approval' | 'Meeting' | 'Completed' | 'Canceled';
 
 export interface DeepLink {
   tab: string;
@@ -246,6 +247,7 @@ export interface Opportunity {
   revision: string;
   stage: ProcessStage;
   statusLabel: OpportunityStatus;
+  detailedStatus?: DetailedStatus;
 
   dates: OpportunityDates;
   priority: 'High' | 'Medium' | 'Low';
@@ -342,13 +344,24 @@ export const STATUS_COLORS: Record<OpportunityStatus, string> = {
   'Canceled': 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
+export const DETAILED_STATUS_COLORS: Record<DetailedStatus, string> = {
+  'No Status': 'bg-slate-100 text-slate-500 border-slate-200',
+  'Waiting': 'bg-[#FFB800] text-white border-[#E6A600] shadow-sm', // Vivid Yellow/Amber
+  'Info Needed': 'bg-[#FF4D4D] text-white border-[#E64545] shadow-sm', // Vivid Red
+  'Paused': 'bg-[#FF8A00] text-white border-[#E67C00] shadow-sm', // Vivid Orange
+  'Approval': 'bg-[#4D61FF] text-white border-[#4557E6] shadow-sm', // Vivid Blue/Indigo
+  'Meeting': 'bg-[#B84DFF] text-white border-[#A645E6] shadow-sm', // Vivid Purple
+  'Completed': 'bg-[#00D1FF] text-white border-[#00BCE6] shadow-sm', // Vivid Cyan/Light Blue
+  'Canceled': 'bg-gray-400 text-white border-gray-500 shadow-sm',
+};
+
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
-  'Pending': 'bg-gray-100 text-gray-600',
-  'In Progress': 'bg-blue-50 text-blue-600',
-  'Done': 'bg-green-100 text-green-700',
-  'On Hold': 'bg-yellow-100 text-yellow-700',
-  'Missing Info': 'bg-red-100 text-red-700',
-  'Canceled': 'bg-gray-100 text-gray-400 line-through'
+  'Pending': 'bg-slate-100 text-slate-500',
+  'In Progress': 'bg-blue-50 text-blue-600 font-bold',
+  'Done': 'bg-emerald-100 text-emerald-700 font-black',
+  'On Hold': 'bg-amber-100 text-amber-700',
+  'Missing Info': 'bg-rose-100 text-rose-700',
+  'Canceled': 'bg-gray-100 text-gray-400 line-through',
 };
 
 export const PRIORITY_COLORS: Record<TaskPriority, string> = {

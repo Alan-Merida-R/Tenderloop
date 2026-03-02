@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
@@ -1326,8 +1326,22 @@ const FullCalendarModal = ({
     );
 };
 
+const translateStatus = (status: string) => {
+    const mapping: Record<string, string> = {
+        'No Status': 'No Status',
+        'Waiting': 'Waiting',
+        'Info Needed': 'Info Needed',
+        'Paused': 'Paused',
+        'Approval': 'In Approval',
+        'Meeting': 'Meeting',
+        'Completed': 'Completed',
+        'Canceled': 'Canceled'
+    };
+    return mapping[status] || status;
+};
+
 const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
-    const { timerState, startTimer, pauseTimer } = useTimer();
+    const { timerState, startTimer, pauseTimer, confirmStop } = useTimer();
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -1409,8 +1423,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [taskStatusFilters, setTaskStatusFilters] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem(filterKey);
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) { return []; }
+            return saved ? JSON.parse(saved) : Object.keys(TASK_STATUS_COLORS);
+        } catch (e) { return Object.keys(TASK_STATUS_COLORS); }
     });
     const [highlightedQuestionId, setHighlightedQuestionId] = useState<string | null>(null);
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
@@ -1881,6 +1895,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const updateTaskInModal = (field: keyof Task, value: any) => {
         if (!selectedTaskForEdit) return;
+
+        // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
+        if (field === 'status' && value === 'Done' && timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning) {
+            confirmStop('Done'); // This will call handleTimerLog which updates DB and status
+            setSelectedTaskForEdit(null); // Close modal since task is done
+            return;
+        }
+
         if (field === 'status' && !validateTaskCompletion(selectedTaskForEdit.task.id, value)) {
             return;
         }
@@ -2969,42 +2991,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (isSubView) {
-                                                onBack();
-                                                return;
-                                            }
-                                            if (deepLink?.taskId) {
-                                                const task = localOpp.tasks.find(t => t.id === deepLink.taskId);
-                                                if (task) {
-                                                    onMinimize?.({
-                                                        id: task.id,
-                                                        type: 'task',
-                                                        title: `TSK: ${task.title.slice(0, 10)}`,
-                                                        color: '#3B82F6',
-                                                        data: { oppId: opportunity.id, isSubView: true, deepLink: { tab: 'tasks', taskId: task.id } }
-                                                    });
-                                                    return;
-                                                }
-                                            }
-                                            if (deepLink?.noteId) {
-                                                const note = localOpp.notes.find(n => n.id === deepLink.noteId);
-                                                if (note) {
-                                                    onMinimize?.({
-                                                        id: note.id,
-                                                        type: 'note',
-                                                        title: `NOT: ${note.title.slice(0, 10)}`,
-                                                        color: '#F59E0B',
-                                                        data: { oppId: opportunity.id, isSubView: true, deepLink: { tab: 'notes', noteId: note.id } }
-                                                    });
-                                                    return;
-                                                }
-                                            }
+                                            // Always minimize the whole opportunity expediente by default
                                             onMinimize?.({
-                                                id: `${opportunity.id}-${activeTab}`,
+                                                id: opportunity.id,
                                                 type: 'opportunity',
-                                                title: `${activeTab.toUpperCase().slice(0, 4)}: ${opportunity.customer.slice(0, 10)}`,
+                                                title: `OP: ${opportunity.alias || opportunity.customer.slice(0, 10)}`,
                                                 color: '#34d399',
-                                                data: { oppId: opportunity.id, deepLink: { tab: activeTab } }
+                                                data: { oppId: opportunity.id, deepLink: { tab: activeTab, taskId: deepLink?.taskId, noteId: deepLink?.noteId } }
                                             });
                                         }}
                                         className="p-2 hover:bg-gray-100 rounded-xl transition-all"
@@ -3134,6 +3127,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
                                     <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
 
+                                    {(() => {
+                                        const nextTask = (localOpp.tasks || []).find(t => !['Done', 'Canceled'].includes(t.status));
+                                        return nextTask ? (
+                                            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1">
+                                                <Zap className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
+                                                    <span className="text-xs font-bold leading-tight">{nextTask.title}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        if (onSelectOpp) onSelectOpp(opportunity.id, { tab: 'tasks', taskId: nextTask.id });
+                                                    }}
+                                                    className="ml-2 p-1 hover:bg-blue-100 rounded-lg transition-colors"
+                                                    title="View Task"
+                                                >
+                                                    <ExternalLink className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ) : null;
+                                    })()}
+
                                     <div className="flex flex-wrap items-center gap-2 mt-1">
                                         {(localOpp.labels || []).map(l => (
                                             <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
@@ -3187,9 +3202,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                    <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-28 uppercase tracking-wider cursor-pointer ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                                    <select value={localOpp.stage} onChange={(e) => handleFieldChange('stage', e.target.value)} className={`text-[10px] font-semibold px-2 py-1 rounded-full border-none outline-none w-32 text-center cursor-pointer ${STAGE_COLORS[localOpp.stage]}`}>{Object.keys(STAGE_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
-                                    <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center cursor-pointer ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Principal Status</span>
+                                        <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer shadow-sm ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Process Status</span>
+                                        <select value={localOpp.detailedStatus || 'No Status'} onChange={(e) => handleFieldChange('detailedStatus', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer shadow-sm ${DETAILED_STATUS_COLORS[localOpp.detailedStatus || 'No Status']}`}>{Object.keys(DETAILED_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}</select>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Priority</span>
+                                        <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center cursor-pointer shadow-sm ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -3281,6 +3305,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => startTimer(selectedTaskForEdit.task.id, opportunity.id, selectedTaskForEdit.task.title)}
+                                                className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg hover:bg-[#2db64a] transition-colors shadow-sm"
+                                                title="Start Timer"
+                                            >
+                                                <Play className="w-3 h-3" /> Start Timer
+                                            </button>
                                             <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                                 <Copy className="w-3 h-3" /> Summary
                                             </button>
@@ -4546,7 +4577,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         </div>
                                                         <div className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                                                         <div className="flex-1">
-                                                            <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>
+                                                                {opportunity.alias && <span className="text-[9px] bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
+                                                            </div>
                                                             <div className="text-[10px] font-black uppercase mt-1 flex items-center gap-2">
                                                                 <User className="w-3 h-3" /> {task.owner}
                                                                 <span className="text-gray-300">|</span>
@@ -4618,477 +4652,503 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             </div>
 
             {/* Task Edit Modal */}
-            {selectedTaskForEdit && !isSubView && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTaskForEdit(null)}>
-                    <div
-                        className={`bg-white shadow-2xl rounded-3xl p-8 animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-full max-w-2xl max-h-[90vh] overflow-y-auto'}`}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Left Column (Task Editor) */}
-                        <div className="flex flex-col h-full overflow-y-auto pr-2">
-                            <div className="flex justify-between items-start mb-8 shrink-0">
-                                <div className="flex items-center gap-4">
-                                    <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
-                                    <div>
-                                        <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
-                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
+            {
+                selectedTaskForEdit && !isSubView && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !splitViewNoteId && setSelectedTaskForEdit(null)}>
+                        <div
+                            className={`bg-white shadow-2xl rounded-3xl p-8 animate-slide-in-right relative transition-all duration-300 ${splitViewNoteId ? 'w-[95vw] h-[90vh] grid grid-cols-2 gap-8 overflow-hidden' : 'w-full max-w-2xl max-h-[90vh] overflow-y-auto'}`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Left Column (Task Editor) */}
+                            <div className="flex flex-col h-full overflow-y-auto pr-2">
+                                <div className="flex justify-between items-start mb-8 shrink-0">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
+                                        <div>
+                                            <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
+                                                {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
+                                            <Copy className="w-3 h-3" /> Summary
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                startTimer(selectedTaskForEdit.task.id, opportunity.id, selectedTaskForEdit.task.title);
+                                            }}
+                                            className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'bg-red-500 text-white animate-pulse' : 'bg-[#3DCD58] text-white hover:bg-[#2db64a]'}`}
+                                            title={timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'Timer Active' : 'Start Timer'}
+                                        >
+                                            <Play className="w-3 h-3 shrink-0" />
+                                            {timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'Active' : 'Start'}
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                onMinimize?.({
+                                                    id: selectedTaskForEdit.task.id,
+                                                    type: 'task',
+                                                    title: `TSK: ${selectedTaskForEdit.task.title.slice(0, 10)}`,
+                                                    color: '#3B82F6',
+                                                    data: { oppId: opportunity.id, deepLink: { tab: 'tasks', taskId: selectedTaskForEdit.task.id } }
+                                                });
+                                                setSelectedTaskForEdit(null);
+                                            }}
+                                            className="p-2 hover:bg-gray-100 rounded-xl transition-all"
+                                            title="Minimizar Tarea"
+                                        >
+                                            <Minus className="w-5 h-5 text-gray-400" />
+                                        </button>
+                                        {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X className="w-6 h-6 text-gray-400" /></button>}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
-                                        <Copy className="w-3 h-3" /> Summary
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            onMinimize?.({
-                                                id: selectedTaskForEdit.task.id,
-                                                type: 'task',
-                                                title: `TSK: ${selectedTaskForEdit.task.title.slice(0, 10)}`,
-                                                color: '#3B82F6',
-                                                data: { oppId: opportunity.id, deepLink: { tab: 'tasks', taskId: selectedTaskForEdit.task.id } }
-                                            });
-                                            setSelectedTaskForEdit(null);
-                                        }}
-                                        className="p-2 hover:bg-gray-100 rounded-xl transition-all"
-                                        title="Minimizar Tarea"
-                                    >
-                                        <Minus className="w-5 h-5 text-gray-400" />
-                                    </button>
-                                    {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="p-2 hover:bg-gray-100 rounded-xl transition-all"><X className="w-6 h-6 text-gray-400" /></button>}
+
+                                <div className="space-y-8 flex-1">
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex-1 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
+                                            <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
+                                        </div>
+                                        <div className="w-24 space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
+                                            <input type="number" className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0 text-center" value={selectedTaskForEdit.task.order || ''} onChange={(e) => updateTaskInModal('order', e.target.value ? parseInt(e.target.value) : null)} placeholder="#" />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.priority || 'Medium'} onChange={(e) => updateTaskInModal('priority', e.target.value as any)}>{Object.keys(PRIORITY_COLORS).map(p => <option key={p}>{p}</option>)}</select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Due Date</label>
+                                                <div className="flex items-center gap-1">
+                                                    <input type="checkbox" checked={selectedTaskForEdit.task.calendarized || false} onChange={(e) => updateTaskInModal('calendarized', e.target.checked)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] w-3 h-3" />
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">Calendarized</label>
+                                                </div>
+                                            </div>
+                                            <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                        <div className="flex gap-4 items-center">
+                                            <select
+                                                className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
+                                                value={selectedTaskForEdit.task.owner}
+                                                onChange={(e) => updateTaskInModal('owner', e.target.value)}
+                                            >
+                                                <option value="Me">Me</option>
+                                                <option value="External Area">External Area</option>
+                                            </select>
+                                            {selectedTaskForEdit.task.owner === 'External Area' && (
+                                                <div className="flex gap-2 flex-1 flex-col">
+                                                    <MultiSelect
+                                                        placeholder="Select Areas"
+                                                        options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
+                                                        selected={selectedTaskForEdit.task.externalAreas || []}
+                                                        onChange={(vals) => updateTaskInModal('externalAreas', vals)}
+                                                    />
+                                                    <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Dependency Section */}
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Scheduling & Dependencies</label>
+                                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
+                                            <div className="flex-1">
+                                                <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
+                                                <SimpleMultiSelect
+                                                    placeholder="Select dependencies..."
+                                                    options={localOpp.tasks.filter(t => t.id !== selectedTaskForEdit.task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
+                                                    selected={selectedTaskForEdit.task.dependsOnTaskIds || []}
+                                                    onChange={(val) => updateTaskInModal('dependsOnTaskIds', val)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="blockDoneToggle"
+                                                    checked={selectedTaskForEdit.task.blockDoneUntilDependenciesDone || false}
+                                                    onChange={e => updateTaskInModal('blockDoneUntilDependenciesDone', e.target.checked)}
+                                                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                />
+                                                <label htmlFor="blockDoneToggle" className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
+                                                    <Lock className="w-3 h-3 text-gray-400" />
+                                                    Block Done until dependencies are done
+                                                </label>
+                                            </div>
+
+                                            {/* Dependency Status Preview */}
+                                            {selectedTaskForEdit.task.dependsOnTaskIds && selectedTaskForEdit.task.dependsOnTaskIds.length > 0 && (
+                                                <div className="mt-2 pt-2 border-t border-gray-200/50">
+                                                    {selectedTaskForEdit.task.dependsOnTaskIds.map(depId => {
+                                                        const depTask = localOpp.tasks.find(t => t.id === depId);
+                                                        if (!depTask) return null;
+                                                        return (
+                                                            <div key={depId} className="flex items-center gap-2 text-xs py-0.5">
+                                                                <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                                                <span className={`${depTask.status === 'Done' ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{depTask.title}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
+                                        <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
+                                    </div>
+
+                                    {/* TIME TRACKING HISTORY */}
+                                    <div className="space-y-4">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Time Tracking History</label>
+                                        <div className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden">
+                                            <div className="p-3 border-b border-gray-200 flex justify-between items-center bg-gray-100/50">
+                                                <span className="text-xs font-bold text-gray-500">Total Time</span>
+                                                <span className="text-sm font-mono font-black text-gray-700">
+                                                    {(() => {
+                                                        const total = (selectedTaskForEdit.task.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
+                                                        const h = Math.floor(total / 3600);
+                                                        const m = Math.floor((total % 3600) / 60);
+                                                        return `${h}h ${m}m`;
+                                                    })()}
+                                                </span>
+                                            </div>
+                                            {(selectedTaskForEdit.task.timeLogs || []).length > 0 ? (
+                                                <div className="max-h-40 overflow-y-auto">
+                                                    <table className="w-full text-[10px] text-left">
+                                                        <thead className="bg-gray-100 text-gray-500 font-bold sticky top-0">
+                                                            <tr>
+                                                                <th className="p-2">Date</th>
+                                                                <th className="p-2">Time</th>
+                                                                <th className="p-2 text-right">Duration</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {[...selectedTaskForEdit.task.timeLogs].reverse().map((log: any) => (
+                                                                <tr key={log.id} className="hover:bg-white transition-colors">
+                                                                    <td className="p-2 text-gray-500">{new Date(log.startTime).toLocaleDateString()}</td>
+                                                                    <td className="p-2 text-gray-400 font-mono">{new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                                                    <td className="p-2 text-right font-bold text-gray-700">
+                                                                        {Math.floor(log.durationSeconds / 3600)}h {Math.floor((log.durationSeconds % 3600) / 60)}m
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <div className="p-4 text-center text-xs text-gray-400 italic">No time recorded yet.</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* DOCUMENT LINKS */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Documents</label>
+                                            <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
+                                        </div>
+                                        <div className="p-4 bg-gray-50 rounded-2xl">
+                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                        </div>
+                                    </div>
+
+                                    {/* NOTE LINKS */}
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Notes</label>
+                                            <button
+                                                className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline"
+                                                onClick={() => setShowNotePickerForTask(selectedTaskForEdit.task.id)}
+                                            >
+                                                + Link Note
+                                            </button>
+                                        </div>
+
+                                        {showNotePickerForTask === selectedTaskForEdit.task.id && (
+                                            <div className="relative z-10 p-4 bg-white border border-gray-200 shadow-lg rounded-xl mb-4 animate-fade-in">
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <h5 className="font-bold text-sm">Select Notes</h5>
+                                                    <button onClick={() => setShowNotePickerForTask(null)}><X className="w-4 h-4 text-gray-400" /></button>
+                                                </div>
+                                                <input
+                                                    className="w-full text-xs border-gray-200 rounded-lg mb-2"
+                                                    placeholder="Search notes..."
+                                                    value={noteSearch}
+                                                    onChange={(e) => setNoteSearch(e.target.value)}
+                                                />
+                                                <div className="max-h-40 overflow-y-auto space-y-1 mb-3">
+                                                    {localOpp.notes.filter(n => n.title.toLowerCase().includes(noteSearch.toLowerCase())).map(n => (
+                                                        <label key={n.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedNotesToLink.includes(n.id)}
+                                                                onChange={() => {
+                                                                    if (selectedNotesToLink.includes(n.id)) setSelectedNotesToLink(prev => prev.filter(id => id !== n.id));
+                                                                    else setSelectedNotesToLink(prev => [...prev, n.id]);
+                                                                }}
+                                                                className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
+                                                            />
+                                                            <span className="text-xs truncate">{n.title}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                <button
+                                                    onClick={() => linkNotesToTask(selectedTaskForEdit.task.id, selectedNotesToLink)}
+                                                    className="w-full bg-[#3DCD58] text-white text-xs font-bold py-2 rounded-lg"
+                                                >
+                                                    Link Selected
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <div className="space-y-2">
+                                            {(selectedTaskForEdit.task.linkedNoteIds || [selectedTaskForEdit.task.linkedNoteId]).filter(Boolean).map((nid) => {
+                                                const note = localOpp.notes.find(n => n.id === nid);
+                                                if (!note) return null;
+                                                return (
+                                                    <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
+                                                        <div className="flex items-center gap-2">
+                                                            <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
+                                                            <span className="text-sm font-medium">{note.title}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => { setSelectedTaskForEdit(null); setActiveTab('notes'); setSelectedNoteId(note.id); }}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
+                                                            >
+                                                                Open Note
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setSplitViewNoteId(note.id)}
+                                                                className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
+                                                            >
+                                                                <Columns className="w-3 h-3" /> Split View
+                                                            </button>
+                                                            <button
+                                                                onClick={() => unlinkNoteFromTask(selectedTaskForEdit.task.id, note.id)}
+                                                                className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
+                                                                title="Unlink"
+                                                            >
+                                                                <Unlink className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {!selectedTaskForEdit.task.linkedNoteIds?.length && !selectedTaskForEdit.task.linkedNoteId && (
+                                                <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center px-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sub-Tasks Checklist</label>
+                                            <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => updateTaskInModal('subtasks', [...selectedTaskForEdit.task.subtasks, { id: crypto.randomUUID(), title: 'New Sub-task', completed: false }])}>+ Add Entry</button>
+                                        </div>
+                                        <div className="space-y-2 bg-gray-50 p-4 rounded-2xl">
+                                            {selectedTaskForEdit.task.subtasks.map((sub, idx) => (
+                                                <div key={sub.id} className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm group">
+                                                    <div className="flex flex-col -space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button onClick={() => moveSubtask(idx, 'up')} disabled={idx === 0} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4" /></button>
+                                                        <button onClick={() => moveSubtask(idx, 'down')} disabled={idx === selectedTaskForEdit.task.subtasks.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
+                                                    </div>
+                                                    <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
+                                                    <input className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
+                                                    <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="text-gray-200 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-6 border-t flex justify-between gap-4">
+                                        <button onClick={deleteTaskInModal} className="px-6 py-3 rounded-2xl text-sm font-black uppercase text-red-500 hover:bg-red-50 transition-all border border-red-100">Delete Task</button>
+                                        {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="flex-1 bg-gray-900 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase shadow-xl hover:shadow-gray-900/20 active:scale-95 transition-all">Close & Save</button>}
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="space-y-8 flex-1">
-                                <div className="flex items-start gap-4">
-                                    <div className="flex-1 space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
-                                        <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
-                                    </div>
-                                    <div className="w-24 space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
-                                        <input type="number" className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0 text-center" value={selectedTaskForEdit.task.order || ''} onChange={(e) => updateTaskInModal('order', e.target.value ? parseInt(e.target.value) : null)} placeholder="#" />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                        <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
-                                        <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.priority || 'Medium'} onChange={(e) => updateTaskInModal('priority', e.target.value as any)}>{Object.keys(PRIORITY_COLORS).map(p => <option key={p}>{p}</option>)}</select>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Due Date</label>
-                                            <div className="flex items-center gap-1">
-                                                <input type="checkbox" checked={selectedTaskForEdit.task.calendarized || false} onChange={(e) => updateTaskInModal('calendarized', e.target.checked)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] w-3 h-3" />
-                                                <label className="text-[9px] font-bold text-gray-500 uppercase">Calendarized</label>
-                                            </div>
-                                        </div>
-                                        <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
-                                    </div>
-                                </div>
-
-                                <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
-                                    <div className="flex gap-4 items-center">
-                                        <select
-                                            className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
-                                            value={selectedTaskForEdit.task.owner}
-                                            onChange={(e) => updateTaskInModal('owner', e.target.value)}
-                                        >
-                                            <option value="Me">Me</option>
-                                            <option value="External Area">External Area</option>
-                                        </select>
-                                        {selectedTaskForEdit.task.owner === 'External Area' && (
-                                            <div className="flex gap-2 flex-1 flex-col">
-                                                <MultiSelect
-                                                    placeholder="Select Areas"
-                                                    options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
-                                                    selected={selectedTaskForEdit.task.externalAreas || []}
-                                                    onChange={(vals) => updateTaskInModal('externalAreas', vals)}
-                                                />
-                                                <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Dependency Section */}
-                                <div className="space-y-4">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Scheduling & Dependencies</label>
-                                    <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-4">
-                                        <div className="flex-1">
-                                            <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
-                                            <SimpleMultiSelect
-                                                placeholder="Select dependencies..."
-                                                options={localOpp.tasks.filter(t => t.id !== selectedTaskForEdit.task.id).map(t => ({ id: t.id, label: `${t.order ? `[${t.order}] ` : ''}${t.title}` }))}
-                                                selected={selectedTaskForEdit.task.dependsOnTaskIds || []}
-                                                onChange={(val) => updateTaskInModal('dependsOnTaskIds', val)}
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id="blockDoneToggle"
-                                                checked={selectedTaskForEdit.task.blockDoneUntilDependenciesDone || false}
-                                                onChange={e => updateTaskInModal('blockDoneUntilDependenciesDone', e.target.checked)}
-                                                className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
-                                            />
-                                            <label htmlFor="blockDoneToggle" className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
-                                                <Lock className="w-3 h-3 text-gray-400" />
-                                                Block Done until dependencies are done
-                                            </label>
-                                        </div>
-
-                                        {/* Dependency Status Preview */}
-                                        {selectedTaskForEdit.task.dependsOnTaskIds && selectedTaskForEdit.task.dependsOnTaskIds.length > 0 && (
-                                            <div className="mt-2 pt-2 border-t border-gray-200/50">
-                                                {selectedTaskForEdit.task.dependsOnTaskIds.map(depId => {
-                                                    const depTask = localOpp.tasks.find(t => t.id === depId);
-                                                    if (!depTask) return null;
-                                                    return (
-                                                        <div key={depId} className="flex items-center gap-2 text-xs py-0.5">
-                                                            <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                                            <span className={`${depTask.status === 'Done' ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{depTask.title}</span>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
-                                    <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
-                                </div>
-
-                                {/* TIME TRACKING HISTORY */}
-                                <div className="space-y-4">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Time Tracking History</label>
-                                    <div className="bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden">
-                                        <div className="p-3 border-b border-gray-200 flex justify-between items-center bg-gray-100/50">
-                                            <span className="text-xs font-bold text-gray-500">Total Time</span>
-                                            <span className="text-sm font-mono font-black text-gray-700">
-                                                {(() => {
-                                                    const total = (selectedTaskForEdit.task.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
-                                                    const h = Math.floor(total / 3600);
-                                                    const m = Math.floor((total % 3600) / 60);
-                                                    return `${h}h ${m}m`;
-                                                })()}
-                                            </span>
-                                        </div>
-                                        {(selectedTaskForEdit.task.timeLogs || []).length > 0 ? (
-                                            <div className="max-h-40 overflow-y-auto">
-                                                <table className="w-full text-[10px] text-left">
-                                                    <thead className="bg-gray-100 text-gray-500 font-bold sticky top-0">
-                                                        <tr>
-                                                            <th className="p-2">Date</th>
-                                                            <th className="p-2">Time</th>
-                                                            <th className="p-2 text-right">Duration</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-gray-100">
-                                                        {[...selectedTaskForEdit.task.timeLogs].reverse().map((log: any) => (
-                                                            <tr key={log.id} className="hover:bg-white transition-colors">
-                                                                <td className="p-2 text-gray-500">{new Date(log.startTime).toLocaleDateString()}</td>
-                                                                <td className="p-2 text-gray-400 font-mono">{new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                                                                <td className="p-2 text-right font-bold text-gray-700">
-                                                                    {Math.floor(log.durationSeconds / 3600)}h {Math.floor((log.durationSeconds % 3600) / 60)}m
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 text-center text-xs text-gray-400 italic">No time recorded yet.</div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* DOCUMENT LINKS */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Documents</label>
-                                        <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
-                                    </div>
-                                    <div className="p-4 bg-gray-50 rounded-2xl">
-                                        <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
-                                    </div>
-                                </div>
-
-                                {/* NOTE LINKS */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Linked Notes</label>
+                            {/* Right Column (Split View Note Editor) */}
+                            {splitViewNoteId && (
+                                <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
+                                    <div className="flex justify-between items-center mb-4 shrink-0">
+                                        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                                            <FileText className="w-5 h-5 text-[#3DCD58]" />
+                                            {localOpp.notes.find(n => n.id === splitViewNoteId)?.title}
+                                        </h3>
                                         <button
-                                            className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline"
-                                            onClick={() => setShowNotePickerForTask(selectedTaskForEdit.task.id)}
+                                            onClick={() => setSplitViewNoteId(null)}
+                                            className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
                                         >
-                                            + Link Note
+                                            Close Split View
                                         </button>
                                     </div>
+                                    <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                                        <RichTextEditor
+                                            key={splitViewNoteId}
+                                            content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
+                                            onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )
+            }
 
-                                    {showNotePickerForTask === selectedTaskForEdit.task.id && (
-                                        <div className="relative z-10 p-4 bg-white border border-gray-200 shadow-lg rounded-xl mb-4 animate-fade-in">
-                                            <div className="flex justify-between items-center mb-3">
-                                                <h5 className="font-bold text-sm">Select Notes</h5>
-                                                <button onClick={() => setShowNotePickerForTask(null)}><X className="w-4 h-4 text-gray-400" /></button>
-                                            </div>
-                                            <input
-                                                className="w-full text-xs border-gray-200 rounded-lg mb-2"
-                                                placeholder="Search notes..."
-                                                value={noteSearch}
-                                                onChange={(e) => setNoteSearch(e.target.value)}
-                                            />
-                                            <div className="max-h-40 overflow-y-auto space-y-1 mb-3">
-                                                {localOpp.notes.filter(n => n.title.toLowerCase().includes(noteSearch.toLowerCase())).map(n => (
-                                                    <label key={n.id} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedNotesToLink.includes(n.id)}
-                                                            onChange={() => {
-                                                                if (selectedNotesToLink.includes(n.id)) setSelectedNotesToLink(prev => prev.filter(id => id !== n.id));
-                                                                else setSelectedNotesToLink(prev => [...prev, n.id]);
-                                                            }}
-                                                            className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300"
-                                                        />
-                                                        <span className="text-xs truncate">{n.title}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <button
-                                                onClick={() => linkNotesToTask(selectedTaskForEdit.task.id, selectedNotesToLink)}
-                                                className="w-full bg-[#3DCD58] text-white text-xs font-bold py-2 rounded-lg"
-                                            >
-                                                Link Selected
-                                            </button>
-                                        </div>
-                                    )}
+            {
+                showDocPicker && (
+                    <DocumentPickerModal
+                        opportunityId={opportunity.id}
+                        multi={true}
+                        onSelect={handleDocSelect}
+                        onClose={() => setShowDocPicker(null)}
+                        title={`Link documents to ${showDocPicker.type}`}
+                    />
+                )
+            }
 
-                                    <div className="space-y-2">
-                                        {(selectedTaskForEdit.task.linkedNoteIds || [selectedTaskForEdit.task.linkedNoteId]).filter(Boolean).map((nid) => {
-                                            const note = localOpp.notes.find(n => n.id === nid);
-                                            if (!note) return null;
+            {
+                showAddAreaModal && (
+                    <AddAreaModal
+                        availableAreas={(trackedAreas || []).filter(ta => !((localOpp.kpis?.areasInvolved || []).some(a => a.area === ta)))}
+                        onAdd={(areaName) => {
+                            addKpiArea(areaName);
+                            setShowAddAreaModal(false);
+                        }}
+                        onClose={() => setShowAddAreaModal(false)}
+                    />
+                )
+            }
+
+            {
+                showCreateVersionModal && (
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                            <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
+                                    <p className="text-[10px] text-gray-400 mt-1">Leave empty to use current SR: {localOpp.srId}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Tags (comma separated)</label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm" placeholder="e.g. Draft, Client Review" value={newVersionData.tags} onChange={e => setNewVersionData({ ...newVersionData, tags: e.target.value })} />
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700">
+                                    <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
+                                </div>
+                                <div className="flex gap-2 justify-end mt-2">
+                                    <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
+                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {
+                showCopyTasksModal && (
+                    <CopyTasksModal
+                        isOpen={showCopyTasksModal}
+                        onClose={() => setShowCopyTasksModal(false)}
+                        sourceOpp={localOpp}
+                        opportunities={opportunities || []}
+                        onCopy={handleCopyTasks}
+                    />
+                )
+            }
+            {
+                showDiffModal && (
+                    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                            <div className="p-4 border-b flex justify-between items-center">
+                                <h3 className="font-bold">Version Comparison</h3>
+                                <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
+                            </div>
+                            <div className="p-4 overflow-y-auto flex-1">
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div className="p-2 bg-red-50 rounded border border-red-100">
+                                        <h4 className="font-bold text-red-800 text-xs uppercase mb-1">Base (Live)</h4>
+                                        <p className="text-xs">Current State</p>
+                                    </div>
+                                    <div className="p-2 bg-green-50 rounded border border-green-100">
+                                        <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
+                                        <p className="text-xs">
+                                            {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <h4 className="font-bold text-sm border-b pb-1">Changes Summary</h4>
+                                    <div className="text-sm space-y-2">
+                                        {/* Inline Logic for Diff */}
+                                        {(() => {
+                                            const v = (localOpp.versions || []).find(v => v.id === diffCompareId);
+                                            if (!v) return <p>Version not found.</p>;
+
+                                            const tasksDiff = Math.abs(localOpp.tasks.length - v.snapshot.tasks.length);
+                                            const notesDiff = Math.abs(localOpp.notes.length - v.snapshot.notes.length);
+                                            const kpiChanged = JSON.stringify(localOpp.kpis) !== JSON.stringify(v.snapshot.kpis);
+
                                             return (
-                                                <div key={nid} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] transition-all bg-white group">
-                                                    <div className="flex items-center gap-2">
-                                                        <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
-                                                        <span className="text-sm font-medium">{note.title}</span>
+                                                <div>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>Tasks Count Difference</span>
+                                                        <span className="font-mono font-bold">{tasksDiff}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => { setSelectedTaskForEdit(null); setActiveTab('notes'); setSelectedNoteId(note.id); }}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
-                                                        >
-                                                            Open Note
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setSplitViewNoteId(note.id)}
-                                                            className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded flex items-center gap-1"
-                                                        >
-                                                            <Columns className="w-3 h-3" /> Split View
-                                                        </button>
-                                                        <button
-                                                            onClick={() => unlinkNoteFromTask(selectedTaskForEdit.task.id, note.id)}
-                                                            className="text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase px-2 py-1 bg-gray-50 rounded"
-                                                            title="Unlink"
-                                                        >
-                                                            <Unlink className="w-3 h-3" />
-                                                        </button>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>Notes Count Difference</span>
+                                                        <span className="font-mono font-bold">{notesDiff}</span>
+                                                    </div>
+                                                    <div className="flex justify-between p-2 bg-gray-50 rounded">
+                                                        <span>KPIs Changed?</span>
+                                                        <span className={`font-bold ${kpiChanged ? 'text-orange-500' : 'text-gray-400'}`}>{kpiChanged ? 'YES' : 'NO'}</span>
+                                                    </div>
+                                                    <div className="p-2 bg-yellow-50 text-xs text-yellow-700 mt-2">
+                                                        * Detailed field-by-field diff is limited in this surgical view.
+                                                        <br />Restore specific sections using the sidebar actions.
                                                     </div>
                                                 </div>
                                             );
-                                        })}
-                                        {!selectedTaskForEdit.task.linkedNoteIds?.length && !selectedTaskForEdit.task.linkedNoteId && (
-                                            <div className="text-center py-4 text-gray-300 text-xs italic">No notes linked</div>
-                                        )}
+                                        })()}
                                     </div>
                                 </div>
-
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center px-1">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Sub-Tasks Checklist</label>
-                                        <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => updateTaskInModal('subtasks', [...selectedTaskForEdit.task.subtasks, { id: crypto.randomUUID(), title: 'New Sub-task', completed: false }])}>+ Add Entry</button>
-                                    </div>
-                                    <div className="space-y-2 bg-gray-50 p-4 rounded-2xl">
-                                        {selectedTaskForEdit.task.subtasks.map((sub, idx) => (
-                                            <div key={sub.id} className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm group">
-                                                <div className="flex flex-col -space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button onClick={() => moveSubtask(idx, 'up')} disabled={idx === 0} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronUp className="w-4 h-4" /></button>
-                                                    <button onClick={() => moveSubtask(idx, 'down')} disabled={idx === selectedTaskForEdit.task.subtasks.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
-                                                </div>
-                                                <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
-                                                <input className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
-                                                <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="text-gray-200 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="pt-6 border-t flex justify-between gap-4">
-                                    <button onClick={deleteTaskInModal} className="px-6 py-3 rounded-2xl text-sm font-black uppercase text-red-500 hover:bg-red-50 transition-all border border-red-100">Delete Task</button>
-                                    {!splitViewNoteId && <button onClick={() => setSelectedTaskForEdit(null)} className="flex-1 bg-gray-900 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase shadow-xl hover:shadow-gray-900/20 active:scale-95 transition-all">Close & Save</button>}
-                                </div>
                             </div>
-                        </div>
-
-                        {/* Right Column (Split View Note Editor) */}
-                        {splitViewNoteId && (
-                            <div className="flex flex-col h-full border-l border-gray-100 pl-8 overflow-hidden">
-                                <div className="flex justify-between items-center mb-4 shrink-0">
-                                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-[#3DCD58]" />
-                                        {localOpp.notes.find(n => n.id === splitViewNoteId)?.title}
-                                    </h3>
-                                    <button
-                                        onClick={() => setSplitViewNoteId(null)}
-                                        className="text-xs font-bold uppercase bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
-                                    >
-                                        Close Split View
-                                    </button>
-                                </div>
-                                <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-                                    <RichTextEditor
-                                        key={splitViewNoteId}
-                                        content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
-                                        onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {showDocPicker && (
-                <DocumentPickerModal
-                    opportunityId={opportunity.id}
-                    multi={true}
-                    onSelect={handleDocSelect}
-                    onClose={() => setShowDocPicker(null)}
-                    title={`Link documents to ${showDocPicker.type}`}
-                />
-            )}
-
-            {showAddAreaModal && (
-                <AddAreaModal
-                    availableAreas={(trackedAreas || []).filter(ta => !((localOpp.kpis?.areasInvolved || []).some(a => a.area === ta)))}
-                    onAdd={(areaName) => {
-                        addKpiArea(areaName);
-                        setShowAddAreaModal(false);
-                    }}
-                    onClose={() => setShowAddAreaModal(false)}
-                />
-            )}
-
-            {showCreateVersionModal && (
-                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-                        <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
-                                <p className="text-[10px] text-gray-400 mt-1">Leave empty to use current SR: {localOpp.srId}</p>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Tags (comma separated)</label>
-                                <input className="w-full border-gray-200 rounded-lg text-sm" placeholder="e.g. Draft, Client Review" value={newVersionData.tags} onChange={e => setNewVersionData({ ...newVersionData, tags: e.target.value })} />
-                            </div>
-                            <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700">
-                                <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
-                            </div>
-                            <div className="flex gap-2 justify-end mt-2">
-                                <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
-                                <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
+                            <div className="p-4 border-t bg-gray-50 rounded-b-2xl">
+                                <button onClick={() => setShowDiffModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Close</button>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-
-            {showCopyTasksModal && (
-                <CopyTasksModal
-                    isOpen={showCopyTasksModal}
-                    onClose={() => setShowCopyTasksModal(false)}
-                    sourceOpp={localOpp}
-                    opportunities={opportunities || []}
-                    onCopy={handleCopyTasks}
-                />
-            )}
-            {showDiffModal && (
-                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-                        <div className="p-4 border-b flex justify-between items-center">
-                            <h3 className="font-bold">Version Comparison</h3>
-                            <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
-                        </div>
-                        <div className="p-4 overflow-y-auto flex-1">
-                            <div className="grid grid-cols-2 gap-4 mb-4">
-                                <div className="p-2 bg-red-50 rounded border border-red-100">
-                                    <h4 className="font-bold text-red-800 text-xs uppercase mb-1">Base (Live)</h4>
-                                    <p className="text-xs">Current State</p>
-                                </div>
-                                <div className="p-2 bg-green-50 rounded border border-green-100">
-                                    <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
-                                    <p className="text-xs">
-                                        {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                <h4 className="font-bold text-sm border-b pb-1">Changes Summary</h4>
-                                <div className="text-sm space-y-2">
-                                    {/* Inline Logic for Diff */}
-                                    {(() => {
-                                        const v = (localOpp.versions || []).find(v => v.id === diffCompareId);
-                                        if (!v) return <p>Version not found.</p>;
-
-                                        const tasksDiff = Math.abs(localOpp.tasks.length - v.snapshot.tasks.length);
-                                        const notesDiff = Math.abs(localOpp.notes.length - v.snapshot.notes.length);
-                                        const kpiChanged = JSON.stringify(localOpp.kpis) !== JSON.stringify(v.snapshot.kpis);
-
-                                        return (
-                                            <div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>Tasks Count Difference</span>
-                                                    <span className="font-mono font-bold">{tasksDiff}</span>
-                                                </div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>Notes Count Difference</span>
-                                                    <span className="font-mono font-bold">{notesDiff}</span>
-                                                </div>
-                                                <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                                    <span>KPIs Changed?</span>
-                                                    <span className={`font-bold ${kpiChanged ? 'text-orange-500' : 'text-gray-400'}`}>{kpiChanged ? 'YES' : 'NO'}</span>
-                                                </div>
-                                                <div className="p-2 bg-yellow-50 text-xs text-yellow-700 mt-2">
-                                                    * Detailed field-by-field diff is limited in this surgical view.
-                                                    <br />Restore specific sections using the sidebar actions.
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-4 border-t bg-gray-50 rounded-b-2xl">
-                            <button onClick={() => setShowDiffModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Close</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 

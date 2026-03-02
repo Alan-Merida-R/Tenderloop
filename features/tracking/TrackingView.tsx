@@ -31,6 +31,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
     const [selectedDay, setSelectedDay] = useState<string | null>(getLocalToday());
     const [showFilters, setShowFilters] = useState(false);
     const [selectedItem, setSelectedItem] = useState<TrackingWorkItem | null>(null);
+    const [showInbox, setShowInbox] = useState(false);
 
     // Creation Modal State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -203,6 +204,44 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
         return items;
     }, [opportunities, filters]);
 
+    const unorganizedItems = useMemo(() => {
+        const items: TrackingWorkItem[] = [];
+        opportunities.forEach(opp => {
+            // 1. Tasks without dates
+            opp.tasks.forEach(task => {
+                if (!task.dueDate) {
+                    items.push({
+                        id: task.id,
+                        type: 'task',
+                        date: '',
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: task.title,
+                        status: task.status,
+                        data: task
+                    });
+                }
+            });
+            // 2. Notes without dates
+            opp.notes.forEach(note => {
+                if (!note.date) {
+                    items.push({
+                        id: note.id,
+                        type: 'note',
+                        date: '',
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: note.title,
+                        data: note
+                    });
+                }
+            });
+        });
+        return items;
+    }, [opportunities]);
+
     // Calendar Generation
     const days = useMemo(() => {
         const result: Date[] = [];
@@ -330,6 +369,13 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
                 <div className="flex items-center gap-3">
                     <button
+                        onClick={() => setShowInbox(!showInbox)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showInbox ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                        <Info className="w-4 h-4" />
+                        Inbox ({unorganizedItems.length})
+                    </button>
+                    <button
                         onClick={() => setShowFilters(!showFilters)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showFilters ? 'bg-[#3DCD58] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                     >
@@ -345,7 +391,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
             <div className="flex-1 flex min-h-0 overflow-hidden">
                 {/* Main Calendar Area */}
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0">
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0 relative">
                     {/* Filters Panel */}
                     {showFilters && (
                         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-xl animate-in slide-in-from-top duration-300">
@@ -377,7 +423,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl z-[100] max-h-60 overflow-y-auto">
                                                 {opportunities
                                                     .filter(o => !filters.opportunityIds.includes(o.id))
-                                                    .filter(o => o.title.toLowerCase().includes(oppSearch.toLowerCase()) || o.id.toLowerCase().includes(oppSearch.toLowerCase()) || o.customer.toLowerCase().includes(oppSearch.toLowerCase()))
+                                                    .filter(o => o.title.toLowerCase().includes(oppSearch.toLowerCase()) || o.id.toLowerCase().includes(oppSearch.toLowerCase()) || (o.customer || '').toLowerCase().includes(oppSearch.toLowerCase()))
                                                     .slice(0, 50)
                                                     .map(opp => (
                                                         <button
@@ -390,14 +436,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                         >
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="text-sm font-bold text-gray-800 truncate">{opp.title}</div>
-                                                                <div className="text-[10px] text-gray-400 font-mono">{opp.id} • {opp.customer}</div>
+                                                                <div className="text-[10px] text-gray-400 font-mono">{opp.id} • {opp.customer || 'No Customer'}</div>
                                                             </div>
                                                             <Plus className="w-4 h-4 text-gray-300 group-hover/item:text-[#3DCD58]" />
                                                         </button>
                                                     ))}
-                                                {opportunities.filter(o => !filters.opportunityIds.includes(o.id)).length === 0 && (
-                                                    <div className="p-4 text-center text-xs text-gray-400 font-bold">No results found</div>
-                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -552,72 +595,125 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         </div>
                     )}
 
-                    {/* Calendar Grid */}
-                    <div className="bg-white rounded-2xl flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
-                        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b`}>
-                            {viewMode === 'day' ? (
-                                <div className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{days[0]?.toLocaleDateString('en-US', { weekday: 'long' })}</div>
-                            ) : (
-                                ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                                    <div key={d} className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{d}</div>
-                                ))
-                            )}
-                        </div>
-                        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} flex-1 overflow-y-auto content-start`}>
-                            {days.map((d, i) => {
-                                const dateStr = d.toLocaleDateString('en-CA');
-                                const isSelected = selectedDay === dateStr;
-                                const isToday = dateStr === getLocalToday();
-                                const isCurrentMonth = d.getMonth() === currentDate.getMonth();
-                                const dayItems = workItems.filter(item => item.date === dateStr);
+                    {/* Main Content Area: Calendar + Inbox Sidebar */}
+                    <div className="flex-1 flex overflow-hidden gap-4 min-h-0">
+                        {/* Calendar Grid */}
+                        <div className="flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px] bg-white rounded-2xl">
+                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b`}>
+                                {viewMode === 'day' ? (
+                                    <div className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{days[0]?.toLocaleDateString('en-US', { weekday: 'long' })}</div>
+                                ) : (
+                                    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                                        <div key={d} className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{d}</div>
+                                    ))
+                                )}
+                            </div>
+                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} flex-1 overflow-y-auto content-start`}>
+                                {days.map((d, i) => {
+                                    const dateStr = d.toLocaleDateString('en-CA');
+                                    const isSelected = selectedDay === dateStr;
+                                    const isToday = dateStr === getLocalToday();
+                                    const isCurrentMonth = d.getMonth() === currentDate.getMonth();
+                                    const dayItems = workItems.filter(item => item.date === dateStr);
 
-                                return (
-                                    <div
-                                        key={i}
-                                        onDragOver={(e) => e.preventDefault()}
-                                        onDrop={(e) => {
-                                            e.preventDefault();
-                                            try {
-                                                const itemData = JSON.parse(e.dataTransfer.getData('application/json'));
-                                                if (itemData && itemData.date !== dateStr) {
-                                                    updateItem(itemData, { date: dateStr, dueDate: dateStr });
-                                                }
-                                            } catch (err) { console.error("Drop failed", err); }
-                                        }}
-                                        onClick={() => setSelectedDay(dateStr)}
-                                        className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
-                                    >
-                                        <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
-                                            <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
-                                                {d.getDate()}
-                                            </span>
-                                            {dayItems.length > 0 && <span className="text-[8px] font-black text-[#3DCD58] bg-[#3DCD58]/10 px-1 py-0.5 rounded-full">{dayItems.length}</span>}
+                                    return (
+                                        <div
+                                            key={i}
+                                            onDragOver={(e) => e.preventDefault()}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                try {
+                                                    const itemData = JSON.parse(e.dataTransfer.getData('application/json'));
+                                                    if (itemData) {
+                                                        updateItem(itemData, { date: dateStr, dueDate: dateStr });
+                                                    }
+                                                } catch (err) { console.error("Drop failed", err); }
+                                            }}
+                                            onClick={() => setSelectedDay(dateStr)}
+                                            className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
+                                        >
+                                            <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
+                                                <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
+                                                    {d.getDate()}
+                                                </span>
+                                                {dayItems.length > 0 && <span className="text-[8px] font-black text-[#3DCD58] bg-[#3DCD58]/10 px-1 py-0.5 rounded-full">{dayItems.length}</span>}
+                                            </div>
+                                            <div className="flex flex-col gap-0.5">
+                                                {dayItems.map(item => (
+                                                    <div
+                                                        key={item.id}
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                                        }}
+                                                        className={`w-full max-w-full truncate px-1 py-0.5 rounded shadow-sm border ${viewMode === 'day' ? 'text-xs p-2 mb-1' : 'text-[8px]'} ${item.type === 'task' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                                            item.type === 'history' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                                                item.type === 'note' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                                                                    'bg-orange-50 text-orange-700 border-orange-200 font-black'
+                                                            }`}
+                                                    >
+                                                        <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.opportunityAlias ? `[${item.opportunityAlias}] ` : ''}{item.title}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                        <div className="flex flex-col gap-0.5">
-                                            {(viewMode === 'day' || viewMode === 'week' ? dayItems : dayItems).map(item => (
-                                                <div
-                                                    key={item.id}
-                                                    draggable
-                                                    onDragStart={(e) => {
-                                                        e.dataTransfer.setData('application/json', JSON.stringify(item));
-                                                    }}
-                                                    className={`w-full max-w-full truncate px-1 py-0.5 rounded shadow-sm border ${viewMode === 'day' ? 'text-xs p-2 mb-1' : 'text-[8px]'} ${item.type === 'task' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                                                        item.type === 'history' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                                            item.type === 'note' ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                                                                'bg-orange-50 text-orange-700 border-orange-200 font-black'
-                                                        }`}
-                                                >
-                                                    <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span> {item.opportunityAlias ? `[${item.opportunityAlias}] ` : ''}{item.title}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
+
+                        {/* Inbox Sidebar */}
+                        {showInbox && (
+                            <div className="w-80 bg-white border border-gray-200 rounded-2xl flex flex-col shadow-xl animate-in slide-in-from-right duration-300 overflow-hidden">
+                                <div className="p-4 border-b bg-orange-50/50 flex items-center justify-between">
+                                    <h4 className="text-xs font-black text-orange-700 uppercase tracking-widest flex items-center gap-2">
+                                        <Info className="w-4 h-4" /> Unorganized Items
+                                    </h4>
+                                    <button onClick={() => setShowInbox(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/30">
+                                    {unorganizedItems.length === 0 ? (
+                                        <div className="text-center py-20 opacity-40">
+                                            <Info className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                                            <p className="text-xs font-bold">Inbox is empty</p>
+                                            <p className="text-[9px]">Add items without dates to see them here.</p>
+                                        </div>
+                                    ) : (
+                                        unorganizedItems.map(item => (
+                                            <div
+                                                key={item.id}
+                                                draggable
+                                                onDragStart={(e) => {
+                                                    e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                }}
+                                                className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-orange-500 cursor-grab active:cursor-grabbing transition-all group"
+                                            >
+                                                <div className="flex items-center gap-2 mb-1.5">
+                                                    <span className={`w-2 h-2 rounded-full ${item.type === 'task' ? 'bg-blue-500' : 'bg-purple-500'}`}></span>
+                                                    <span className="text-[9px] font-black text-[#3DCD58] uppercase truncate tracking-tighter">[{item.opportunityAlias || item.opportunityId}]</span>
+                                                </div>
+                                                <p className="text-xs font-bold text-gray-700 line-clamp-2 leading-tight">{item.title}</p>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                                <div className="p-4 border-t bg-white">
+                                    <button
+                                        onClick={() => {
+                                            setFormData({ ...formData, date: '' });
+                                            setNewItemType('task');
+                                            setShowCreateModal(true);
+                                        }}
+                                        className="w-full py-2.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-xl hover:bg-[#2db64a] transition-all shadow-md flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" /> Quick Draft
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
-
                 {/* Agenda Sidebar */}
                 <div className="w-[450px] bg-white border-l flex flex-col shadow-2xl z-20 shrink-0">
                     <div className="p-6 border-b bg-gray-50/50 shrink-0">
@@ -769,31 +865,75 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             )}
                         </div>
                         <div className="p-6 bg-gray-50 border-t flex gap-3">
-                            <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all">{LABELS.cancel}</button>
+                            <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
                             <button onClick={() => {
-                                if (!targetOppId) return alert('Select an opportunity');
-                                const opp = opportunities.find(o => o.id === targetOppId);
+                                let finalTargetId = targetOppId;
+                                if (!finalTargetId) {
+                                    const fallback = opportunities.find(o => o.title.toLowerCase() === 'inbox' || o.alias === 'INBOX');
+                                    if (!fallback) return alert('Select an opportunity or create one named "Inbox" to use the quick add feature.');
+                                    finalTargetId = fallback.id;
+                                }
+
+                                const opp = opportunities.find(o => o.id === finalTargetId);
                                 if (!opp) return;
+
                                 const updatedOpp = { ...opp };
                                 if (newItemType === 'task') {
-                                    const newTask: Task = { id: Math.random().toString(36).substr(2, 9), title: formData.title, description: formData.content, status: 'Pending', priority: formData.priority, owner: 'Me', responsible: '', externalAreas: [], dueDate: formData.date, subtasks: [], order: (opp.tasks.length || 0) + 1, stageContext: opp.stage, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false };
-                                    updatedOpp.tasks = [...opp.tasks, newTask];
+                                    const newTask: Task = {
+                                        id: crypto.randomUUID(),
+                                        title: formData.title,
+                                        description: formData.content,
+                                        status: 'Pending',
+                                        priority: formData.priority,
+                                        owner: 'Me',
+                                        responsible: '',
+                                        externalAreas: [],
+                                        dueDate: formData.date,
+                                        subtasks: [],
+                                        order: (opp.tasks?.length || 0) + 1,
+                                        stageContext: opp.stage,
+                                        dependsOnTaskIds: [],
+                                        blockDoneUntilDependenciesDone: false
+                                    };
+                                    updatedOpp.tasks = [...(opp.tasks || []), newTask];
                                 } else if (newItemType === 'history') {
-                                    const newHistory: HistoryEntry = { id: Math.random().toString(36).substr(2, 9), date: formData.date, content: formData.title };
-                                    updatedOpp.history = [...opp.history, newHistory];
+                                    const newHistory: HistoryEntry = {
+                                        id: crypto.randomUUID(),
+                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        content: formData.title
+                                    };
+                                    updatedOpp.history = [...(opp.history || []), newHistory];
                                 } else if (newItemType === 'note') {
-                                    const newNote: MeetingNote = { id: Math.random().toString(36).substr(2, 9), date: formData.date, type: 'General', title: formData.title, content: formData.content, attendees: '' };
-                                    updatedOpp.notes = [...opp.notes, newNote];
+                                    const newNote: MeetingNote = {
+                                        id: crypto.randomUUID(),
+                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        type: 'General',
+                                        title: formData.title,
+                                        content: formData.content,
+                                        attendees: ''
+                                    };
+                                    updatedOpp.notes = [...(opp.notes || []), newNote];
                                 } else if (newItemType === 'hours') {
                                     if (!formData.areaId) return alert('Select an area');
-                                    const areaIdx = updatedOpp.kpis?.areasInvolved.findIndex(a => a.id === formData.areaId);
-                                    if (areaIdx === -1 || areaIdx === undefined) return;
-                                    const calendar = { ...(updatedOpp.kpis!.areasInvolved[areaIdx].calendar || {}) };
+                                    if (!updatedOpp.kpis) return;
+                                    const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.id === formData.areaId);
+                                    if (areaIdx === -1) return;
+
+                                    const calendar = { ...(updatedOpp.kpis.areasInvolved[areaIdx].calendar || {}) };
                                     calendar[formData.date] = { type: 'Worked', hours: formData.hours };
-                                    updatedOpp.kpis!.areasInvolved[areaIdx] = { ...updatedOpp.kpis!.areasInvolved[areaIdx], calendar };
+                                    const updatedAreas = [...updatedOpp.kpis.areasInvolved];
+                                    updatedAreas[areaIdx] = { ...updatedAreas[areaIdx], calendar };
+                                    updatedOpp.kpis = { ...updatedOpp.kpis, areasInvolved: updatedAreas };
                                 }
-                                onUpdateOpportunity?.(updatedOpp); setShowCreateModal(false); setFormData({ ...formData, title: '', content: '', hours: 0 });
-                            }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all">{LABELS.create}</button>
+
+                                onUpdateOpportunity?.(updatedOpp);
+                                setShowCreateModal(false);
+                                setFormData({ ...formData, title: '', content: '', hours: 0 });
+                                setTargetOppId('');
+                                setOppSearch('');
+                            }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all">
+                                {LABELS.create}
+                            </button>
                         </div>
                     </div>
                 </div>

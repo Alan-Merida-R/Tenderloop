@@ -5,20 +5,41 @@ import { Play, Pause, StopCircle, Clock } from 'lucide-react';
 
 export const TimerWidget = ({ onTaskClick }: { onTaskClick?: (taskId: string, oppId: string) => void }) => {
     const { timerState, startTimer, pauseTimer, stopTimer, formatTime, openStartModal } = useTimer();
+    const [tick, setTick] = React.useState(0);
+
+    // Local tick for display
+    React.useEffect(() => {
+        let interval: any;
+        if (timerState.isRunning) {
+            interval = setInterval(() => {
+                setTick(t => t + 1);
+            }, 1000);
+        } else {
+            setTick(0);
+        }
+        return () => clearInterval(interval);
+    }, [timerState.isRunning, timerState.taskId]);
+
+    const displaySeconds = React.useMemo(() => {
+        if (!timerState.isRunning) return timerState.elapsedSeconds;
+        const now = Date.now();
+        const sessionSeconds = Math.floor((now - (timerState.startTime || now)) / 1000);
+        return timerState.elapsedSeconds + sessionSeconds;
+    }, [timerState.isRunning, timerState.elapsedSeconds, timerState.startTime, tick]);
 
     React.useEffect(() => {
         if (timerState.isRunning) {
-            document.title = `[${formatTime(timerState.elapsedSeconds)}] ${timerState.taskTitle || 'Timer'} | TenderLoop`;
+            document.title = `[${formatTime(displaySeconds)}] ${timerState.taskTitle || 'Timer'} | TenderLoop`;
         } else {
             document.title = 'TenderLoop';
         }
-    }, [timerState.elapsedSeconds, timerState.isRunning, timerState.taskTitle]);
+    }, [displaySeconds, timerState.isRunning, timerState.taskTitle]);
 
     if (!timerState.isRunning && timerState.elapsedSeconds === 0) {
         return (
             <div className="fixed bottom-4 right-4 z-[100] animate-in fade-in zoom-in duration-300">
                 <button
-                    onClick={openStartModal} // Open global modal
+                    onClick={openStartModal}
                     className="bg-gray-900/90 text-white p-3 rounded-full shadow-xl hover:scale-110 transition-transform border border-gray-700 group flex items-center gap-2"
                     title="Start Timer"
                 >
@@ -39,7 +60,7 @@ export const TimerWidget = ({ onTaskClick }: { onTaskClick?: (taskId: string, op
                 >
                     {timerState.taskTitle || 'No Task'}
                 </button>
-                <span className="text-xl font-mono font-bold leading-none">{formatTime(timerState.elapsedSeconds)}</span>
+                <span className="text-xl font-mono font-bold leading-none">{formatTime(displaySeconds)}</span>
             </div>
 
             <div className="flex items-center gap-1">

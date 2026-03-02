@@ -469,6 +469,11 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               onDoubleClick={() => {
                 if (item.kind === 'directory') {
                   navigateTo(item.handle as FileSystemDirectoryHandle, item.relativePath);
+                } else {
+                  const t = `${rootPathDisplay}\\${item.relativePath.join('\\')}`;
+                  navigator.clipboard.writeText(t);
+                  setCopySuccess('full');
+                  setTimeout(() => setCopySuccess(null), 1500);
                 }
               }}
               className={`group hover:bg-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : ''}`}

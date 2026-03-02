@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
@@ -275,11 +275,13 @@ function App() {
       if (prev.find(t => t.id === tab.id)) return prev;
       return [...prev, tab];
     });
-    // Fix: Only close overlays if we are minimizing the MAIN opportunity 
-    // This allows minimizing a task or note without closing the expediente
+
+    // Handle "Full Expediente" minimization
+    // User wants that if we minimize the expediente, it closes the whole modal/overlay
     if (tab.type === 'opportunity' || tab.type === 'tracking') {
       setSelectedOppId(null);
       setActiveDeepLink(null);
+      setSplitTab(null); // Ensure split tab is also closed
     }
   };
 
@@ -386,13 +388,33 @@ function App() {
         try {
           // Status Migration
           let newStatus: OpportunityStatus = 'In Progress';
+          let detailedStatus: DetailedStatus | undefined = (o as any).detailedStatus;
+
           const oldStatus = (o as any).statusLabel;
-          if (oldStatus === 'Active') newStatus = 'In Progress';
-          else if (oldStatus === 'Approved') newStatus = 'Won';
-          else if (oldStatus === 'Rejected') newStatus = 'Lost';
-          else if (oldStatus === 'On Hold') newStatus = 'On Hold';
-          else if (['In Progress', 'On Hold', 'Canceled', 'Submitted', 'Won', 'Lost'].includes(oldStatus)) {
-            newStatus = oldStatus;
+          const spanishDetailedMapping: Record<string, DetailedStatus> = {
+            'Sin status': 'No Status',
+            'Espera': 'Waiting',
+            'Falta informacion': 'Info Needed',
+            'En pausa por prioridades': 'Paused',
+            'En aprobacion': 'Approval',
+            'Junta': 'Meeting',
+            'Completada': 'Completed',
+            'Cancelada': 'Canceled'
+          };
+
+          if (spanishDetailedMapping[oldStatus]) {
+            detailedStatus = spanishDetailedMapping[oldStatus];
+            newStatus = 'In Progress';
+          } else if (oldStatus === 'Active') {
+            newStatus = 'In Progress';
+          } else if (oldStatus === 'Approved') {
+            newStatus = 'Won';
+          } else if (oldStatus === 'Rejected') {
+            newStatus = 'Lost';
+          } else if (oldStatus === 'Canceled' || oldStatus === 'Cancelled') {
+            newStatus = 'Canceled';
+          } else if (['In Progress', 'On Hold', 'Submitted', 'Won', 'Lost', 'Canceled'].includes(oldStatus)) {
+            newStatus = oldStatus as OpportunityStatus;
           }
 
           // Commercial Migration (Merging HW/SW)
@@ -471,6 +493,7 @@ function App() {
           return {
             ...o,
             statusLabel: newStatus,
+            detailedStatus: detailedStatus,
             qlk: o.qlk || '',
             revision: o.revision || 'R0',
             priorityOrder: (o as any).priorityOrder ?? null,
@@ -781,6 +804,7 @@ function App() {
       revision: 'R0',
       stage: stage,
       statusLabel: 'In Progress',
+      detailedStatus: 'No Status',
       dates: { requested: new Date().toISOString().split('T')[0], expected: '', assigned: new Date().toISOString().split('T')[0] },
       priority: 'Medium',
       priorityOrder: null,
@@ -1271,7 +1295,7 @@ function App() {
         />
         <TimerWidget onTaskClick={handleTimerTaskClick} />
       </div>
-    </TimerProvider>
+    </TimerProvider >
   );
 }
 

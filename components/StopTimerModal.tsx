@@ -17,7 +17,7 @@ export const StopTimerModal: React.FC<StopTimerModalProps> = ({ isOpen, onClose,
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 text-left">
-            <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 border border-gray-100">
+            <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in zoom-in duration-200 border border-gray-100">
                 <div className="p-8 space-y-8">
                     {/* Header */}
                     <div className="flex justify-between items-start">
@@ -57,8 +57,8 @@ export const StopTimerModal: React.FC<StopTimerModalProps> = ({ isOpen, onClose,
                                     key={status}
                                     onClick={() => setSelectedStatus(status)}
                                     className={`p-4 rounded-2xl border-2 transition-all flex flex-col gap-2 relative overflow-hidden ${selectedStatus === status
-                                            ? 'border-[#3DCD58] bg-[#3DCD58]/5'
-                                            : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50'
+                                        ? 'border-[#3DCD58] bg-[#3DCD58]/5'
+                                        : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50'
                                         }`}
                                 >
                                     <div className="flex items-center justify-between w-full">
