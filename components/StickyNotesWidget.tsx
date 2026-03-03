@@ -59,7 +59,7 @@ export const StickyNotesWidget: React.FC = () => {
             }
             const parts = line.split(/(\*\*[^*]+\*\*)/);
             return (
-                <p key={li} className="text-xs text-gray-700 leading-relaxed min-h-[1em]">
+                <p key={li} className="text-xs text-gray-700 leading-relaxed break-all min-h-[1em]">
                     {parts.map((p, pi) => p.startsWith('**') && p.endsWith('**')
                         ? <strong key={pi}>{p.slice(2, -2)}</strong>
                         : p
@@ -68,18 +68,18 @@ export const StickyNotesWidget: React.FC = () => {
             );
         });
 
-    // Pill (always visible, above timer)
+    // Pill (always visible, above timer) — toggles panel open/closed
     const pill = (
         <div
             className="fixed bottom-20 right-4 z-[101] flex items-center gap-2 bg-yellow-400 text-yellow-900 px-3 py-1.5 rounded-full shadow-xl cursor-pointer hover:bg-yellow-500 transition-all select-none font-black text-xs border-2 border-yellow-300 animate-in fade-in zoom-in duration-300"
-            onClick={() => { setOpen(true); setMinimized(false); }}
-            title="Sticky Notes"
+            onClick={() => setOpen(prev => !prev)}
+            title={open ? 'Close Sticky Notes' : 'Open Sticky Notes'}
         >
             📌 <span>{notes.length}</span>
         </div>
     );
 
-    if (!open || minimized) return pill;
+    if (!open) return pill;
 
     return (
         <>
@@ -91,10 +91,7 @@ export const StickyNotesWidget: React.FC = () => {
                         📌 Sticky Notes
                         <span className="text-[9px] font-bold text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full">{notes.length}</span>
                     </span>
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => setMinimized(true)} className="text-yellow-500 hover:text-yellow-800 font-bold text-base px-1 leading-none" title="Minimize">−</button>
-                        <button onClick={() => setOpen(false)} className="text-yellow-500 hover:text-yellow-900 font-bold text-lg leading-none" title="Close">×</button>
-                    </div>
+                    <button onClick={() => setOpen(false)} className="text-yellow-500 hover:text-yellow-900 font-bold text-lg leading-none" title="Close">×</button>
                 </div>
 
                 {/* Toolbar */}
