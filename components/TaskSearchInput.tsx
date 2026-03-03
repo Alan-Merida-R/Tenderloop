@@ -75,29 +75,33 @@ export const TaskSearchInput: React.FC<Props> = ({
                 )}
             </div>
 
-            {/* Dropdown */}
-            {isOpen && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-80 overflow-y-auto z-[500] animate-in slide-in-from-top-2 duration-200">
-                    <div className="p-2 grid gap-1">
-                        {suggestions.map(task => (
-                            <button
-                                key={`${task.opp.id}-${task.id}`}
-                                onClick={() => {
-                                    onChange(task.title); // Or just fill the search with the title
-                                    setIsOpen(false);
-                                }}
-                                className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="font-bold text-[10px] text-orange-500 font-mono group-hover:underline">{task.opp.id} / {task.id}</span>
-                                    <span className={`text-[9px] font-bold px-1.5 rounded uppercase ${task.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{task.status}</span>
-                                </div>
-                                <span className="text-sm text-gray-700 font-medium truncate w-full">{task.title}</span>
-                            </button>
-                        ))}
+            {/* Dropdown — fixed so it escapes overflow:hidden parents */}
+            {isOpen && suggestions.length > 0 && (() => {
+                const rect = containerRef.current?.getBoundingClientRect();
+                if (!rect) return null;
+                return (
+                    <div
+                        className="fixed bg-white rounded-xl shadow-xl border border-gray-100 overflow-y-auto z-[999] animate-in slide-in-from-top-2 duration-200"
+                        style={{ top: rect.bottom + 4, left: rect.left, width: rect.width, maxHeight: 320 }}
+                    >
+                        <div className="p-2 grid gap-1">
+                            {suggestions.map(task => (
+                                <button
+                                    key={`${task.opp.id}-${task.id}`}
+                                    onClick={() => { onChange(task.title); setIsOpen(false); }}
+                                    className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-bold text-[10px] text-orange-500 font-mono group-hover:underline">{task.opp.id} / {task.id}</span>
+                                        <span className={`text-[9px] font-bold px-1.5 rounded uppercase ${task.status === 'Done' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{task.status}</span>
+                                    </div>
+                                    <span className="text-sm text-gray-700 font-medium truncate w-full">{task.title}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 };

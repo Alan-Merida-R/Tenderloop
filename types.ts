@@ -15,7 +15,7 @@ export type TaskOwner = 'Me' | 'External Area';
 export type ExternalArea = 'Delivery' | 'SCM' | 'Sales' | 'Legal' | 'Finance' | 'TSC' | 'Other' | string;
 export type TaskPriority = 'High' | 'Medium' | 'Low';
 export type OpportunityStatus = 'In Progress' | 'On Hold' | 'Submitted' | 'Won' | 'Lost' | 'Canceled';
-export type DetailedStatus = 'No Status' | 'Waiting' | 'Info Needed' | 'Paused' | 'Approval' | 'Meeting' | 'Completed' | 'Canceled';
+export type DetailedStatus = 'Working on it' | 'Review' | 'Info Needed' | 'Paused' | 'Approval' | 'Meeting' | 'Completed' | 'Canceled';
 
 export interface DeepLink {
   tab: string;
@@ -344,15 +344,18 @@ export const STATUS_COLORS: Record<OpportunityStatus, string> = {
   'Canceled': 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-export const DETAILED_STATUS_COLORS: Record<DetailedStatus, string> = {
-  'No Status': 'bg-slate-100 text-slate-500 border-slate-200',
-  'Waiting': 'bg-[#FFB800] text-white border-[#E6A600] shadow-sm', // Vivid Yellow/Amber
-  'Info Needed': 'bg-[#FF4D4D] text-white border-[#E64545] shadow-sm', // Vivid Red
-  'Paused': 'bg-[#FF8A00] text-white border-[#E67C00] shadow-sm', // Vivid Orange
-  'Approval': 'bg-[#4D61FF] text-white border-[#4557E6] shadow-sm', // Vivid Blue/Indigo
-  'Meeting': 'bg-[#B84DFF] text-white border-[#A645E6] shadow-sm', // Vivid Purple
-  'Completed': 'bg-[#00D1FF] text-white border-[#00BCE6] shadow-sm', // Vivid Cyan/Light Blue
+export const DETAILED_STATUS_COLORS: Record<string, string> = {
+  'Working on it': 'bg-[#3DCD58] text-white border-[#2db64a] shadow-sm',   // Green
+  'Review': 'bg-[#4D61FF] text-white border-[#4557E6] shadow-sm',   // Blue/Indigo
+  'Info Needed': 'bg-[#FF4D4D] text-white border-[#E64545] shadow-sm',   // Red
+  'Paused': 'bg-[#FF8A00] text-white border-[#E67C00] shadow-sm',   // Orange
+  'Approval': 'bg-[#B84DFF] text-white border-[#A645E6] shadow-sm',   // Purple
+  'Meeting': 'bg-[#00D1FF] text-white border-[#00BCE6] shadow-sm',   // Cyan
+  'Completed': 'bg-emerald-500 text-white border-emerald-600 shadow-sm',
   'Canceled': 'bg-gray-400 text-white border-gray-500 shadow-sm',
+  // Legacy fallbacks
+  'No Status': 'bg-[#4D61FF] text-white border-[#4557E6] shadow-sm',   // → Review color
+  'Waiting': 'bg-[#FFB800] text-white border-[#E6A600] shadow-sm',
 };
 
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {

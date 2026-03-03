@@ -9,6 +9,7 @@ import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/Setti
 import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
+import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -392,8 +393,8 @@ function App() {
 
           const oldStatus = (o as any).statusLabel;
           const spanishDetailedMapping: Record<string, DetailedStatus> = {
-            'Sin status': 'No Status',
-            'Espera': 'Waiting',
+            'Sin status': 'Review',      // No Status → Review
+            'Espera': 'Info Needed',     // Waiting → Info Needed
             'Falta informacion': 'Info Needed',
             'En pausa por prioridades': 'Paused',
             'En aprobacion': 'Approval',
@@ -804,7 +805,7 @@ function App() {
       revision: 'R0',
       stage: stage,
       statusLabel: 'In Progress',
-      detailedStatus: 'No Status',
+      detailedStatus: 'Working on it',
       dates: { requested: new Date().toISOString().split('T')[0], expected: '', assigned: new Date().toISOString().split('T')[0] },
       priority: 'Medium',
       priorityOrder: null,
@@ -1293,7 +1294,9 @@ function App() {
           initialSettings={appSettings}
           opportunities={db.opportunities}
         />
+        <StickyNotesWidget />
         <TimerWidget onTaskClick={handleTimerTaskClick} />
+
       </div>
     </TimerProvider >
   );
