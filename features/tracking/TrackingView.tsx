@@ -873,7 +873,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                 value={item.status}
                                                 onChange={(e) => updateItem(item, { status: e.target.value })}
                                             >
-                                                <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Canceled">Canceled</option>
+                                                <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Missing Info">Missing Info</option><option value="Canceled">Canceled</option>
                                             </select>
                                         )}
                                         {item.type === 'hours' && (
@@ -1125,7 +1125,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                         <div className="space-y-1">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.status}</label>
                                             <select className="w-full text-sm font-bold bg-gray-50 p-2 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58] uppercase" value={selectedItem.status} onChange={(e) => updateItem(selectedItem, { status: e.target.value as any })}>
-                                                <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Canceled">Canceled</option>
+                                                <option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Done">Done</option><option value="On Hold">On Hold</option><option value="Missing Info">Missing Info</option><option value="Canceled">Canceled</option>
                                             </select>
                                         </div>
                                     )}
