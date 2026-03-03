@@ -3140,7 +3140,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
 
                                     {(() => {
-                                        const nextTask = (localOpp.tasks || []).find(t => !['Done', 'Canceled'].includes(t.status));
+                                        const nextTask = [...(localOpp.tasks || [])]
+                                            .sort((a, b) => {
+                                                const ao = a.order ?? 999999, bo = b.order ?? 999999;
+                                                if (ao !== bo) return ao - bo;
+                                                if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+                                                if (a.dueDate) return -1; if (b.dueDate) return 1;
+                                                return 0;
+                                            })
+                                            .find(t => !['Done', 'Canceled', 'Completada', 'Cancelada'].includes(t.status));
                                         return nextTask ? (
                                             <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1">
                                                 <Zap className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />

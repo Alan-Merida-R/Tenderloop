@@ -3163,7 +3163,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     </div>
                                 ))}
                             </div>
-                            <p className="text-[9px] text-gray-400 mt-2">🔵 Today · 🔴 5+ tasks (overloaded) · 🟠 3-4 tasks · ⚪ 1-2</p>
+
                         </div>
                     </div>
                 );
