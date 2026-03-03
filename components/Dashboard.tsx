@@ -576,6 +576,35 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
     const [showCopyToOppModal, setShowCopyToOppModal] = useState(false);
     const [copyTargetOppId, setCopyTargetOppId] = useState('');
+    const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+    const [bulkEditStatus, setBulkEditStatus] = useState('');
+    const [bulkEditDate, setBulkEditDate] = useState('');
+
+    // Workload chart
+    const [showWorkloadChart, setShowWorkloadChart] = useState(false);
+
+    // Sticky Notes (stored in localStorage)
+    const STICKY_KEY = 'tenderloop.stickynotes.v1';
+    interface StickyNote { id: string; content: string; createdAt: string; }
+    const [stickyNotes, setStickyNotes] = useState<StickyNote[]>(() => {
+        try { return JSON.parse(localStorage.getItem(STICKY_KEY) || '[]'); } catch { return []; }
+    });
+    const [showStickyPanel, setShowStickyPanel] = useState(false);
+    const [newStickyText, setNewStickyText] = useState('');
+    useEffect(() => { localStorage.setItem(STICKY_KEY, JSON.stringify(stickyNotes)); }, [stickyNotes]);
+    const addStickyNote = () => {
+        if (!newStickyText.trim()) return;
+        setStickyNotes(prev => [{ id: crypto.randomUUID(), content: newStickyText.trim(), createdAt: new Date().toISOString() }, ...prev]);
+        setNewStickyText('');
+    };
+    const deleteStickyNote = (id: string) => setStickyNotes(prev => prev.filter(n => n.id !== id));
+    const updateStickyNote = (id: string, content: string) => setStickyNotes(prev => prev.map(n => n.id === id ? { ...n, content } : n));
+
+    // Kanban mini-notes per opportunity (in-memory, persisted via opp data would need onOppUpdate)
+    const [kanbanMiniNotes, setKanbanMiniNotes] = useState<Record<string, string>>(() => {
+        try { return JSON.parse(localStorage.getItem('tenderloop.kanban.mininotes.v1') || '{}'); } catch { return {}; }
+    });
+    useEffect(() => { localStorage.setItem('tenderloop.kanban.mininotes.v1', JSON.stringify(kanbanMiniNotes)); }, [kanbanMiniNotes]);
 
     // Close Task Modal State
     const [closeTaskData, setCloseTaskData] = useState<{ task: Task, oppId: string } | null>(null);
@@ -594,8 +623,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                 if (parsed.tasksViewMode) setTasksViewMode(parsed.tasksViewMode);
                 if (parsed.proposalsViewMode) setProposalsViewMode(parsed.proposalsViewMode);
             } else {
-                // Default: All statuses selected
+                // Default: All statuses + priorities selected
                 setTaskStatusFilters(Object.keys(TASK_STATUS_COLORS));
+                setTaskPriorityFilters(Object.keys(PRIORITY_COLORS));
             }
         } catch (e) { }
     }, []);
@@ -617,7 +647,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
 
     // Kanban Grouping State
-    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed'>('status');
+    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed' | 'agile'>('status');
 
     const [selectedTask, setSelectedTask] = useState<{ task: Task, oppId: string } | null>(null);
     const [showDocPicker, setShowDocPicker] = useState<boolean>(false);
@@ -1145,9 +1175,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                     if (!result.grouped[key]) result.grouped[key] = [];
                     result.grouped[key].push(taskWithOpp);
 
-                    // --- Next Steps (Pending items only - Exclude terminal states) ---
-                    const isTerminal = ['Done', 'Completada', 'Won', 'Lost', 'Canceled', 'Cancelada'].includes(t.status);
-                    if (!isTerminal) {
+                    // --- Next Steps (lowest order, exclude terminal states) ---
+                    const isTerminal = ['Done', 'Canceled'].includes(t.status);
+                    if (!isTerminal && mode === 'tasks') {
                         if (!t.dueDate) result.nextSteps.noDate.push(taskWithOpp);
                         else if (t.dueDate < today) result.nextSteps.overdue.push(taskWithOpp);
                         else if (t.dueDate === today) result.nextSteps.dueToday.push(taskWithOpp);
@@ -1245,11 +1275,25 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         } else if (kanbanGroupBy === 'detailed') {
-            ['No Status', 'Waiting', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'].forEach(g => groups[g] = []);
+            // Remove 'Waiting' — migrate to 'Info Needed'
+            ['No Status', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'].forEach(g => groups[g] = []);
             filteredOpps.forEach(o => {
-                const key = o.detailedStatus || 'No Status';
+                let key = o.detailedStatus || 'No Status';
+                if (key === 'Waiting') key = 'Info Needed'; // Migration
                 if (groups[key]) groups[key].push(o);
                 else if (groups['No Status']) groups['No Status'].push(o);
+            });
+            Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
+        } else if (kanbanGroupBy === 'agile') {
+            // Agile board: Backlog → Review → Working on it → Done
+            ['Backlog', 'Review', 'Working on it', 'Done'].forEach(g => groups[g] = []);
+            filteredOpps.forEach(o => {
+                let key = 'Backlog';
+                if (o.statusLabel === 'Won' || o.statusLabel === 'Submitted') key = 'Done';
+                else if (o.statusLabel === 'On Hold') key = 'Review';
+                else if (o.statusLabel === 'In Progress') key = 'Working on it';
+                else key = 'Backlog';
+                groups[key].push(o);
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         } else {
@@ -1738,6 +1782,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     Standard
                                 </button>
                                 <button
+                                    onClick={() => setKanbanGroupBy('agile')}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${kanbanGroupBy === 'agile' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                                >
+                                    Agile
+                                </button>
+                                <button
                                     onClick={() => setKanbanGroupBy('detailed')}
                                     className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${kanbanGroupBy === 'detailed' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
                                 >
@@ -1792,6 +1842,18 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <Activity className="w-4 h-4" /> Tracker
                             </button>
                             <button
+                                onClick={() => setShowWorkloadChart(!showWorkloadChart)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showWorkloadChart ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                            >
+                                📊 Workload
+                            </button>
+                            <button
+                                onClick={() => setShowStickyPanel(!showStickyPanel)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showStickyPanel ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                            >
+                                📌 Sticky Notes
+                            </button>
+                            <button
                                 onClick={() => setShowNextSteps(!showNextSteps)}
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${showNextSteps ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                             >
@@ -1840,6 +1902,14 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                         Cancel
                                     </button>
                                 </div>
+                            )}
+                            {selectedTaskIds.length > 0 && (
+                                <button
+                                    onClick={() => setShowBulkEditModal(true)}
+                                    className="ml-1 flex items-center gap-2 px-3 py-2 bg-purple-500 text-white hover:bg-purple-600 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                >
+                                    ✏️ Bulk Edit ({selectedTaskIds.length})
+                                </button>
                             )}
                         </>
                     )}
@@ -2088,13 +2158,24 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                             <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
 
                                                             {!hideNextStepBadges && (() => {
-                                                                const nextTask = (opp.tasks || []).find(t => !['Done', 'Canceled'].includes(t.status));
+                                                                const nextTask = (opp.tasks || [])
+                                                                    .filter(t => !['Done', 'Canceled'].includes(t.status))
+                                                                    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))[0];
+                                                                const isMissingInfoStale = nextTask?.status === 'Missing Info' && nextTask?.dueDate && (() => {
+                                                                    const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
+                                                                    return hrs > 48;
+                                                                })();
                                                                 return nextTask ? (
-                                                                    <div className="mt-1 flex items-start gap-1.5 p-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 shadow-sm animate-in fade-in slide-in-from-top-1">
-                                                                        <div className="shrink-0 mt-0.5"><Zap className="w-3 h-3 text-blue-500 fill-blue-500" /></div>
+                                                                    <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                                                                        <div className="shrink-0 mt-0.5">
+                                                                            {isMissingInfoStale
+                                                                                ? <span title="Blocked >48h">⚠️</span>
+                                                                                : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
+                                                                        </div>
                                                                         <div className="flex flex-col gap-0.5">
                                                                             <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
                                                                             <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
+                                                                            {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
                                                                         </div>
                                                                     </div>
                                                                 ) : null;
@@ -2106,6 +2187,17 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                                         {l.text}
                                                                     </div>
                                                                 ))}
+                                                            </div>
+
+                                                            {/* Mini-note for quick annotations */}
+                                                            <div className="mt-2" onClick={e => e.stopPropagation()}>
+                                                                <textarea
+                                                                    placeholder="Quick note..."
+                                                                    value={kanbanMiniNotes[opp.id] || ''}
+                                                                    onChange={e => setKanbanMiniNotes(prev => ({ ...prev, [opp.id]: e.target.value }))}
+                                                                    className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 resize-none focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
+                                                                    rows={2}
+                                                                />
                                                             </div>
 
                                                             <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -3009,7 +3101,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <button
                                     onClick={() => {
                                         if (timerState.taskId === closeTaskData.task.id && timerState.isRunning) {
-                                            confirmStop('Done'); // Stop and log for this task
+                                            confirmStop('Done');
                                         } else {
                                             onTaskUpdate(closeTaskData.oppId, closeTaskData.task.id, { status: 'Done' });
                                         }
@@ -3017,9 +3109,141 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     }}
                                     className="px-6 py-2 text-sm font-bold text-white bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg shadow-md flex items-center gap-2"
                                 >
-                                    <CheckSquare className="w-4 h-4" /> Confirm & Close
+                                    <CheckSquare className="w-4 h-4" /> Confirm &amp; Close
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== STICKY NOTES PANEL ===== */}
+            {showStickyPanel && (
+                <div className="fixed bottom-6 right-6 z-50 w-80 bg-white rounded-2xl shadow-2xl border border-yellow-200 overflow-hidden flex flex-col" style={{ maxHeight: '70vh' }}>
+                    <div className="flex items-center justify-between px-4 py-3 bg-yellow-50 border-b border-yellow-200">
+                        <span className="font-black text-yellow-800 text-sm flex items-center gap-2">📌 Sticky Notes</span>
+                        <button onClick={() => setShowStickyPanel(false)} className="text-yellow-600 hover:text-yellow-900 font-bold text-lg leading-none">×</button>
+                    </div>
+                    <div className="p-3 border-b border-yellow-100 flex gap-2">
+                        <textarea
+                            placeholder="Write a note..."
+                            value={newStickyText}
+                            onChange={e => setNewStickyText(e.target.value)}
+                            className="flex-1 text-xs border border-yellow-200 rounded-lg p-2 resize-none focus:ring-1 focus:ring-yellow-300 outline-none bg-yellow-50"
+                            rows={2}
+                        />
+                        <button onClick={addStickyNote} className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-lg text-xs font-black hover:bg-yellow-500 transition-colors self-end">Add</button>
+                    </div>
+                    <div className="overflow-y-auto flex-1 p-3 space-y-2 bg-yellow-50/30">
+                        {stickyNotes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No sticky notes yet.</p>}
+                        {stickyNotes.map(note => (
+                            <div key={note.id} className="bg-yellow-50 border border-yellow-200 rounded-xl p-2 shadow-sm group relative">
+                                <textarea
+                                    value={note.content}
+                                    onChange={e => updateStickyNote(note.id, e.target.value)}
+                                    className="w-full text-xs text-gray-700 bg-transparent border-none resize-none focus:ring-0 outline-none"
+                                    rows={Math.max(2, note.content.split('\n').length)}
+                                />
+                                <div className="flex items-center justify-between mt-1">
+                                    <span className="text-[9px] text-gray-400">{new Date(note.createdAt).toLocaleDateString()}</span>
+                                    <button onClick={() => deleteStickyNote(note.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-[10px] font-bold transition-opacity">Delete</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ===== WORKLOAD CHART ===== */}
+            {showWorkloadChart && mode === 'tasks' && (() => {
+                const today = new Date();
+                const days: { label: string; date: string; count: number }[] = [];
+                for (let i = -3; i <= 10; i++) {
+                    const d = new Date(today);
+                    d.setDate(d.getDate() + i);
+                    const dateStr = d.toLocaleDateString('en-CA');
+                    const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                    const count = taskData.filtered.filter((t: any) => t.dueDate === dateStr).length;
+                    days.push({ label, date: dateStr, count });
+                }
+                const maxCount = Math.max(...days.map(d => d.count), 1);
+                return (
+                    <div className="fixed bottom-6 left-6 z-50 bg-white rounded-2xl shadow-2xl border border-indigo-200 overflow-hidden" style={{ width: '480px' }}>
+                        <div className="flex items-center justify-between px-4 py-3 bg-indigo-50 border-b border-indigo-200">
+                            <span className="font-black text-indigo-800 text-sm">📊 Daily Workload (next 10 days)</span>
+                            <button onClick={() => setShowWorkloadChart(false)} className="text-indigo-600 hover:text-indigo-900 font-bold text-lg leading-none">×</button>
+                        </div>
+                        <div className="p-4 overflow-x-auto">
+                            <div className="flex items-end gap-1 h-32" style={{ minWidth: `${days.length * 32}px` }}>
+                                {days.map(d => (
+                                    <div key={d.date} className="flex flex-col items-center gap-1 flex-1">
+                                        <span className="text-[9px] font-bold text-gray-600">{d.count > 0 ? d.count : ''}</span>
+                                        <div
+                                            className={`rounded-t w-full transition-all ${d.date === new Date().toLocaleDateString('en-CA') ? 'bg-indigo-500' : d.count >= 5 ? 'bg-red-400' : d.count >= 3 ? 'bg-orange-400' : 'bg-indigo-200'}`}
+                                            style={{ height: `${Math.max(4, (d.count / maxCount) * 96)}px` }}
+                                            title={`${d.count} tasks on ${d.label}`}
+                                        />
+                                        <span className="text-[8px] text-gray-400 truncate w-full text-center" title={d.label}>{d.label.split(',')[0]}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-[9px] text-gray-400 mt-2">🔵 Today · 🔴 5+ tasks (overloaded) · 🟠 3-4 tasks · ⚪ 1-2</p>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ===== BULK EDIT MODAL ===== */}
+            {showBulkEditModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowBulkEditModal(false)}>
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b bg-purple-50 flex justify-between items-center rounded-t-2xl">
+                            <h3 className="font-black text-purple-800 text-lg">✏️ Bulk Edit — {selectedTaskIds.length} tasks</h3>
+                            <button onClick={() => setShowBulkEditModal(false)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">×</button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Set Status (optional)</label>
+                                <select
+                                    value={bulkEditStatus}
+                                    onChange={e => setBulkEditStatus(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-purple-300 outline-none"
+                                >
+                                    <option value="">— No change —</option>
+                                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Set Due Date (optional)</label>
+                                <input
+                                    type="date"
+                                    value={bulkEditDate}
+                                    onChange={e => setBulkEditDate(e.target.value)}
+                                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-purple-300 outline-none"
+                                />
+                            </div>
+                        </div>
+                        <div className="p-5 border-t flex gap-3">
+                            <button onClick={() => { setShowBulkEditModal(false); setBulkEditStatus(''); setBulkEditDate(''); }} className="flex-1 px-4 py-2 text-sm font-bold text-gray-500 border rounded-xl hover:bg-gray-100">Cancel</button>
+                            <button
+                                onClick={() => {
+                                    if (!bulkEditStatus && !bulkEditDate) { setShowBulkEditModal(false); return; }
+                                    const updates: any = {};
+                                    if (bulkEditStatus) updates.status = bulkEditStatus;
+                                    if (bulkEditDate) updates.dueDate = bulkEditDate;
+                                    selectedTaskIds.forEach(taskId => {
+                                        const opp = opportunities.find(o => o.tasks.some(t => t.id === taskId));
+                                        if (opp) onTaskUpdate(opp.id, taskId, updates);
+                                    });
+                                    setSelectedTaskIds([]);
+                                    setShowBulkEditModal(false);
+                                    setBulkEditStatus('');
+                                    setBulkEditDate('');
+                                }}
+                                className="flex-[2] px-4 py-2 bg-purple-500 text-white rounded-xl text-sm font-black hover:bg-purple-600 shadow transition-all"
+                            >
+                                Apply to {selectedTaskIds.length} tasks
+                            </button>
                         </div>
                     </div>
                 </div>

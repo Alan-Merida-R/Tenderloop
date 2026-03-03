@@ -416,9 +416,9 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             <div className="flex-1 flex min-h-0 overflow-hidden">
                 {/* Main Calendar Area */}
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0 relative">
-                    {/* Filters Panel */}
+                    {/* Filters Panel — absolute so it overlays calendar without displacing it */}
                     {showFilters && (
-                        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-xl animate-in slide-in-from-top duration-300">
+                        <div className="absolute top-4 left-4 right-4 z-30 bg-white rounded-2xl p-6 border border-gray-200 shadow-2xl animate-in slide-in-from-top duration-300">
                             <div className="grid grid-cols-2 gap-8">
                                 {/* Section 1: Opportunity Filters */}
                                 <div className="space-y-4">
@@ -545,7 +545,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                 <div className="space-y-1.5">
                                                     <label className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Task Status</label>
                                                     <div className="flex flex-wrap gap-1">
-                                                        {['Pending', 'In Progress', 'Done', 'On Hold'].map(status => (
+                                                        {(['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'] as const).map(status => (
                                                             <button
                                                                 key={status}
                                                                 onClick={() => {
