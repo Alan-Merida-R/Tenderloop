@@ -57,7 +57,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 4,
+        order: 5,   // was 4 (duplicate) → now 5
         subtasks: [
             { id: "1", title: "CQA template", completed: false },
             { id: "2", title: "Doc Template", completed: false }
@@ -70,7 +70,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 5,
+        order: 6,   // was 5
         calendarized: true
     },
     {
@@ -80,7 +80,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 6,
+        order: 7,   // was 6
         subtasks: [
             { id: "1", title: "TSC", completed: false },
             { id: "2", title: "Delivery", completed: false },
@@ -95,7 +95,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 7,
+        order: 8,   // was 7
         subtasks: []
     },
     {
@@ -105,7 +105,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 8,
+        order: 9,   // was 8 (duplicate) → now 9
         subtasks: []
     },
     {
@@ -116,7 +116,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["Other", "Sales"],
         dueDate: "",
-        order: 8,
+        order: 10,  // was 8 (duplicate) → now 10
         subtasks: []
     },
     {
@@ -126,7 +126,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 9,
+        order: 11,  // was 9
         subtasks: []
     },
     {
@@ -137,7 +137,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["TSC"],
         dueDate: "",
-        order: 10,
+        order: 12,  // was 10
         subtasks: []
     },
     {
@@ -147,7 +147,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 11,
+        order: 13,  // was 11
         subtasks: []
     },
     {
@@ -157,7 +157,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 12,
+        order: 14,  // was 12
         subtasks: []
     },
     {
@@ -168,7 +168,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["Delivery", "TSC"],
         dueDate: "",
-        order: 18,
+        order: 15,  // was 18
         subtasks: []
     },
     {
@@ -179,7 +179,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["TSC", "Other"],
         dueDate: "",
-        order: 18,
+        order: 16,  // was 18 (duplicate) → now 16
         subtasks: []
     },
     {
@@ -189,7 +189,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 19,
+        order: 17,  // was 19
         subtasks: [
             { id: "1", title: "BOM Charged", completed: true }
         ]
@@ -202,7 +202,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["Delivery", "SCM", "Sales", "TSC", "Other"],
         dueDate: "",
-        order: 20,
+        order: 18,  // was 20
         subtasks: []
     },
     {
@@ -213,7 +213,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         owner: "External Area",
         externalAreas: ["Delivery", "Sales"],
         dueDate: "",
-        order: 21,
+        order: 19,  // was 21
         subtasks: [
             { id: "1", title: "BOM Charged", completed: true },
             { id: "2", title: "Delivery Hours charged", completed: true },
@@ -228,7 +228,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 22,
+        order: 20,  // was 22
         subtasks: []
     },
     {
@@ -238,7 +238,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 23,
+        order: 21,  // was 23
         subtasks: []
     },
     {
@@ -248,7 +248,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 24,
+        order: 22,  // was 24
         subtasks: []
     },
     {
@@ -258,7 +258,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 25,
+        order: 23,  // was 25
         subtasks: []
     },
     {
@@ -268,7 +268,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 26,
+        order: 24,  // was 26
         subtasks: [
             { id: "1", title: "Table", completed: false },
             { id: "2", title: "Date", completed: false }
@@ -281,17 +281,17 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 27,
+        order: 25,  // was 27
         subtasks: []
     },
     {
-        title: " Update the emails in the folder",
+        title: "Update the emails in the folder",
         description: "",
         status: "Pending",
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 28,
+        order: 26,  // was 28
         subtasks: []
     },
     {
@@ -301,7 +301,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 29,
+        order: 27,  // was 29
         subtasks: []
     },
     {
@@ -311,7 +311,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         priority: "Medium",
         owner: "Me",
         dueDate: "",
-        order: 30,
+        order: 28,  // was 30
         subtasks: []
     }
 ];

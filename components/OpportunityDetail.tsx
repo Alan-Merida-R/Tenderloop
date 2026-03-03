@@ -1580,11 +1580,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return matchesText && matchesStatus;
     }).sort((a, b) => {
         if (taskSort === 'dueDate') {
-            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+            if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+            if (a.dueDate) return -1;
+            if (b.dueDate) return 1;
+            return 0;
         }
-        // Always sort by order by default (smallest to largest)
-        // If order is null/undefined, push to the end (999999)
-        return (a.order || 999999) - (b.order || 999999);
+        // Sort by order (null to end), then by dueDate as tiebreaker, then creation order
+        const aOrder = a.order ?? 999999;
+        const bOrder = b.order ?? 999999;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        // Same order: put tasks with earlier dueDate first, then null-date last
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return 0;
     });
 
     const displayValue = (val: number) => val === 0 ? '' : val;
@@ -1835,10 +1844,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
 
     const addTask = () => {
+        // Compute next order: max existing order + 1, deduplicate if needed
+        const existingOrders = localOpp.tasks.map(t => t.order ?? 0).filter(n => n > 0);
+        const nextOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : localOpp.tasks.length + 1;
         const newTask: Task = {
             id: crypto.randomUUID(), title: 'New Task', description: '', status: 'Pending', priority: 'Medium', owner: 'Me',
             externalAreas: [], responsible: '', dueDate: '', stageContext: localOpp.stage, subtasks: [], linkedNoteIds: [],
-            order: null, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
+            order: nextOrder, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
         };
         handleFieldChange('tasks', [...localOpp.tasks, newTask]);
         setSelectedTaskForEdit({ task: newTask });

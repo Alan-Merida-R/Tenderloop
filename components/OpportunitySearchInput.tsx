@@ -209,36 +209,36 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 )}
             </div>
 
-            {/* Dropdown */}
-            {isDropdownOpen && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 max-h-80 overflow-y-auto z-[500] animate-in slide-in-from-top-2 duration-200">
-                    <div className="p-2 grid gap-1">
-                        {suggestions.map(opp => (
-                            <button
-                                key={opp.id}
-                                onClick={() => {
-                                    onSelect(opp.id);
-                                    onChange('');
-                                    // Don't close automatically to allow multiple selections
-                                    // Keep focus on input?
-                                    // We need to keep the dropdown open.
-                                    // If we want it to close only when clicking outside, we do nothing here.
-                                    // But typically a "select" action might want to give feedback.
-                                    // User asked: "haz que siempre te despliegue las opciones aun que sea la segunda busqueda"
-                                    // Keeping it open is the most robust way to ensure they see they can select more.
-                                }}
-                                className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="font-bold text-xs text-[#3DCD58] font-mono group-hover:underline">{opp.id}</span>
-                                    <span className="text-[10px] text-gray-400">{opp.customer}</span>
-                                </div>
-                                <span className="text-sm text-gray-700 font-medium truncate w-full">{opp.title}</span>
-                            </button>
-                        ))}
+            {/* Dropdown — fixed so it escapes overflow:hidden parents */}
+            {isDropdownOpen && suggestions.length > 0 && (() => {
+                const rect = containerRef.current?.getBoundingClientRect();
+                if (!rect) return null;
+                return (
+                    <div
+                        className="fixed bg-white rounded-xl shadow-xl border border-gray-100 overflow-y-auto z-[999] animate-in slide-in-from-top-2 duration-200"
+                        style={{ top: rect.bottom + 4, left: rect.left, width: rect.width, maxHeight: 320 }}
+                    >
+                        <div className="p-2 grid gap-1">
+                            {suggestions.map(opp => (
+                                <button
+                                    key={opp.id}
+                                    onClick={() => {
+                                        onSelect(opp.id);
+                                        onChange('');
+                                    }}
+                                    className="flex flex-col text-left px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors group"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-bold text-xs text-[#3DCD58] font-mono group-hover:underline">{opp.id}</span>
+                                        <span className="text-[10px] text-gray-400">{opp.customer}</span>
+                                    </div>
+                                    <span className="text-sm text-gray-700 font-medium truncate w-full">{opp.title}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 };

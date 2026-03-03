@@ -590,6 +590,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         try { return JSON.parse(localStorage.getItem(STICKY_KEY) || '[]'); } catch { return []; }
     });
     const [showStickyPanel, setShowStickyPanel] = useState(false);
+    const [stickyMinimized, setStickyMinimized] = useState(false);
     const [newStickyText, setNewStickyText] = useState('');
     useEffect(() => { localStorage.setItem(STICKY_KEY, JSON.stringify(stickyNotes)); }, [stickyNotes]);
     const addStickyNote = () => {
@@ -647,7 +648,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
 
     // Kanban Grouping State
-    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed' | 'agile'>('status');
+    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed'>('status');
 
     const [selectedTask, setSelectedTask] = useState<{ task: Task, oppId: string } | null>(null);
     const [showDocPicker, setShowDocPicker] = useState<boolean>(false);
@@ -1275,25 +1276,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         } else if (kanbanGroupBy === 'detailed') {
-            // Remove 'Waiting' — migrate to 'Info Needed'
-            ['No Status', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'].forEach(g => groups[g] = []);
+            // Process view: No Status → Working on it → Review → Info Needed → Paused → Approval → Meeting → Done
+            ['No Status', 'Working on it', 'Review', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'].forEach(g => groups[g] = []);
             filteredOpps.forEach(o => {
                 let key = o.detailedStatus || 'No Status';
-                if (key === 'Waiting') key = 'Info Needed'; // Migration
+                if (key === 'Waiting') key = 'Info Needed'; // Migration from old 'Waiting'
                 if (groups[key]) groups[key].push(o);
                 else if (groups['No Status']) groups['No Status'].push(o);
-            });
-            Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
-        } else if (kanbanGroupBy === 'agile') {
-            // Agile board: Backlog → Review → Working on it → Done
-            ['Backlog', 'Review', 'Working on it', 'Done'].forEach(g => groups[g] = []);
-            filteredOpps.forEach(o => {
-                let key = 'Backlog';
-                if (o.statusLabel === 'Won' || o.statusLabel === 'Submitted') key = 'Done';
-                else if (o.statusLabel === 'On Hold') key = 'Review';
-                else if (o.statusLabel === 'In Progress') key = 'Working on it';
-                else key = 'Backlog';
-                groups[key].push(o);
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         } else {
@@ -1773,19 +1762,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
                     {viewMode === 'board' && mode !== 'tasks' && (mode === 'proposals' || (mode === 'tasks' && taskGroupBy === 'status')) && (
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-500 font-medium whitespace-nowrap whitespace-nowrap translate-y-[-1px]">Kanban View:</span>
+                            <span className="text-xs text-gray-500 font-medium whitespace-nowrap translate-y-[-1px]">Kanban View:</span>
                             <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
                                 <button
                                     onClick={() => setKanbanGroupBy('status')}
                                     className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${kanbanGroupBy === 'status' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
                                 >
                                     Standard
-                                </button>
-                                <button
-                                    onClick={() => setKanbanGroupBy('agile')}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${kanbanGroupBy === 'agile' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-                                >
-                                    Agile
                                 </button>
                                 <button
                                     onClick={() => setKanbanGroupBy('detailed')}
@@ -1921,7 +1904,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-sm border ${hideNextStepBadges ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100'}`}
                             >
                                 <Zap className={`w-4 h-4 ${hideNextStepBadges ? 'opacity-50' : 'fill-blue-500'}`} />
-                                {hideNextStepBadges ? 'Show Next Steps' : 'Hide Next Steps'}
+                                {hideNextStepBadges ? 'Show Next Steps & Notes' : 'Hide Next Steps & Notes'}
                             </button>
                             <button
                                 onClick={() => onCreate()}
@@ -2189,16 +2172,18 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                                 ))}
                                                             </div>
 
-                                                            {/* Mini-note for quick annotations */}
-                                                            <div className="mt-2" onClick={e => e.stopPropagation()}>
-                                                                <textarea
-                                                                    placeholder="Quick note..."
-                                                                    value={kanbanMiniNotes[opp.id] || ''}
-                                                                    onChange={e => setKanbanMiniNotes(prev => ({ ...prev, [opp.id]: e.target.value }))}
-                                                                    className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 resize-none focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
-                                                                    rows={2}
-                                                                />
-                                                            </div>
+                                                            {/* Mini-note for quick annotations — hidden when hideNextStepBadges is true */}
+                                                            {!hideNextStepBadges && (
+                                                                <div className="mt-2" onClick={e => e.stopPropagation()}>
+                                                                    <textarea
+                                                                        placeholder="Quick note..."
+                                                                        value={kanbanMiniNotes[opp.id] || ''}
+                                                                        onChange={e => setKanbanMiniNotes(prev => ({ ...prev, [opp.id]: e.target.value }))}
+                                                                        className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 resize-none focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
+                                                                        rows={2}
+                                                                    />
+                                                                </div>
+                                                            )}
 
                                                             <div className="flex flex-wrap items-center gap-2 mt-2">
                                                                 <div
@@ -3119,39 +3104,112 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
             {/* ===== STICKY NOTES PANEL ===== */}
             {showStickyPanel && (
-                <div className="fixed bottom-6 right-6 z-50 w-80 bg-white rounded-2xl shadow-2xl border border-yellow-200 overflow-hidden flex flex-col" style={{ maxHeight: '70vh' }}>
-                    <div className="flex items-center justify-between px-4 py-3 bg-yellow-50 border-b border-yellow-200">
-                        <span className="font-black text-yellow-800 text-sm flex items-center gap-2">📌 Sticky Notes</span>
-                        <button onClick={() => setShowStickyPanel(false)} className="text-yellow-600 hover:text-yellow-900 font-bold text-lg leading-none">×</button>
+                stickyMinimized ? (
+                    // Minimized pill — appears in bottom-right near timer
+                    <div
+                        className="fixed bottom-20 right-5 z-[60] flex items-center gap-2 bg-yellow-400 text-yellow-900 px-3 py-1.5 rounded-full shadow-lg cursor-pointer hover:bg-yellow-500 transition-all select-none font-black text-xs"
+                        onClick={() => setStickyMinimized(false)}
+                        title="Open Sticky Notes"
+                    >
+                        📌 <span>{stickyNotes.length}</span>
                     </div>
-                    <div className="p-3 border-b border-yellow-100 flex gap-2">
-                        <textarea
-                            placeholder="Write a note..."
-                            value={newStickyText}
-                            onChange={e => setNewStickyText(e.target.value)}
-                            className="flex-1 text-xs border border-yellow-200 rounded-lg p-2 resize-none focus:ring-1 focus:ring-yellow-300 outline-none bg-yellow-50"
-                            rows={2}
-                        />
-                        <button onClick={addStickyNote} className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-lg text-xs font-black hover:bg-yellow-500 transition-colors self-end">Add</button>
-                    </div>
-                    <div className="overflow-y-auto flex-1 p-3 space-y-2 bg-yellow-50/30">
-                        {stickyNotes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No sticky notes yet.</p>}
-                        {stickyNotes.map(note => (
-                            <div key={note.id} className="bg-yellow-50 border border-yellow-200 rounded-xl p-2 shadow-sm group relative">
-                                <textarea
-                                    value={note.content}
-                                    onChange={e => updateStickyNote(note.id, e.target.value)}
-                                    className="w-full text-xs text-gray-700 bg-transparent border-none resize-none focus:ring-0 outline-none"
-                                    rows={Math.max(2, note.content.split('\n').length)}
-                                />
-                                <div className="flex items-center justify-between mt-1">
-                                    <span className="text-[9px] text-gray-400">{new Date(note.createdAt).toLocaleDateString()}</span>
-                                    <button onClick={() => deleteStickyNote(note.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-[10px] font-bold transition-opacity">Delete</button>
-                                </div>
+                ) : (
+                    <div className="fixed bottom-20 right-5 z-[60] w-80 bg-white rounded-2xl shadow-2xl border border-yellow-200 overflow-hidden flex flex-col" style={{ maxHeight: '70vh' }}>
+                        <div className="flex items-center justify-between px-4 py-2.5 bg-yellow-50 border-b border-yellow-200 cursor-move select-none">
+                            <span className="font-black text-yellow-800 text-sm flex items-center gap-2">📌 Sticky Notes
+                                <span className="text-[9px] font-bold text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full">{stickyNotes.length}</span>
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <button onClick={() => setStickyMinimized(true)} className="text-yellow-500 hover:text-yellow-800 font-bold text-base px-1 leading-none" title="Minimize">−</button>
+                                <button onClick={() => setShowStickyPanel(false)} className="text-yellow-500 hover:text-yellow-900 font-bold text-lg leading-none" title="Close">×</button>
                             </div>
-                        ))}
+                        </div>
+                        {/* Formatting toolbar */}
+                        <div className="px-3 pt-2 pb-1 flex gap-1 border-b border-yellow-100">
+                            <button
+                                onClick={() => setNewStickyText(t => t + '**bold**')}
+                                className="text-[10px] font-black px-2 py-0.5 bg-yellow-100 hover:bg-yellow-200 rounded border border-yellow-200 text-yellow-800"
+                                title="Insert bold"
+                            >B</button>
+                            <button
+                                onClick={() => setNewStickyText(t => t + (t.endsWith('\n') || t === '' ? '' : '\n') + '- [ ] ')}
+                                className="text-[10px] px-2 py-0.5 bg-yellow-100 hover:bg-yellow-200 rounded border border-yellow-200 text-yellow-800"
+                                title="Insert checklist item"
+                            >☑</button>
+                            <span className="text-[9px] text-gray-400 ml-1 self-center">**bold** · - [ ] checklist</span>
+                        </div>
+                        <div className="p-3 border-b border-yellow-100 flex gap-2">
+                            <textarea
+                                placeholder="Write a note..."
+                                value={newStickyText}
+                                onChange={e => setNewStickyText(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addStickyNote(); }}
+                                className="flex-1 text-xs border border-yellow-200 rounded-lg p-2 resize-none focus:ring-1 focus:ring-yellow-300 outline-none bg-yellow-50"
+                                rows={3}
+                            />
+                            <button onClick={addStickyNote} className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-lg text-xs font-black hover:bg-yellow-500 transition-colors self-end">Add</button>
+                        </div>
+                        <div className="overflow-y-auto flex-1 p-3 space-y-2 bg-yellow-50/30">
+                            {stickyNotes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No sticky notes yet.</p>}
+                            {stickyNotes.map(note => {
+                                // Render bold (**text**) and checklist (- [ ] / - [x])
+                                const renderContent = (raw: string) => raw.split('\n').map((line, li) => {
+                                    const checkMatch = line.match(/^- \[([ x])\] (.*)/);
+                                    if (checkMatch) {
+                                        const checked = checkMatch[1] === 'x';
+                                        const label = checkMatch[2];
+                                        return (
+                                            <div key={li} className="flex items-start gap-1.5 my-0.5">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={() => {
+                                                        const lines = note.content.split('\n');
+                                                        lines[li] = checked ? `- [ ] ${label}` : `- [x] ${label}`;
+                                                        updateStickyNote(note.id, lines.join('\n'));
+                                                    }}
+                                                    className="mt-0.5 accent-yellow-500"
+                                                />
+                                                <span className={`text-xs ${checked ? 'line-through text-gray-400' : 'text-gray-700'}`}>{label}</span>
+                                            </div>
+                                        );
+                                    }
+                                    // Bold rendering
+                                    const parts = line.split(/(\*\*[^*]+\*\*)/);
+                                    return (
+                                        <p key={li} className="text-xs text-gray-700 leading-relaxed">
+                                            {parts.map((p, pi) => p.startsWith('**') && p.endsWith('**')
+                                                ? <strong key={pi}>{p.slice(2, -2)}</strong>
+                                                : p
+                                            )}
+                                        </p>
+                                    );
+                                });
+                                return (
+                                    <div key={note.id} className="bg-yellow-50 border border-yellow-200 rounded-xl shadow-sm group">
+                                        <div className="p-2">{renderContent(note.content)}</div>
+                                        {/* Edit toggle */}
+                                        <details className="group/edit">
+                                            <summary className="text-[9px] font-bold text-yellow-600 cursor-pointer px-2 pb-1 list-none hover:text-yellow-800">Edit ▾</summary>
+                                            <div className="px-2 pb-2">
+                                                <textarea
+                                                    value={note.content}
+                                                    onChange={e => updateStickyNote(note.id, e.target.value)}
+                                                    className="w-full text-xs text-gray-700 bg-white border border-yellow-200 rounded-lg p-2 resize-none focus:ring-1 focus:ring-yellow-300 outline-none"
+                                                    rows={Math.max(2, note.content.split('\n').length)}
+                                                />
+                                            </div>
+                                        </details>
+                                        <div className="flex items-center justify-between px-2 pb-1.5">
+                                            <span className="text-[9px] text-gray-400">{new Date(note.createdAt).toLocaleDateString()}</span>
+                                            <button onClick={() => deleteStickyNote(note.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-[9px] font-bold transition-opacity">Delete</button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
+                )
             )}
 
             {/* ===== WORKLOAD CHART ===== */}
@@ -3163,7 +3221,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                     d.setDate(d.getDate() + i);
                     const dateStr = d.toLocaleDateString('en-CA');
                     const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-                    const count = taskData.filtered.filter((t: any) => t.dueDate === dateStr).length;
+                    const count = filteredTasks.filter((t: any) => t.dueDate === dateStr).length;
                     days.push({ label, date: dateStr, count });
                 }
                 const maxCount = Math.max(...days.map(d => d.count), 1);
