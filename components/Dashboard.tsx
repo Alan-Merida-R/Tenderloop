@@ -553,7 +553,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     };
     const [taskOppFilters, setTaskOppFilters] = useState<string[]>([]);
     const [taskAreaFilters, setTaskAreaFilters] = useState<string[]>([]);
-    const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>([]);
+    const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>(['In Progress']);
     const [taskGroupBy, setTaskGroupBy] = useState<'status' | 'area' | 'priority' | 'opportunity'>('status');
     const [taskCalendarizedFilter, setTaskCalendarizedFilter] = useState<'all' | 'calendarized' | 'not-calendarized'>('all');
 
