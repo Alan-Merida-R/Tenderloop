@@ -195,14 +195,17 @@ const translateProcessStage = (stage: string) => {
 
 const translateStatus = (status: string) => {
     const mapping: Record<string, string> = {
-        'No Status': 'No Status',
-        'Waiting': 'Waiting',
+        'Working on it': 'Working on it',
+        'Review': 'Review',
         'Info Needed': 'Info Needed',
         'Paused': 'Paused',
-        'Approval': 'In Approval',
+        'Approval': 'Approval',
         'Meeting': 'Meeting',
         'Completed': 'Completed',
-        'Canceled': 'Canceled'
+        'Canceled': 'Canceled',
+        // Legacy
+        'No Status': 'Review',
+        'Waiting': 'Info Needed'
     };
     return mapping[status] || status;
 };
@@ -553,7 +556,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     };
     const [taskOppFilters, setTaskOppFilters] = useState<string[]>([]);
     const [taskAreaFilters, setTaskAreaFilters] = useState<string[]>([]);
-    const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>(['In Progress']);
+    const [taskOppStatusFilters, setTaskOppStatusFilters] = useState<string[]>([]);
     const [taskGroupBy, setTaskGroupBy] = useState<'status' | 'area' | 'priority' | 'opportunity'>('status');
     const [taskCalendarizedFilter, setTaskCalendarizedFilter] = useState<'all' | 'calendarized' | 'not-calendarized'>('all');
 

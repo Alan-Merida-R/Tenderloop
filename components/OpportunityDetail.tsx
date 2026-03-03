@@ -3148,22 +3148,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 if (a.dueDate) return -1; if (b.dueDate) return 1;
                                                 return 0;
                                             })
-                                            .find(t => !['Done', 'Canceled', 'Completada', 'Cancelada'].includes(t.status));
+                                            .find(t => !['Done', 'Canceled'].includes(t.status));
                                         return nextTask ? (
-                                            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1">
-                                                <Zap className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+                                            <div className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next">
+                                                <div className="bg-white p-1 rounded-lg shadow-sm border border-blue-100 animate-pulse-subtle">
+                                                    <Zap className="w-3.5 h-3.5 text-blue-600 fill-blue-500" />
+                                                </div>
                                                 <div className="flex flex-col">
-                                                    <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
-                                                    <span className="text-xs font-bold leading-tight">{nextTask.title}</span>
+                                                    <span className="text-[9px] font-black uppercase text-blue-500 tracking-wider">Next Step</span>
+                                                    <span className="text-xs font-bold leading-tight group-hover/next:text-indigo-800 transition-colors">{nextTask.title}</span>
                                                 </div>
                                                 <button
                                                     onClick={() => {
                                                         if (onSelectOpp) onSelectOpp(opportunity.id, { tab: 'tasks', taskId: nextTask.id });
                                                     }}
-                                                    className="ml-2 p-1 hover:bg-blue-100 rounded-lg transition-colors"
+                                                    className="ml-1 p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all duration-200"
                                                     title="View Task"
                                                 >
-                                                    <ExternalLink className="w-3 h-3" />
+                                                    <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover/next:text-blue-600" />
                                                 </button>
                                             </div>
                                         ) : null;

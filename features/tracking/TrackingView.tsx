@@ -137,7 +137,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             if (filters.opportunityIds.length > 0 && !filters.opportunityIds.includes(opp.id)) {
                 return;
             }
-            if (filters.activeOnly && (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled')) {
+            if (filters.activeOnly && opp.statusLabel !== 'In Progress') {
                 return;
             }
 
