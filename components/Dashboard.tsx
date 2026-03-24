@@ -651,7 +651,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
 
     // Kanban Grouping State
-    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed'>('status');
+    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed'>('detailed');
     // Editable column order for Process Kanban — persisted in localStorage
     const PROCESS_COLS_DEFAULT = ['Working on it', 'Review', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'];
     const [processColumnOrder, setProcessColumnOrder] = useState<string[]>(() => {
@@ -2090,12 +2090,24 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                         onDrop={(e) => handleDrop(e, columnKey, 'column')}
                                     >
                                         {kanbanGroupBy === 'status' ? (
-                                            <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm bg-white ${STATUS_COLORS[columnKey as OpportunityStatus]}`}>
-                                                <div className="flex flex-col">
-                                                    <h3 className="text-sm font-bold uppercase tracking-wider">{translateStatus(columnKey)}</h3>
-                                                </div>
-                                                <span className="bg-white/50 px-2 py-0.5 rounded-full text-xs font-bold">{opps.length}</span>
-                                            </div>
+                                            (() => {
+                                                const topBorderColor: Record<string, string> = {
+                                                    'In Progress': 'border-blue-400',
+                                                    'On Hold': 'border-yellow-400',
+                                                    'Submitted': 'border-purple-400',
+                                                    'Won': 'border-emerald-400',
+                                                    'Lost': 'border-red-400',
+                                                    'Canceled': 'border-gray-400',
+                                                };
+                                                return (
+                                                    <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm bg-white ${STATUS_COLORS[columnKey as OpportunityStatus]} ${topBorderColor[columnKey] ?? ''}`}>
+                                                        <div className="flex flex-col">
+                                                            <h3 className="text-sm font-bold uppercase tracking-wider">{translateStatus(columnKey)}</h3>
+                                                        </div>
+                                                        <span className="bg-white/50 px-2 py-0.5 rounded-full text-xs font-bold">{opps.length}</span>
+                                                    </div>
+                                                );
+                                            })()
                                         ) : kanbanGroupBy === 'detailed' ? (
                                             <div
                                                 className={`flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all`}
