@@ -583,6 +583,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     const [showBulkEditModal, setShowBulkEditModal] = useState(false);
     const [bulkEditStatus, setBulkEditStatus] = useState('');
     const [bulkEditDate, setBulkEditDate] = useState('');
+    // Performance Optimization: Defer search calculation
+    const deferredTaskSearchText = useDeferredValue(taskSearchText);
 
     // Workload chart
     const [showWorkloadChart, setShowWorkloadChart] = useState(false);
@@ -887,7 +889,8 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
             // Text Search
             if (booleanMatcher) {
                 const labelsText = (opp.labels || []).map(l => l.text).join(' ');
-                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.alias || ''} ${labelsText}`.toLowerCase();
+                const versionSRs = (opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ');
+                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${versionSRs} ${opp.alias || ''} ${labelsText}`.toLowerCase();
                 if (!booleanMatcher(raw)) return false;
             }
 
@@ -1131,7 +1134,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
         // Cache constants
         const today = new Date().toLocaleDateString('en-CA');
-        const taskMatcher = parseBooleanQuery(taskSearchText);
+        
+        // PERFORMANCE: If not in tasks mode, skip entire heavy processing
+        if (mode !== 'tasks' && !showTracking) {
+             return result;
+        }
+
+        const taskMatcher = parseBooleanQuery(deferredTaskSearchText);
 
         // Initialize groups if in tasks mode
         if (mode === 'tasks') {
@@ -1228,7 +1237,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         }
 
         return result;
-    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd, taskSearchText, taskGroupBy, mode, showNextSteps, kanbanGroupBy]);
+    }, [filteredOpps, taskStatusFilters, taskPriorityFilters, taskAreaFilters, taskOppFilters, taskOppStatusFilters, taskCalendarizedFilter, dateFilterStart, dateFilterEnd, deferredTaskSearchText, taskGroupBy, mode, showNextSteps, kanbanGroupBy, showTracking]);
 
     // Convenient aliases to keep rest of code working
     // If showNextSteps is active, we basically filter the 'current' view (Kanban or Table)
@@ -2430,7 +2439,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
                                     <div className="overflow-auto flex-1 p-4">
                                         <div className="space-y-0 divide-y divide-gray-100">
-                                            {(taskGroupBy === 'none' ? [['All Tasks', filteredTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())]] : Object.entries(groupedTasks)).map(([group, tasks]) => (
+                                            {(taskGroupBy === 'none' ? [['All Tasks', filteredTasks]] : Object.entries(groupedTasks)).map(([group, tasks]) => (
                                                 <div key={group}>
                                                     {taskGroupBy !== 'none' && (
                                                         <div className="bg-gray-50/80 backdrop-blur px-4 py-2 font-bold text-[10px] uppercase tracking-widest text-gray-500 border-b border-gray-200 sticky top-0 z-10">

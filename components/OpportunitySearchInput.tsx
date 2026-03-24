@@ -17,74 +17,53 @@ interface Props {
 }
 
 export const parseBooleanQuery = (query: string) => {
-    if (!query.trim()) return null;
+    const trimmed = query.trim();
+    if (!trimmed) return null;
 
-    const tokens: string[] = [];
-    const regex = /"([^"]+)"|(\S+)/g;
-    let match;
+    // Pre-calculate groups to avoid regex overhead inside the matcher loop
+    const orGroupsRaw = trimmed.split(/\s+OR\s+|\s+\|\s+/);
+    
+    // Pre-process each group into pre-compiled tokens/terms
+    const preCompiledGroups = orGroupsRaw.map(group => {
+        const terms = group.match(/"([^"]+)"|(\S+)/g) || [];
+        return terms.map(term => {
+            let isNegation = false;
+            let isExact = false;
+            let cleanTerm = term;
 
-    while ((match = regex.exec(query)) !== null) {
-        if (match[1]) {
-            tokens.push(`"${match[1].toLowerCase()}"`);
-        } else {
-            tokens.push(match[2]);
-        }
-    }
+            if (term.startsWith('-')) {
+                isNegation = true;
+                cleanTerm = term.substring(1);
+            }
+
+            if (cleanTerm.startsWith('"') && cleanTerm.endsWith('"')) {
+                isExact = true;
+                cleanTerm = cleanTerm.slice(1, -1).toLowerCase();
+            } else {
+                cleanTerm = cleanTerm.toLowerCase();
+            }
+
+            // Prepare wildcard if needed
+            let wildcardRegex: RegExp | null = null;
+            if (!isExact && cleanTerm.includes('*')) {
+                const regexStr = cleanTerm.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+                wildcardRegex = new RegExp(regexStr);
+            }
+
+            return { isNegation, isExact, cleanTerm, wildcardRegex, isOrToken: cleanTerm === 'or' || cleanTerm === '|' };
+        }).filter(t => !t.isOrToken);
+    });
 
     return (text: string) => {
         const lowerText = text.toLowerCase();
 
-        // Evaluate OR groups first (simplistic parser for "A OR B")
-        // If the token stream has "OR", we split by it.
-        // For now, implementing the specified rules:
-        // - AND implícito por espacios
-        // - OR usando "OR" (o "|")
-        // - exclusión con "-"
-        // - comillas para frases exactas
+        return preCompiledGroups.some(group => {
+            return group.every(t => {
+                const includes = t.isExact
+                    ? lowerText.includes(t.cleanTerm)
+                    : (t.wildcardRegex ? t.wildcardRegex.test(lowerText) : lowerText.includes(t.cleanTerm));
 
-        // We will process logical groups.
-        // A OR B AND C -> (A) OR (B AND C) is standard precedence? Or (A OR B) AND C?
-        // Google style: OR has lower precedence than AND. A OR B C -> A OR (B AND C).
-
-        // Let's split by OR first
-        const orGroups = query.split(/\s+OR\s+|\s+\|\s+/);
-
-        return orGroups.some(group => {
-            // Inside an OR group, all terms must match (AND)
-            const terms = group.match(/"([^"]+)"|(\S+)/g) || [];
-
-            return terms.every(term => {
-                let cleanTerm = term;
-                let isNegation = false;
-                let isExact = false;
-
-                if (term.startsWith('-')) {
-                    isNegation = true;
-                    cleanTerm = term.substring(1);
-                }
-
-                if (cleanTerm.startsWith('"') && cleanTerm.endsWith('"')) {
-                    isExact = true;
-                    cleanTerm = cleanTerm.slice(1, -1).toLowerCase();
-                } else {
-                    cleanTerm = cleanTerm.toLowerCase();
-                }
-
-                // Explicitly handle "OR" token if it slipped in (shouldn't due to split)
-                if (cleanTerm === 'or' || cleanTerm === '|') return true;
-
-                const includes = isExact
-                    ? lowerText.includes(cleanTerm) // Exact phrase match (still substring?) Phrase usually means substring match of that sequence
-                    : (() => {
-                        // Wildcard *
-                        if (cleanTerm.includes('*')) {
-                            const regexStr = cleanTerm.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
-                            return new RegExp(regexStr).test(lowerText);
-                        }
-                        return lowerText.includes(cleanTerm);
-                    })();
-
-                return isNegation ? !includes : includes;
+                return t.isNegation ? !includes : includes;
             });
         });
     };
@@ -117,10 +96,13 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 if (selectedIds.includes(o.id)) return false;
                 if (!lower) return true; // Show all if no search text
 
+                const versionSRs = (o.versions || []).map(v => v.srId || '').filter(Boolean);
                 return (
                     o.title.toLowerCase().includes(lower) ||
                     o.id.toLowerCase().includes(lower) ||
                     o.customer.toLowerCase().includes(lower) ||
+                    (o.srId || '').toLowerCase().includes(lower) ||
+                    versionSRs.some(v => v.toLowerCase().includes(lower)) ||
                     (o.alias || '').toLowerCase().includes(lower) ||
                     (o.labels || []).some(l => l.text.toLowerCase().includes(lower))
                 );

@@ -4734,7 +4734,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     )}
                                                 />
                                             </div>
-                                            <div className="w-72 bg-gray-50 flex flex-col">
+                                            <div className="w-72 bg-gray-50 flex flex-col overflow-y-auto custom-scrollbar">
                                                 <div className="p-4 border-b border-gray-200">
                                                     <h4 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-2">
                                                         <CalendarIcon className="w-4 h-4 text-gray-400" />
@@ -4744,7 +4744,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         </span>
                                                     </h4>
                                                 </div>
-                                                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                                                <div className="p-4 space-y-3">
                                                     {filteredTasks
                                                         .filter(t => !t.dueDate && !['Done', 'Canceled'].includes(t.status))
                                                         .map(t => (
