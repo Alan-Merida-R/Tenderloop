@@ -107,17 +107,61 @@ export const createDatabaseFile = async (): Promise<FileHandlerResult> => {
 };
 
 /**
- * Write data to the existing handle
+ * Write data to the existing handle.
+ * Uses a Web Worker for JSON serialization to avoid blocking the main thread.
  */
-export const saveToDisk = async (handle: FileSystemFileHandle, data: DatabaseSchema) => {
-  try {
-    // @ts-ignore
-    const writable = await handle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
-    return true;
-  } catch (error) {
-    console.error("Auto-save failed:", error);
-    return false;
+
+// Lazy-initialized worker singleton — created only once per app session
+let saveWorker: Worker | null = null;
+
+const getSaveWorker = (): Worker => {
+  if (!saveWorker) {
+    // Vite's ?worker&inline syntax bundles the worker inline — no extra file needed
+    saveWorker = new Worker(
+      new URL('./save.worker.ts', import.meta.url),
+      { type: 'module' }
+    );
   }
+  return saveWorker;
+};
+
+export const saveToDisk = (handle: FileSystemFileHandle, data: DatabaseSchema): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const worker = getSaveWorker();
+
+    const onMessage = async (e: MessageEvent) => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+
+      if (!e.data.success) {
+        console.error('[Save Worker] Serialization failed:', e.data.error);
+        resolve(false);
+        return;
+      }
+
+      try {
+        // @ts-ignore
+        const writable = await handle.createWritable();
+        await writable.write(e.data.serialized);
+        await writable.close();
+        resolve(true);
+      } catch (error) {
+        console.error('[AutoSave] Write failed:', error);
+        resolve(false);
+      }
+    };
+
+    const onError = (e: ErrorEvent) => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      console.error('[Save Worker] Error:', e);
+      resolve(false);
+    };
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+
+    // Send data to worker — this is non-blocking (uses structured clone)
+    worker.postMessage(data);
+  });
 };
