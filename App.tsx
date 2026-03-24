@@ -861,18 +861,28 @@ function App() {
   };
 
   const rebalancePriorities = (opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
+    // Optimization: If no priority or status change, return early (or just basic sort)
+    // But for safety and to keep the 1..N property, we'll run an O(N) version.
+    
     const statuses: OpportunityStatus[] = ['In Progress', 'On Hold', 'Submitted', 'Won', 'Lost', 'Canceled'];
+    
+    // 1. Group by status - O(N)
+    const groups: Record<string, Opportunity[]> = {};
+    statuses.forEach(s => groups[s] = []);
+    opps.forEach(o => {
+        if (groups[o.statusLabel]) groups[o.statusLabel].push(o);
+        else (groups['In Progress'] as Opportunity[]).push(o); // Fallback
+    });
 
-    let allUpdatedOpps = [...opps];
-
+    // 2. Process each group - O(S * G log G) where G is group size
     statuses.forEach(status => {
-      let group = allUpdatedOpps.filter(o => o.statusLabel === status);
+      let group = groups[status];
       if (group.length === 0) return;
 
       const targetInGroup = changedId ? group.find(o => o.id === changedId) : null;
 
       if (targetInGroup && statusChanged) {
-        // Al cambiar de estado o nuevo, forzar al segundo lugar (puesto 2) si hay otros
+        // Change of status/new: Shift to 2nd position
         const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
         if (others.length > 0) {
           group = [others[0], targetInGroup, ...others.slice(1)];
@@ -880,11 +890,10 @@ function App() {
           group = [targetInGroup];
         }
       } else if (targetInGroup && newOrder !== undefined && newOrder !== null) {
-        // Reordenamiento manual dentro del mismo estado
+        // Manual reorder
         const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
         const newGroup: Opportunity[] = [];
         let inserted = false;
-
         const targetPos = Math.max(1, newOrder);
 
         others.forEach((o, idx) => {
@@ -897,23 +906,25 @@ function App() {
         if (!inserted) newGroup.push(targetInGroup);
         group = newGroup;
       } else {
-        // Orden natural por prioridad existente
+        // Stable sort
         group.sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
       }
 
-      // Re-indexar 1..N para este status
+      // 3. Re-index 1..N - O(G)
       group.forEach((o, idx) => {
         o.priorityOrder = idx + 1;
       });
-
-      // Actualizar en el resultado global
-      allUpdatedOpps = allUpdatedOpps.map(o => {
-        const found = group.find(g => g.id === o.id);
-        return found ? found : o;
-      });
+      
+      groups[status] = group;
     });
 
-    return allUpdatedOpps;
+    // 4. Flatten back - O(N)
+    const result: Opportunity[] = [];
+    statuses.forEach(s => {
+        result.push(...groups[s]);
+    });
+    
+    return result;
   };
 
   const updateOpportunity = (updatedOpp: Opportunity, id?: string) => {

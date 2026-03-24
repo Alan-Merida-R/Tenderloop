@@ -1,26 +1,48 @@
 @echo off
 setlocal
-:: Forzar que el script trabaje en la carpeta donde esta el archivo
+title TenderLoop Motor
 cd /d "%~dp0"
 
-:: 1. LIMPIEZA: Matar procesos de Node previos para liberar el puerto 3000
-:: Esto evita que se mueva al puerto 3001, 3002, etc.
+echo [1/3] Limpiando procesos previos...
 taskkill /f /im node.exe >nul 2>&1
 
-:: 2. Verificar Node.js
-node -v >nul 2>&1
-if %errorlevel% neq 0 exit
-
-:: 3. Instalacion silenciosa de dependencias (solo si faltan)
+echo [2/3] Verificando entorno (Inicio Rapido)...
 if not exist node_modules (
+    echo Instalando dependencias por primera vez...
     call npm install --quiet
 )
 
-:: 4. Asegurar librerias de Excel/Word
-call npm install xlsx mammoth --quiet
+echo [3/3] Iniciando Servidor...
+REM Ejecutamos Vite directamente desde node_modules para maxima velocidad
+start /B "" "node_modules\.bin\vite.cmd" --port 3000 --strictPort
 
-:: 5. Iniciar la aplicación FORZANDO el puerto 3000
-:: Primero abrimos el navegador
-start "" "http://localhost:3000"
-:: Luego ejecutamos Vite forzando el puerto y la carpeta actual
-call npx vite --port 3000 --strictPort
+echo Esperando al servidor en puerto 3000...
+:WAIT_LOOP
+timeout /t 1 /nobreak >nul
+(curl -s http://localhost:3000 >nul) || goto WAIT_LOOP
+
+echo.
+echo ==========================================
+echo   TenderLoop esta CORRIENDO (App Mode)
+echo   Cierra la ventana de la App para salir.
+echo ==========================================
+echo.
+
+REM Buscamos Vivaldi en rutas comunes (LocalAppData o Program Files)
+set "VIVALDI_PATH=vivaldi"
+if exist "%LocalAppData%\Vivaldi\Application\vivaldi.exe" set "VIVALDI_PATH=%LocalAppData%\Vivaldi\Application\vivaldi.exe"
+if exist "%ProgramFiles%\Vivaldi\Application\vivaldi.exe" set "VIVALDI_PATH=%ProgramFiles%\Vivaldi\Application\vivaldi.exe"
+if exist "%ProgramFiles(x86)%\Vivaldi\Application\vivaldi.exe" set "VIVALDI_PATH=%ProgramFiles(x86)%\Vivaldi\Application\vivaldi.exe"
+
+echo [TenderLoop] Abriendo en Vivaldi (Modo App)...
+echo Cierra la ventana de la App para apagar la operacion.
+
+REM Lanzamos Vivaldi en modo App y esperamos a que cierre
+start /wait "" "%VIVALDI_PATH%" --app=http://localhost:3000 --new-window
+
+echo.
+echo Apagando servidor TenderLoop local...
+taskkill /f /im node.exe >nul 2>&1
+echo Operacion finalizada correctamente.
+timeout /t 2 >nul
+exit

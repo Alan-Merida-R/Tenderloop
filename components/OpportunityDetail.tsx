@@ -4584,7 +4584,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                         {/* ... Tasks and other tabs unchanged in structure ... */}
                         {activeTab === 'tasks' && (
-                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col">
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-[700px]">
                                 {/* Task View Content */}
                                 <div className="flex justify-between items-center p-6 border-b border-gray-100 bg-gray-50/50">
                                     <div className="flex items-center gap-4">
@@ -4631,9 +4631,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 )}
 
-                                <div className="flex-1 min-h-0">
+                                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                                     {taskViewMode === 'list' ? (
-                                        <div className="p-6 space-y-3">
+                                        <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
                                             {filteredTasks.length === 0 ? (
                                                 <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
                                             ) : filteredTasks.map(task => (
@@ -4712,8 +4712,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="flex h-full">
-                                            <div className="flex-1 p-6 min-w-0 border-r border-gray-100">
+                                        <div className="flex flex-1 min-h-0 h-full overflow-hidden">
+                                            <div className="flex-1 p-6 min-w-0 border-r border-gray-100 overflow-hidden flex flex-col">
                                                 <CalendarView<Task>
                                                     items={filteredTasks}
                                                     getDate={(t) => t.dueDate}

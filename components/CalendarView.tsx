@@ -187,10 +187,10 @@ export function CalendarView<T extends { id: string }>({
       </div>
 
       {/* Grid wrapper */}
-      <div className="flex-1 overflow-y-auto min-h-0 relative">
-        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-5' : 'grid-cols-1'} gap-px bg-gray-200 h-full min-h-[600px]`}>
+      <div className="flex-1 overflow-y-auto min-h-0 relative bg-white">
+        <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-5' : 'grid-cols-1'} gap-px bg-gray-200 h-full`}>
           {getDayNames().map(d => (
-            <div key={d} className="bg-gray-50 p-3 text-center text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100 sticky top-0 z-20">
+            <div key={d} className="bg-gray-50/80 backdrop-blur-sm p-4 text-center text-[11px] font-black uppercase tracking-widest text-gray-500 border-b border-gray-100 sticky top-0 z-[30] min-h-[50px] flex items-center justify-center">
               {d}
             </div>
           ))}
