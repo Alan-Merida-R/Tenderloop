@@ -216,7 +216,7 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, 1000); // Reduced delay to 1s for better responsiveness
+    }, 2500); // Increased debounce: prevents disk-write pile-up during rapid edits
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -936,18 +936,27 @@ function App() {
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
     }
-    setDb(prev => {
-      const oldOpp = prev.opportunities.find(o => o.id === (id || updatedOpp.id));
-      const orderChanged = oldOpp?.priorityOrder !== updatedOpp.priorityOrder;
-      const statusChanged = oldOpp?.statusLabel !== updatedOpp.statusLabel;
+    // Use startTransition so React treats this as a non-blocking background update
+    // This keeps the UI responsive (inputs, buttons) while the state is being processed
+    React.startTransition(() => {
+      setDb(prev => {
+        const oldOpp = prev.opportunities.find(o => o.id === (id || updatedOpp.id));
+        const orderChanged = oldOpp?.priorityOrder !== updatedOpp.priorityOrder;
+        const statusChanged = oldOpp?.statusLabel !== updatedOpp.statusLabel;
 
-      const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? updatedOpp : o);
-      const rebalanced = rebalancePriorities(initialMap, updatedOpp.id, orderChanged ? updatedOpp.priorityOrder : undefined, statusChanged);
+        const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? updatedOpp : o);
 
-      return {
-        ...prev,
-        opportunities: rebalanced
-      };
+        // OPTIMIZATION: Only run the expensive rebalance if order or status actually changed.
+        // For field edits (title, date, description, tasks) just replace the opp directly.
+        const rebalanced = (orderChanged || statusChanged)
+          ? rebalancePriorities(initialMap, updatedOpp.id, orderChanged ? updatedOpp.priorityOrder : undefined, statusChanged)
+          : initialMap;
+
+        return {
+          ...prev,
+          opportunities: rebalanced
+        };
+      });
     });
   };
 
