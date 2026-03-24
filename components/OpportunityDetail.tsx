@@ -14,7 +14,7 @@ import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
-import { getNextTask } from '../services/taskUtils';
+import { getNextTask, compareTasksGlobal } from '../services/taskUtils';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -1662,15 +1662,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (b.dueDate) return 1;
             return 0;
         }
-        // Sort by order (null to end), then by dueDate as tiebreaker, then creation order
-        const aOrder = a.order ?? 999999;
-        const bOrder = b.order ?? 999999;
-        if (aOrder !== bOrder) return aOrder - bOrder;
-        // Same order: put tasks with earlier dueDate first, then null-date last
-        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-        if (a.dueDate) return -1;
-        if (b.dueDate) return 1;
-        return 0;
+        return compareTasksGlobal(
+            { task: a, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder },
+            { task: b, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder }
+        );
     });
 
     const displayValue = (val: number) => val === 0 ? '' : val;
@@ -4698,26 +4693,74 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             ))}
                                         </div>
                                     ) : (
-                                        <div className="p-6 h-full">
-                                            <CalendarView<Task>
-                                                items={filteredTasks}
-                                                getDate={(t) => t.dueDate}
-                                                onDateDrop={handleTaskDrop}
-                                                renderItem={(t) => (
-                                                    <div
-                                                        draggable
-                                                        onDragStart={(e) => {
-                                                            e.dataTransfer.setData('id', t.id);
-                                                            e.dataTransfer.setData('type', 'task');
-                                                        }}
-                                                        onClick={() => setSelectedTaskForEdit({ task: t })}
-                                                        className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
-                                                        title={t.title}
-                                                    >
-                                                        {t.title}
-                                                    </div>
-                                                )}
-                                            />
+                                        <div className="flex h-full">
+                                            <div className="flex-1 p-6 min-w-0 border-r border-gray-100">
+                                                <CalendarView<Task>
+                                                    items={filteredTasks}
+                                                    getDate={(t) => t.dueDate}
+                                                    onDateDrop={handleTaskDrop}
+                                                    renderItem={(t) => (
+                                                        <div
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('id', t.id);
+                                                                e.dataTransfer.setData('type', 'task');
+                                                            }}
+                                                            onClick={() => setSelectedTaskForEdit({ task: t })}
+                                                            className="text-[10px] p-1 rounded border border-gray-100 truncate cursor-pointer shadow-sm active:scale-95 transition-transform bg-blue-50 text-blue-700 font-medium"
+                                                            title={t.title}
+                                                        >
+                                                            {t.title}
+                                                        </div>
+                                                    )}
+                                                />
+                                            </div>
+                                            <div className="w-72 bg-gray-50 flex flex-col">
+                                                <div className="p-4 border-b border-gray-200">
+                                                    <h4 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-2">
+                                                        <CalendarIcon className="w-4 h-4 text-gray-400" />
+                                                        Unscheduled Tasks
+                                                        <span className="bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-md">
+                                                            {filteredTasks.filter(t => !t.dueDate && !['Done', 'Canceled'].includes(t.status)).length}
+                                                        </span>
+                                                    </h4>
+                                                </div>
+                                                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                                                    {filteredTasks
+                                                        .filter(t => !t.dueDate && !['Done', 'Canceled'].includes(t.status))
+                                                        .map(t => (
+                                                            <div
+                                                                key={t.id}
+                                                                draggable
+                                                                onDragStart={(e) => {
+                                                                    e.dataTransfer.setData('id', t.id);
+                                                                    e.dataTransfer.setData('type', 'task');
+                                                                    e.currentTarget.classList.add('opacity-50');
+                                                                }}
+                                                                onDragEnd={(e) => {
+                                                                    e.currentTarget.classList.remove('opacity-50');
+                                                                }}
+                                                                onClick={() => setSelectedTaskForEdit({ task: t })}
+                                                                className="bg-white border border-gray-200 p-3 rounded-lg shadow-sm cursor-grab active:cursor-grabbing hover:border-[#3DCD58] hover:shadow-md transition-all group"
+                                                            >
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight group-hover:text-[#3DCD58] transition-colors" title={t.title}>{t.title}</div>
+                                                                </div>
+                                                                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                                                                    <span className="text-[10px] text-gray-400 font-bold tracking-wider">#{t.order || '?'}</span>
+                                                                    <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-black tracking-tight ${PRIORITY_COLORS[t.priority] || 'bg-gray-100 text-gray-600'}`}>{t.priority}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))
+                                                    }
+                                                    {filteredTasks.filter(t => !t.dueDate && !['Done', 'Canceled'].includes(t.status)).length === 0 && (
+                                                        <div className="text-center py-10 opacity-40">
+                                                            <CheckCircle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                                                            <p className="text-xs font-bold text-gray-500">All tasks scheduled</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>

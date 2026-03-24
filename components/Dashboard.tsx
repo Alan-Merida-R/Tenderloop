@@ -5,7 +5,7 @@ import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filte
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
-import { getNextTask } from '../services/taskUtils';
+import { getNextTask, compareTasksGlobal } from '../services/taskUtils';
 import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
@@ -1211,33 +1211,19 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
         // --- Optimized Final Sorts ---
 
-        // Table View Sort
-        result.filtered.sort((a, b) => {
-            const orderA = a.opp.priorityOrder ?? 999;
-            const orderB = b.opp.priorityOrder ?? 999;
-            if (orderA !== orderB) return orderA - orderB;
-
-            const pMap: Record<string, number> = { 'High': 0, 'Medium': 1, 'Low': 2 };
-            const pA = pMap[a.opp.priority] ?? 1;
-            const pB = pMap[b.opp.priority] ?? 1;
-            if (pA !== pB) return pA - pB;
-
-            if (!a.dueDate) return 1;
-            if (!b.dueDate) return -1;
-            return a.dueDate.localeCompare(b.dueDate);
-        });
+        // Table View Sort (Global)
+        result.filtered.sort((a, b) => compareTasksGlobal(
+            { task: a, oppStatus: a.opp.statusLabel, oppPriorityRank: a.opp.priorityOrder },
+            { task: b, oppStatus: b.opp.statusLabel, oppPriorityRank: b.opp.priorityOrder }
+        ));
 
         // Kanban Groups Sort
         if (mode === 'tasks') {
             Object.keys(result.grouped).forEach(key => {
-                result.grouped[key].sort((a, b) => {
-                    const orderA = a.order ?? 9999;
-                    const orderB = b.order ?? 9999;
-                    if (orderA !== orderB) return orderA - orderB;
-                    const dateA = a.dueDate || "9999-12-31";
-                    const dateB = b.dueDate || "9999-12-31";
-                    return dateA.localeCompare(dateB);
-                });
+                result.grouped[key].sort((a, b) => compareTasksGlobal(
+                    { task: a, oppStatus: a.opp.statusLabel, oppPriorityRank: a.opp.priorityOrder },
+                    { task: b, oppStatus: b.opp.statusLabel, oppPriorityRank: b.opp.priorityOrder }
+                ));
             });
         }
 

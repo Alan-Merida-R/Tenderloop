@@ -11,6 +11,7 @@ import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
 import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
+import { assignMissingOrders } from './services/taskUtils';
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
@@ -829,7 +830,7 @@ function App() {
       },
       links: { bfo: '', internalFolder: '', officialFolder: '', cqaLink: '', ba: '', srLink: '', geet: '' },
       notes: initialNotes,
-      tasks: defaultTasks,
+      tasks: assignMissingOrders(defaultTasks),
       questions: [],
       history: [],
       presentation: { executiveSummary: '', issues: '', kpis: '', requirements: '' },
@@ -916,6 +917,11 @@ function App() {
   };
 
   const updateOpportunity = (updatedOpp: Opportunity, id?: string) => {
+    // Auto-assign any missing task orders before saving globally
+    if (updatedOpp.tasks) {
+        updatedOpp.tasks = assignMissingOrders(updatedOpp.tasks);
+    }
+    
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
     }
