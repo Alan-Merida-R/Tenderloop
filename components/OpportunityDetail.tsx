@@ -1373,6 +1373,38 @@ const TaskTimerButtonList = React.memo(({ task, oppId }: { task: Task, oppId: st
     );
 });
 
+const OptimizedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    return (
+        <input 
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
+            className={className}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+        />
+    );
+});
+
+const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    return (
+        <textarea 
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+});
+
 const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
     const { timerState } = useTimer();
     const { startTimer } = useTimerActions();
@@ -3209,8 +3241,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                             <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
                                 <div className="flex-1 w-full md:w-auto min-w-[200px]">
-                                    <input value={localOpp.title} onChange={(e) => handleFieldChange('title', e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <input value={localOpp.customer} onChange={(e) => handleFieldChange('customer', e.target.value)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
+                                    <OptimizedInput value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
+                                    <OptimizedInput value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
 
                                     {(() => {
                                         const nextTask = getNextTask(localOpp.tasks || []);
@@ -4839,7 +4871,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="flex items-start gap-4">
                                         <div className="flex-1 space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
-                                            <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
+                                            <OptimizedInput className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(val: string) => updateTaskInModal('title', val)} />
                                         </div>
                                         <div className="w-24 space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
@@ -4940,7 +4972,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
-                                        <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
+                                        <OptimizedTextArea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(val: string) => updateTaskInModal('description', val)} />
                                     </div>
 
                                     {/* TIME TRACKING HISTORY */}

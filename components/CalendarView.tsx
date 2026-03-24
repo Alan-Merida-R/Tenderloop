@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Calendar as CalendarIcon, Maximize2 } from 'lucide-react';
 
 export type CalendarViewMode = 'month' | 'week' | 'day';
@@ -194,12 +194,23 @@ export function CalendarView<T extends { id: string }>({
               {d}
             </div>
           ))}
-          {days.map((d, i) => {
-            const dateStr = d.toISOString().split('T')[0];
-            const isToday = dateStr === new Date().toISOString().split('T')[0];
-            const isSelected = selectedDate === dateStr;
-            const isCurrentMonth = d.getMonth() === month;
-            const dayItems = items.filter(item => getDate(item) === dateStr);
+          {(() => {
+            // O(N) pre-mapping instead of O(42 * N) filters
+            const itemsByDate = items.reduce((acc, item) => {
+              const d = getDate(item);
+              if (d) {
+                if (!acc[d]) acc[d] = [];
+                acc[d].push(item);
+              }
+              return acc;
+            }, {} as Record<string, T[]>);
+
+            return days.map((d, i) => {
+              const dateStr = d.toISOString().split('T')[0];
+              const isToday = dateStr === new Date().toISOString().split('T')[0];
+              const isSelected = selectedDate === dateStr;
+              const isCurrentMonth = d.getMonth() === month;
+              const dayItems = itemsByDate[dateStr] || [];
 
             return (
               <div
@@ -228,7 +239,8 @@ export function CalendarView<T extends { id: string }>({
                 </div>
               </div>
             );
-          })}
+            });
+          })()}
         </div>
       </div>
     </div>
