@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
@@ -960,23 +960,23 @@ function App() {
     });
   };
 
-  const moveOpportunityStage = (id: string, newStage: ProcessStage) => {
+  const moveOpportunityStage = useCallback((id: string, newStage: ProcessStage) => {
     setDb(prev => ({
       ...prev,
       opportunities: prev.opportunities.map(o => o.id === id ? { ...o, stage: newStage, lastUpdated: new Date().toISOString() } : o)
     }));
-  };
+  }, []);
 
-  const changeOpportunityDate = (id: string, type: 'expected' | 'dueDate', newDate: string) => {
+  const changeOpportunityDate = useCallback((id: string, type: 'expected' | 'dueDate', newDate: string) => {
     if (type === 'expected') {
       setDb(prev => ({
         ...prev,
         opportunities: prev.opportunities.map(o => o.id === id ? { ...o, dates: { ...o.dates, expected: newDate }, lastUpdated: new Date().toISOString() } : o)
       }));
     }
-  };
+  }, []);
 
-  const updateTaskDetails = (oppId: string, taskId: string, updates: Partial<Task>) => {
+  const updateTaskDetails = useCallback((oppId: string, taskId: string, updates: Partial<Task>) => {
     setDb(prev => ({
       ...prev,
       opportunities: prev.opportunities.map(o => {
@@ -988,7 +988,7 @@ function App() {
         };
       })
     }));
-  };
+  }, []);
 
   const handleTimerLog = (taskId: string, oppId: string, seconds: number, status?: TaskStatus) => {
     setDb(prev => {
