@@ -13,7 +13,7 @@ import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
 import { TaskSearchInput } from './TaskSearchInput';
-import { useTimer } from '../contexts/TimerContext';
+import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
 
 
@@ -505,7 +505,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
 };
 
 const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
-    const { startTimer, pauseTimer } = useTimer(); // Only consume methods, not ticking state if possible
+    const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
     const [tasksViewMode, setTasksViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -1085,11 +1085,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
         return true;
     };
 
-    const { timerState, confirmStop } = useTimer();
+    const { confirmStop } = useTimerActions();
 
     const handleTaskStatusChange = (oppId: string, taskId: string, newStatus: TaskStatus): void => {
+        const currentState = getTimerState();
         // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
-        if (newStatus === 'Done' && timerState.taskId === taskId && timerState.isRunning) {
+        if (newStatus === 'Done' && currentState.taskId === taskId && currentState.isRunning) {
             confirmStop('Done'); // This will call handleTimerLog which updates DB and status
             return;
         }
@@ -3044,13 +3045,19 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <div className="text-gray-900 font-medium">{closeTaskData.task.title}</div>
                             </div>
 
+                            {(() => {
+                                const currentTimerState = getTimerState();
+                                return (
+                                    <>
                             <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex justify-between items-center">
+
                                 <span className="text-sm font-bold text-blue-800">Total Time Spent</span>
                                 <span className="text-2xl font-mono font-black text-blue-600">
                                     {(() => {
                                         const logged = (closeTaskData.task.timeLogs || []).reduce((acc: any, log: any) => acc + (log.durationSeconds || 0), 0);
-                                        const current = (timerState.taskId === closeTaskData.task.id) ? timerState.elapsedSeconds : 0;
+                                        const current = (currentTimerState.taskId === closeTaskData.task.id) ? currentTimerState.elapsedSeconds : 0;
                                         const total = logged + current;
+
                                         const h = Math.floor(total / 3600);
                                         const m = Math.floor((total % 3600) / 60);
                                         return `${h}h ${m}m`;
@@ -3058,8 +3065,9 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 </span>
                             </div>
 
-                            {timerState.taskId === closeTaskData.task.id && timerState.isRunning && (
+                            {currentTimerState.taskId === closeTaskData.task.id && currentTimerState.isRunning && (
                                 <div className="p-3 bg-green-50 rounded-xl border border-green-100 flex items-center gap-3 animate-pulse">
+
                                     <Clock className="w-5 h-5 text-green-600" />
                                     <div className="flex flex-col">
                                         <span className="text-[10px] font-black uppercase text-green-600 tracking-wider leading-tight">Active Timer Logged Automatically</span>
@@ -3091,18 +3099,20 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {timerState.taskId === closeTaskData.task.id && timerState.isRunning && (
+                                            {currentTimerState.taskId === closeTaskData.task.id && currentTimerState.isRunning && (
                                                 <tr className="bg-green-50/30">
                                                     <td className="p-2 text-green-700 font-bold">Current</td>
-                                                    <td className="p-2 text-green-600 font-mono">{new Date(timerState.startTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                                                    <td className="p-2 text-green-600 font-mono">{new Date(currentTimerState.startTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                                                     <td className="p-2 text-green-600 font-mono italic">Now</td>
                                                     <td className="p-2 text-green-700 font-mono font-black text-right">
-                                                        {Math.floor(timerState.elapsedSeconds / 3600)}h {Math.floor((timerState.elapsedSeconds % 3600) / 60)}m
+                                                        {Math.floor(currentTimerState.elapsedSeconds / 3600)}h {Math.floor((currentTimerState.elapsedSeconds % 3600) / 60)}m
                                                     </td>
                                                 </tr>
                                             )}
-                                            {(!closeTaskData.task.timeLogs || closeTaskData.task.timeLogs.length === 0) && !(timerState.taskId === closeTaskData.task.id && timerState.isRunning) && (
+
+                                            {(!closeTaskData.task.timeLogs || closeTaskData.task.timeLogs.length === 0) && !(currentTimerState.taskId === closeTaskData.task.id && currentTimerState.isRunning) && (
                                                 <tr>
+
                                                     <td colSpan={4} className="p-4 text-center text-gray-400 italic">No time logs recorded.</td>
                                                 </tr>
                                             )}
@@ -3115,11 +3125,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 <button onClick={() => setCloseTaskData(null)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                                 <button
                                     onClick={() => {
-                                        if (timerState.taskId === closeTaskData.task.id && timerState.isRunning) {
+                                        if (currentTimerState.taskId === closeTaskData.task.id && currentTimerState.isRunning) {
                                             confirmStop('Done');
                                         } else {
                                             onTaskUpdate(closeTaskData.oppId, closeTaskData.task.id, { status: 'Done' });
                                         }
+
                                         setCloseTaskData(null);
                                     }}
                                     className="px-6 py-2 text-sm font-bold text-white bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg shadow-md flex items-center gap-2"
@@ -3127,7 +3138,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     <CheckSquare className="w-4 h-4" /> Confirm &amp; Close
                                 </button>
                             </div>
+                                    </>
+                                );
+                            })()}
                         </div>
+
                     </div>
                 </div>
             )}

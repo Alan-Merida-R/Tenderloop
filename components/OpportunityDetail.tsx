@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin } from 'lucide-react';
@@ -11,7 +11,7 @@ import { CalendarView } from './CalendarView';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
 import { NoteTemplate, SimpleMultiSelect } from './SettingsModal';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
-import { useTimer } from '../contexts/TimerContext';
+import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
 
@@ -157,10 +157,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             }
         };
 
+        const debounceTimeoutRef = useRef<number | null>(null);
+
         const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
             isInternalUpdate.current = true;
-            onChange(e.currentTarget.innerHTML);
+            const newHtml = e.currentTarget.innerHTML;
+            if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
+            debounceTimeoutRef.current = window.setTimeout(() => {
+                onChange(newHtml);
+            }, 500); // 500ms debounce
         };
+
+        useEffect(() => {
+            return () => {
+                if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
+            };
+        }, []);
 
         return (
             <div className="flex flex-col h-full relative">
@@ -1340,8 +1352,48 @@ const translateStatus = (status: string) => {
     return mapping[status] || status;
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
-    const { timerState, startTimer, pauseTimer, confirmStop } = useTimer();
+const TaskTimerButtonList = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
+    const { timerState } = useTimer();
+    const { startTimer, pauseTimer } = useTimerActions();
+    const isActive = timerState.taskId === task.id && timerState.isRunning;
+
+    return (
+        <button
+            onClick={(e) => {
+                e.stopPropagation();
+                if (isActive) pauseTimer();
+                else if (task && oppId) startTimer(task.id, oppId, task.title || 'Untitled Task');
+            }}
+            className={`p-1 rounded transition-colors ${isActive ? 'bg-red-50 text-red-500 animate-pulse' : 'hover:bg-gray-200 text-gray-400 hover:text-green-600'}`}
+            title={isActive ? 'Pause Timer' : 'Start Timer'}
+        >
+            {isActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+        </button>
+    );
+});
+
+const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
+    const { timerState } = useTimer();
+    const { startTimer } = useTimerActions();
+    const isActive = timerState.taskId === task.id && timerState.isRunning;
+
+    return (
+        <button
+            onClick={(e) => {
+                e.stopPropagation();
+                if (!isActive) startTimer(task.id, oppId, task.title);
+            }}
+            className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${isActive ? 'bg-red-500 text-white animate-pulse' : 'bg-[#3DCD58] text-white hover:bg-[#2db64a]'}`}
+            title={isActive ? 'Timer Active' : 'Start Timer'}
+        >
+            <Play className="w-3 h-3 shrink-0" />
+            {isActive ? 'Active' : 'Start'}
+        </button>
+    );
+});
+
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
+    const { getTimerState, confirmStop } = useTimerActions();
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -1350,6 +1402,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
     const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+
+    const updateTimeoutRef = useRef<number | null>(null);
+    const pendingUpdateRef = useRef<{ opp: Opportunity, id?: string } | null>(null);
+
+    const onUpdate = useCallback((updated: Opportunity, id?: string) => {
+        pendingUpdateRef.current = { opp: updated, id };
+        if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = window.setTimeout(() => {
+            if (pendingUpdateRef.current) {
+                parentOnUpdate(pendingUpdateRef.current.opp, pendingUpdateRef.current.id);
+                pendingUpdateRef.current = null;
+            }
+        }, 800);
+    }, [parentOnUpdate]);
+
+    useEffect(() => {
+        return () => {
+            if (updateTimeoutRef.current && pendingUpdateRef.current) {
+                clearTimeout(updateTimeoutRef.current);
+                parentOnUpdate(pendingUpdateRef.current.opp, pendingUpdateRef.current.id);
+                pendingUpdateRef.current = null;
+            }
+        };
+    }, [parentOnUpdate]);
 
     useEffect(() => {
         if (deepLink?.tab) {
@@ -1909,7 +1985,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!selectedTaskForEdit) return;
 
         // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
-        if (field === 'status' && value === 'Done' && timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning) {
+        const currentTimerState = getTimerState();
+        if (field === 'status' && value === 'Done' && currentTimerState.taskId === selectedTaskForEdit.task.id && currentTimerState.isRunning) {
             confirmStop('Done'); // This will call handleTimerLog which updates DB and status
             setSelectedTaskForEdit(null); // Close modal since task is done
             return;
@@ -3327,13 +3404,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => startTimer(selectedTaskForEdit.task.id, opportunity.id, selectedTaskForEdit.task.title)}
-                                                className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg hover:bg-[#2db64a] transition-colors shadow-sm"
-                                                title="Start Timer"
-                                            >
-                                                <Play className="w-3 h-3" /> Start Timer
-                                            </button>
+                                            <TaskTimerButtonModal task={selectedTaskForEdit.task} oppId={opportunity.id} />
                                             <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                                 <Copy className="w-3 h-3" /> Summary
                                             </button>
@@ -4614,17 +4685,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <div className="flex items-center gap-2">
                                                         {/* Action Buttons (visible on hover) */}
                                                         <div className="opacity-0 group-hover:opacity-100 transition-opacity mr-2 flex items-center gap-1">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (timerState.taskId === task.id && timerState.isRunning) pauseTimer();
-                                                                    else if (task && localOpp) startTimer(task.id, localOpp.id, task.title || 'Untitled Task');
-                                                                }}
-                                                                className={`p-1 rounded transition-colors ${timerState.taskId === task.id && timerState.isRunning ? 'bg-red-50 text-red-500 animate-pulse' : 'hover:bg-gray-200 text-gray-400 hover:text-green-600'}`}
-                                                                title={timerState.taskId === task.id && timerState.isRunning ? 'Pause Timer' : 'Start Timer'}
-                                                            >
-                                                                {timerState.taskId === task.id && timerState.isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                                                            </button>
+                                                            <TaskTimerButtonList task={task} oppId={localOpp.id} />
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); copyTask(task); }}
                                                                 className="p-1 hover:bg-gray-200 rounded text-gray-500 hover:text-blue-500"
@@ -4698,17 +4759,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                             <Copy className="w-3 h-3" /> Summary
                                         </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                startTimer(selectedTaskForEdit.task.id, opportunity.id, selectedTaskForEdit.task.title);
-                                            }}
-                                            className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'bg-red-500 text-white animate-pulse' : 'bg-[#3DCD58] text-white hover:bg-[#2db64a]'}`}
-                                            title={timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'Timer Active' : 'Start Timer'}
-                                        >
-                                            <Play className="w-3 h-3 shrink-0" />
-                                            {timerState.taskId === selectedTaskForEdit.task.id && timerState.isRunning ? 'Active' : 'Start'}
-                                        </button>
+                                        <TaskTimerButtonModal task={selectedTaskForEdit.task} oppId={opportunity.id} />
                                         <button
                                             onClick={() => {
                                                 onMinimize?.({
