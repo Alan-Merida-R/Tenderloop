@@ -5,6 +5,7 @@ import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filte
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
+import { getNextTask } from '../services/taskUtils';
 import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
@@ -2184,9 +2185,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                             <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
 
                                                             {!hideNextStepBadges && (() => {
-                                                                const nextTask = (opp.tasks || [])
-                                                                    .filter(t => !['Done', 'Canceled'].includes(t.status))
-                                                                    .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))[0];
+                                                                const nextTask = getNextTask(opp.tasks || []);
                                                                 const isMissingInfoStale = nextTask?.status === 'Missing Info' && nextTask?.dueDate && (() => {
                                                                     const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
                                                                     return hrs > 48;

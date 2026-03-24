@@ -139,7 +139,8 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
         const additional = (state.isRunning && state.startTime) ? Math.floor((now - state.startTime) / 1000) : 0;
         const total = state.elapsedSeconds + additional;
 
-        if (total > 0 && state.taskId && state.oppId) {
+        // Always call onLogTime if we have a task and (time was logged OR status needs to change)
+        if (state.taskId && state.oppId && (total > 0 || status)) {
             if (onLogTimeRef.current) onLogTimeRef.current(state.taskId, state.oppId, total, status);
         }
 
