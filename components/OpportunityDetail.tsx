@@ -1560,7 +1560,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             setLocalOpp(updated);
             onUpdate(updated, currentOpp.id);
         }
-    }, [opportunity.id, opportunity.versions?.length, activeTab]);
+    }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated, activeTab]);
 
     useEffect(() => {
         if (deepLink) {
