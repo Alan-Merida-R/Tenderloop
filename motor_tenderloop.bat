@@ -20,7 +20,7 @@ if not exist node_modules (
 call npm install xlsx mammoth --quiet
 
 :: 5. Iniciar la aplicación FORZANDO el puerto 3000
-:: Primero abrimos el navegador
-start "" "http://localhost:3000"
+:: Primero intentamos abrir como App (Vivaldi, Edge o Chrome). Si fallan, abre el default.
+start vivaldi --app="http://localhost:3000" || start msedge --app="http://localhost:3000" || start chrome --app="http://localhost:3000" || start "" "http://localhost:3000"
 :: Luego ejecutamos Vite forzando el puerto y la carpeta actual
 call npx vite --port 3000 --strictPort
