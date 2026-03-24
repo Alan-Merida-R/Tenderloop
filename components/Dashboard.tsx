@@ -2100,7 +2100,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                     'Canceled': 'border-gray-400',
                                                 };
                                                 return (
-                                                    <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm bg-white ${STATUS_COLORS[columnKey as OpportunityStatus]} ${topBorderColor[columnKey] ?? ''}`}>
+                                                    <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm ${STATUS_COLORS[columnKey as OpportunityStatus]} ${topBorderColor[columnKey] ?? ''}`}>
                                                         <div className="flex flex-col">
                                                             <h3 className="text-sm font-bold uppercase tracking-wider">{translateStatus(columnKey)}</h3>
                                                         </div>
