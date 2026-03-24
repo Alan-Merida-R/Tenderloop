@@ -623,7 +623,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                     <div className="flex-1 flex overflow-hidden gap-4 min-h-0">
                         {/* Calendar Grid */}
                         <div className="flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px] bg-white rounded-2xl">
-                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b`}>
+                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b border-gray-200`}>
                                 {viewMode === 'day' ? (
                                     <div className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{days[0]?.toLocaleDateString('en-US', { weekday: 'long' })}</div>
                                 ) : (
@@ -663,7 +663,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                 } catch (err) { console.error('Drop failed', err); }
                                             }}
                                             onClick={() => setSelectedDay(dateStr)}
-                                            className={`border-r border-b p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
+                                            className={`border-r border-b border-gray-100 p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
                                         >
                                             <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
                                                 <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
@@ -703,7 +703,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                         {/* Inbox Sidebar */}
                         {showInbox && (
                             <div className="w-80 bg-white border border-gray-200 rounded-2xl flex flex-col shadow-xl animate-in slide-in-from-right duration-300 overflow-hidden">
-                                <div className="p-4 border-b bg-amber-50/80 flex items-center justify-between">
+                                <div className="p-4 border-b border-amber-100 bg-amber-50/80 flex items-center justify-between">
                                     <h4 className="text-xs font-black text-amber-700 uppercase tracking-widest flex items-center gap-2">
                                         <span>📥</span> Inbox
                                         {inboxItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{inboxItems.length}</span>}
@@ -799,7 +799,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                         </div>
                                     )}
                                 </div>
-                                <div className="p-3 border-t bg-white">
+                                <div className="p-3 border-t border-gray-100 bg-white">
                                     <button
                                         onClick={() => {
                                             setUseInbox(true);
@@ -817,8 +817,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                     </div>
                 </div>
                 {/* Agenda Sidebar */}
-                <div className="w-[450px] bg-white border-l flex flex-col shadow-2xl z-20 shrink-0">
-                    <div className="p-6 border-b bg-gray-50/50 shrink-0">
+                <div className="w-[450px] bg-white border-l border-gray-200 flex flex-col shadow-2xl z-20 shrink-0">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
                         <div className="flex items-center justify-between mb-2">
                             <h3 className="text-lg font-black text-gray-800">{LABELS.agenda}</h3>
                             <span className="text-sm font-bold text-gray-500">
@@ -904,7 +904,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             {showCreateModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in duration-200">
-                        <div className="p-6 border-b bg-gray-50/50 flex justify-between items-center">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                             <h3 className="text-xl font-black text-gray-800">{LABELS.createItem}</h3>
                             <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
                         </div>
@@ -1084,7 +1084,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             {selectedItem && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300">
-                        <div className="p-6 border-b bg-gray-50/50 flex items-center justify-between">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className={`p-2 rounded-xl ${selectedItem.type === 'task' ? 'bg-blue-100 text-blue-600' : selectedItem.type === 'history' ? 'bg-emerald-100 text-emerald-600' : selectedItem.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
                                     {selectedItem.type === 'task' ? <CheckCircle className="w-5 h-5" /> : selectedItem.type === 'history' ? <History className="w-5 h-5" /> : selectedItem.type === 'note' ? <FileText className="w-5 h-5" /> : <Timer className="w-5 h-5" />}
