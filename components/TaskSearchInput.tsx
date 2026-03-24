@@ -21,12 +21,29 @@ export const TaskSearchInput: React.FC<Props> = ({
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [localValue, setLocalValue] = useState(value);
+
+    // Sync external value changes
+    useEffect(() => {
+        setLocalValue(value);
+    }, [value]);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (localValue !== value) {
+                onChange(localValue);
+            }
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [localValue, value, onChange]);
+
+    const deferredValue = React.useDeferredValue(localValue);
 
     // Typeahead suggestions for tasks
     const suggestions = useMemo(() => {
-        if (!value.trim()) return [];
+        if (!deferredValue.trim()) return [];
 
-        const lower = value.toLowerCase();
+        const lower = deferredValue.toLowerCase();
         return tasks
             .filter(t =>
                 t.title.toLowerCase().includes(lower) ||
@@ -34,7 +51,7 @@ export const TaskSearchInput: React.FC<Props> = ({
                 (t.description || '').toLowerCase().includes(lower)
             )
             .slice(0, 15); // Limit 15
-    }, [tasks, value]);
+    }, [tasks, deferredValue]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -47,12 +64,12 @@ export const TaskSearchInput: React.FC<Props> = ({
     }, []);
 
     useEffect(() => {
-        if (value.trim() && suggestions.length > 0) {
+        if (localValue.trim() && suggestions.length > 0) {
             setIsOpen(true);
         } else {
             setIsOpen(false);
         }
-    }, [value, suggestions.length]);
+    }, [localValue, suggestions.length]);
 
     return (
         <div ref={containerRef} className={`relative flex items-center min-w-[250px] max-w-[500px] ${className}`}>
@@ -60,9 +77,9 @@ export const TaskSearchInput: React.FC<Props> = ({
                 <ListChecks className="w-4 h-4 text-gray-400 shrink-0" />
                 <input
                     type="text"
-                    value={value}
+                    value={localValue}
                     onChange={(e) => {
-                        onChange(e.target.value);
+                        setLocalValue(e.target.value);
                         setIsOpen(true);
                     }}
                     placeholder={placeholder}

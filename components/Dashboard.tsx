@@ -18,6 +18,38 @@ import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
 
 
+const OptimizedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    return (
+        <input 
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
+            className={className}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+        />
+    );
+});
+
+const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    return (
+        <textarea 
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+});
+
 const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: string, label: string }[], maxValue: number }> = ({ data, metrics, maxValue }) => {
     const width = 800; // Increased width for better visibility
     const height = 240;
@@ -2647,7 +2679,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                     <div className="flex items-start gap-4">
                                         <div className="flex-1">
                                             <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Title</label>
-                                            <input className="w-full text-2xl font-bold text-gray-900 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 px-0 py-2 placeholder-gray-300" value={selectedTask.task.title} onChange={(e) => updateSelectedTask('title', e.target.value)} />
+                                            <OptimizedInput className="w-full text-2xl font-bold text-gray-900 border-b border-gray-200 focus:border-[#3DCD58] focus:ring-0 px-0 py-2 placeholder-gray-300" value={selectedTask.task.title} onChange={(val: string) => updateSelectedTask('title', val)} />
                                         </div>
                                         {selectedTask.task.order && (
                                             <div className="w-20">
@@ -2710,7 +2742,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                         isOpen={openDropdown === 'taskExternalAreas'}
                                                         onToggle={() => toggleDropdown('taskExternalAreas')}
                                                     />
-                                                    <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
+                                                    <OptimizedInput placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(val: string) => updateSelectedTask('responsible', val)} />
                                                 </div>
                                             )}
                                         </div>
@@ -2834,7 +2866,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
 
                                     <div>
                                         <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Description</label>
-                                        <textarea className="w-full border-gray-200 rounded-lg text-sm h-32 resize-none bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.description} onChange={(e) => updateSelectedTask('description', e.target.value)} />
+                                        <OptimizedTextArea className="w-full border-gray-200 rounded-lg text-sm h-32 resize-none bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.description} onChange={(val: string) => updateSelectedTask('description', val)} />
                                     </div>
 
                                     <div>
@@ -2854,13 +2886,13 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                                             updateSelectedTask('subtasks', updatedSubs);
                                                         }}
                                                     />
-                                                    <input
-                                                        className={`flex-1 border-none focus:ring-0 py-1 text-sm ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}
+                                                    <OptimizedInput
+                                                        className={`flex-1 w-full outline-none border-none py-1 text-sm ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700'}`}
                                                         value={sub.title}
-                                                        onChange={(e) => {
+                                                        onChange={(val: string) => {
                                                             if (!selectedTask) return;
                                                             const currentSubs = selectedTask.task.subtasks || [];
-                                                            const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s);
+                                                            const updatedSubs = currentSubs.map(s => s.id === sub.id ? { ...s, title: val } : s);
                                                             updateSelectedTask('subtasks', updatedSubs);
                                                         }}
                                                     />
@@ -2954,12 +2986,11 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                 </div>
                                 <div className="space-y-1">
                                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Task Title</label>
-                                    <input
-                                        type="text"
+                                    <OptimizedInput
                                         className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent text-sm font-bold"
                                         placeholder="Enter task title..."
                                         value={newTaskData.title}
-                                        onChange={(e) => setNewTaskData({ ...newTaskData, title: e.target.value })}
+                                        onChange={(val: string) => setNewTaskData({ ...newTaskData, title: val })}
                                     />
                                 </div>
                             </div>

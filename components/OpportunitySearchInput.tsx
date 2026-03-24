@@ -86,10 +86,28 @@ export const OpportunitySearchInput: React.FC<Props> = ({
     const isDropdownOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
     const containerRef = useRef<HTMLDivElement>(null);
 
+    const [localValue, setLocalValue] = useState(value);
+
+    // Sync external value changes
+    useEffect(() => {
+        setLocalValue(value);
+    }, [value]);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (localValue !== value) {
+                onChange(localValue);
+            }
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [localValue, value, onChange]);
+
+    const deferredValue = React.useDeferredValue(localValue);
+
     // Typeahead suggestions
     const suggestions = useMemo(() => {
         // Always return suggestions, filtered by text if present
-        const lower = value.toLowerCase().trim();
+        const lower = deferredValue.toLowerCase().trim();
 
         return opportunities
             .filter(o => {
@@ -108,7 +126,7 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 );
             })
             .slice(0, 50); // Increased limit
-    }, [opportunities, value, selectedIds]);
+    }, [opportunities, deferredValue, selectedIds]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -150,7 +168,7 @@ export const OpportunitySearchInput: React.FC<Props> = ({
 
                 <input
                     type="text"
-                    value={value}
+                    value={localValue}
                     onFocus={() => {
                         if (suggestions.length > 0) {
                             if (onToggle) onToggle(true);
@@ -158,18 +176,19 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                         }
                     }}
                     onChange={(e) => {
-                        onChange(e.target.value);
+                        setLocalValue(e.target.value);
                         // Always open on user typing
                         if (onToggle) onToggle(true);
                         else setInternalIsOpen(true);
                     }}
                     onKeyDown={(e) => {
-                        if (e.key === 'Backspace' && value === '' && selectedIds.length > 0) {
+                        if (e.key === 'Backspace' && localValue === '' && selectedIds.length > 0) {
                             onRemove(selectedIds[selectedIds.length - 1]);
                         }
                         if (e.key === 'Enter' && suggestions.length > 0 && isDropdownOpen) {
                             onSelect(suggestions[0].id);
                             onChange('');
+                            setLocalValue('');
                             if (onToggle) onToggle(false);
                             else setInternalIsOpen(false);
                         }

@@ -22,6 +22,46 @@ interface InboxItem {
 }
 const INBOX_KEY = 'tenderloop.inbox.v1';
 
+const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    return (
+        <input 
+            type={type}
+            step={step}
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
+            className={className}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+        />
+    );
+});
+
+const DebouncedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            if (localVal !== value) onChange(localVal);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [localVal, value, onChange]);
+
+    return (
+        <input 
+            value={localVal}
+            onChange={(e) => setLocalVal(e.target.value)}
+            className={className}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
+        />
+    );
+});
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
     const getLocalToday = () => new Date().toLocaleDateString('en-CA');
     const [viewMode, setViewMode] = useState<TrackingViewMode>('month');
@@ -436,12 +476,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
                                     <div className="relative group">
                                         <div className="absolute left-3 top-3"><Search className="w-4 h-4 text-gray-400" /></div>
-                                        <input
-                                            type="text"
+                                        <DebouncedInput
                                             placeholder="Search opportunities by name or ID..."
                                             className="w-full pl-10 pr-4 py-2 bg-gray-50 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-[#3DCD58] focus:bg-white transition-all outline-none"
                                             value={oppSearch}
-                                            onChange={(e) => setOppSearch(e.target.value)}
+                                            onChange={(val: string) => setOppSearch(val)}
                                         />
                                         {oppSearch && (
                                             <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl z-[100] max-h-60 overflow-y-auto">
@@ -580,12 +619,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
                                             <div className="relative">
                                                 <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
-                                                <input
-                                                    type="text"
+                                                <DebouncedInput
                                                     placeholder="Search in titles/content..."
                                                     className="w-full pl-9 pr-3 py-2 bg-gray-50 border-gray-100 rounded-lg text-xs outline-none focus:ring-1 focus:ring-gray-300"
                                                     value={filters.searchQuery}
-                                                    onChange={e => setFilters({ ...filters, searchQuery: e.target.value })}
+                                                    onChange={(val: string) => setFilters({ ...filters, searchQuery: val })}
                                                 />
                                             </div>
                                         </div>
@@ -930,7 +968,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 {!useInbox && (
                                     <div className="relative">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                        <input type="text" placeholder={LABELS.searchOpp} value={targetOppId ? opportunities.find(o => o.id === targetOppId)?.title || targetOppId : oppSearch} onChange={(e) => { setOppSearch(e.target.value); if (targetOppId) setTargetOppId(''); }} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3DCD58] outline-none text-sm transition-all" />
+                                        <DebouncedInput placeholder={LABELS.searchOpp} value={targetOppId ? opportunities.find(o => o.id === targetOppId)?.title || targetOppId : oppSearch} onChange={(val: string) => { setOppSearch(val); if (targetOppId) setTargetOppId(''); }} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3DCD58] outline-none text-sm transition-all" />
                                         {!targetOppId && filteredOppsForSearch.length > 0 && (
                                             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
                                                 {filteredOppsForSearch.map(opp => (
@@ -965,7 +1003,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             </div>
                             <div className="space-y-2">
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{newItemType === 'history' ? LABELS.content : LABELS.titleField}</label>
-                                <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder={newItemType === 'history' ? 'Ex: Sent follow-up email' : 'Ex: Review documentation...'} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none text-sm" />
+                                <OptimizedInput type="text" value={formData.title} onChange={(val: string) => setFormData({ ...formData, title: val })} placeholder={newItemType === 'history' ? 'Ex: Sent follow-up email' : 'Ex: Review documentation...'} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none text-sm" />
                             </div>
                             {(newItemType === 'note' || newItemType === 'task') && (
                                 <div className="space-y-2">
@@ -1100,7 +1138,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             <div className="space-y-4">
                                 <div className="space-y-1">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.titleField}</label>
-                                    <input className="w-full text-xl font-bold text-gray-900 border-none p-2 bg-gray-50 rounded-xl focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.title} onChange={(e) => updateItem(selectedItem, selectedItem.type === 'history' ? { content: e.target.value } : { title: e.target.value })} />
+                                    <OptimizedInput className="w-full text-xl font-bold text-gray-900 border-none p-2 bg-gray-50 rounded-xl focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.title} onChange={(val: string) => updateItem(selectedItem, selectedItem.type === 'history' ? { content: val } : { title: val })} />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
@@ -1197,8 +1235,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             {/* Title */}
                             <div className="space-y-1">
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Title</label>
-                                <input type="text" value={editingInboxItem.title}
-                                    onChange={e => setEditingInboxItem({ ...editingInboxItem, title: e.target.value })}
+                                <OptimizedInput type="text" value={editingInboxItem.title}
+                                    onChange={(val: string) => setEditingInboxItem({ ...editingInboxItem, title: val })}
                                     className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300" />
                             </div>
                             {/* Content */}
@@ -1257,8 +1295,8 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Which opportunity to link it to?</label>
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                <input type="text" placeholder="Search opportunity..." value={assignOppSearch}
-                                    onChange={e => setAssignOppSearch(e.target.value)}
+                                <DebouncedInput placeholder="Search opportunity..." value={assignOppSearch}
+                                    onChange={(val: string) => setAssignOppSearch(val)}
                                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-300 outline-none text-sm" autoFocus />
                             </div>
                             <div className="max-h-56 overflow-y-auto space-y-1">
