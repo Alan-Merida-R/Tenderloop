@@ -961,123 +961,131 @@ function App() {
   };
 
   const moveOpportunityStage = useCallback((id: string, newStage: ProcessStage) => {
-    setDb(prev => ({
-      ...prev,
-      opportunities: prev.opportunities.map(o => o.id === id ? { ...o, stage: newStage, lastUpdated: new Date().toISOString() } : o)
-    }));
+    React.startTransition(() => {
+      setDb(prev => ({
+        ...prev,
+        opportunities: prev.opportunities.map(o => o.id === id ? { ...o, stage: newStage, lastUpdated: new Date().toISOString() } : o)
+      }));
+    });
   }, []);
 
   const changeOpportunityDate = useCallback((id: string, type: 'expected' | 'dueDate', newDate: string) => {
     if (type === 'expected') {
-      setDb(prev => ({
-        ...prev,
-        opportunities: prev.opportunities.map(o => o.id === id ? { ...o, dates: { ...o.dates, expected: newDate }, lastUpdated: new Date().toISOString() } : o)
-      }));
+      React.startTransition(() => {
+        setDb(prev => ({
+          ...prev,
+          opportunities: prev.opportunities.map(o => o.id === id ? { ...o, dates: { ...o.dates, expected: newDate }, lastUpdated: new Date().toISOString() } : o)
+        }));
+      });
     }
   }, []);
 
   const updateTaskDetails = useCallback((oppId: string, taskId: string, updates: Partial<Task>) => {
-    setDb(prev => ({
-      ...prev,
-      opportunities: prev.opportunities.map(o => {
-        if (o.id !== oppId) return o;
-        return {
-          ...o,
-          tasks: o.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t),
-          lastUpdated: new Date().toISOString()
-        };
-      })
-    }));
+    React.startTransition(() => {
+      setDb(prev => ({
+        ...prev,
+        opportunities: prev.opportunities.map(o => {
+          if (o.id !== oppId) return o;
+          return {
+            ...o,
+            tasks: o.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t),
+            lastUpdated: new Date().toISOString()
+          };
+        })
+      }));
+    });
   }, []);
 
   const handleTimerLog = (taskId: string, oppId: string, seconds: number, status?: TaskStatus) => {
-    setDb(prev => {
-      const newOpps = prev.opportunities.map(o => {
-        if (o.id !== oppId) return o;
+    React.startTransition(() => {
+      setDb(prev => {
+        const newOpps = prev.opportunities.map(o => {
+          if (o.id !== oppId) return o;
 
-        const taskIndex = o.tasks.findIndex(t => t.id === taskId);
-        if (taskIndex === -1) return o;
+          const taskIndex = o.tasks.findIndex(t => t.id === taskId);
+          if (taskIndex === -1) return o;
 
-        const updatedTasks = [...o.tasks];
-        const task = { ...updatedTasks[taskIndex] };
+          const updatedTasks = [...o.tasks];
+          const task = { ...updatedTasks[taskIndex] };
 
-        const now = new Date();
-        const nowIso = now.toISOString();
-        const dateStr = now.toLocaleDateString('en-CA');
-        const start = new Date(Date.now() - seconds * 1000).toISOString();
+          const now = new Date();
+          const nowIso = now.toISOString();
+          const dateStr = now.toLocaleDateString('en-CA');
+          const start = new Date(Date.now() - seconds * 1000).toISOString();
 
-        const newLog: any = {
-          id: crypto.randomUUID(),
-          startTime: start,
-          endTime: nowIso,
-          durationSeconds: seconds,
-          description: 'Timer Log'
-        };
-
-        task.timeLogs = [...(task.timeLogs || []), newLog];
-
-        if (status) {
-          task.status = status;
-        } else if (task.status === 'Pending') {
-          task.status = 'In Progress';
-        }
-
-        updatedTasks[taskIndex] = task;
-
-        // --- Link to Tracker (KPI Areas) ---
-        let updatedAreas = [...(o.kpis.areasInvolved || [])];
-
-        // Determine Target Area
-        let targetAreaName = 'General';
-        if (task.owner === 'Me') {
-          targetAreaName = 'Tendering';
-        } else if (task.externalAreas && task.externalAreas.length > 0) {
-          targetAreaName = task.externalAreas[0];
-        } else if (task.owner === 'External Area') {
-          targetAreaName = 'External';
-        }
-
-        // Find or Create Area
-        let areaIndex = updatedAreas.findIndex(a => a.area === targetAreaName);
-        if (areaIndex === -1) {
-          updatedAreas.push({
+          const newLog: any = {
             id: crypto.randomUUID(),
-            area: targetAreaName,
-            daysSpent: 0,
-            waitingDays: 0,
-            calendar: {}
-          });
-          areaIndex = updatedAreas.length - 1;
-        }
+            startTime: start,
+            endTime: nowIso,
+            durationSeconds: seconds,
+            description: 'Timer Log'
+          };
 
-        // Update Calendar for Date
-        const area = { ...updatedAreas[areaIndex] };
-        const calendar = { ...(area.calendar || {}) };
-        const existingRecord = calendar[dateStr] || { type: 'Worked', hours: 0, minutes: 0 };
+          task.timeLogs = [...(task.timeLogs || []), newLog];
 
-        // Calculate total seconds to ensure precision when adding
-        const existingTotalSeconds = ((existingRecord.hours || 0) * 3600) + ((existingRecord.minutes || 0) * 60);
-        const totalSeconds = existingTotalSeconds + seconds;
+          if (status) {
+            task.status = status;
+          } else if (task.status === 'Pending') {
+            task.status = 'In Progress';
+          }
 
-        calendar[dateStr] = {
-          ...existingRecord,
-          type: 'Worked',
-          hours: Math.floor(totalSeconds / 3600),
-          minutes: Math.floor((totalSeconds % 3600) / 60)
-        };
+          updatedTasks[taskIndex] = task;
 
-        area.calendar = calendar;
-        updatedAreas[areaIndex] = area;
+          // --- Link to Tracker (KPI Areas) ---
+          let updatedAreas = [...(o.kpis.areasInvolved || [])];
 
-        return {
-          ...o,
-          tasks: updatedTasks,
-          kpis: { ...o.kpis, areasInvolved: updatedAreas },
-          lastUpdated: new Date().toISOString()
-        };
+          // Determine Target Area
+          let targetAreaName = 'General';
+          if (task.owner === 'Me') {
+            targetAreaName = 'Tendering';
+          } else if (task.externalAreas && task.externalAreas.length > 0) {
+            targetAreaName = task.externalAreas[0];
+          } else if (task.owner === 'External Area') {
+            targetAreaName = 'External';
+          }
+
+          // Find or Create Area
+          let areaIndex = updatedAreas.findIndex(a => a.area === targetAreaName);
+          if (areaIndex === -1) {
+            updatedAreas.push({
+              id: crypto.randomUUID(),
+              area: targetAreaName,
+              daysSpent: 0,
+              waitingDays: 0,
+              calendar: {}
+            });
+            areaIndex = updatedAreas.length - 1;
+          }
+
+          // Update Calendar for Date
+          const area = { ...updatedAreas[areaIndex] };
+          const calendar = { ...(area.calendar || {}) };
+          const existingRecord = calendar[dateStr] || { type: 'Worked', hours: 0, minutes: 0 };
+
+          // Calculate total seconds to ensure precision when adding
+          const existingTotalSeconds = ((existingRecord.hours || 0) * 3600) + ((existingRecord.minutes || 0) * 60);
+          const totalSeconds = existingTotalSeconds + seconds;
+
+          calendar[dateStr] = {
+            ...existingRecord,
+            type: 'Worked',
+            hours: Math.floor(totalSeconds / 3600),
+            minutes: Math.floor((totalSeconds % 3600) / 60)
+          };
+
+          area.calendar = calendar;
+          updatedAreas[areaIndex] = area;
+
+          return {
+            ...o,
+            tasks: updatedTasks,
+            kpis: { ...o.kpis, areasInvolved: updatedAreas },
+            lastUpdated: new Date().toISOString()
+          };
+        });
+
+        return { ...prev, opportunities: newOpps };
       });
-
-      return { ...prev, opportunities: newOpps };
     });
   };
   // Stabilize opportunities reference so React.memo on Dashboard actually works.
