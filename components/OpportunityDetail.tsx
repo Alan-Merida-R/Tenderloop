@@ -14,7 +14,7 @@ import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
-import { getNextTask, compareTasksGlobal } from '../services/taskUtils';
+import { getNextTask, compareTasksGlobal, reorderTaskStrict } from '../services/taskUtils';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -4640,23 +4640,42 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div key={task.id} id={`task-${task.id}`} className={`group border p-4 rounded-xl flex items-center justify-between cursor-pointer transition-all ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : 'border-gray-100 hover:bg-gray-50 hover:border-[#3DCD58]/30 hover:shadow-md'}`} onClick={() => setSelectedTaskForEdit({ task })}>
                                                     <div className="flex items-center gap-4">
                                                         <div
-                                                            className="text-xs font-bold text-gray-300 w-6 text-center"
+                                                            className="text-xs font-bold text-gray-300 w-8 flex flex-col items-center gap-0.5"
                                                             onClick={(e) => e.stopPropagation()}
                                                             title="Execution Order"
                                                         >
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) - 1)); }}
+                                                                className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
+                                                            >
+                                                                <ChevronUp className="w-3 h-3" />
+                                                            </button>
                                                             <input
                                                                 type="number"
-                                                                className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold"
+                                                                className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold h-4"
                                                                 placeholder="#"
-                                                                value={task.order || ''}
-                                                                onChange={(e) => {
-                                                                    const newOrder = e.target.value ? parseInt(e.target.value) : null;
-                                                                    const updatedTasks = localOpp.tasks.map(t => t.id === task.id ? { ...t, order: newOrder } : t);
-                                                                    handleFieldChange('tasks', updatedTasks);
+                                                                key={`order-${task.order}`}
+                                                                defaultValue={task.order || ''}
+                                                                onBlur={(e) => {
+                                                                    if (e.target.value) {
+                                                                        const newOrder = parseInt(e.target.value);
+                                                                        if (newOrder !== task.order) {
+                                                                            handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, newOrder));
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') e.currentTarget.blur();
                                                                 }}
                                                             />
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) + 1)); }}
+                                                                className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
+                                                            >
+                                                                <ChevronDown className="w-3 h-3" />
+                                                            </button>
                                                         </div>
-                                                        <div className={`w-2 h-2 rounded-full ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
+                                                        <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-2">
                                                                 <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>

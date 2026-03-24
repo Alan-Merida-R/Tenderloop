@@ -24,20 +24,41 @@ export function getNextTask(tasks: Task[]): Task | undefined {
 }
 
 /**
- * Assigns an order to any task missing one, sequentially continuing from the highest existing order.
+ * Assigns an order to any task missing one and strictly RE-INDEXES all tasks from 1 to N, 
+ * eliminating duplicates or gaps.
  */
 export function assignMissingOrders(tasks: Task[]): Task[] {
-    const existingOrders = tasks.filter(t => t.order != null).map(t => t.order as number);
-    let nextOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1;
-    
-    return tasks.map(t => {
-        if (t.order == null) {
-            return { ...t, order: nextOrder++ };
-        }
-        return t;
+    let nextAvailable = tasks.filter(t => t.order != null).reduce((max, t) => Math.max(max, t.order!), 0) + 1;
+    let mapped = tasks.map(t => ({
+        ...t,
+        tempOrder: t.order ?? nextAvailable++
+    }));
+
+    mapped.sort((a, b) => a.tempOrder - b.tempOrder);
+
+    return mapped.map((t, idx) => {
+        const { tempOrder, ...rest } = t;
+        return { ...rest, order: idx + 1 } as Task;
     });
 }
 
+/**
+ * Reorders a task and strictly re-indexes all tasks from 1 to N, so there are no duplicates.
+ */
+export function reorderTaskStrict(tasks: Task[], targetTaskId: string, newPosition: number): Task[] {
+    const sorted = [...tasks].sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    const targetTask = sorted.find(t => t.id === targetTaskId);
+    if (!targetTask) return tasks;
+
+    const others = sorted.filter(t => t.id !== targetTaskId);
+    
+    // Insert at newPosition (1-indexed)
+    const posIndex = Math.max(0, newPosition - 1);
+    others.splice(posIndex, 0, targetTask);
+
+    // Reindex
+    return others.map((t, idx) => ({ ...t, order: idx + 1 }));
+}
 /** Helper to rank Opportunity Status */
 export function getOppStatusWeight(status?: string): number {
     if (!status) return 99;
