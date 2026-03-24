@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
@@ -216,7 +216,7 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, 2500); // Increased debounce: prevents disk-write pile-up during rapid edits
+    }, 4000); // 4s debounce: reduces worker call frequency under rapid edits
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -1080,6 +1080,9 @@ function App() {
       return { ...prev, opportunities: newOpps };
     });
   };
+  // Stabilize opportunities reference so React.memo on Dashboard actually works.
+  // Without this, db.opportunities is always a new array, defeating the memo.
+  const stableOpportunities = useMemo(() => db.opportunities, [db.opportunities]);
 
   return (
     <TimerProvider onLogTime={handleTimerLog} opportunities={db.opportunities}>
@@ -1246,7 +1249,7 @@ function App() {
               <Dashboard
                 key={fileHandle?.name || 'sandbox'}
                 mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
-                opportunities={db.opportunities}
+                opportunities={stableOpportunities}
                 onSelect={(id, dl) => {
                   setSelectedOppId(id);
                   setActiveDeepLink(dl || null);
