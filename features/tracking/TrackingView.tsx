@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Opportunity, Task, HistoryEntry, MeetingNote, KPIArea, AreaDayRecord, TaskStatus, TaskPriority, DeepLink } from '../../types';
 import { TrackingFilters, TrackingWorkItem, TrackingViewMode, TrackingItemType } from './trackingTypes';
 import { Calendar, ChevronLeft, ChevronRight, Filter, Plus, Clock, History, FileText, CheckCircle, Search, X, LayoutGrid, CalendarDays, Timer, Briefcase, User, Info, ArrowRight, Save, Trash2, Edit2, FolderOpen, ExternalLink } from 'lucide-react';
+import { OptimizedInput, DebouncedInput } from '../../components/OptimizedInput';
 
 interface TrackingViewProps {
     opportunities: Opportunity[];
@@ -22,46 +23,7 @@ interface InboxItem {
 }
 const INBOX_KEY = 'tenderloop.inbox.v1';
 
-const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
 
-    return (
-        <input 
-            type={type}
-            step={step}
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
-            className={className}
-            placeholder={placeholder}
-            autoFocus={autoFocus}
-        />
-    );
-});
-
-const DebouncedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
-
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            if (localVal !== value) onChange(localVal);
-        }, 300);
-        return () => clearTimeout(handler);
-    }, [localVal, value, onChange]);
-
-    return (
-        <input 
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            className={className}
-            placeholder={placeholder}
-            autoFocus={autoFocus}
-        />
-    );
-});
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
     const getLocalToday = () => new Date().toLocaleDateString('en-CA');
     const [viewMode, setViewMode] = useState<TrackingViewMode>('month');

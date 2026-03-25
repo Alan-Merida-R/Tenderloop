@@ -15,6 +15,7 @@ import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
 import { getNextTask, compareTasksGlobal, reorderTaskStrict } from '../services/taskUtils';
+import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedInput';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -1373,37 +1374,7 @@ const TaskTimerButtonList = React.memo(({ task, oppId }: { task: Task, oppId: st
     );
 });
 
-const OptimizedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
 
-    return (
-        <input 
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
-            className={className}
-            placeholder={placeholder}
-            autoFocus={autoFocus}
-        />
-    );
-});
-
-const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
-
-    return (
-        <textarea 
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
-            className={className}
-            placeholder={placeholder}
-        />
-    );
-});
 
 const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
     const { timerState } = useTimer();
@@ -1688,12 +1659,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const matchesStatus = taskStatusFilters.length === 0 || taskStatusFilters.includes(t.status);
         return matchesText && matchesStatus;
     }).sort((a, b) => {
+        if (taskSort === 'order') {
+            const ao = a.order ?? 999999;
+            const bo = b.order ?? 999999;
+            if (ao !== bo) return ao - bo;
+            // Tie-break with dueDate
+            if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+            if (a.dueDate) return -1;
+            if (b.dueDate) return 1;
+            return (a.title || '').localeCompare(b.title || '');
+        }
         if (taskSort === 'dueDate') {
             if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
             if (a.dueDate) return -1;
             if (b.dueDate) return 1;
-            return 0;
+            return (a.order ?? 9999) - (b.order ?? 9999);
         }
+        // Unified global compare as fallback (which also considers order at level 3)
         return compareTasksGlobal(
             { task: a, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder },
             { task: b, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder }
@@ -3131,21 +3113,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <>
                                             <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">OP</span>
-                                                <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(e) => handleFieldChange('id', `OP-${e.target.value}`)} />
+                                                <div className="flex -space-x-px">
+                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(val: string) => handleFieldChange('id', `OP-${val}`)} />
+                                                </div>
+                                                <div className="w-px h-3 bg-gray-200"></div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">QLK:</span>
+                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
+                                                </div>
+                                                <div className="w-px h-3 bg-gray-200"></div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">REV:</span>
+                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(val: string) => handleFieldChange('revision', val)} placeholder="R0" />
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
-                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">QLK</span>
-                                                <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(e) => handleFieldChange('qlk', e.target.value)} placeholder="000000" />
-                                            </div>
-                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">REV</span>
-                                            <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(e) => handleFieldChange('revision', e.target.value)} placeholder="R0" />
                                         </>
                                     )}
                                 </div>
                                 {!isSubView && (
                                     <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                                        <input className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(e) => handleFieldChange('srId', e.target.value)} placeholder="SR-..." />
+                                        <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
                                     </div>
                                 )}
                             </div>
@@ -3434,8 +3422,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="space-y-8 flex-1">
                                         <div className="flex items-start gap-4">
                                             <div className="flex-1 space-y-2">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Task Title</label>
-                                                <input className="w-full text-xl font-bold border-b-2 border-gray-100 focus:border-[#3DCD58] transition-all px-1 py-2 focus:ring-0" value={selectedTaskForEdit.task.title} onChange={(e) => updateTaskInModal('title', e.target.value)} />
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Task Title</label>
+                                                    <OptimizedInput className="w-full text-xl font-bold border-none p-0 focus:ring-0 bg-transparent text-gray-900" value={selectedTaskForEdit.task.title} onChange={(val: string) => updateTaskInModal('title', val)} />
+                                                </div>
                                             </div>
                                             <div className="w-24 space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Order</label>
@@ -3490,15 +3480,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div className="flex items-center gap-2">
                                                     <input type="checkbox" id="blockDoneToggleIso" checked={selectedTaskForEdit.task.blockDoneUntilDependenciesDone || false} onChange={e => updateTaskInModal('blockDoneUntilDependenciesDone', e.target.checked)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58]" />
                                                     <label htmlFor="blockDoneToggleIso" className="text-[10px] font-bold text-gray-600 uppercase select-none cursor-pointer flex items-center gap-1">
-                                                        <Lock className="w-3 h-3 text-gray-400" /> Block Done until dependencies are done
+                                                        <Lock className="w-3 h-3" /> Block Done until dependencies are done
                                                     </label>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Detailed Description</label>
-                                            <textarea className="w-full border-gray-100 bg-gray-50 rounded-2xl text-sm min-h-[120px] p-4 shadow-inner focus:bg-white transition-all focus:ring-0" value={selectedTaskForEdit.task.description} onChange={(e) => updateTaskInModal('description', e.target.value)} />
+                                            <div className="space-y-1 pt-4 border-t">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</label>
+                                                <OptimizedTextArea className="w-full text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58] resize-none" rows={5} value={selectedTaskForEdit.task.description} onChange={(val: string) => updateTaskInModal('description', val)} />
+                                            </div>
                                         </div>
 
                                         <div className="space-y-4">
@@ -3637,7 +3629,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 {selectedTaskForEdit.task.subtasks.map((sub, idx) => (
                                                     <div key={sub.id} className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm group">
                                                         <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
-                                                        <input className={`flex-1 text-sm bg-transparent border-none focus:ring-0 p-0 ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700 font-bold'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
+                                                        <OptimizedInput className={`flex-1 text-sm bg-transparent border-none focus:ring-0 p-0 ${sub.completed ? 'text-gray-400 line-through' : 'text-gray-700 font-bold'}`} value={sub.title} onChange={(val: string) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: val } : s))} />
                                                         <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
                                                 ))}
@@ -3658,7 +3650,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
-                                    <textarea value={localOpp.description} onChange={(e) => handleFieldChange('description', e.target.value)} className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]" placeholder="Detailed description..." />
+                                    <OptimizedTextArea value={localOpp.description} onChange={(val: string) => handleFieldChange('description', val)} className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]" placeholder="Detailed description..." />
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
                                         <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
@@ -3676,10 +3668,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Short Alias (1-2 words)</label>
-                                            <input
+                                            <OptimizedInput
                                                 type="text"
                                                 value={localOpp.alias || ''}
-                                                onChange={(e) => handleFieldChange('alias', e.target.value)}
+                                                onChange={(val: string) => handleFieldChange('alias', val)}
                                                 className="w-full text-sm border-gray-200 rounded-lg"
                                                 placeholder="e.g. Project X"
                                                 maxLength={20}
@@ -3804,20 +3796,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                                 {item.type === 'link' && (
                                                     <>
-                                                        <input
+                                                        <OptimizedInput
                                                             value={item.label}
-                                                            onChange={(e) => {
+                                                            onChange={(val: string) => {
                                                                 const newLinks = [...arr];
-                                                                newLinks[idx] = { ...item, label: e.target.value };
+                                                                newLinks[idx] = { ...item, label: val };
                                                                 handleFieldChange('links', newLinks);
                                                             }}
                                                             className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate bg-transparent border-none focus:ring-0 p-0"
                                                         />
-                                                        <input
+                                                        <OptimizedInput
                                                             value={item.url}
-                                                            onChange={(e) => {
+                                                            onChange={(val: string) => {
                                                                 const newLinks = [...arr];
-                                                                newLinks[idx] = { ...item, url: e.target.value };
+                                                                newLinks[idx] = { ...item, url: val };
                                                                 handleFieldChange('links', newLinks);
                                                             }}
                                                             className="flex-1 text-sm border-gray-200 rounded p-1 h-7"
@@ -4131,21 +4123,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
-                                        <textarea value={localOpp.presentation.executiveSummary} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
+                                        <OptimizedTextArea value={localOpp.presentation.executiveSummary} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
-                                            <textarea value={localOpp.presentation.issues} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, issues: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                            <OptimizedTextArea value={localOpp.presentation.issues} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, issues: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
-                                            <textarea value={localOpp.presentation.requirements} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: e.target.value })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                            <OptimizedTextArea value={localOpp.presentation.requirements} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
-                                        <textarea value={localOpp.presentation.kpis} onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: e.target.value })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
+                                        <OptimizedTextArea value={localOpp.presentation.kpis} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: val })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
                                     </div>
                                 </div>
 
@@ -4277,10 +4269,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Global Adjustments</h4>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label><input type="number" value={displayValue(localOpp.commercial.risk)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, risk: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label><input type="number" value={displayValue(localOpp.commercial.contingency)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.risk)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, risk: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.contingency)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
                                         </div>
-                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label><textarea value={localOpp.commercial.discountsAndNotes} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: e.target.value })} className="w-full border-gray-200 rounded text-sm mt-1 h-20" /></div>
+                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label><OptimizedTextArea value={localOpp.commercial.discountsAndNotes} onChange={(val: string) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: val })} className="w-full border-gray-200 rounded text-sm mt-1 h-20" /></div>
                                     </div>
                                     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                         <div className="flex justify-between items-center">
@@ -5132,7 +5124,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <button onClick={() => moveSubtask(idx, 'down')} disabled={idx === selectedTaskForEdit.task.subtasks.length - 1} className="text-gray-300 hover:text-gray-500 disabled:opacity-0"><ChevronDown className="w-4 h-4" /></button>
                                                     </div>
                                                     <input type="checkbox" className="w-5 h-5 rounded border-gray-200 text-[#3DCD58] focus:ring-[#3DCD58]" checked={sub.completed} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, completed: e.target.checked } : s))} />
-                                                    <input className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(e) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))} />
+                                                    <OptimizedInput className={`flex-1 border-none focus:ring-0 p-0 text-sm font-medium ${sub.completed ? 'line-through text-gray-300' : 'text-gray-700'}`} value={sub.title} onChange={(val: string) => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.map(s => s.id === sub.id ? { ...s, title: val } : s))} />
                                                     <button onClick={() => updateTaskInModal('subtasks', selectedTaskForEdit.task.subtasks.filter(s => s.id !== sub.id))} className="text-gray-200 hover:text-red-500 transition-colors"><X className="w-4 h-4" /></button>
                                                 </div>
                                             ))}

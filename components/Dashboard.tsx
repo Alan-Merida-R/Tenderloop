@@ -14,41 +14,12 @@ import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
 import { TaskSearchInput } from './TaskSearchInput';
+import { OptimizedInput, OptimizedTextArea } from './OptimizedInput';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
 
 
-const OptimizedInput = React.memo(({ value, onChange, className, placeholder, autoFocus }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
 
-    return (
-        <input 
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && localVal !== value) onChange(localVal); }}
-            className={className}
-            placeholder={placeholder}
-            autoFocus={autoFocus}
-        />
-    );
-});
-
-const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder }: any) => {
-    const [localVal, setLocalVal] = useState(value || '');
-    useEffect(() => { setLocalVal(value || ''); }, [value]);
-
-    return (
-        <textarea 
-            value={localVal}
-            onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
-            className={className}
-            placeholder={placeholder}
-        />
-    );
-});
 
 const KPIEvolutionChart: React.FC<{ data: any[], metrics: { key: string, color: string, label: string }[], maxValue: number }> = ({ data, metrics, maxValue }) => {
     const width = 800; // Increased width for better visibility
