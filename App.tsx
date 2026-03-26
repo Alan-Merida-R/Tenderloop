@@ -1093,7 +1093,7 @@ function App() {
   const stableOpportunities = useMemo(() => db.opportunities, [db.opportunities]);
 
   return (
-    <TimerProvider onLogTime={handleTimerLog} opportunities={db.opportunities}>
+    <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
       <div className="h-screen flex flex-col bg-white text-gray-900 font-sans overflow-hidden relative">
         {/* Top Navigation */}
         <div className="bg-white border-b border-gray-200 h-14 px-4 flex justify-between items-center select-none sticky top-0 z-40 shadow-sm shrink-0">
@@ -1296,14 +1296,14 @@ function App() {
 
           {/* Opportunity Detail Overlay */}
           {selectedOppId && (() => {
-            const opp = db.opportunities.find(o => o.id === selectedOppId);
+            const opp = stableOpportunities.find(o => o.id === selectedOppId);
             if (!opp) return null;
             return (
               <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
                 <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
                   <OpportunityDetail
                     opportunity={opp}
-                    opportunities={db.opportunities}
+                    opportunities={stableOpportunities}
                     onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
                     onUpdate={updateOpportunity}
                     onDelete={() => deleteOpportunity(opp.id)}
@@ -1329,7 +1329,7 @@ function App() {
           onClose={() => setShowSettings(false)}
           onSave={handleSaveSettings}
           initialSettings={appSettings}
-          opportunities={db.opportunities}
+          opportunities={stableOpportunities}
         />
         <StickyNotesWidget />
         <TimerWidget onTaskClick={handleTimerTaskClick} />

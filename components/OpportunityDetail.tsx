@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin } from 'lucide-react';
@@ -1437,8 +1437,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     }, [deepLink?.tab]);
 
+    const lastScrolledTaskId = useRef<string | null>(null);
     useEffect(() => {
-        if (deepLink?.taskId) {
+        if (deepLink?.taskId && lastScrolledTaskId.current !== deepLink.taskId) {
+            lastScrolledTaskId.current = deepLink.taskId;
             setHighlightTaskId(deepLink.taskId);
             // Scroll to task if in list or board view
             setTimeout(() => {
@@ -1524,13 +1526,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // This prevents overwriting local state while typing Title/ID due to parent re-renders.
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore) 
         // OR if lastUpdated changed (syncing from other tabs or background timer)
-        if (opportunity.id !== localOpp.id ||
-            (opportunity.versions?.length !== localOpp.versions?.length) ||
-            (opportunity.lastUpdated !== localOpp.lastUpdated)) {
+        // Sync from props if ID changed (navigation) or versions changed (external update/restore)
+        if (opportunity.id !== localOpp.id || (opportunity.versions?.length !== localOpp.versions?.length)) {
+            setLocalOpp(opportunity);
+            if (scrollContainerRef.current) scrollContainerRef.current.scrollTo(0, 0);
+        } else if (opportunity.lastUpdated !== localOpp.lastUpdated) {
+            // Keep state in sync without scrolling to top
             setLocalOpp(opportunity);
         }
-
-        if (scrollContainerRef.current) scrollContainerRef.current.scrollTo(0, 0);
 
         // Lazy KPI Migration / Initialization
         // We run this against the *latest* opportunity data available (localOpp if we didn't sync, or opportunity if we did)
@@ -1565,8 +1568,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated, activeTab]);
 
+    const lastProcessedDeepLink = useRef<string | null>(null);
+
     useEffect(() => {
         if (deepLink) {
+            const deepLinkKey = `${deepLink.tab}-${deepLink.taskId || ''}-${deepLink.noteId || ''}-${deepLink.eventId || ''}`;
+            if (lastProcessedDeepLink.current === deepLinkKey) return;
+            lastProcessedDeepLink.current = deepLinkKey;
+
             if (deepLink.tab) setActiveTab(deepLink.tab as any);
 
             if (deepLink.tab === 'notes' && deepLink.noteId) {
@@ -1574,8 +1583,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
 
             if (deepLink.tab === 'tasks' && deepLink.taskId) {
-                // Fix: Sync selectedTaskForEdit ONLY if we are in sub-view mode (restoring a minimized tab)
-                // If opening the main expediente from a dashboard, we only want to highlight/scroll, not open the modal.
                 if (isSubView) {
                     const task = localOpp.tasks.find(t => t.id === deepLink.taskId);
                     if (task && (!selectedTaskForEdit || selectedTaskForEdit.task.id !== task.id)) {
@@ -1601,7 +1608,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 }
             }, 300);
         }
-    }, [deepLink, localOpp.tasks]);
+    }, [deepLink]); // Restricted dependencies: only trigger on deepLink change, not task changes
 
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
@@ -1698,12 +1705,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         setLocalOpp(updated);
         onUpdate(updated);
     };
-    const totals = ['swHw', 'services', 'resale'].reduce((acc, key) => {
-        const row = localOpp.commercial[key as 'swHw'];
-        acc.cost += row.cost; acc.sellPrice += row.sellPrice; acc.finalPrice += row.finalPrice;
-        return acc;
-    }, { cost: 0, sellPrice: 0, finalPrice: 0 });
-    const totalMargin = totals.sellPrice ? ((1 - (totals.cost / totals.sellPrice)) * 100).toFixed(1) : '0';
+    const commercialTotals = useMemo(() => {
+        const t = ['swHw', 'services', 'resale'].reduce((acc, key) => {
+            const row = localOpp.commercial[key as 'swHw'];
+            acc.cost += row.cost; acc.sellPrice += row.sellPrice; acc.finalPrice += row.finalPrice;
+            return acc;
+        }, { cost: 0, sellPrice: 0, finalPrice: 0 });
+        const margin = t.sellPrice ? ((1 - (t.cost / t.sellPrice)) * 100).toFixed(1) : '0';
+        return { ...t, margin };
+    }, [localOpp.commercial]);
+
+    const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
+    const totalMargin = commercialTotals.margin;
 
     const addNote = (templateTitle?: string, content?: string) => {
         const newNote: MeetingNote = {
@@ -4158,20 +4171,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Trigger Event & Client Motivation</label>
-                                                <textarea
+                                                <OptimizedTextArea
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0"
                                                     placeholder="Why are they buying now?"
                                                     value={localOpp.presentation.proposalAnalysis?.trigger || ''}
-                                                    onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), trigger: e.target.value } })}
+                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), trigger: val } })}
                                                 />
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Missing Info / Questions</label>
-                                                <textarea
+                                                <OptimizedTextArea
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0 bg-red-50/50"
                                                     placeholder="What don't we know yet?"
                                                     value={localOpp.presentation.proposalAnalysis?.missingInfo || ''}
-                                                    onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), missingInfo: e.target.value } })}
+                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), missingInfo: val } })}
                                                 />
                                             </div>
                                         </div>
@@ -4183,19 +4196,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Key Risks</label>
-                                                <textarea
+                                                <OptimizedTextArea
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
                                                     value={localOpp.presentation.proposalAnalysis?.risks || ''}
-                                                    onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), risks: e.target.value } })}
+                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), risks: val } })}
                                                 />
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Competition Analysis</label>
-                                                <textarea
+                                                <OptimizedTextArea
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
                                                     placeholder="Who are we up against?"
                                                     value={localOpp.presentation.proposalAnalysis?.competition || ''}
-                                                    onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), competition: e.target.value } })}
+                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), competition: val } })}
                                                 />
                                             </div>
                                         </div>
@@ -4207,11 +4220,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Our Strategy / Next Steps</label>
-                                                <textarea
+                                                <OptimizedTextArea
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-purple-500 focus:ring-0"
                                                     placeholder="How do we win?"
                                                     value={localOpp.presentation.proposalAnalysis?.strategy || ''}
-                                                    onChange={(e) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), strategy: e.target.value } })}
+                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), strategy: val } })}
                                                 />
                                             </div>
                                             <div className="bg-white rounded-lg border border-gray-100 p-3 shadow-inner">
@@ -4249,10 +4262,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div key={key} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
                                                 <h4 className="text-sm font-black text-gray-800 uppercase tracking-wide border-b border-gray-100 pb-2">{key === 'swHw' ? 'Hardware / Software' : key}</h4>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Cost</label><input type="number" value={displayValue(row.cost)} onChange={(e) => updateCommercialRow(key as any, 'cost', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Margin %</label><input type="number" value={displayValue(row.margin)} onChange={(e) => updateCommercialRow(key as any, 'margin', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-blue-600 font-bold" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label><input type="number" value={displayValue(row.sellPrice)} onChange={(e) => updateCommercialRow(key as any, 'sellPrice', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono font-bold" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Discount %</label><input type="number" value={displayValue(row.discount)} onChange={(e) => updateCommercialRow(key as any, 'discount', parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-orange-600" /></div>
+                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Cost</label><OptimizedInput type="number" value={displayValue(row.cost)} onChange={(val: number) => updateCommercialRow(key as any, 'cost', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono" /></div>
+                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Margin %</label><OptimizedInput type="number" value={displayValue(row.margin)} onChange={(val: number) => updateCommercialRow(key as any, 'margin', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-blue-600 font-bold" /></div>
+                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label><OptimizedInput type="number" value={displayValue(row.sellPrice)} onChange={(val: number) => updateCommercialRow(key as any, 'sellPrice', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono font-bold" /></div>
+                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Discount %</label><OptimizedInput type="number" value={displayValue(row.discount)} onChange={(val: number) => updateCommercialRow(key as any, 'discount', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-orange-600" /></div>
                                                 </div>
                                                 <div className="pt-2 border-t border-gray-100 mt-auto">
                                                     <div className="flex justify-between items-end">
@@ -4282,8 +4295,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         {/* REMOVED TOTAL SELL PRICE DISPLAY HERE */}
                                         <div className="p-4 border border-gray-100 rounded-lg">
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialSellPrice)} onChange={(e) => updateOfficialSellPrice(parseFloat(e.target.value) || 0)} className="w-full border-gray-200 rounded text-sm mt-1 font-bold" /></div>
-                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label><input type="number" value={displayValue(localOpp.commercial.cqaOfficialMargin)} onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: parseFloat(e.target.value) || 0 })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.cqaOfficialSellPrice)} onChange={(val: number) => updateOfficialSellPrice(val)} className="w-full border-gray-200 rounded text-sm mt-1 font-bold" /></div>
+                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.cqaOfficialMargin)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
                                             </div>
                                         </div>
                                     </div>
@@ -4309,7 +4322,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <input type="date" value={entry.date} onChange={(e) => updateHistoryEntry(entry.id, 'date', e.target.value)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0" />
                                                     <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
                                                 </div>
-                                                <textarea value={entry.content} onChange={(e) => updateHistoryEntry(entry.id, 'content', e.target.value)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
+                                                <OptimizedTextArea value={entry.content} onChange={(val: string) => updateHistoryEntry(entry.id, 'content', val)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
                                             </div>
                                         </div>
                                     ))}
@@ -5304,4 +5317,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     );
 };
 
-export default OpportunityDetail;
+// Memoize to prevent complete re-renders when parent is notified of simple lastUpdated changes (like a timer)
+export default React.memo(OpportunityDetail, (prev, next) => {
+    // Custom equality check: only re-render if fundamental props change, 
+    // ignore lastUpdated unless we need to sync local context.
+    // Actually, localOpp sync handles lastUpdated internally.
+    return prev.opportunity.id === next.opportunity.id && 
+           prev.opportunity.lastUpdated === next.opportunity.lastUpdated &&
+           prev.deepLink === next.deepLink;
+});

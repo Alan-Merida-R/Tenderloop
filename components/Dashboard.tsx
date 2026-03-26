@@ -179,6 +179,141 @@ const TaskTimerControls = React.memo(({
     );
 });
 
+// --- Memoized Kanban Card for performance ---
+const OpportunityCard = React.memo(({
+    opp,
+    onSelect,
+    handleDragStart,
+    handleInlineEdit,
+    kanbanMiniNotes,
+    setKanbanMiniNotes,
+    hideNextStepBadges,
+    getBadgeInfo,
+    translateStatus,
+    translateProcessStage
+}: any) => {
+    const badge = getBadgeInfo(opp);
+    return (
+        <div
+            onClick={(e) => { e.stopPropagation(); onSelect(opp.id); }}
+            draggable
+            onDragStart={(e) => handleDragStart(e, opp.id, 'opp')}
+            className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-[#3DCD58] cursor-grab active:cursor-grabbing transition-all group relative flex flex-col gap-2 overflow-hidden"
+        >
+            <div className={`absolute top-0 left-0 right-0 h-1 ${opp.statusLabel === 'Won' ? 'bg-green-500' : 'bg-gray-200'}`}></div>
+            <div className="flex flex-col gap-1 mt-2">
+                <div className="flex items-start justify-between gap-2 overflow-hidden mb-1">
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                        <span className="text-[9px] font-mono text-gray-400 bg-gray-50 px-1 rounded truncate py-0.5">ID: {opp.id}</span>
+                        {opp.detailedStatus && (
+                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-tight ${DETAILED_STATUS_COLORS[opp.detailedStatus]} whitespace-nowrap`}>
+                                {translateStatus(opp.detailedStatus)}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                        {badge && (
+                            <div
+                                className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm tracking-tight uppercase ${badge.color} max-w-[90px] text-center truncate`}
+                                style={badge.style}
+                                title={badge.tooltip}
+                            >
+                                {badge.text}
+                            </div>
+                        )}
+                        {opp.priorityOrder && (
+                            <span className="text-[9px] font-bold text-[#3DCD58] bg-[#3DCD58]/10 px-1.5 py-0.5 rounded whitespace-nowrap border border-[#3DCD58]/20">
+                                Rank #{opp.priorityOrder}
+                            </span>
+                        )}
+                    </div>
+                </div>
+                <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
+                <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
+
+                {!hideNextStepBadges && (() => {
+                    const nextTask = getNextTask(opp.tasks || []);
+                    const isMissingInfoStale = nextTask?.status === 'Missing Info' && nextTask?.dueDate && (() => {
+                        const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
+                        return hrs > 48;
+                    })();
+                    return nextTask ? (
+                        <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                            <div className="shrink-0 mt-0.5">
+                                {isMissingInfoStale
+                                    ? <span title="Blocked >48h">⚠️</span>
+                                    : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                                <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
+                                <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
+                                {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
+                            </div>
+                        </div>
+                    ) : null;
+                })()}
+
+                <div className="flex flex-wrap gap-1 mt-1">
+                    {(opp.labels || []).map((l: any) => (
+                        <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
+                            {l.text}
+                        </div>
+                    ))}
+                </div>
+
+                {!hideNextStepBadges && (
+                    <div className="mt-2" onClick={e => e.stopPropagation()}>
+                        <OptimizedTextArea
+                            placeholder="Quick note..."
+                            value={kanbanMiniNotes[opp.id] || ''}
+                            onChange={(val: string) => setKanbanMiniNotes((prev: any) => ({ ...prev, [opp.id]: val }))}
+                            className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 h-12 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
+                        />
+                    </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <div
+                        className={`text-[10px] px-2 py-0.5 rounded-full border border-transparent font-medium truncate max-w-[120px] ${STAGE_COLORS[opp.stage as ProcessStage]}`}
+                        title="Technical Stage"
+                    >
+                        {translateProcessStage(opp.stage)}
+                    </div>
+                    <div className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${STATUS_COLORS[opp.statusLabel as OpportunityStatus]}`}>
+                        {translateStatus(opp.statusLabel)}
+                    </div>
+                    {opp.priority && (
+                        <div className={`text-[9px] w-2 h-2 rounded-full ${PRIORITY_COLORS[opp.priority as TaskPriority]?.split(' ')[1]}`} title={`Priority: ${opp.priority}`}></div>
+                    )}
+                </div>
+            </div>
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-dashed border-gray-100">
+                <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                    <Clock className="w-3 h-3" />
+                    <input
+                        type="date"
+                        value={opp.dates?.expected}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)}
+                        className="bg-transparent border-none p-0 text-[10px] text-gray-500 focus:ring-0 w-20"
+                    />
+                </div>
+                <div className="flex gap-1">
+                    {opp.tasks.length > 0 && (
+                        <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
+                            <CheckSquare className="w-3 h-3" />
+                            {opp.tasks.filter((t: any) => t.status === 'Done').length}/{opp.tasks.length}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}, (prev, next) => {
+    // Only re-render if the opportunity itself changed or the mini-note changed
+    return prev.opp === next.opp && prev.kanbanMiniNotes[prev.opp.id] === next.kanbanMiniNotes[next.opp.id];
+});
+
 const translateProcessStage = (stage: string) => {
     const parts = stage.split('. ');
     if (parts.length < 2) return stage;
@@ -2140,129 +2275,33 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                             </div>
                                         )}
 
-                                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default">
-                                            {opps.map(opp => {
-                                                const badge = getBadgeInfo(opp);
-                                                return (
-                                                    <div
-                                                        key={opp.id}
-                                                        onClick={(e) => { e.stopPropagation(); onSelect(opp.id); }}
-                                                        draggable
-                                                        onDragStart={(e) => handleDragStart(e, opp.id, 'opp')}
-                                                        className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-[#3DCD58] cursor-grab active:cursor-grabbing transition-all group relative flex flex-col gap-2 overflow-hidden"
-                                                    >
-                                                        <div className={`absolute top-0 left-0 right-0 h-1 ${opp.statusLabel === 'Won' ? 'bg-green-500' : 'bg-gray-200'}`}></div>
-                                                        <div className="flex flex-col gap-1 mt-2">
-                                                            <div className="flex items-start justify-between gap-2 overflow-hidden mb-1">
-                                                                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                                                                    <span className="text-[9px] font-mono text-gray-400 bg-gray-50 px-1 rounded truncate py-0.5">ID: {opp.id}</span>
-                                                                    {opp.detailedStatus && (
-                                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-tight ${DETAILED_STATUS_COLORS[opp.detailedStatus]} whitespace-nowrap`}>
-                                                                            {translateStatus(opp.detailedStatus)}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                                                    {badge && (
-                                                                        <div
-                                                                            className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm tracking-tight uppercase ${badge.color} max-w-[90px] text-center truncate`}
-                                                                            style={badge.style}
-                                                                            title={badge.tooltip}
-                                                                        >
-                                                                            {badge.text}
-                                                                        </div>
-                                                                    )}
-                                                                    {opp.priorityOrder && (
-                                                                        <span className="text-[9px] font-bold text-[#3DCD58] bg-[#3DCD58]/10 px-1.5 py-0.5 rounded whitespace-nowrap border border-[#3DCD58]/20">
-                                                                            Rank #{opp.priorityOrder}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
-                                                            <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
+                                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default custom-scrollbar">
+                                            {opps.slice(0, 30).map(opp => (
+                                                <OpportunityCard
+                                                    key={opp.id}
+                                                    opp={opp}
+                                                    onSelect={onSelect}
+                                                    handleDragStart={handleDragStart}
+                                                    handleInlineEdit={handleInlineEdit}
+                                                    kanbanMiniNotes={kanbanMiniNotes}
+                                                    setKanbanMiniNotes={setKanbanMiniNotes}
+                                                    hideNextStepBadges={hideNextStepBadges}
+                                                    getBadgeInfo={getBadgeInfo}
+                                                    translateStatus={translateStatus}
+                                                    translateProcessStage={translateProcessStage}
+                                                />
+                                            ))}
 
-                                                            {!hideNextStepBadges && (() => {
-                                                                const nextTask = getNextTask(opp.tasks || []);
-                                                                const isMissingInfoStale = nextTask?.status === 'Missing Info' && nextTask?.dueDate && (() => {
-                                                                    const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
-                                                                    return hrs > 48;
-                                                                })();
-                                                                return nextTask ? (
-                                                                    <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                                                                        <div className="shrink-0 mt-0.5">
-                                                                            {isMissingInfoStale
-                                                                                ? <span title="Blocked >48h">⚠️</span>
-                                                                                : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
-                                                                        </div>
-                                                                        <div className="flex flex-col gap-0.5">
-                                                                            <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
-                                                                            <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
-                                                                            {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
-                                                                        </div>
-                                                                    </div>
-                                                                ) : null;
-                                                            })()}
-
-                                                            <div className="flex flex-wrap gap-1 mt-1">
-                                                                {(opp.labels || []).map(l => (
-                                                                    <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
-                                                                        {l.text}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-
-                                                            {/* Mini-note for quick annotations — hidden when hideNextStepBadges is true */}
-                                                            {!hideNextStepBadges && (
-                                                                <div className="mt-2" onClick={e => e.stopPropagation()}>
-                                                                    <textarea
-                                                                        placeholder="Quick note..."
-                                                                        value={kanbanMiniNotes[opp.id] || ''}
-                                                                        onChange={e => setKanbanMiniNotes(prev => ({ ...prev, [opp.id]: e.target.value }))}
-                                                                        className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 resize-none focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
-                                                                        rows={2}
-                                                                    />
-                                                                </div>
-                                                            )}
-
-                                                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                                                                <div
-                                                                    className={`text-[10px] px-2 py-0.5 rounded-full border border-transparent font-medium truncate max-w-[120px] ${STAGE_COLORS[opp.stage as ProcessStage]}`}
-                                                                    title="Technical Stage"
-                                                                >
-                                                                    {translateProcessStage(opp.stage)}
-                                                                </div>
-                                                                <div className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${STATUS_COLORS[opp.statusLabel as OpportunityStatus]}`}>
-                                                                    {translateStatus(opp.statusLabel)}
-                                                                </div>
-                                                                {opp.priority && (
-                                                                    <div className={`text-[9px] w-2 h-2 rounded-full ${PRIORITY_COLORS[opp.priority as TaskPriority]?.split(' ')[1]}`} title={`Priority: ${opp.priority}`}></div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-dashed border-gray-100">
-                                                            <div className="flex items-center gap-1 text-[10px] text-gray-400">
-                                                                <Clock className="w-3 h-3" />
-                                                                <input
-                                                                    type="date"
-                                                                    value={opp.dates?.expected}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)}
-                                                                    className="bg-transparent border-none p-0 text-[10px] text-gray-500 focus:ring-0 w-20"
-                                                                />
-                                                            </div>
-                                                            <div className="flex gap-1">
-                                                                {opp.tasks.length > 0 && (
-                                                                    <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
-                                                                        <CheckSquare className="w-3 h-3" />
-                                                                        {opp.tasks.filter(t => t.status === 'Done').length}/{opp.tasks.length}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                                            {opps.length > 30 && (
+                                                <div className="py-6 px-4 text-center border-t border-dashed border-gray-100 bg-gray-50/30 rounded-xl mt-4">
+                                                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                                        Showing 30 of {opps.length}
+                                                    </p>
+                                                    <p className="text-[9px] text-gray-400 italic mt-1.5 leading-relaxed">
+                                                        Limit reached for board performance. <br /> Use search or filters to locate specific projects.
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
