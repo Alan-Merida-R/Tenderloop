@@ -2330,7 +2330,7 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
-                                            {filteredOpps.map(opp => {
+                                            {filteredOpps.slice(0, 100).map(opp => {
                                                 const waitingOn = getWaitingOnAreas(opp);
                                                 const amount = getSellPrice(opp);
                                                 return (
@@ -2394,6 +2394,12 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
                                             })}
                                         </tbody>
                                     </table>
+                                    {filteredOpps.length > 100 && (
+                                        <div className="bg-amber-50 p-4 text-center border-t border-amber-100">
+                                            <p className="text-xs font-bold text-amber-700">Displaying first 100 projects for performance stability.</p>
+                                            <p className="text-[10px] text-amber-600">Showing 100 of {filteredOpps.length} results. Please use filters to narrow down your search.</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

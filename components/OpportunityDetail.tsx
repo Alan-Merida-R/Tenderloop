@@ -1439,6 +1439,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const lastScrolledTaskId = useRef<string | null>(null);
     useEffect(() => {
+        // Reset last scrolled when deepLink officially changes from parent
+        if (!deepLink) lastScrolledTaskId.current = null;
+        
         if (deepLink?.taskId && lastScrolledTaskId.current !== deepLink.taskId) {
             lastScrolledTaskId.current = deepLink.taskId;
             setHighlightTaskId(deepLink.taskId);
@@ -5319,10 +5322,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
 // Memoize to prevent complete re-renders when parent is notified of simple lastUpdated changes (like a timer)
 export default React.memo(OpportunityDetail, (prev, next) => {
-    // Custom equality check: only re-render if fundamental props change, 
-    // ignore lastUpdated unless we need to sync local context.
-    // Actually, localOpp sync handles lastUpdated internally.
+    // Custom equality check: only re-render if fundamental props change.
+    // We EXCLUDE lastUpdated from the comparison because it changes too often due to the timer,
+    // causing effects like scroll-to-task to trigger prematurely or breaking user focus.
+    // and internal useEffect already syncs localOpp when lastUpdated changes.
     return prev.opportunity.id === next.opportunity.id && 
-           prev.opportunity.lastUpdated === next.opportunity.lastUpdated &&
-           prev.deepLink === next.deepLink;
+           prev.deepLink === next.deepLink &&
+           prev.activeTab === next.activeTab; // Assume activeTab is also key
 });

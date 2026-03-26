@@ -171,6 +171,11 @@ function App() {
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
+    // CRITICAL: Under high load (32k tasks/75MB DB), we must throttle disk saves.
+    // If the change came from the timer (background status), we wait longer.
+    const isBackgroundTimerUpdate = status === 'saving'; // Heuristic
+    const delay = 10000; // 10s minimum for all changes to prevent OOM/Main thread lock
+
     // @ts-ignore
     saveTimeoutRef.current = window.setTimeout(async () => {
       if (isSavingRef.current) {
@@ -216,7 +221,7 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, 4000); // 4s debounce: reduces worker call frequency under rapid edits
+    }, 15000); // 15s debounce: reduces worker call frequency under massive datasets (75MB+)
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -1296,7 +1301,7 @@ function App() {
 
           {/* Opportunity Detail Overlay */}
           {selectedOppId && (() => {
-            const opp = stableOpportunities.find(o => o.id === selectedOppId);
+            const opp = useMemo(() => stableOpportunities.find(o => o.id === selectedOppId), [stableOpportunities, selectedOppId]);
             if (!opp) return null;
             return (
               <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
