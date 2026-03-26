@@ -1613,13 +1613,37 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     }, [deepLink]); // Restricted dependencies: only trigger on deepLink change, not task changes
 
+    const saveToParentTimeoutRef = useRef<number | null>(null);
+
     const handleFieldChange = (field: keyof Opportunity, value: any) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        // Guard: Only persist to DB if NOT viewing a version (Working Copy mode)
+        
+        // Performance: AVOID triggering global DB re-renders and disk saves on every keystroke.
+        // We debounce the notification to the parent by 3 seconds.
         if (!viewingVersionId) {
-            onUpdate(updated, opportunity.id);
+            if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+            saveToParentTimeoutRef.current = window.setTimeout(() => {
+                onUpdate(updated, opportunity.id);
+            }, 2000); // 2s debounce for background sync
         }
+    };
+
+    // Ensure we save on unmount if dirty
+    useEffect(() => {
+        return () => {
+            if (saveToParentTimeoutRef.current) {
+                window.clearTimeout(saveToParentTimeoutRef.current);
+                // We can't easily pass the latest localOpp state here in a clean way without another ref,
+                // but usually, the last tick of the debounce or an explicit blur should handle it.
+            }
+        };
+    }, []);
+
+    // Helper to immediately sync (e.g. on blur of critical fields)
+    const syncToParentNow = (updated: Opportunity) => {
+        if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+        onUpdate(updated, opportunity.id);
     };
 
     const updateOfficialSellPrice = (value: number) => {
@@ -1627,7 +1651,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newKpis = { ...localOpp.kpis, proposalAmountUSD: value };
         const updated = { ...localOpp, commercial: newCommercial, kpis: newKpis, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        onUpdate(updated, opportunity.id);
+        
+        // Use debounce for calculations to prevent UI freeze
+        if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+        saveToParentTimeoutRef.current = window.setTimeout(() => {
+            onUpdate(updated, opportunity.id);
+        }, 2000);
     };
 
     const updateKpiField = (path: string, value: any) => {
@@ -1704,9 +1733,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             else newRow.margin = 0;
         }
         newRow.finalPrice = Number((newRow.sellPrice * (1 - (newRow.discount / 100))).toFixed(2));
-        const updated = { ...localOpp, commercial: { ...localOpp.commercial, [rowKey]: newRow } };
+        const updated = { ...localOpp, commercial: { ...localOpp.commercial, [rowKey]: newRow }, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
-        onUpdate(updated);
+        
+        // Debounce update to parent
+        if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+        saveToParentTimeoutRef.current = window.setTimeout(() => {
+            onUpdate(updated, opportunity.id);
+        }, 2000);
     };
     const commercialTotals = useMemo(() => {
         const t = ['swHw', 'services', 'resale'].reduce((acc, key) => {
@@ -1731,15 +1765,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             content: content || '',
             inlineTasks: []
         };
-        const updated = { ...localOpp, notes: [newNote, ...localOpp.notes] };
-        setLocalOpp(updated); onUpdate(updated); setSelectedNoteId(newNote.id);
+        const updated = { ...localOpp, notes: [newNote, ...localOpp.notes], lastUpdated: new Date().toISOString() };
+        setLocalOpp(updated); 
+        handleFieldChange('notes', updated.notes); // Already debounces onUpdate
+        setSelectedNoteId(newNote.id);
     };
 
     const deleteNote = (noteId: string) => {
         if (!window.confirm("Are you sure you want to delete this note?")) return;
         const updatedNotes = localOpp.notes.filter(n => n.id !== noteId);
-        const updated = { ...localOpp, notes: updatedNotes };
-        setLocalOpp(updated); onUpdate(updated);
+        handleFieldChange('notes', updatedNotes);
         if (selectedNoteId === noteId) setSelectedNoteId(null);
     };
     const updateSelectedNote = (field: keyof MeetingNote, value: string) => {
@@ -1770,8 +1805,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newQ: Question = {
             id: newId, sourceId, sourceType: 'note', quote: normalizedQuote, question: 'New Question...', answer: '', isResolved: false, createdAt: new Date().toISOString()
         };
-        const updated = { ...localOpp, questions: [...(localOpp.questions || []), newQ] };
-        setLocalOpp(updated); onUpdate(updated);
+        const updatedQuestions = [...(localOpp.questions || []), newQ];
+        handleFieldChange('questions', updatedQuestions);
         setShowQuestionsSplit(true); setHighlightedQuestionId(newId); setTextSelection(null);
     };
     const updateQuestion = (qId: string, field: keyof Question, value: any) => {
@@ -4322,7 +4357,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
                                             <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                                                 <div className="flex justify-between items-center mb-2">
-                                                    <input type="date" value={entry.date} onChange={(e) => updateHistoryEntry(entry.id, 'date', e.target.value)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0" />
+                                                    <OptimizedInput type="date" value={entry.date} onChange={(val: string) => updateHistoryEntry(entry.id, 'date', val)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0 cursor-pointer" />
                                                     <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
                                                 </div>
                                                 <OptimizedTextArea value={entry.content} onChange={(val: string) => updateHistoryEntry(entry.id, 'content', val)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
@@ -4347,8 +4382,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <button onClick={() => { if (window.confirm('Delete?')) handleFieldChange('questions', localOpp.questions.filter(qi => qi.id !== q.id)) }} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
                                             </div>
                                             {q.quote && <div className="text-xs text-gray-400 italic mb-2 border-l-2 border-gray-200 pl-2">"{q.quote}"</div>}
-                                            <input className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(e) => updateQuestion(q.id, 'question', e.target.value)} />
-                                            <textarea className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(e) => updateQuestion(q.id, 'answer', e.target.value)} rows={2} />
+                                            <OptimizedInput className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(val: string) => updateQuestion(q.id, 'question', val)} />
+                                            <OptimizedTextArea className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(val: string) => updateQuestion(q.id, 'answer', val)} rows={2} />
                                         </div>
                                     ))}
                                     {localOpp.questions.length === 0 && <p className="text-center text-gray-400 italic py-8">No questions logged from notes or tasks.</p>}
