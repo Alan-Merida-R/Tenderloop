@@ -643,7 +643,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
     );
 };
 
-const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -3305,6 +3305,6 @@ const Dashboard: React.FC<Props> = ({ mode, opportunities, onSelect, onCreate, o
     }
         </div >
     );
-};
+});
 
 export default Dashboard;

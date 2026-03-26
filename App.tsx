@@ -1097,6 +1097,20 @@ function App() {
   // Without this, db.opportunities is always a new array, defeating the memo.
   const stableOpportunities = useMemo(() => db.opportunities, [db.opportunities]);
 
+  const selectedOppForDetail = useMemo(() => {
+    if (!selectedOppId) return null;
+    return stableOpportunities.find(o => o.id === selectedOppId);
+  }, [stableOpportunities, selectedOppId]);
+
+  const handleSelectOpp = useCallback((id: string, dl?: DeepLink) => {
+    setSelectedOppId(id);
+    setActiveDeepLink(dl || null);
+  }, []);
+
+  const handleCreateOppAtRoot = useCallback((stage?: ProcessStage) => {
+    createOpportunity(stage || '1. Intake');
+  }, [createOpportunity]);
+
   return (
     <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
       <div className="h-screen flex flex-col bg-white text-gray-900 font-sans overflow-hidden relative">
@@ -1263,11 +1277,8 @@ function App() {
                 key={fileHandle?.name || 'sandbox'}
                 mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
                 opportunities={stableOpportunities}
-                onSelect={(id, dl) => {
-                  setSelectedOppId(id);
-                  setActiveDeepLink(dl || null);
-                }}
-                onCreate={() => createOpportunity('1. Intake')}
+                onSelect={handleSelectOpp}
+                onCreate={handleCreateOppAtRoot}
                 onStageChange={moveOpportunityStage}
                 onDateChange={changeOpportunityDate}
                 onOppUpdate={updateOpportunity}
@@ -1300,33 +1311,29 @@ function App() {
           />
 
           {/* Opportunity Detail Overlay */}
-          {selectedOppId && (() => {
-            const opp = useMemo(() => stableOpportunities.find(o => o.id === selectedOppId), [stableOpportunities, selectedOppId]);
-            if (!opp) return null;
-            return (
-              <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
-                <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
-                  <OpportunityDetail
-                    opportunity={opp}
-                    opportunities={stableOpportunities}
-                    onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
-                    onUpdate={updateOpportunity}
-                    onDelete={() => deleteOpportunity(opp.id)}
-                    onSelectOpp={(id, dl) => {
-                      setSelectedOppId(id);
-                      setActiveDeepLink(dl || null);
-                    }}
-                    noteTemplates={appSettings.noteTemplates}
-                    holidays={appSettings.holidays || []}
-                    trackedAreas={appSettings.trackedAreas || []}
-                    globalLabels={appSettings.globalLabels || []}
-                    deepLink={activeDeepLink || undefined}
-                    onMinimize={minimizeToDock}
-                  />
-                </div>
+          {selectedOppForDetail && (
+            <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
+              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+                <OpportunityDetail
+                  opportunity={selectedOppForDetail}
+                  opportunities={stableOpportunities}
+                  onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
+                  onUpdate={updateOpportunity}
+                  onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
+                  onSelectOpp={(id, dl) => {
+                    setSelectedOppId(id);
+                    setActiveDeepLink(dl || null);
+                  }}
+                  noteTemplates={appSettings.noteTemplates}
+                  holidays={appSettings.holidays || []}
+                  trackedAreas={appSettings.trackedAreas || []}
+                  globalLabels={appSettings.globalLabels || []}
+                  deepLink={activeDeepLink || undefined}
+                  onMinimize={minimizeToDock}
+                />
               </div>
-            );
-          })()}
+            </div>
+          )}
         </div>
 
         <SettingsModal
