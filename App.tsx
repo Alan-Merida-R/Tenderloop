@@ -1320,10 +1320,7 @@ function App() {
                   onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
                   onUpdate={updateOpportunity}
                   onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
-                  onSelectOpp={(id, dl) => {
-                    setSelectedOppId(id);
-                    setActiveDeepLink(dl || null);
-                  }}
+                  onSelectOpp={handleSelectOpp}
                   noteTemplates={appSettings.noteTemplates}
                   holidays={appSettings.holidays || []}
                   trackedAreas={appSettings.trackedAreas || []}

@@ -5,9 +5,13 @@ export const listDirectory = async (
   directoryHandle: FileSystemDirectoryHandle,
   path: string[] = []
 ): Promise<FileItem[]> => {
-  const items: FileItem[] = [];
-  // @ts-ignore - async iterator on directoryHandle.values()
+  const entries = [];
+  // @ts-ignore
   for await (const entry of directoryHandle.values()) {
+    entries.push(entry);
+  }
+
+  const items: FileItem[] = await Promise.all(entries.map(async (entry) => {
     const item: FileItem = {
       name: entry.name,
       kind: entry.kind,
@@ -15,18 +19,17 @@ export const listDirectory = async (
       relativePath: [...path, entry.name]
     };
 
-    if (entry.kind === 'file') {
+    if (item.kind === 'file') {
       item.extension = entry.name.split('.').pop()?.toLowerCase();
       try {
         const file = await (entry as FileSystemFileHandle).getFile();
         item.size = file.size;
         item.lastModified = file.lastModified;
-      } catch (e) {
-        console.warn(`Could not get file details for ${entry.name}`, e);
-      }
+      } catch (e) {}
     }
-    items.push(item);
-  }
+    return item;
+  }));
+
   return items.sort((a, b) => {
     if (a.kind === b.kind) return a.name.localeCompare(b.name);
     return a.kind === 'directory' ? -1 : 1;
