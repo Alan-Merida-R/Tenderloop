@@ -1410,26 +1410,35 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const updateTimeoutRef = useRef<number | null>(null);
     const pendingUpdateRef = useRef<{ opp: Opportunity, id?: string } | null>(null);
 
-    const onUpdate = useCallback((updated: Opportunity, id?: string) => {
+    const onUpdate = useCallback((updated: Opportunity, id?: string, immediate = false) => {
         pendingUpdateRef.current = { opp: updated, id };
+        
         if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current);
-        updateTimeoutRef.current = window.setTimeout(() => {
+        
+        const flush = () => {
             if (pendingUpdateRef.current) {
+                console.debug("[OpportunityDetail] Flushing update to parent...");
                 parentOnUpdate(pendingUpdateRef.current.opp, pendingUpdateRef.current.id);
                 pendingUpdateRef.current = null;
+                updateTimeoutRef.current = null;
             }
-        }, 800);
+        };
+
+        if (immediate) {
+            flush();
+        } else {
+            updateTimeoutRef.current = window.setTimeout(flush, 500);
+        }
     }, [parentOnUpdate]);
 
     useEffect(() => {
         return () => {
+            // Level 2 Flush (onUpdate -> parentOnUpdate)
             if (updateTimeoutRef.current && pendingUpdateRef.current) {
-                clearTimeout(updateTimeoutRef.current);
                 parentOnUpdate(pendingUpdateRef.current.opp, pendingUpdateRef.current.id);
-                pendingUpdateRef.current = null;
             }
         };
-    }, [parentOnUpdate]);
+    }, [parentOnUpdate]); // localOpp is not in deps to avoid infinite loop, but parentOnUpdate is stable.
 
     useEffect(() => {
         if (deepLink?.tab) {
@@ -1615,17 +1624,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const saveToParentTimeoutRef = useRef<number | null>(null);
 
-    const handleFieldChange = (field: keyof Opportunity, value: any) => {
+    const handleFieldChange = (field: keyof Opportunity, value: any, immediate = false) => {
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
         
-        // Performance: AVOID triggering global DB re-renders and disk saves on every keystroke.
-        // We debounce the notification to the parent by 3 seconds.
-        if (!viewingVersionId) {
+        // Performance: Debounce typing but keep structural changes snappy.
+        // We bypass debounce if 'immediate' is true OR if it's a critical field.
+        const isCritical = field === 'statusLabel' || field === 'stage' || field === 'priority' || field === 'detailedStatus';
+        
+        if (isCritical || immediate) {
+            if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+            syncToParentNow(updated);
+        } else if (!viewingVersionId) {
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             saveToParentTimeoutRef.current = window.setTimeout(() => {
                 onUpdate(updated, opportunity.id);
-            }, 2000); // 2s debounce for background sync
+            }, 1000); // reduced from 2s to 1s for better responsiveness
         }
     };
 
@@ -1643,7 +1657,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // Helper to immediately sync (e.g. on blur of critical fields)
     const syncToParentNow = (updated: Opportunity) => {
         if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
-        onUpdate(updated, opportunity.id);
+        onUpdate(updated, opportunity.id, true); // true = immediate
     };
 
     const updateOfficialSellPrice = (value: number) => {

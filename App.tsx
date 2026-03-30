@@ -171,10 +171,15 @@ function App() {
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-    // CRITICAL: Under high load (32k tasks/75MB DB), we must throttle disk saves.
-    // If the change came from the timer (background status), we wait longer.
-    const isBackgroundTimerUpdate = status === 'saving'; // Heuristic
-    const delay = 10000; // 10s minimum for all changes to prevent OOM/Main thread lock
+    // CRITICAL: Under high load (32k tasks/75MB DB), we must throttle disk saves. 
+    // However, 15s was too long and causing data loss.
+    // We now use a tiered approach: 
+    // - UI Status Changes: Save faster (3s)
+    // - Background/Broadcasting: Save slower (8s)
+    const isUrgent = status !== 'saving' && status !== 'loading'; 
+    const delay = isUrgent ? 3000 : 8000; 
+
+    console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms. (Urgent: ${isUrgent})`);
 
     // @ts-ignore
     saveTimeoutRef.current = window.setTimeout(async () => {
@@ -185,7 +190,8 @@ function App() {
 
       try {
         isSavingRef.current = true;
-        console.debug("[Autosave] Verifying permissions for save...");
+        console.debug("[Autosave] Flush started...");
+        setStatus('saving');
 
         // Final sanity check for permission before writing
         // @ts-ignore
@@ -193,10 +199,8 @@ function App() {
 
         if (permission !== 'granted') {
           console.warn("[Autosave] Write permission not granted:", permission);
-          if (status !== 'error') {
-            setStatus('error');
-            setErrorMessage("Database is read-only. Please use Change DB to re-authenticate.");
-          }
+          setStatus('error');
+          setErrorMessage("Database is read-only. Please use Change DB to re-authenticate.");
           return;
         }
 
@@ -204,13 +208,13 @@ function App() {
         const success = await saveToDisk(fileHandle, db);
 
         if (success) {
-          console.debug("[Autosave] Save completed successfully.");
+          console.debug("[Autosave] Save success.");
           setStatus('saved');
-          if (errorMessage === "Database is read-only. Please use Change DB to re-authenticate." || errorMessage?.includes("Failed to save changes")) {
+          if (errorMessage?.includes("read-only") || errorMessage?.includes("Failed to save changes")) {
             setErrorMessage(null);
           }
         } else {
-          console.error("[Autosave] saveToDisk failed.");
+          console.error("[Autosave] Save failure.");
           setStatus('error');
           setErrorMessage("Failed to save changes. Please check DB permissions.");
         }
@@ -221,12 +225,25 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, 15000); // 15s debounce: reduces worker call frequency under massive datasets (75MB+)
+    }, delay);
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [db, fileHandle]);
+
+  // Handle Page Exit / Unload
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (saveTimeoutRef.current) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes.';
+        return 'You have unsaved changes.';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   // Helper: Basic structural validation
   const verifyDatabaseStructure = (data: any): boolean => {
