@@ -1399,6 +1399,14 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
 const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
     const { getTimerState, confirmStop } = useTimerActions();
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
+    const [isDeferring, setIsDeferring] = useState(true);
+
+    // Defer heavy content to prevent "Next Step" freeze
+    useEffect(() => {
+        const timer = setTimeout(() => setIsDeferring(false), 50);
+        return () => clearTimeout(timer);
+    }, []);
+
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
@@ -3128,6 +3136,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     return (
         <div className="flex flex-col h-full bg-white relative overflow-hidden">
+            {!isDeferring ? (
+                <>
+
 
             {/* Main Content Area */}
             <div className="flex flex-col shrink-0 bg-white relative z-20">
@@ -5364,17 +5375,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     </div>
                 )
             }
-        </div >
+                </>
+            ) : (
+                <div className="flex-1 flex items-center justify-center p-20">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3DCD58]"></div>
+                        <span className="text-sm font-bold text-gray-400 animate-pulse uppercase tracking-widest">Loading project...</span>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
 
-// Memoize to prevent complete re-renders when parent is notified of simple lastUpdated changes (like a timer)
-export default React.memo(OpportunityDetail, (prev, next) => {
-    // Custom equality check: only re-render if fundamental props change.
-    // We EXCLUDE lastUpdated from the comparison because it changes too often due to the timer,
-    // causing effects like scroll-to-task to trigger prematurely or breaking user focus.
-    // and internal useEffect already syncs localOpp when lastUpdated changes.
-    return prev.opportunity.id === next.opportunity.id && 
-           prev.deepLink === next.deepLink &&
-           prev.activeTab === next.activeTab; // Assume activeTab is also key
-});
+// Memoize carefully: we only want to SKIP if NOTHING changed. 
+// Default shallow compare is better than the previous broken custom logic.
+export default React.memo(OpportunityDetail);

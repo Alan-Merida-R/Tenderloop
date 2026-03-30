@@ -896,7 +896,9 @@ function App() {
         else (groups['In Progress'] as Opportunity[]).push(o); // Fallback
     });
 
-    // 2. Process each group - O(S * G log G) where G is group size
+    const resultOpps: Opportunity[] = [];
+
+    // 2. Process each group
     statuses.forEach(status => {
       let group = groups[status];
       if (group.length === 0) return;
@@ -904,7 +906,7 @@ function App() {
       const targetInGroup = changedId ? group.find(o => o.id === changedId) : null;
 
       if (targetInGroup && statusChanged) {
-        // Change of status/new: Shift to 2nd position
+        // Change of status/new: Shift to 2nd position (UX requirement)
         const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
         if (others.length > 0) {
           group = [others[0], targetInGroup, ...others.slice(1)];
@@ -912,7 +914,7 @@ function App() {
           group = [targetInGroup];
         }
       } else if (targetInGroup && newOrder !== undefined && newOrder !== null) {
-        // Manual reorder
+        // Manual reorder (Drag & Drop or direct edit)
         const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
         const newGroup: Opportunity[] = [];
         let inserted = false;
@@ -928,25 +930,22 @@ function App() {
         if (!inserted) newGroup.push(targetInGroup);
         group = newGroup;
       } else {
-        // Stable sort
+        // Stable sort to maintain 1..N even if some gaps exist
         group.sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
       }
 
-      // 3. Re-index 1..N - O(G)
+      // 3. Re-index 1..N and collect into results (returning new objects only if needed for immutability)
       group.forEach((o, idx) => {
-        o.priorityOrder = idx + 1;
+        const order = idx + 1;
+        if (o.priorityOrder !== order) {
+            resultOpps.push({ ...o, priorityOrder: order });
+        } else {
+            resultOpps.push(o);
+        }
       });
-      
-      groups[status] = group;
-    });
-
-    // 4. Flatten back - O(N)
-    const result: Opportunity[] = [];
-    statuses.forEach(s => {
-        result.push(...groups[s]);
     });
     
-    return result;
+    return resultOpps;
   };
 
   const updateOpportunity = (updatedOpp: Opportunity, id?: string) => {

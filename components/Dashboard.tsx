@@ -5,7 +5,7 @@ import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filte
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
-import { getNextTask, compareTasksGlobal } from '../services/taskUtils';
+import { getNextTask, compareTasksGlobal, getOppStatusWeight, getTaskPriorityWeight } from '../services/taskUtils';
 import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
@@ -653,6 +653,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const viewMode = mode === 'tasks' ? tasksViewMode : proposalsViewMode;
     const setViewMode = mode === 'tasks' ? setTasksViewMode : setProposalsViewMode;
 
+    // PERFORMANCE: Defer the heavy opportunities list to prevent re-renders from blocking the UI (e.g. typing or modals)
+    const deferredOpportunities = useDeferredValue(opportunities);
+
     const [filterText, setFilterText] = useState('');
     const deferredFilterText = useDeferredValue(filterText); // Optimize search performance
     const [labelFilters, setLabelFilters] = useState<string[]>([]);
@@ -1272,25 +1275,37 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             nextSteps: { overdue: [] as any[], dueToday: [] as any[], noDate: [] as any[] }
         };
 
-        // Cache constants
+        if (mode !== 'tasks' && !showTracking) return result;
+
         const today = new Date().toLocaleDateString('en-CA');
-
-        // PERFORMANCE: If not in tasks mode, skip entire heavy processing
-        if (mode !== 'tasks' && !showTracking) {
-            return result;
-        }
-
         const taskMatcher = parseBooleanQuery(deferredTaskSearchText);
 
-        // Initialize groups if in tasks mode
+        // Pre-convert filters to Sets for O(1) lookups
+        const statusFilterSet = new Set(taskStatusFilters);
+        const priorityFilterSet = new Set(taskPriorityFilters);
+        const areaFilterSet = new Set(taskAreaFilters);
+        const oppFilterSet = new Set(taskOppFilters);
+        const oppStatusFilterSet = new Set(taskOppStatusFilters);
+
+        // Define groups
         if (mode === 'tasks') {
             if (taskGroupBy === 'status') {
                 ['Pending', 'In Progress', 'On Hold', 'Missing Info', 'Done', 'Canceled'].forEach(k => result.grouped[k] = []);
+            } else if (taskGroupBy === 'priority') {
+                ['High', 'Medium', 'Low'].forEach(k => result.grouped[k] = []);
             }
-            else if (taskGroupBy === 'priority') ['High', 'Medium', 'Low'].forEach(k => result.grouped[k] = []);
         }
 
+        const taskWithRanks: any[] = [];
+
         filteredOpps.forEach(opp => {
+            const oppStatusWeight = getOppStatusWeight(opp.statusLabel);
+            const oppPriority = opp.priorityOrder ?? 999;
+            
+            // Skip if opp doesn't match general filter in specific modes
+            if (oppFilterSet.size > 0 && !oppFilterSet.has(opp.id)) return;
+            if (oppStatusFilterSet.size > 0 && !oppStatusFilterSet.has(opp.statusLabel)) return;
+
             opp.tasks.forEach(t => {
                 // 1. Task Search (Local)
                 if (taskMatcher) {
@@ -1298,58 +1313,53 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                     if (!taskMatcher(raw)) return;
                 }
 
-                // 2. Global Date Filter (Applied to Task Due Date)
+                // 2. Date Filter
                 if (dateFilterStart || dateFilterEnd) {
                     if (!t.dueDate) return;
                     if (dateFilterStart && t.dueDate < dateFilterStart) return;
                     if (dateFilterEnd && t.dueDate > dateFilterEnd) return;
                 }
 
-                // 3. Task Specific Filters
-                if (taskOppFilters.length > 0 && !taskOppFilters.includes(opp.id)) return;
-                if (taskStatusFilters.length > 0 && !taskStatusFilters.includes(t.status)) return;
-                if (taskPriorityFilters.length > 0 && !taskPriorityFilters.includes(t.priority)) return;
-                if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) return;
+                // 3. Task Status/Priority Filters
+                if (statusFilterSet.size > 0 && !statusFilterSet.has(t.status)) return;
+                if (priorityFilterSet.size > 0 && !priorityFilterSet.has(t.priority)) return;
 
-                if (taskAreaFilters.length > 0) {
-                    const isInternal = t.owner === 'Me' && taskAreaFilters.includes('Internal');
-                    const isExternal = t.externalAreas && t.externalAreas.some(area => taskAreaFilters.includes(area));
+                if (areaFilterSet.size > 0) {
+                    const isInternal = t.owner === 'Me' && areaFilterSet.has('Internal');
+                    const isExternal = t.externalAreas && t.externalAreas.some(area => areaFilterSet.has(area));
                     if (!isInternal && !isExternal) return;
                 }
 
                 if (taskCalendarizedFilter === 'calendarized' && !t.calendarized) return;
                 if (taskCalendarizedFilter === 'not-calendarized' && t.calendarized) return;
 
-                // Create task object with context (Only for items that pass filters!)
-                const taskWithOpp = { ...t, opp };
-                result.filtered.push(taskWithOpp);
+                // PRE-CALCULATE SORT RANK (CRITICAL PERFORMANCE IMPROVEMENT)
+                const taskPriorityWeight = getTaskPriorityWeight(t.priority);
+                const orderVal = t.order ?? 999999;
+                const dueDateKey = t.dueDate || '9999-99-99';
+                // Rank: [OppStatus(1)][DueDate(10)][Order(6)][TaskPriority(1)][OppPriority(3)][Title(20)]
+                const sortRank = `${oppStatusWeight}-${dueDateKey}-${String(orderVal).padStart(6, '0')}-${taskPriorityWeight}-${String(oppPriority).padStart(3, '0')}-${t.title.slice(0, 20)}`;
+
+                const taskWithOpp = { ...t, opp, sortRank };
+                taskWithRanks.push(taskWithOpp);
 
                 if (mode === 'tasks') {
                     let key = 'Other';
                     if (taskGroupBy === 'status') {
-                        const status = t.status as TaskStatus;
-                        // Map all statuses to the 6 principals (Safe check although we restricted the type)
-                        if (['Pending'].includes(status)) key = 'Pending';
-                        else if (['Missing Info'].includes(status)) key = 'Missing Info';
-                        else if (['On Hold'].includes(status)) key = 'On Hold';
-                        else if (['In Progress'].includes(status)) key = 'In Progress';
-                        else if (['Done'].includes(status)) key = 'Done';
-                        else if (['Canceled'].includes(status)) key = 'Canceled';
-                        else key = 'Pending';
+                        key = ['Pending', 'In Progress', 'On Hold', 'Missing Info', 'Done', 'Canceled'].includes(t.status) ? t.status : 'Pending';
                     }
                     else if (taskGroupBy === 'priority') key = t.priority;
                     else if (taskGroupBy === 'area') {
-                        if (t.owner === 'Me') key = 'Internal';
-                        else if (t.externalAreas && t.externalAreas.length > 0) key = 'External';
+                        key = (t.owner === 'Me') ? 'Internal' : 'External';
                     } else if (taskGroupBy === 'opportunity') {
                         key = `${opp.id} - ${opp.title}`;
                     }
+
                     if (!result.grouped[key]) result.grouped[key] = [];
                     result.grouped[key].push(taskWithOpp);
 
-                    // --- Next Steps (lowest order, exclude terminal states) ---
                     const isTerminal = ['Done', 'Canceled'].includes(t.status);
-                    if (!isTerminal && mode === 'tasks') {
+                    if (!isTerminal) {
                         if (!t.dueDate) result.nextSteps.noDate.push(taskWithOpp);
                         else if (t.dueDate < today) result.nextSteps.overdue.push(taskWithOpp);
                         else if (t.dueDate === today) result.nextSteps.dueToday.push(taskWithOpp);
@@ -1358,21 +1368,13 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             });
         });
 
-        // --- Optimized Final Sorts ---
+        // FAST SORT using rank strings (much faster than calling helper 400k times)
+        taskWithRanks.sort((a, b) => a.sortRank.localeCompare(b.sortRank));
+        result.filtered = taskWithRanks;
 
-        // Table View Sort (Global)
-        result.filtered.sort((a, b) => compareTasksGlobal(
-            { task: a, oppStatus: a.opp.statusLabel, oppPriorityRank: a.opp.priorityOrder },
-            { task: b, oppStatus: b.opp.statusLabel, oppPriorityRank: b.opp.priorityOrder }
-        ));
-
-        // Kanban Groups Sort
         if (mode === 'tasks') {
             Object.keys(result.grouped).forEach(key => {
-                result.grouped[key].sort((a, b) => compareTasksGlobal(
-                    { task: a, oppStatus: a.opp.statusLabel, oppPriorityRank: a.opp.priorityOrder },
-                    { task: b, oppStatus: b.opp.statusLabel, oppPriorityRank: b.opp.priorityOrder }
-                ));
+                result.grouped[key].sort((a, b) => a.sortRank.localeCompare(b.sortRank));
             });
         }
 
