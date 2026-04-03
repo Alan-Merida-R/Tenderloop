@@ -185,13 +185,22 @@ const OpportunityCard = React.memo(({
     onSelect,
     handleDragStart,
     handleInlineEdit,
-    kanbanMiniNotes,
-    setKanbanMiniNotes,
+    kanbanMiniNote,
+    onNoteChange,
     hideNextStepBadges,
     getBadgeInfo,
     translateStatus,
     translateProcessStage
 }: any) => {
+    const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
+    const isMissingInfoStale = useMemo(() => {
+        if (nextTask?.status === 'Missing Info' && nextTask?.dueDate) {
+            const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
+            return hrs > 48;
+        }
+        return false;
+    }, [nextTask]);
+
     const badge = getBadgeInfo(opp);
     return (
         <div
@@ -231,27 +240,20 @@ const OpportunityCard = React.memo(({
                 <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
                 <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
 
-                {!hideNextStepBadges && (() => {
-                    const nextTask = getNextTask(opp.tasks || []);
-                    const isMissingInfoStale = nextTask?.status === 'Missing Info' && nextTask?.dueDate && (() => {
-                        const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
-                        return hrs > 48;
-                    })();
-                    return nextTask ? (
-                        <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                            <div className="shrink-0 mt-0.5">
-                                {isMissingInfoStale
-                                    ? <span title="Blocked >48h">⚠️</span>
-                                    : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                                <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
-                                <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
-                                {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
-                            </div>
+                {!hideNextStepBadges && nextTask && (
+                    <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                        <div className="shrink-0 mt-0.5">
+                            {isMissingInfoStale
+                                ? <span title="Blocked >48h">⚠️</span>
+                                : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
                         </div>
-                    ) : null;
-                })()}
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
+                            <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
+                            {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex flex-wrap gap-1 mt-1">
                     {(opp.labels || []).map((l: any) => (
@@ -265,8 +267,8 @@ const OpportunityCard = React.memo(({
                     <div className="mt-2" onClick={e => e.stopPropagation()}>
                         <OptimizedTextArea
                             placeholder="Quick note..."
-                            value={kanbanMiniNotes[opp.id] || ''}
-                            onChange={(val: string) => setKanbanMiniNotes((prev: any) => ({ ...prev, [opp.id]: val }))}
+                            value={kanbanMiniNote}
+                            onChange={onNoteChange}
                             className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 h-12 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
                         />
                     </div>
@@ -310,8 +312,10 @@ const OpportunityCard = React.memo(({
         </div>
     );
 }, (prev, next) => {
-    // Only re-render if the opportunity itself changed or the mini-note changed
-    return prev.opp === next.opp && prev.kanbanMiniNotes[prev.opp.id] === next.kanbanMiniNotes[next.opp.id];
+    // FIX: prop is kanbanMiniNote (singular), not kanbanMiniNotes (plural)
+    return prev.opp === next.opp
+        && prev.kanbanMiniNote === next.kanbanMiniNote
+        && prev.hideNextStepBadges === next.hideNextStepBadges;
 });
 
 const translateProcessStage = (stage: string) => {
@@ -748,11 +752,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const deleteStickyNote = (id: string) => setStickyNotes(prev => prev.filter(n => n.id !== id));
     const updateStickyNote = (id: string, content: string) => setStickyNotes(prev => prev.map(n => n.id === id ? { ...n, content } : n));
 
-    // Kanban mini-notes per opportunity (in-memory, persisted via opp data would need onOppUpdate)
-    const [kanbanMiniNotes, setKanbanMiniNotes] = useState<Record<string, string>>(() => {
-        try { return JSON.parse(localStorage.getItem('tenderloop.kanban.mininotes.v1') || '{}'); } catch { return {}; }
-    });
-    useEffect(() => { localStorage.setItem('tenderloop.kanban.mininotes.v1', JSON.stringify(kanbanMiniNotes)); }, [kanbanMiniNotes]);
+    // Kanban mini-notes are now integrated into the Opportunity object (kanbanNote field) 
+    // to ensure portability and unified database management. No longer using localStorage.
 
     // Close Task Modal State
     const [closeTaskData, setCloseTaskData] = useState<{ task: Task, oppId: string } | null>(null);
@@ -966,144 +967,113 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         return (opp.commercial.swHw?.sellPrice || 0) + (opp.commercial.services?.sellPrice || 0) + (opp.commercial.resale?.sellPrice || 0);
     };
 
-    const deferredOpps = useDeferredValue(opportunities);
+    // NOTE: deferredOpportunities is already deferred above (line 659).
+    // Use it directly to avoid a second useDeferredValue on the same value.
+    const deferredOpps = deferredOpportunities;
 
     // --- Filter Logic ---
-    // Deduplicate opportunities to prevent double rendering
-    const uniqueOpps = useMemo(() => {
+    // --- Optimized Filter Engine (v5000) ---
+    // Combined logic: Deduplication + Base Filters + Text Search in one pass.
+    const filteredOpps = useMemo(() => {
         const seen = new Set();
-        return deferredOpps.filter(o => {
-            if (seen.has(o.id)) return false;
-            seen.add(o.id);
-            return true;
-        });
-    }, [deferredOpps]);
+        const booleanMatcher = parseBooleanQuery(deferredFilterText);
+        const results: Opportunity[] = [];
 
-    // --- Derived Data: Filtered Opportunities ---
-    // Consolidated filter logic to ensure Tasks inherit all filters (Text, Status, etc.) 
-    // BUT date filtering is handled contextually.
-    // Base filter (Status, Date, Labels) - used for Search Suggestions to provide candidates
-    const baseFilteredOpps = useMemo(() => {
-        return uniqueOpps.filter(opp => {
-            // Status/Stage filter
+        for (let i = 0; i < deferredOpportunities.length; i++) {
+            const opp = deferredOpportunities[i];
+
+            // 1. Deduplicate
+            if (seen.has(opp.id)) continue;
+            seen.add(opp.id);
+
+            // 2. Chip Filter (Fast Exit)
+            if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) continue;
+
+            // 3. Status/Stage Filter
             if (statusFilters.length > 0) {
                 const isStageFilter = Object.keys(STAGE_COLORS).some(s => statusFilters.includes(s));
                 if (isStageFilter) {
-                    if (!statusFilters.includes(opp.stage)) return false;
+                    if (!statusFilters.includes(opp.stage)) continue;
                 } else {
-                    if (!statusFilters.includes(opp.statusLabel)) return false;
+                    if (!statusFilters.includes(opp.statusLabel)) continue;
                 }
             }
 
-            // Date filter
+            // 4. Date Filter
             if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
-                const dateToCheck = (mode === 'general' && opp.kpis?.timeline.deliveredAt)
+                const dateToCheck = (mode === 'general' && opp.kpis?.timeline?.deliveredAt)
                     ? opp.kpis.timeline.deliveredAt
-                    : opp.dates.expected;
-
-                if (dateFilterStart && (!dateToCheck || dateToCheck < dateFilterStart)) return false;
-                if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) return false;
+                    : opp.dates?.expected;
+                if (dateFilterStart && (!dateToCheck || dateToCheck < dateFilterStart)) continue;
+                if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) continue;
             }
 
-            // Labels filter
-            if (labelFilters.length > 0) {
-                if (!(opp.labels || []).some(l => labelFilters.includes(l.id))) return false;
-            }
+            // 5. Labels/Task status Filters
+            if (labelFilters.length > 0 && !(opp.labels || []).some(l => labelFilters.includes(l.id))) continue;
+            if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) continue;
+            if (detailedStatusFilters.length > 0 && (!opp.detailedStatus || !detailedStatusFilters.includes(opp.detailedStatus))) continue;
 
-            // Opp Status filter
-            if (taskOppStatusFilters.length > 0) {
-                if (!taskOppStatusFilters.includes(opp.statusLabel)) return false;
-            }
-
-            // Detailed Status filter
-            if (detailedStatusFilters.length > 0) {
-                if (!opp.detailedStatus || !detailedStatusFilters.includes(opp.detailedStatus)) return false;
-            }
-
-            return true;
-        });
-    }, [uniqueOpps, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters]);
-
-    // Final filter (Text, Chips) - used for Dashboard display
-    const filteredOpps = useMemo(() => {
-        const booleanMatcher = parseBooleanQuery(deferredFilterText);
-
-        return baseFilteredOpps.filter(opp => {
-            // Text Search
+            // 6. Multi-term Search (Optimized)
             if (booleanMatcher) {
-                const labelsText = (opp.labels || []).map(l => l.text).join(' ');
-                const versionSRs = (opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ');
-                const raw = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${versionSRs} ${opp.alias || ''} ${labelsText}`.toLowerCase();
-                if (!booleanMatcher(raw)) return false;
+                const lText = (opp.labels || []).map(l => l.text).join(' ');
+                const vText = (opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ');
+                const searchable = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${vText} ${opp.alias || ''} ${lText}`.toLowerCase();
+                if (!booleanMatcher(searchable)) continue;
             }
 
-            // Chips filter
-            if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) return false;
-
-            return true;
-        });
-    }, [baseFilteredOpps, deferredFilterText, selectedOppChips]);
+            results.push(opp);
+        }
+        return results;
+    }, [deferredOpportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
-        // 1. Filter opportunities based on dashboard filters AND specific KPI filter
-        const targetOpps = filteredOpps.filter(opp => {
-            if (kpiSoldFilter === 'all') return true;
-            if (kpiSoldFilter === 'sold') return opp.kpis?.sold === true;
-            if (kpiSoldFilter === 'not-sold') return opp.kpis?.sold === false;
-            return true;
-        });
+        if (filteredOpps.length === 0) return null;
 
-        const count = targetOpps.length;
-        if (count === 0) return null;
+        const res = {
+            count: 0, sumL: 0, vL: 0, sumT: 0, vT: 0, sumD: 0, vD: 0, sumE: 0, vE: 0, sumA: 0,
+            sC: 0, tS: 0, sumDD: 0, vDD: 0, sumWD: 0, vWD: 0
+        };
 
-        // 2. Aggregate
-        const sumLang = targetOpps.reduce((sum, o) => sum + (o.kpis?.languageSkill || 0), 0);
-        const sumTech = targetOpps.reduce((sum, o) => sum + (o.kpis?.technicalUnderstanding || 0), 0);
-        const sumDeal = targetOpps.reduce((sum, o) => sum + (o.kpis?.dealProbability || 0), 0);
-        const sumEffort = targetOpps.reduce((sum, o) => sum + (o.kpis?.effortContribution || 0), 0);
-        const sumAmount = targetOpps.reduce((sum, o) => sum + (o.kpis?.proposalAmountUSD || 0), 0);
+        // HIGH PERFORMANCE SINGLE PASS
+        for (let i = 0; i < filteredOpps.length; i++) {
+            const o = filteredOpps[i];
+            if (kpiSoldFilter === 'sold' && o.kpis?.sold !== true) continue;
+            if (kpiSoldFilter === 'not-sold' && o.kpis?.sold !== false) continue;
 
-        const validLangCount = targetOpps.filter(o => o.kpis?.languageSkill !== null).length;
-        const validTechCount = targetOpps.filter(o => o.kpis?.technicalUnderstanding !== null).length;
-        const validDealCount = targetOpps.filter(o => o.kpis?.dealProbability !== null).length;
-        const validEffortCount = targetOpps.filter(o => o.kpis?.effortContribution !== null && o.kpis?.effortContribution > 0).length;
+            res.count++;
+            const k = o.kpis;
+            if (!k) continue;
 
-        const soldCount = targetOpps.filter(o => o.kpis?.sold === true).length;
-        const totalSoldStatus = targetOpps.filter(o => o.kpis?.sold !== null).length;
+            if (k.languageSkill !== null) { res.sumL += k.languageSkill; res.vL++; }
+            if (k.technicalUnderstanding !== null) { res.sumT += k.technicalUnderstanding; res.vT++; }
+            if (k.dealProbability !== null) { res.sumD += k.dealProbability; res.vD++; }
+            if (k.effortContribution !== null && k.effortContribution > 0) { res.sumE += k.effortContribution; res.vE++; }
+            if (k.proposalAmountUSD) res.sumA += k.proposalAmountUSD;
+            if (k.sold === true) res.sC++;
+            if (k.sold !== null) res.tS++;
 
-        // Timelines
-        let sumDeliveryDays = 0;
-        let validDeliveryCount = 0;
-        let sumWorkDays = 0;
-        let validWorkCount = 0;
-
-        targetOpps.forEach(o => {
-            if (o.kpis?.timeline.receivedAt && o.kpis?.timeline.deliveredAt) {
-                const start = new Date(o.kpis.timeline.receivedAt).getTime();
-                const end = new Date(o.kpis.timeline.deliveredAt).getTime();
-                const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-                if (days >= 0) {
-                    sumDeliveryDays += days;
-                    validDeliveryCount++;
-                }
+            if (k.timeline?.receivedAt && k.timeline?.deliveredAt) {
+                const s = new Date(k.timeline.receivedAt).getTime();
+                const e = new Date(k.timeline.deliveredAt).getTime();
+                const d = Math.ceil((e - s) / 86400000);
+                if (d >= 0) { res.sumDD += d; res.vDD++; }
             }
-            if (o.kpis?.execution.myWorkDays !== null) {
-                sumWorkDays += (o.kpis?.execution.myWorkDays || 0);
-                validWorkCount++;
-            }
-        });
+            if (k.execution?.myWorkDays !== null) { res.sumWD += (k.execution?.myWorkDays || 0); res.vWD++; }
+        }
+
+        if (res.count === 0) return null;
 
         return {
-            avgLang: validLangCount ? (sumLang / validLangCount).toFixed(1) : '-',
-            avgTech: validTechCount ? (sumTech / validTechCount).toFixed(1) : '-',
-            avgDeal: validDealCount ? (sumDeal / validDealCount).toFixed(1) : '-',
-            avgEffort: validEffortCount ? (sumEffort / validEffortCount).toFixed(1) : '-',
-            winRate: totalSoldStatus ? ((soldCount / totalSoldStatus) * 100).toFixed(1) : '-',
-            avgAmount: count ? (sumAmount / count).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '-',
-            avgDeliveryDays: validDeliveryCount ? (sumDeliveryDays / validDeliveryCount).toFixed(1) : '-',
-            avgWorkDays: validWorkCount ? (sumWorkDays / validWorkCount).toFixed(1) : '-',
-            totalOpps: count
+            avgLang: res.vL ? (res.sumL / res.vL).toFixed(1) : '-',
+            avgTech: res.vT ? (res.sumT / res.vT).toFixed(1) : '-',
+            avgDeal: res.vD ? (res.sumD / res.vD).toFixed(1) : '-',
+            avgEffort: res.vE ? (res.sumE / res.vE).toFixed(1) : '-',
+            winRate: res.tS ? ((res.sC / res.tS) * 100).toFixed(1) : '-',
+            avgAmount: res.count ? (res.sumA / res.count).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '-',
+            avgDeliveryDays: res.vDD ? (res.sumDD / res.vDD).toFixed(1) : '-',
+            avgWorkDays: res.vWD ? (res.sumWD / res.vWD).toFixed(1) : '-',
+            totalOpps: res.count
         };
     }, [filteredOpps, kpiSoldFilter]);
 
@@ -1787,9 +1757,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                             // If I backspace, filteredOpps grows.
                             // This works fine.
                             // To fix slowness, we need useDeferredValue in the Dashboard component logic mainly.
-                            // Use baseFilteredOpps so the dropdown suggestions include all candidates,
-                            // not just the ones currently shown on the dashboard (which are filtered by chips).
-                            opportunities={baseFilteredOpps}
+                            // Use filteredOpps for suggestions as it is already optimized
+                            opportunities={filteredOpps}
                             value={filterText}
                             onChange={setFilterText}
                             selectedIds={selectedOppChips}
@@ -2287,8 +2256,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     onSelect={onSelect}
                                                     handleDragStart={handleDragStart}
                                                     handleInlineEdit={handleInlineEdit}
-                                                    kanbanMiniNotes={kanbanMiniNotes}
-                                                    setKanbanMiniNotes={setKanbanMiniNotes}
+                                                    kanbanMiniNote={opp.kanbanNote || ''}
+                                                    onNoteChange={(val: any) => onOppUpdate({ kanbanNote: val }, opp.id)}
                                                     hideNextStepBadges={hideNextStepBadges}
                                                     getBadgeInfo={getBadgeInfo}
                                                     translateStatus={translateStatus}
