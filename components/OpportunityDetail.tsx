@@ -176,6 +176,82 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             };
         }, []);
 
+        // HOTFIX PERFORMANCE: Compress images on paste to prevent base64 inflation
+        const MAX_IMAGE_BYTES = 150 * 1024; // 150 KB hard limit
+        const MAX_IMAGE_DIMENSION = 1280;    // max width or height
+        const IMAGE_QUALITY = 0.75;          // JPEG quality
+
+        const compressImageFile = (file: File): Promise<string> =>
+            new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        let { width, height } = img;
+                        // Scale down if too large
+                        if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+                            const ratio = Math.min(MAX_IMAGE_DIMENSION / width, MAX_IMAGE_DIMENSION / height);
+                            width = Math.floor(width * ratio);
+                            height = Math.floor(height * ratio);
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) { reject(new Error('Canvas not available')); return; }
+                        ctx.drawImage(img, 0, 0, width, height);
+                        // Use JPEG for photos, PNG for transparent images
+                        const mimeOut = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+                        const dataUrl = canvas.toDataURL(mimeOut, IMAGE_QUALITY);
+                        resolve(dataUrl);
+                    };
+                    img.onerror = reject;
+                    img.src = ev.target?.result as string;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+        const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+            const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
+            const imageItem = items.find(i => i.type.startsWith('image/'));
+
+            if (!imageItem) return; // no image — let default paste behavior handle it
+
+            e.preventDefault(); // We'll handle image insertion ourselves
+
+            const file = imageItem.getAsFile();
+            if (!file) return;
+
+            // Check raw size — if already small, pass through without recompression
+            let dataUrl: string;
+            if (file.size <= MAX_IMAGE_BYTES) {
+                dataUrl = await new Promise<string>((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = (ev) => res(ev.target?.result as string);
+                    r.onerror = rej;
+                    r.readAsDataURL(file);
+                });
+            } else {
+                try {
+                    dataUrl = await compressImageFile(file);
+                    // Check if compressed result is still too large
+                    const byteSize = Math.round((dataUrl.length * 3) / 4);
+                    if (byteSize > MAX_IMAGE_BYTES * 2) {
+                        // Still huge — warn and abort
+                        alert(`⚠️ Image is too large (${Math.round(byteSize / 1024)} KB after compression). Please resize it below 300 KB before pasting.`);
+                        return;
+                    }
+                } catch {
+                    alert('Failed to compress image. Please reduce the image size before pasting.');
+                    return;
+                }
+            }
+
+            const html = `<img src="${dataUrl}" style="max-width:100%; height:auto;" />`;
+            insertHtml(html);
+        };
+
         return (
             <div className="flex flex-col h-full relative">
                 <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none">
@@ -380,6 +456,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     className="flex-1 p-6 overflow-y-auto focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content bg-white"
                     contentEditable
                     onInput={handleInput}
+                    onPaste={handlePaste}
                     onMouseUp={() => {
                         if (onSelection) onSelection();
                         const selection = window.getSelection();
@@ -1399,13 +1476,7 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
 const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
     const { getTimerState, confirmStop } = useTimerActions();
     const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
-    const [isDeferring, setIsDeferring] = useState(true);
-
-    // Defer heavy content to prevent "Next Step" freeze
-    useEffect(() => {
-        const timer = setTimeout(() => setIsDeferring(false), 50);
-        return () => clearTimeout(timer);
-    }, []);
+    const [isDeferring, setIsDeferring] = useState(false);
 
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -1515,6 +1586,43 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const noteEditorRef = useRef<RichTextEditorHandle>(null);
     const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+    const [activeNoteHtml, setActiveNoteHtml] = useState<string>('');
+    const flushNoteRef = useRef<(() => void) | null>(null);
+    const syncNoteTimeoutRef = useRef<number | null>(null);
+
+    // Sync activeNoteHtml back to localOpp with debounce
+    useEffect(() => {
+        if (!selectedNoteId) return;
+
+        flushNoteRef.current = () => {
+            if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+            const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
+            if (currentNote && currentNote.content !== activeNoteHtml) {
+                const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, content: activeNoteHtml } : n);
+                handleFieldChange('notes', updatedNotes);
+            }
+        };
+
+        if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+        syncNoteTimeoutRef.current = window.setTimeout(flushNoteRef.current, 3000); 
+
+        return () => {
+            if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+        };
+    }, [activeNoteHtml, selectedNoteId]);
+
+    // Handle note selection (lazy load content to local editing state)
+    const lastNoteId = useRef<string | null>(null);
+    useEffect(() => {
+        if (selectedNoteId !== lastNoteId.current) {
+            // Flush previous if needed
+            if (flushNoteRef.current) flushNoteRef.current();
+            
+            const n = localOpp.notes.find(nn => nn.id === selectedNoteId);
+            setActiveNoteHtml(n?.content || '');
+            lastNoteId.current = selectedNoteId;
+        }
+    }, [selectedNoteId, localOpp.notes]);
     const [isNoteFullScreen, setIsNoteFullScreen] = useState(false);
     const [textSelection, setTextSelection] = useState<string | null>(null);
     const [showQuestionsSplit, setShowQuestionsSplit] = useState(false);
@@ -1544,9 +1652,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     useEffect(() => {
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
         // This prevents overwriting local state while typing Title/ID due to parent re-renders.
-        // Only sync from props if ID changed (navigation) or versions changed (external update/restore) 
         // OR if lastUpdated changed (syncing from other tabs or background timer)
-        // Sync from props if ID changed (navigation) or versions changed (external update/restore)
         if (opportunity.id !== localOpp.id || (opportunity.versions?.length !== localOpp.versions?.length)) {
             setLocalOpp(opportunity);
             if (scrollContainerRef.current) scrollContainerRef.current.scrollTo(0, 0);
@@ -1554,39 +1660,48 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             // Keep state in sync without scrolling to top
             setLocalOpp(opportunity);
         }
+    }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated]);
 
-        // Lazy KPI Migration / Initialization
-        // We run this against the *latest* opportunity data available (localOpp if we didn't sync, or opportunity if we did)
-        // Actually, better to run this only if needed.
-        // If we didn't sync, we assume localOpp is fine.
-        // But if activeTab changed to KPI, we might need to initialize KPIs on the current localOpp.
+    // Guard ref to prevent KPI init from causing infinite loop:
+    // kpi init -> onUpdate -> lastUpdated change -> sync effect -> kpi init again
+    const kpiInitializedForOppRef = useRef<string | null>(null);
 
-        if (activeTab === 'kpi') {
-            const currentOpp = (opportunity.id !== localOpp.id) ? opportunity : localOpp; // Use latest source
-            const baseTimeline = currentOpp.kpis?.timeline || { receivedAt: currentOpp.dates.requested || getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null };
-            const baseKpis: KPIs = {
-                languageSkill: currentOpp.kpis?.languageSkill ?? 0,
-                technicalUnderstanding: currentOpp.kpis?.technicalUnderstanding ?? 0,
-                dealProbability: currentOpp.kpis?.dealProbability ?? 0,
-                effortContribution: currentOpp.kpis?.effortContribution ?? 0,
-                sold: currentOpp.kpis?.sold ?? null,
-                proposalAmountUSD: currentOpp.kpis?.proposalAmountUSD ?? currentOpp.commercial.cqaOfficialSellPrice ?? 0,
-                timeline: baseTimeline,
-                execution: currentOpp.kpis?.execution || { myWorkDays: 0, waitingOnOthersDays: 0 },
-                areasInvolved: currentOpp.kpis?.areasInvolved || []
-            };
+    useEffect(() => {
+        // Lazy KPI Migration / Initialization — intentionally separated from the sync effect
+        // to avoid the loop: setLocalOpp -> onUpdate -> lastUpdated -> re-trigger -> repeat
+        if (activeTab !== 'kpi') return;
 
-            // Ensure Tendering area exists
-            if (!baseKpis.areasInvolved.some(a => a.area === 'Tendering')) {
-                baseKpis.areasInvolved.push({ id: crypto.randomUUID(), area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} });
-            }
+        // Only initialize once per opportunity
+        if (kpiInitializedForOppRef.current === localOpp.id && localOpp.kpis?.areasInvolved) return;
+        kpiInitializedForOppRef.current = localOpp.id;
 
-            // We must update via onUpdate to persist migration
-            const updated = { ...currentOpp, kpis: baseKpis };
-            setLocalOpp(updated);
+        const currentOpp = localOpp;
+        const baseTimeline = currentOpp.kpis?.timeline || { receivedAt: currentOpp.dates?.requested || getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null };
+        const baseKpis: KPIs = {
+            languageSkill: currentOpp.kpis?.languageSkill ?? 0,
+            technicalUnderstanding: currentOpp.kpis?.technicalUnderstanding ?? 0,
+            dealProbability: currentOpp.kpis?.dealProbability ?? 0,
+            effortContribution: currentOpp.kpis?.effortContribution ?? 0,
+            sold: currentOpp.kpis?.sold ?? null,
+            proposalAmountUSD: currentOpp.kpis?.proposalAmountUSD ?? currentOpp.commercial?.cqaOfficialSellPrice ?? 0,
+            timeline: baseTimeline,
+            execution: currentOpp.kpis?.execution || { myWorkDays: 0, waitingOnOthersDays: 0 },
+            areasInvolved: currentOpp.kpis?.areasInvolved || []
+        };
+
+        // Ensure Tendering area exists
+        if (!baseKpis.areasInvolved.some(a => a.area === 'Tendering')) {
+            baseKpis.areasInvolved.push({ id: crypto.randomUUID(), area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} });
+        }
+
+        // Only persist if something actually changed
+        const kpisChanged = JSON.stringify(currentOpp.kpis) !== JSON.stringify(baseKpis);
+        const updated = { ...currentOpp, kpis: baseKpis };
+        setLocalOpp(updated);
+        if (kpisChanged) {
             onUpdate(updated, currentOpp.id);
         }
-    }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated, activeTab]);
+    }, [activeTab, localOpp.id]);
 
     const lastProcessedDeepLink = useRef<string | null>(null);
 
@@ -1801,8 +1916,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
     const updateSelectedNote = (field: keyof MeetingNote, value: string) => {
         if (!selectedNoteId) return;
-        const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, [field]: value } : n);
-        handleFieldChange('notes', updatedNotes);
+        if (field === 'content') {
+            setActiveNoteHtml(value);
+        } else {
+            const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, [field]: value } : n);
+            handleFieldChange('notes', updatedNotes);
+        }
     };
     const updateNoteById = (noteId: string, field: keyof MeetingNote, value: string) => {
         const updatedNotes = localOpp.notes.map(n => n.id === noteId ? { ...n, [field]: value } : n);
@@ -1868,9 +1987,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (field === 'date') updatedHistory.sort((a, b) => b.date.localeCompare(a.date));
         handleFieldChange('history', updatedHistory);
     };
-    const totalElapsedCalendarDays = (localOpp.kpis?.timeline.deliveredAt
-        ? countCalendarDays(localOpp.kpis.timeline.receivedAt, localOpp.kpis.timeline.deliveredAt)
-        : countCalendarDays(localOpp.kpis.timeline.receivedAt, getTodayStr())) + 1;
+    // Safe access: kpis or timeline may be null in older/partially-migrated data
+    const kpisTimeline = localOpp.kpis?.timeline;
+    const totalElapsedCalendarDays = (kpisTimeline?.deliveredAt
+        ? countCalendarDays(kpisTimeline.receivedAt || getTodayStr(), kpisTimeline.deliveredAt)
+        : countCalendarDays(kpisTimeline?.receivedAt || getTodayStr(), getTodayStr())) + 1;
 
     /**
      * UniqueExecutionDays: Number of unique calendar days that have either a 'Worked' or 'Waiting' status across any area.
@@ -1993,10 +2114,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return Array.from(suggestedDates);
     };
 
-    // Validation value for Business Days elapsed (workable time)
-    const totalElapsedBusinessDays = (localOpp.kpis?.timeline.deliveredAt
-        ? countBusinessDays(localOpp.kpis.timeline.receivedAt, localOpp.kpis.timeline.deliveredAt, holidays)
-        : countBusinessDays(localOpp.kpis.timeline.receivedAt, getTodayStr(), holidays)) + 1;
+    // Validation value for Business Days elapsed (workable time) — safe access for null kpis
+    const totalElapsedBusinessDays = (kpisTimeline?.deliveredAt
+        ? countBusinessDays(kpisTimeline.receivedAt || getTodayStr(), kpisTimeline.deliveredAt, holidays)
+        : countBusinessDays(kpisTimeline?.receivedAt || getTodayStr(), getTodayStr(), holidays)) + 1;
 
     const totalTrackedDays = (localOpp.kpis?.execution.myWorkDays || 0) +
         (localOpp.kpis?.execution.waitingOnOthersDays || 0) +
@@ -4543,7 +4664,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <RichTextEditor
                                                     key={currentNote.id}
                                                     ref={noteEditorRef}
-                                                    content={currentNote.content}
+                                                    content={activeNoteHtml}
                                                     onChange={(val) => updateSelectedNote('content', val)}
                                                     onSelection={handleSelection}
                                                     onLinkClick={handleLinkClick}
