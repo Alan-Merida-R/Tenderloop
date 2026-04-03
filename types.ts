@@ -279,7 +279,7 @@ export interface Opportunity {
   folderLinked?: boolean;
 
   // Deprecated 
-  pendingActions: any;
+  kanbanNote?: string;
 
   lastUpdated: string;
 }
