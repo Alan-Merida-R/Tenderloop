@@ -13,10 +13,53 @@ import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
 import { assignMissingOrders } from './services/taskUtils';
 
+
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
 
 const SCHNEIDER_GREEN = '#3DCD58'; // Corporate Green
+
+// --- Local Error Boundary (fail-open: shows error instead of blank screen) ---
+interface EBProps { children: React.ReactNode; fallbackLabel?: string; }
+interface EBState { error: Error | null; }
+class LocalErrorBoundary extends React.Component {
+  declare props: EBProps;
+  declare state: EBState;
+  constructor(props: EBProps) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[LocalErrorBoundary]', (this.props as EBProps).fallbackLabel || '', error, info);
+  }
+  render() {
+    const { error } = this.state as EBState;
+    const { fallbackLabel, children } = this.props as EBProps;
+    if (error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
+          <div className="text-4xl">⚠️</div>
+          <p className="text-red-600 font-bold text-lg">
+            {fallbackLabel || 'Component'} encountered an error.
+          </p>
+          <p className="text-gray-500 text-sm font-mono max-w-xl break-all">
+            {error.message}
+          </p>
+          <button
+            className="mt-2 px-4 py-2 bg-[#3DCD58] text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors"
+            onClick={() => (this as any).setState({ error: null })}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return children;
+  }
+}
 
 function App() {
   const [db, setDb] = useState<DatabaseSchema>(INITIAL_DB);
@@ -160,16 +203,26 @@ function App() {
   useEffect(() => {
     if (!db || !fileHandle || status === 'loading') return;
 
-    // Broadcast local changes to other tabs
-    if (!isBroadcastingRef.current) {
-      syncChannel.current?.postMessage({ type: 'DB_UPDATE', db, originTabId: tabId });
-    } else {
-      // Reset flag for next local change
-      isBroadcastingRef.current = false;
-      return; // DO NOT save to disk if change came from broadcast (the originating tab will save)
+    // HOTFIX PERFORMANCE: Handle remote changes vs local changes
+    if (isBroadcastingRef.current) {
+      isBroadcastingRef.current = false; // Reset for next local change
+      return; // DO NOT save or re-broadcast if change came from other tab
     }
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    // Debounce BroadcastChannel separately from Disk Save
+    // Sending 5MB+ over postMessage on every keystroke freezes the UI.
+    const broadcastTimeoutKey = 'tenderloop_broadcast_timeout';
+    // @ts-ignore
+    if (window[broadcastTimeoutKey]) clearTimeout(window[broadcastTimeoutKey]);
+    // @ts-ignore
+    window[broadcastTimeoutKey] = setTimeout(() => {
+      if (syncChannel.current) {
+        console.debug("[Sync] Broadcasting update (debounced)");
+        syncChannel.current.postMessage({ type: 'DB_UPDATE', db, originTabId: tabId });
+      }
+    }, 2000); // 2s debounce for cross-tab sync
 
     // CRITICAL: Under high load (32k tasks/75MB DB), we must throttle disk saves. 
     // However, 15s was too long and causing data loss.
@@ -872,7 +925,7 @@ function App() {
         areasInvolved: [],
         effortContribution: null
       },
-      pendingActions: [],
+      kanbanNote: '',
       lastUpdated: new Date().toISOString()
     };
 
@@ -953,6 +1006,10 @@ function App() {
     if (updatedOpp.tasks) {
         updatedOpp.tasks = assignMissingOrders(updatedOpp.tasks);
     }
+    
+    // HOTFIX PERFORMANCE: Trim history and old versions globally to prevent DB bloat
+    if (updatedOpp.history && updatedOpp.history.length > 300) updatedOpp.history = updatedOpp.history.slice(0, 300);
+    if (updatedOpp.versions && updatedOpp.versions.length > 20) updatedOpp.versions = updatedOpp.versions.slice(-20);
     
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
@@ -1112,6 +1169,30 @@ function App() {
   // Stabilize opportunities reference so React.memo on Dashboard actually works.
   // Without this, db.opportunities is always a new array, defeating the memo.
   const stableOpportunities = useMemo(() => db.opportunities, [db.opportunities]);
+
+  // HOTFIX PERFORMANCE: Persistent Cache for Light Opportunities (v5000)
+  // Stripping thousands of 1MB HTML notes on every keystroke/drag kills the UI thread.
+  // This cache ensures we only map the changed objects, keeping the drag & drop buttery smooth.
+  const lightCacheRef = useRef<Map<string, any>>(new Map());
+  const lightOpportunities = useMemo(() => {
+    if (!stableOpportunities) return [];
+    
+    return stableOpportunities.map(opp => {
+      const existing = lightCacheRef.current.get(opp.id);
+      // If the reference to the full object hasn't changed, reuse the light reference.
+      // This is extremely important for React.memo performance in Dashboard.OpportunityCard.
+      if (existing && existing._originalRef === opp) return existing;
+
+      const light = {
+        ...opp,
+        notes: (opp.notes || []).map(n => ({ ...n, content: '' })), // Content metadata only
+        versions: [], // Strip heavy snapshots
+        _originalRef: opp // Tag for cache-busting
+      };
+      lightCacheRef.current.set(opp.id, light);
+      return light;
+    });
+  }, [stableOpportunities]);
 
   const selectedOppForDetail = useMemo(() => {
     if (!selectedOppId) return null;
@@ -1289,20 +1370,22 @@ function App() {
           <div className={`flex-1 flex min-h-0 overflow-hidden transition-all duration-300`}>
             {/* Dashboard / Primary Content */}
             <div className={`h-full overflow-hidden transition-all duration-300 ${splitTab ? 'w-1/2 border-r border-gray-100' : 'w-full'}`}>
-              <Dashboard
-                key={fileHandle?.name || 'sandbox'}
-                mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
-                opportunities={stableOpportunities}
-                onSelect={handleSelectOpp}
-                onCreate={handleCreateOppAtRoot}
-                onStageChange={moveOpportunityStage}
-                onDateChange={changeOpportunityDate}
-                onOppUpdate={updateOpportunity}
-                onTaskUpdate={updateTaskDetails}
-                holidays={appSettings.holidays || []}
-                globalLabels={appSettings.globalLabels || []}
-                onMinimize={minimizeToDock}
-              />
+              <LocalErrorBoundary fallbackLabel="Dashboard">
+                <Dashboard
+                  key={fileHandle?.name || 'sandbox'}
+                  mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
+                  opportunities={lightOpportunities}
+                  onSelect={handleSelectOpp}
+                  onCreate={handleCreateOppAtRoot}
+                  onStageChange={moveOpportunityStage}
+                  onDateChange={changeOpportunityDate}
+                  onOppUpdate={updateOpportunity}
+                  onTaskUpdate={updateTaskDetails}
+                  holidays={appSettings.holidays || []}
+                  globalLabels={appSettings.globalLabels || []}
+                  onMinimize={minimizeToDock}
+                />
+              </LocalErrorBoundary>
             </div>
 
             {/* Sub-View Overlay Panel (Full Screen) */}
@@ -1330,20 +1413,22 @@ function App() {
           {selectedOppForDetail && (
             <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
               <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
-                <OpportunityDetail
-                  opportunity={selectedOppForDetail}
-                  opportunities={stableOpportunities}
-                  onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
-                  onUpdate={updateOpportunity}
-                  onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
-                  onSelectOpp={handleSelectOpp}
-                  noteTemplates={appSettings.noteTemplates}
-                  holidays={appSettings.holidays || []}
-                  trackedAreas={appSettings.trackedAreas || []}
-                  globalLabels={appSettings.globalLabels || []}
-                  deepLink={activeDeepLink || undefined}
-                  onMinimize={minimizeToDock}
-                />
+                <LocalErrorBoundary fallbackLabel="Opportunity Detail">
+                  <OpportunityDetail
+                    opportunity={selectedOppForDetail}
+                    opportunities={stableOpportunities}
+                    onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
+                    onUpdate={updateOpportunity}
+                    onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
+                    onSelectOpp={handleSelectOpp}
+                    noteTemplates={appSettings.noteTemplates}
+                    holidays={appSettings.holidays || []}
+                    trackedAreas={appSettings.trackedAreas || []}
+                    globalLabels={appSettings.globalLabels || []}
+                    deepLink={activeDeepLink || undefined}
+                    onMinimize={minimizeToDock}
+                  />
+                </LocalErrorBoundary>
               </div>
             </div>
           )}
