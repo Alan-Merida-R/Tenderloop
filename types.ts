@@ -293,7 +293,7 @@ export interface OpportunityVersion {
   createdAt: string;
   createdBy: string;
   source: string;
-  snapshot: Omit<Opportunity, 'history' | 'versions'>;
+  snapshot: Omit<Opportunity, 'versions'>;
 }
 
 export interface UserSettings {

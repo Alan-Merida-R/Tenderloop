@@ -46,31 +46,26 @@ export interface RichTextEditorHandle {
     removeMark: (id: string) => void;
 }
 
-export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void }>(
-    ({ content, onChange, onSelection, onLinkClick, onAttach }, ref) => {
+export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void, disabled?: boolean }>(
+    ({ content, onChange, onSelection, onLinkClick, onAttach, disabled }, ref) => {
         const editorRef = useRef<HTMLDivElement>(null);
         const isInternalUpdate = useRef(false);
 
         useImperativeHandle(ref, () => ({
             highlightSelection: (id: string, text: string) => {
-                // Bug fix: Partial selection question linking
-                // insertHTML should correctly wrap whatever is in the current selection range with the span.
-                // If text is provided but doesn't match selection, we prioritize valid selection wrapping.
+                if (disabled) return;
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0) {
                     const range = sel.getRangeAt(0);
                     const span = document.createElement('span');
                     span.className = 'question-highlight';
                     span.setAttribute('data-question-id', id);
-                    span.textContent = range.toString() || text; // Use actual selection text if available to preserve partial match
+                    span.textContent = range.toString() || text;
 
                     range.deleteContents();
                     range.insertNode(span);
-
-                    // Cleanup
                     sel.removeAllRanges();
                 } else {
-                    // Fallback if no selection (unlikely if triggered from context)
                     const html = `<span class="question-highlight" data-question-id="${id}">${text}</span>`;
                     document.execCommand('insertHTML', false, html);
                 }
@@ -80,6 +75,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 }
             },
             removeMark: (id: string) => {
+                if (disabled) return;
                 if (editorRef.current) {
                     const span = editorRef.current.querySelector(`span[data-question-id="${id}"]`);
                     if (span) {
@@ -100,11 +96,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 if (content !== currentHTML && !isInternalUpdate.current) {
                     editorRef.current.innerHTML = content || '';
                 }
-                isInternalUpdate.current = false;
             }
         }, [content]);
 
         const exec = (command: string, value: string | undefined = undefined) => {
+            if (disabled) return;
             if (editorRef.current) editorRef.current.focus();
             document.execCommand(command, false, value);
             if (editorRef.current) {
@@ -114,6 +110,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         const insertHtml = (html: string) => {
+            if (disabled) return;
             exec('insertHTML', html);
         };
 
@@ -122,6 +119,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         const addLink = () => {
+            if (disabled) return;
             const url = window.prompt('Enter URL:');
             if (url) {
                 if (editorRef.current) editorRef.current.focus();
@@ -132,7 +130,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         const handleKeyDown = (e: React.KeyboardEvent) => {
             if (e.key === 'Tab') {
                 e.preventDefault();
-                document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;');
+                insertHtml('&nbsp;&nbsp;&nbsp;&nbsp;');
             }
         };
 
@@ -147,8 +145,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     window.open(href, '_blank', 'noopener,noreferrer');
                 }
             }
-            // Fix: Handle checkbox clicks to sync 'checked' attribute for persistence in innerHTML
             if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+                if (disabled) {
+                    e.preventDefault();
+                    return;
+                }
                 if (target.checked) {
                     target.setAttribute('checked', 'checked');
                 } else {
@@ -162,12 +163,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         const debounceTimeoutRef = useRef<number | null>(null);
 
         const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+            if (disabled) return;
             isInternalUpdate.current = true;
             const newHtml = e.currentTarget.innerHTML;
             if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
             debounceTimeoutRef.current = window.setTimeout(() => {
                 onChange(newHtml);
-            }, 500); // 500ms debounce
+            }, 500);
         };
 
         useEffect(() => {
@@ -176,10 +178,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             };
         }, []);
 
-        // HOTFIX PERFORMANCE: Compress images on paste to prevent base64 inflation
-        const MAX_IMAGE_BYTES = 150 * 1024; // 150 KB hard limit
-        const MAX_IMAGE_DIMENSION = 1280;    // max width or height
-        const IMAGE_QUALITY = 0.75;          // JPEG quality
+        const MAX_IMAGE_BYTES = 150 * 1024;
+        const MAX_IMAGE_DIMENSION = 1280;
+        const IMAGE_QUALITY = 0.75;
 
         const compressImageFile = (file: File): Promise<string> =>
             new Promise((resolve, reject) => {
@@ -188,7 +189,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     const img = new Image();
                     img.onload = () => {
                         let { width, height } = img;
-                        // Scale down if too large
                         if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
                             const ratio = Math.min(MAX_IMAGE_DIMENSION / width, MAX_IMAGE_DIMENSION / height);
                             width = Math.floor(width * ratio);
@@ -200,7 +200,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                         const ctx = canvas.getContext('2d');
                         if (!ctx) { reject(new Error('Canvas not available')); return; }
                         ctx.drawImage(img, 0, 0, width, height);
-                        // Use JPEG for photos, PNG for transparent images
                         const mimeOut = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
                         const dataUrl = canvas.toDataURL(mimeOut, IMAGE_QUALITY);
                         resolve(dataUrl);
@@ -213,283 +212,123 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             });
 
         const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+            if (disabled) return;
             const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
             const imageItem = items.find(i => i.type.startsWith('image/'));
-
-            if (!imageItem) return; // no image — let default paste behavior handle it
-
-            e.preventDefault(); // We'll handle image insertion ourselves
-
+            if (!imageItem) return;
+            e.preventDefault();
             const file = imageItem.getAsFile();
             if (!file) return;
-
-            // Check raw size — if already small, pass through without recompression
-            let dataUrl: string;
-            if (file.size <= MAX_IMAGE_BYTES) {
-                dataUrl = await new Promise<string>((res, rej) => {
-                    const r = new FileReader();
-                    r.onload = (ev) => res(ev.target?.result as string);
-                    r.onerror = rej;
-                    r.readAsDataURL(file);
-                });
-            } else {
-                try {
-                    dataUrl = await compressImageFile(file);
-                    // Check if compressed result is still too large
-                    const byteSize = Math.round((dataUrl.length * 3) / 4);
-                    if (byteSize > MAX_IMAGE_BYTES * 2) {
-                        // Still huge — warn and abort
-                        alert(`⚠️ Image is too large (${Math.round(byteSize / 1024)} KB after compression). Please resize it below 300 KB before pasting.`);
-                        return;
-                    }
-                } catch {
-                    alert('Failed to compress image. Please reduce the image size before pasting.');
-                    return;
-                }
+            try {
+                const dataUrl = await compressImageFile(file);
+                const html = `<img src="${dataUrl}" style="max-width:100%; height:auto;" />`;
+                insertHtml(html);
+            } catch {
+                alert('Failed to compress image.');
             }
-
-            const html = `<img src="${dataUrl}" style="max-width:100%; height:auto;" />`;
-            insertHtml(html);
         };
 
         return (
-            <div className="flex flex-col h-full relative">
-                <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none">
-                    <select
-                        onChange={(e) => exec('fontName', e.target.value)}
-                        className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
-                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0/0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
-                    >
-                        <option value="">Font</option>
-                        <option value="Arial">Arial</option>
-                        <option value="Calibri">Calibri</option>
-                        <option value="Times New Roman">Times New Roman</option>
-                        <option value="Courier New">Courier New</option>
-                        <option value="Inter">Inter</option>
-                    </select>
+            <div className={`flex flex-col h-full relative border rounded-lg ${disabled ? 'bg-gray-50 border-gray-100' : 'border-gray-200 shadow-sm'}`}>
+                {!disabled && (
+                    <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none">
+                        <select
+                            onChange={(e) => exec('fontName', e.target.value)}
+                            className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
+                            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
+                        >
+                            <option value="">Font</option>
+                            <option value="Arial">Arial</option>
+                            <option value="Calibri">Calibri</option>
+                            <option value="Times New Roman">Times New Roman</option>
+                            <option value="Courier New">Courier New</option>
+                            <option value="Inter">Inter</option>
+                        </select>
 
-                    <select
-                        onChange={(e) => {
-                            // exec('fontSize') uses 1-7, so we'll uses styles for precise sizes
-                            const selection = window.getSelection()?.toString();
-                            if (selection) {
-                                insertHtml(`<span style="font-size: ${e.target.value}px">${selection}</span>`);
-                            }
-                        }}
-                        className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
-                        style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0/0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
-                    >
-                        <option value="">Size</option>
-                        <option value="10">10</option>
-                        <option value="12">12</option>
-                        <option value="14">14</option>
-                        <option value="16">16</option>
-                        <option value="18">18</option>
-                        <option value="24">24</option>
-                        <option value="32">32</option>
-                    </select>
+                        <select
+                            onChange={(e) => {
+                                const selection = window.getSelection()?.toString();
+                                if (selection) {
+                                    insertHtml(`<span style="font-size: ${e.target.value}px">${selection}</span>`);
+                                }
+                            }}
+                            className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
+                            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'currentColor\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E")' }}
+                        >
+                            <option value="">Size</option>
+                            <option value="10">10</option>
+                            <option value="12">12</option>
+                            <option value="14">14</option>
+                            <option value="16">16</option>
+                            <option value="18">18</option>
+                            <option value="24">24</option>
+                            <option value="32">32</option>
+                        </select>
 
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button onClick={() => exec('formatBlock', 'H1')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 1"><Heading1 className="w-4 h-4" /></button>
-                    <button onClick={() => exec('bold')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
-                    <button onClick={() => exec('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
-                    <button onClick={() => exec('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Type className="w-4 h-4" style={{ textDecoration: 'underline' }} /></button>
-                    <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting (Plain Text)"><Eraser className="w-4 h-4" /></button>
-                    <button onClick={() => {
-                        exec('removeFormat'); // Native cleanup
-                        exec('formatBlock', 'DIV'); // Reset headings to normal div/p
-                        exec('bold'); exec('italic'); exec('underline'); // Toggle off if on (or harmless redundant)
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button onClick={() => exec('formatBlock', 'H1')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 1"><Heading1 className="w-4 h-4" /></button>
+                        <button onClick={() => exec('bold')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
+                        <button onClick={() => exec('italic')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
+                        <button onClick={() => exec('underline')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Type className="w-4 h-4" style={{ textDecoration: 'underline' }} /></button>
+                        <button onClick={() => exec('removeFormat')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting"><Eraser className="w-4 h-4" /></button>
 
-                        // Custom cleanup for question spans in selection
-                        const sel = window.getSelection();
-                        if (sel && sel.rangeCount > 0) {
-                            const range = sel.getRangeAt(0);
-                            const fragment = range.cloneContents();
-                            const spans = fragment.querySelectorAll('span.question-highlight');
-                            // If selection contains our custom marks, we need to loop and unwrap them in the live DOM
-                            // This is complex with Ranges, but exec Command 'removeFormat' often misses custom spans with classes.
-                            // Simple approach: exec 'removeFormat' usually strips attributes, but let's be sure.
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button onClick={() => exec('justifyLeft')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Left"><AlignLeft className="w-4 h-4" /></button>
+                        <button onClick={() => exec('justifyCenter')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Center"><AlignCenter className="w-4 h-4" /></button>
+                        <button onClick={() => exec('justifyRight')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Right"><AlignRight className="w-4 h-4" /></button>
 
-                            // Iterate over all spans with our class in the editor and if they intersect selection, unwrap them.
-                            if (editorRef.current) {
-                                const allMarks = editorRef.current.querySelectorAll('span.question-highlight');
-                                allMarks.forEach(span => {
-                                    if (sel.containsNode(span, true)) {
-                                        const parent = span.parentNode;
-                                        while (span.firstChild) parent?.insertBefore(span.firstChild, span);
-                                        parent?.removeChild(span);
-                                    }
-                                });
-                                onChange(editorRef.current.innerHTML);
-                            }
-                        }
-                    }} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Clear Formatting (Styles & Marks)"><Eraser className="w-4 h-4" /></button>
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Link"><Link className="w-4 h-4" /></button>
+                        <button onClick={() => exec('unlink')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Remove Link"><Unlink className="w-4 h-4" /></button>
 
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button onClick={() => exec('justifyLeft')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Left"><AlignLeft className="w-4 h-4" /></button>
-                    <button onClick={() => exec('justifyCenter')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Center"><AlignCenter className="w-4 h-4" /></button>
-                    <button onClick={() => exec('justifyRight')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Align Right"><AlignRight className="w-4 h-4" /></button>
-
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button onClick={addLink} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Link"><Link className="w-4 h-4" /></button>
-                    <button onClick={() => exec('unlink')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Remove Link"><Unlink className="w-4 h-4" /></button>
-
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <div className="flex items-center gap-0.5">
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
                         <button onClick={() => {
                             const tableHtml = `<table style="width:100%; border-collapse: collapse; border: 1px solid #ccc;" border="1"><tbody><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr></tbody></table><p><br></p>`;
                             insertHtml(tableHtml);
                         }} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Table"><Table className="w-4 h-4" /></button>
-                        <button onClick={() => {
-                            const selection = window.getSelection();
-                            if (selection && selection.rangeCount > 0) {
-                                let node = selection.anchorNode;
-                                while (node && node !== editorRef.current) {
-                                    if (node instanceof HTMLElement && (node.tagName === 'TABLE' || (node as any).closest?.('table'))) {
-                                        const table = node.tagName === 'TABLE' ? (node as HTMLTableElement) : (node as any).closest('table');
-                                        const newRow = table.insertRow();
-                                        const colCount = table.rows[0].cells.length;
-                                        for (let i = 0; i < colCount; i++) {
-                                            const cell = newRow.insertCell();
-                                            cell.style.border = '1px solid #ccc';
-                                            cell.style.padding = '8px';
-                                        }
-                                        if (editorRef.current) onChange(editorRef.current.innerHTML);
-                                        return;
-                                    }
-                                    node = node.parentNode;
-                                }
-                            }
-                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-gray-500 h-7" title="Add Row">+Row</button>
-                        <button onClick={() => {
-                            const selection = window.getSelection();
-                            if (selection && selection.rangeCount > 0) {
-                                let node = selection.anchorNode;
-                                while (node && node !== editorRef.current) {
-                                    if (node instanceof HTMLElement && (node.tagName === 'TABLE' || (node as any).closest?.('table'))) {
-                                        const table = node.tagName === 'TABLE' ? (node as HTMLTableElement) : (node as any).closest('table');
-                                        for (let i = 0; i < table.rows.length; i++) {
-                                            const cell = table.rows[i].insertCell();
-                                            cell.style.border = '1px solid #ccc';
-                                            cell.style.padding = '8px';
-                                        }
-                                        if (editorRef.current) onChange(editorRef.current.innerHTML);
-                                        return;
-                                    }
-                                    node = node.parentNode;
-                                }
-                            }
-                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-gray-500 h-7" title="Add Column">+Col</button>
 
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
-
-                        <button onClick={() => {
-                            const selection = window.getSelection();
-                            if (selection && selection.rangeCount > 0) {
-                                let node = selection.anchorNode;
-                                while (node && node !== editorRef.current) {
-                                    if (node instanceof HTMLElement && ((node as any).tagName === 'TR' || (node as any).closest?.('tr'))) {
-                                        const row = (node as any).tagName === 'TR' ? (node as HTMLTableRowElement) : (node as any).closest('tr');
-                                        if (row && row.parentNode) {
-                                            row.parentNode.removeChild(row);
-                                            if (editorRef.current) onChange(editorRef.current.innerHTML);
-                                        }
-                                        return;
-                                    }
-                                    node = node.parentNode;
-                                }
-                            }
-                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-red-500 h-7" title="Delete Row">-Row</button>
-
-                        <button onClick={() => {
-                            const selection = window.getSelection();
-                            if (selection && selection.rangeCount > 0) {
-                                let node = selection.anchorNode;
-                                while (node && node !== editorRef.current) {
-                                    // Find cell td/th
-                                    if (node instanceof HTMLElement && ((node as any).tagName === 'TD' || (node as any).tagName === 'TH' || (node as any).closest?.('td') || (node as any).closest?.('th'))) {
-                                        const cell = (node as any).tagName === 'TD' || (node as any).tagName === 'TH' ? (node as HTMLTableCellElement) : ((node as any).closest('td') || (node as any).closest('th'));
-                                        const row = cell.parentNode as HTMLTableRowElement;
-                                        const table = row.parentNode?.parentNode as HTMLTableElement || row.parentNode as HTMLTableElement; // tbody or table
-
-                                        if (cell && row && table) {
-                                            const cellIndex = cell.cellIndex;
-                                            // Handle case where table might have a tbody
-                                            const finalTable = table.tagName === 'TABLE' ? table : (table as any).closest('table');
-
-                                            if (finalTable) {
-                                                for (let i = 0; i < finalTable.rows.length; i++) {
-                                                    if (finalTable.rows[i].cells.length > cellIndex) {
-                                                        finalTable.rows[i].deleteCell(cellIndex);
-                                                    }
-                                                }
-                                                if (editorRef.current) onChange(editorRef.current.innerHTML);
-                                            }
-                                        }
-                                        return;
-                                    }
-                                    node = node.parentNode;
-                                }
-                            }
-                        }} className="px-1 hover:bg-gray-200 rounded text-[9px] font-bold text-red-500 h-7" title="Delete Column">-Col</button>
+                        <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
+                        
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <div className="flex gap-1 items-center bg-white px-1 rounded border border-gray-200">
+                            <button onClick={() => highlightColor('#fca5a5')} className="w-4 h-4 rounded-full bg-red-300 hover:scale-110 transition-transform"></button>
+                            <button onClick={() => highlightColor('#fde047')} className="w-4 h-4 rounded-full bg-yellow-300 hover:scale-110 transition-transform"></button>
+                            <button onClick={() => highlightColor('#86efac')} className="w-4 h-4 rounded-full bg-green-300 hover:scale-110 transition-transform"></button>
+                            <button onClick={() => highlightColor('#93c5fd')} className="w-4 h-4 rounded-full bg-blue-300 hover:scale-110 transition-transform"></button>
+                        </div>
+                        
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button onClick={() => exec('insertUnorderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bullet List"><ListIcon className="w-4 h-4" /></button>
+                        <button onClick={() => exec('insertOrderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Numbered List"><ListOrdered className="w-4 h-4" /></button>
+                        <button onClick={() => insertHtml('<input type="checkbox"> ')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Checkbox"><CheckCircle className="w-4 h-4" /></button>
                     </div>
-
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <div className="flex gap-1 items-center bg-white px-1 rounded border border-gray-200">
-                        <button onClick={() => highlightColor('#fca5a5')} className="w-4 h-4 rounded-full bg-red-300 hover:scale-110 transition-transform"></button>
-                        <button onClick={() => highlightColor('#fde047')} className="w-4 h-4 rounded-full bg-yellow-300 hover:scale-110 transition-transform"></button>
-                        <button onClick={() => highlightColor('#86efac')} className="w-4 h-4 rounded-full bg-green-300 hover:scale-110 transition-transform"></button>
-                        <button onClick={() => highlightColor('#93c5fd')} className="w-4 h-4 rounded-full bg-blue-300 hover:scale-110 transition-transform"></button>
-                    </div>
-                    <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button onClick={() => exec('insertUnorderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bullet List"><ListIcon className="w-4 h-4" /></button>
-                    <button onClick={() => exec('insertOrderedList')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Numbered List"><ListOrdered className="w-4 h-4" /></button>
-                    <button onClick={() => exec('indent')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Indent"><ChevronRight className="w-4 h-4" /></button>
-                    <button onClick={() => exec('outdent')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Outdent"><ChevronLeft className="w-4 h-4" /></button>
-                    <button onClick={() => insertHtml('<input type="checkbox"> ')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Checkbox"><CheckCircle className="w-4 h-4" /></button>
-                    <button onClick={() => insertHtml('<hr>')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Divider">_</button>
-                </div>
+                )}
                 <div
                     ref={editorRef}
-                    className="flex-1 p-6 overflow-y-auto focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content bg-white"
-                    contentEditable
+                    className={`flex-1 p-6 overflow-y-auto focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content ${disabled ? 'cursor-default' : 'bg-white cursor-text'}`}
+                    contentEditable={!disabled}
                     onInput={handleInput}
                     onPaste={handlePaste}
-                    onMouseUp={() => {
-                        if (onSelection) onSelection();
-                        const selection = window.getSelection();
-                        if (selection && selection.rangeCount > 0) {
-                            let node = selection.anchorNode;
-                            while (node && node !== editorRef.current) {
-                                if (node instanceof HTMLElement && node.dataset.questionId) {
-                                    onLinkClick?.(node.dataset.questionId);
-                                    break;
-                                }
-                                node = node.parentNode;
-                            }
-                        }
-                    }}
                     onClick={handleClick}
                     onKeyDown={handleKeyDown}
                     suppressContentEditableWarning={true}
                     style={{ listStylePosition: 'inside' }}
                 />
                 <style>{`
-                .editor-content ul { list-style-type: disc; margin-left: 1.5em; }
-                .editor-content ol { list-style-type: decimal; margin-left: 1.5em; }
-                .editor-content a { color: #3b82f6; text-decoration: underline; cursor: pointer; }
-                .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
-                .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
-                .question-highlight:hover { background-color: rgba(61, 205, 88, 0.4); }
-                .editor-content table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
-                .editor-content td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
-                .editor-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.25em; }
-            `}</style>
-            </div >
+                    .editor-content ul { list-style-type: disc; margin-left: 1.5em; }
+                    .editor-content ol { list-style-type: decimal; margin-left: 1.5em; }
+                    .editor-content a { color: #3b82f6; text-decoration: underline; cursor: pointer; }
+                    .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
+                    .question-highlight:hover { background-color: rgba(61, 205, 88, 0.4); }
+                    .editor-content table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
+                    .editor-content td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
+                    .editor-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.25em; }
+                `}</style>
+            </div>
         );
-    });
+    }
+);
 
 const MultiSelect = ({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -1453,6 +1292,67 @@ const TaskTimerButtonList = React.memo(({ task, oppId }: { task: Task, oppId: st
 
 
 
+const incrementRevision = (rev: string): string => {
+    const match = rev?.match(/R(\d+)/i);
+    if (match) {
+        return `R${parseInt(match[1]) + 1}`;
+    }
+    const numMatch = rev?.match(/(\d+)/);
+    if (numMatch) return `R${parseInt(numMatch[1]) + 1}`;
+    return 'R1';
+};
+
+const resetCommercialData = (): Commercial => ({
+    currency: 'USD',
+    swHw: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
+    services: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
+    resale: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
+    risk: 0,
+    contingency: 0,
+    escalations: { swHw: 0, services: 0, resale: 0 },
+    agreementsLink: '',
+    cfLink: '',
+    discountsAndNotes: '',
+    cqaOfficialSellPrice: 0,
+    cqaOfficialMargin: 0
+});
+
+const resetPresentationData = (): PrdPresentation => ({
+    executiveSummary: '',
+    issues: '',
+    kpis: '',
+    requirements: '',
+    proposalAnalysis: {
+        trigger: '',
+        missingInfo: '',
+        risks: '',
+        competition: '',
+        strategy: '',
+        checklist: {}
+    }
+});
+
+const resetKPIData = (current: KPIs): KPIs => ({
+    ...current,
+    languageSkill: null,
+    technicalUnderstanding: null,
+    dealProbability: null,
+    effortContribution: null,
+    sold: null,
+    proposalAmountUSD: null,
+    timeline: {
+        receivedAt: new Date().toISOString(),
+        deliveredAt: null,
+        cancelledAt: null,
+        cancelledReason: null
+    },
+    execution: {
+        myWorkDays: null,
+        waitingOnOthersDays: null
+    },
+    areasInvolved: []
+});
+
 const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
     const { timerState } = useTimer();
     const { startTimer } = useTimerActions();
@@ -1484,6 +1384,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
 
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
+    const isSnapshot = !!viewingVersionId;
     const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
 
     const updateTimeoutRef = useRef<number | null>(null);
@@ -1551,6 +1452,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [diffBaseId, setDiffBaseId] = useState<string | null>(null);
     const [diffCompareId, setDiffCompareId] = useState<string | null>(null);
     const [showCopyTasksModal, setShowCopyTasksModal] = useState(false);
+    const [versionSearchTerm, setVersionSearchTerm] = useState('');
 
     const handleVersionSwitch = (vId: string | null) => {
         if (vId === viewingVersionId && vId !== null) {
@@ -1562,23 +1464,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             // Load Snapshot
             const ver = localOpp.versions?.find(v => v.id === vId);
             if (ver) {
-                // Merge snapshot with current containers (versions/history) to keep UI functional
+                // Merge snapshot with current containers to keep UI functional & prevent data loss
                 const snapshotWithContainers = {
                     ...ver.snapshot,
                     versions: localOpp.versions,
-                    history: localOpp.history,
+                    history: ver.snapshot.history || [],
                     srId: ver.srId
                 } as Opportunity;
                 setLocalOpp(snapshotWithContainers);
                 setViewingVersionId(vId);
+                setShowVersionMenu(false);
             }
         } else {
             // Restore Live
-            // We revert to props.opportunity to discard working copy changes
-            // But we must ensure versions are up to date if we just created one.
-            // onUpdate called by createVersion should have updated props.
             setLocalOpp(opportunity);
             setViewingVersionId(null);
+            setShowVersionMenu(false);
         }
     };
     const [searchTerm, setSearchTerm] = useState('');
@@ -1590,30 +1491,44 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const flushNoteRef = useRef<(() => void) | null>(null);
     const syncNoteTimeoutRef = useRef<number | null>(null);
 
-    // Sync activeNoteHtml back to localOpp with debounce
+    // HOTFIX PERFORMANCE: Isolated Note Sync (v5000-compatible)
+    // We stop updating the global db state every 3 seconds while editing.
+    // Instead, we keep the heavy HTML local and only sync it to localOpp/App when switching notes or closing.
     useEffect(() => {
         if (!selectedNoteId) return;
 
         flushNoteRef.current = () => {
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
             const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
+            // Sync ONLY if content actually changed and it's substantial
             if (currentNote && currentNote.content !== activeNoteHtml) {
                 const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, content: activeNoteHtml } : n);
+                // Important: this updates LOCAL state first, which flows to onOppUpdate eventually
+                // but we call it only when we "leave" the note.
+                setLocalOpp(prev => ({ ...prev, notes: updatedNotes }));
                 handleFieldChange('notes', updatedNotes);
             }
         };
 
-        if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
-        syncNoteTimeoutRef.current = window.setTimeout(flushNoteRef.current, 3000); 
-
+        // Removed the window.setTimeout that was triggering every 3 seconds.
+        // The HTML will be flushed by the Note Selection effect or on Unmount.
         return () => {
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+            // Flush on exit
+            if (flushNoteRef.current) flushNoteRef.current();
         };
     }, [activeNoteHtml, selectedNoteId]);
 
     // Handle note selection (lazy load content to local editing state)
     const lastNoteId = useRef<string | null>(null);
     useEffect(() => {
+        // AUTO-SELECT: If no note is selected but we have notes, pick the first one (usually latest)
+        // This fixes the "empty editor" issue on old opportunities.
+        if (!selectedNoteId && localOpp.notes.length > 0) {
+            setSelectedNoteId(localOpp.notes[0].id);
+            return;
+        }
+
         if (selectedNoteId !== lastNoteId.current) {
             // Flush previous if needed
             if (flushNoteRef.current) flushNoteRef.current();
@@ -1648,6 +1563,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [taskSort, setTaskSort] = useState<'none' | 'dueDate' | 'order'>('order');
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
     const [showLabelMenu, setShowLabelMenu] = useState(false);
+    const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
 
     useEffect(() => {
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
@@ -1748,6 +1664,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const saveToParentTimeoutRef = useRef<number | null>(null);
 
     const handleFieldChange = (field: keyof Opportunity, value: any, immediate = false) => {
+        if (viewingVersionId) return; // LOCK: No mutations in read-only snapshots
+
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
         setLocalOpp(updated);
         
@@ -1758,11 +1676,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (isCritical || immediate) {
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             syncToParentNow(updated);
-        } else if (!viewingVersionId) {
+        } else {
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             saveToParentTimeoutRef.current = window.setTimeout(() => {
                 onUpdate(updated, opportunity.id);
-            }, 1000); // reduced from 2s to 1s for better responsiveness
+            }, 1000); 
         }
     };
 
@@ -3175,85 +3093,138 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const versionGroups = React.useMemo(() => {
         const groups: Record<string, OpportunityVersion[]> = {};
-        const sorted = [...(localOpp.versions || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        let sorted = [...(localOpp.versions || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        
+        if (versionSearchTerm.trim()) {
+            const term = versionSearchTerm.toLowerCase();
+            sorted = sorted.filter(v => 
+                v.commitMessage.toLowerCase().includes(term) ||
+                v.srId.toLowerCase().includes(term) ||
+                v.tags.some(t => t.toLowerCase().includes(term)) ||
+                new Date(v.createdAt).toLocaleDateString().includes(term)
+            );
+        }
+
         sorted.forEach(v => {
-            const key = v.srId || localOpp.srId || 'SR-1';
+            const key = v.srId || 'Legacy';
             if (!groups[key]) groups[key] = [];
             groups[key].push(v);
         });
         return groups;
-    }, [localOpp.versions, localOpp.srId]);
+    }, [localOpp.versions, versionSearchTerm]);
 
     const activeVersion = viewingVersionId ? localOpp.versions?.find(v => v.id === viewingVersionId) : null;
-    const isWorkingCopy = !!activeVersion;
 
     const handleCreateVersion = () => {
-        if (!newVersionData.commitMessage) return alert("Commit message required");
+        if (!newVersionData.commitMessage) return alert("Commit message is required");
 
-        // Clone and Normalize
+        if ((localOpp.versions?.length || 0) >= 10) {
+            return alert("Maximum version limit (10) reached for this opportunity. Delete an old snapshot to create a new one.");
+        }
+
+        const finalSrIdForSnapshot = newVersionData.srId || localOpp.srId || '';
+        
+        // 1. Capture current snapshot
         const snapshot = JSON.parse(JSON.stringify(localOpp));
-        snapshot.statusLabel = 'In Progress';
-        snapshot.dates = { requested: '', expected: '', assigned: '' };
-        snapshot.tasks = snapshot.tasks.map((t: Task) => ({ ...t, status: 'Pending', completedAt: undefined }));
-        delete snapshot.history;
-        delete snapshot.versions; // No recursion
-
-        const newVer: OpportunityVersion = {
+        delete snapshot.versions;
+        
+        const newVerAtThisMoment: OpportunityVersion = {
             id: crypto.randomUUID(),
             opportunityId: localOpp.id,
-            srId: newVersionData.srId || localOpp.srId || 'SR-1',
+            srId: finalSrIdForSnapshot,
             commitMessage: newVersionData.commitMessage,
             tags: newVersionData.tags.split(',').map(t => t.trim()).filter(Boolean),
             createdAt: new Date().toISOString(),
-            createdBy: 'Engineer',
+            createdBy: 'User',
             source: 'live',
             snapshot: snapshot as any
         };
 
-        handleFieldChange('versions', [newVer, ...(localOpp.versions || [])]);
+        const nextRev = incrementRevision(localOpp.revision || 'R1');
+
+        // 2. Decide if we are RESTORING or creating a CLEAN version
+        if (versionToRestore) {
+            // FLOW B: RESTORE FROM OLD VERSION (Full Clone)
+            const verToRestoreContent = JSON.parse(JSON.stringify(versionToRestore.snapshot));
+            
+            const restoredOpp: Opportunity = {
+                ...verToRestoreContent,
+                id: localOpp.id,
+                revision: nextRev,
+                // Combine existing versions + the one we just snapshotted
+                versions: [newVerAtThisMoment, ...(localOpp.versions || [])],
+                lastUpdated: new Date().toISOString()
+            };
+
+            setLocalOpp(restoredOpp);
+            onUpdate(restoredOpp, localOpp.id, true);
+            setVersionToRestore(null);
+            alert(`Version restored successfully. You are now working on a full editable copy of "${versionToRestore.commitMessage}" as revision ${nextRev}.`);
+        } else {
+            // FLOW A: NEW CLEAN VERSION
+            const resetOpp: Opportunity = {
+                ...localOpp,
+                revision: nextRev,
+                // Business Rule: Clear QuoteLink and SR in clean version
+                srId: '', 
+                qlk: '',
+                description: '',
+                statusLabel: 'In Progress',
+                detailedStatus: 'Working on it',
+                stage: '1. Intake',
+                priority: 'Medium',
+                dates: { requested: '', expected: '', assigned: '' },
+                links: [], 
+                presentation: resetPresentationData(),
+                history: [], // Clean version resets history
+                notes: [],
+                questions: [],
+                kpis: resetKPIData(localOpp.kpis),
+                folderLinked: false,
+                commercial: resetCommercialData(),
+                tasks: (localOpp.tasks || []).map(t => ({
+                    ...t,
+                    status: 'Pending',
+                    dueDate: '',
+                    description: '',
+                    timeLogs: [],
+                    subtasks: (t.subtasks || []).map(s => ({ ...s, completed: false }))
+                })),
+                versions: [newVerAtThisMoment, ...(localOpp.versions || [])],
+                lastUpdated: new Date().toISOString()
+            };
+
+            setLocalOpp(resetOpp);
+            onUpdate(resetOpp, localOpp.id, true);
+            alert(`New clean version ${nextRev} created. Current progress saved.`);
+        }
+
         setShowCreateVersionModal(false);
         setNewVersionData({ commitMessage: '', tags: '', srId: '' });
     };
 
-    const handleRestorePartial = (ver: OpportunityVersion, type: 'tasks' | 'notes' | 'kpis') => {
-        if (!confirm(`Overwrite current ${type} with version ${ver.commitMessage}?`)) return;
-
-        // Auto-backup
-        const backupVer: OpportunityVersion = {
-            id: crypto.randomUUID(),
-            opportunityId: localOpp.id,
-            srId: localOpp.srId || 'SR-1',
-            commitMessage: `Auto-backup before restore ${type}`,
-            tags: ['auto-backup'],
-            createdAt: new Date().toISOString(),
-            createdBy: 'System',
-            source: 'live',
-            snapshot: JSON.parse(JSON.stringify(localOpp))
-        };
-        // Clean backup snapshot to avoid deep recursion if we were less careful, but here it's fine.
-        delete (backupVer.snapshot as any).history;
-        delete (backupVer.snapshot as any).versions;
-
-        let content = ver.snapshot[type as keyof Opportunity];
-        if (type === 'tasks') {
-            // Reset status when restoring tasks
-            // @ts-ignore
-            content = (content as Task[]).map(t => ({ ...t, status: 'Pending' }));
-        }
-
-        const newVersions = [backupVer, ...(localOpp.versions || [])];
-        // We do this in one go? handleFieldChange might be async or batch. 
-        // We need to update versions AND the field.
-        // Assuming handleFieldChange handles shallow merge or we do it manually.
-        // handleFieldChange usually updates one field.
-        // We'll update state manually for multiple fields if needed, or call twice.
-        // But updating 'versions' prop is safer to do first? Or last?
-
-        // We'll assume onUpdate merges.
-        const updated = { ...localOpp, versions: newVersions, [type]: content };
-        onUpdate(updated);
-        alert(`Restored ${type} and created backup.`);
+    const handleRestoreFromSnapshot = (ver: OpportunityVersion) => {
+        setVersionToRestore(ver);
+        // Reset modal data to encourage fresh commit message for the current work being saved
+        setNewVersionData({ 
+            commitMessage: `Backing up ${localOpp.revision} before restoring ${ver.snapshot.revision || 'snapshot'}`, 
+            tags: 'restore-backup', 
+            srId: localOpp.srId || '' 
+        });
+        setShowCreateVersionModal(true);
     };
+
+    const handleDeleteSnapshot = (vId: string) => {
+        if (!confirm("Are you sure you want to permanently delete this historical snapshot?")) return;
+        const updatedVersions = (localOpp.versions || []).filter(v => v.id !== vId);
+        handleFieldChange('versions', updatedVersions, true);
+    };
+
+    const handleUpdateSnapshotMeta = (vId: string, updates: Partial<OpportunityVersion>) => {
+        const updatedVersions = (localOpp.versions || []).map(v => v.id === vId ? { ...v, ...updates } : v);
+        handleFieldChange('versions', updatedVersions, true);
+    };
+
 
     return (
         <div className="flex flex-col h-full bg-white relative overflow-hidden">
@@ -3264,10 +3235,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             {/* Main Content Area */}
             <div className="flex flex-col shrink-0 bg-white relative z-20">
                 <div className="flex-none flex flex-col bg-white z-20 shrink-0">
-                    {isWorkingCopy && !isSubView && (
+                    {isSnapshot && !isSubView && (
                         <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
-                            <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Version: {activeVersion?.commitMessage}</span>
-                            <button onClick={() => handleVersionSwitch(null)} className="underline hover:text-amber-900">Exit Version</button>
+                            <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Snapshot: {activeVersion?.commitMessage}</span>
+                            <button onClick={() => handleVersionSwitch(null)} className="underline hover:text-amber-900">Exit Snapshot</button>
                         </div>
                     )}
 
@@ -3311,17 +3282,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">OP</span>
                                                 <div className="flex -space-x-px">
-                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(val: string) => handleFieldChange('id', `OP-${val}`)} />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.id.replace(/^OP-/, '')} onChange={(val: string) => handleFieldChange('id', `OP-${val}`)} />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">QLK:</span>
-                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">REV:</span>
-                                                    <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(val: string) => handleFieldChange('revision', val)} placeholder="R0" />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-8 bg-transparent" value={localOpp.revision} onChange={(val: string) => handleFieldChange('revision', val)} placeholder="R0" />
                                                 </div>
                                             </div>
                                         </>
@@ -3330,7 +3301,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 {!isSubView && (
                                     <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                                        <OptimizedInput className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
+                                        <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
                                     </div>
                                 )}
                             </div>
@@ -3348,7 +3319,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="relative">
                                                 <button
                                                     onClick={() => setShowVersionMenu(!showVersionMenu)}
-                                                    className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${viewingVersionId ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
+                                                    className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${isSnapshot ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
                                                 >
                                                     <HistoryIcon className="w-3.5 h-3.5" />
                                                     Versions
@@ -3359,17 +3330,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <>
                                                         <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
                                                         <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
-                                                            <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                                                                <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
-                                                                <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
-                                                                    <Plus className="w-3 h-3" /> New
-                                                                </button>
+                                                            <div className="p-3 border-b border-gray-100 bg-gray-50 flex flex-col gap-2">
+                                                                <div className="flex justify-between items-center">
+                                                                    <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
+                                                                    <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
+                                                                        <Plus className="w-3 h-3" /> New revision
+                                                                    </button>
+                                                                </div>
+                                                                <div className="relative">
+                                                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                                                                    <input 
+                                                                        type="text"
+                                                                        className="w-full pl-7 pr-3 py-1.5 bg-white border border-gray-200 rounded-md text-[11px] focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                        placeholder="Search by SR, tag, message..."
+                                                                        value={versionSearchTerm}
+                                                                        onChange={(e) => setVersionSearchTerm(e.target.value)}
+                                                                    />
+                                                                </div>
                                                             </div>
-                                                            <div className="overflow-y-auto p-2 space-y-4 flex-1">
+                                                            <div className="overflow-y-auto p-2 space-y-4 flex-1 min-h-[100px]">
                                                                 {(localOpp.versions || []).length === 0 && (
                                                                     <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
                                                                 )}
-                                                                {/* Fail-safe rendering of groups */}
                                                                 {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
                                                                     <div key={sr}>
                                                                         <div className="flex items-center gap-1 mb-1 px-2">
@@ -3380,27 +3362,34 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                             {versions.map(v => (
                                                                                 <div
                                                                                     key={v.id}
-                                                                                    onClick={() => { handleVersionSwitch(v.id); setShowVersionMenu(false); }}
+                                                                                    onClick={() => handleVersionSwitch(v.id)}
                                                                                     className={`group relative p-3 rounded-lg border text-left cursor-pointer transition-all ${viewingVersionId === v.id ? 'bg-amber-50 border-amber-300 shadow-sm' : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md'}`}
                                                                                 >
-                                                                                    <div className="flex justify-between items-start mb-1">
-                                                                                        <span className="text-xs font-bold text-gray-800 line-clamp-2 leading-tight">{v.commitMessage}</span>
+                                                                                    <div className="flex justify-between items-start mb-0.5">
+                                                                                        <span className="text-xs font-bold text-gray-800 line-clamp-1 leading-tight">{v.snapshot.revision || 'REV'} - {v.commitMessage}</span>
+                                                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSnapshot(v.id); }} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 className="w-3 h-3" /></button>
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-2 text-[10px] text-gray-400 mb-2">
-                                                                                        <span className="font-mono bg-gray-100 px-1 rounded">{v.id.slice(0, 6)}</span>
+                                                                                    <div className="flex items-center gap-2 text-[9px] text-gray-400 mb-1.5">
+                                                                                        <span className="font-mono text-blue-500 font-bold">{v.srId}</span>
                                                                                         <span>•</span>
-                                                                                        <span>{new Date(v.createdAt).toLocaleDateString()}</span>
+                                                                                        <span>{new Date(v.createdAt).toLocaleString()}</span>
                                                                                     </div>
                                                                                     <div className="flex flex-wrap gap-1 mb-2">
-                                                                                        {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold">{t}</span>)}
+                                                                                        {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">{t}</span>)}
                                                                                     </div>
 
-                                                                                    {/* Discrete Actions */}
                                                                                     <div className="flex gap-2 pt-2 border-t border-gray-50 mt-1">
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'tasks'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Tasks</button>
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); handleRestorePartial(v, 'notes'); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors">Notes</button>
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setShowVersionMenu(false); setDiffBaseId('live'); setDiffCompareId(v.id); setShowDiffModal(true); }} className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors ml-auto flex items-center gap-1">
-                                                                                            <GitPullRequest className="w-3 h-3" /> Diff
+                                                                                        <button 
+                                                                                            onClick={(e) => { e.stopPropagation(); handleVersionSwitch(v.id); setShowVersionMenu(false); }} 
+                                                                                            className="text-[10px] font-bold text-gray-500 hover:text-blue-600 bg-gray-50 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                                                                                        >
+                                                                                            View
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={(e) => { e.stopPropagation(); handleRestoreFromSnapshot(v); }} 
+                                                                                            className="text-[10px] font-bold text-white bg-blue-500 px-2 py-1 rounded hover:bg-blue-600 transition-colors flex items-center gap-1"
+                                                                                        >
+                                                                                            <RotateCcw className="w-3 h-3" /> Restore
                                                                                         </button>
                                                                                     </div>
                                                                                 </div>
@@ -3417,8 +3406,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="w-px h-6 bg-gray-200 mx-1"></div>
                                             <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
                                             <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
-                                            <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                            <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                            {!isSnapshot && (
+                                                <>
+                                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                                    <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                                </>
+                                            )}
                                         </>
                                     )}
                                 </div>
@@ -3426,8 +3419,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                             <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
                                 <div className="flex-1 w-full md:w-auto min-w-[200px]">
-                                    <OptimizedInput value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <OptimizedInput value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
+                                    <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
+                                    <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
 
                                     {(() => {
                                         const nextTask = getNextTask(localOpp.tasks || []);
@@ -3507,15 +3500,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <div className="flex items-center gap-2 shrink-0">
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Principal Status</span>
-                                        <select value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer shadow-sm ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                        <select disabled={isSnapshot} value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Process Status</span>
-                                        <select value={localOpp.detailedStatus || 'No Status'} onChange={(e) => handleFieldChange('detailedStatus', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider cursor-pointer shadow-sm ${DETAILED_STATUS_COLORS[localOpp.detailedStatus || 'No Status']}`}>{Object.keys(DETAILED_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}</select>
+                                        <select disabled={isSnapshot} value={localOpp.detailedStatus || 'No Status'} onChange={(e) => handleFieldChange('detailedStatus', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${DETAILED_STATUS_COLORS[localOpp.detailedStatus || 'No Status']}`}>{Object.keys(DETAILED_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}</select>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Priority</span>
-                                        <select value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center cursor-pointer shadow-sm ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
+                                        <select disabled={isSnapshot} value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center shadow-sm disabled:cursor-not-allowed ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                                     </div>
                                 </div>
                             </div>
@@ -3552,8 +3545,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <>
                                                 <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
                                                     <div className="flex justify-between items-center">
-                                                        <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
-                                                        {textSelection && (
+                                                        <input disabled={isSnapshot} value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0 disabled:opacity-70" placeholder="Note Title" />
+                                                        {textSelection && !isSnapshot && (
                                                             <button
                                                                 className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1"
                                                                 onClick={() => addQuestion(currentNote.id, textSelection)}
@@ -3568,6 +3561,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         key={currentNote.id}
                                                         ref={noteEditorRef}
                                                         content={currentNote.content}
+                                                        disabled={isSnapshot}
                                                         onChange={(val) => updateSelectedNote('content', val)}
                                                         onSelection={handleSelection}
                                                         onLinkClick={handleLinkClick}
@@ -3846,25 +3840,51 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
-                                    <OptimizedTextArea value={localOpp.description} onChange={(val: string) => handleFieldChange('description', val)} className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]" placeholder="Detailed description..." />
+                                    <OptimizedTextArea
+                                        disabled={isSnapshot}
+                                        value={localOpp.description}
+                                        onChange={(val: string) => handleFieldChange('description', val)}
+                                        className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]"
+                                        placeholder="Detailed description..."
+                                    />
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="block text-xs font-bold text-gray-500 uppercase">Requested</label><input type="date" value={localOpp.dates.requested} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
-                                        <div><label className="block text-xs font-bold text-gray-500 uppercase">Expected</label><input type="date" value={localOpp.dates.expected} onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })} className="w-full text-sm border-gray-200 rounded-lg" /></div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">Requested</label>
+                                            <input
+                                                disabled={isSnapshot}
+                                                type="date"
+                                                value={localOpp.dates.requested}
+                                                onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })}
+                                                className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase">Expected</label>
+                                            <input
+                                                disabled={isSnapshot}
+                                                type="date"
+                                                value={localOpp.dates.expected}
+                                                onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })}
+                                                className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50"
+                                            />
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
                                         <div>
                                             <label className="block text-[10px] font-black text-[#3DCD58] uppercase tracking-wider mb-1">Priority Rank (1-N)</label>
                                             <input
+                                                disabled={isSnapshot}
                                                 type="number"
                                                 value={localOpp.priorityOrder || ''}
                                                 onChange={(e) => handleFieldChange('priorityOrder', e.target.value ? parseInt(e.target.value) : null)}
-                                                className="w-full text-sm border-gray-200 rounded-lg font-bold"
+                                                className="w-full text-sm border-gray-200 rounded-lg font-bold disabled:bg-gray-50"
                                                 placeholder="e.g. 1"
                                             />
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Short Alias (1-2 words)</label>
                                             <OptimizedInput
+                                                disabled={isSnapshot}
                                                 type="text"
                                                 value={localOpp.alias || ''}
                                                 onChange={(val: string) => handleFieldChange('alias', val)}
@@ -4079,21 +4099,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <span>Language Skill</span>
                                                     <span>{localOpp.kpis.languageSkill || 0}%</span>
                                                 </div>
-                                                <input type="range" min="0" max="100" value={localOpp.kpis.languageSkill || 0} onChange={(e) => updateKpiField('languageSkill', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.languageSkill || 0} onChange={(e) => updateKpiField('languageSkill', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
                                             </div>
                                             <div>
                                                 <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
                                                     <span>Technical Understanding</span>
                                                     <span>{localOpp.kpis.technicalUnderstanding || 0}%</span>
                                                 </div>
-                                                <input type="range" min="0" max="100" value={localOpp.kpis.technicalUnderstanding || 0} onChange={(e) => updateKpiField('technicalUnderstanding', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.technicalUnderstanding || 0} onChange={(e) => updateKpiField('technicalUnderstanding', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
                                             </div>
                                             <div>
                                                 <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
                                                     <span>Deal Probability</span>
                                                     <span>{localOpp.kpis.dealProbability || 0}%</span>
                                                 </div>
-                                                <input type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58]" />
+                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
                                             </div>
                                             <div className="pt-2 border-t border-gray-50">
                                                 <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1 items-center">
@@ -4104,8 +4124,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <div className="flex items-center gap-2">
                                                         {localOpp.kpis.effortContribution === null || localOpp.kpis.effortContribution === 0 ? (
                                                             <button
+                                                                disabled={isSnapshot}
                                                                 onClick={() => updateKpiField('effortContribution', suggestedEffortScore)}
-                                                                className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors"
+                                                                className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors disabled:opacity-50"
                                                             >
                                                                 Suggest: {suggestedEffortScore}%
                                                             </button>
@@ -4113,7 +4134,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <span className="text-blue-600 font-black">{localOpp.kpis.effortContribution || 0}%</span>
                                                     </div>
                                                 </div>
-                                                <input type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500" />
+                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500 disabled:opacity-50" />
                                                 <p className="text-[9px] text-gray-400 italic mt-1 leading-tight">Combined scoring based on My Work ({myWorkStats.days}d) and Team Work ({totalAreaDays}d).</p>
                                             </div>
                                         </div>
@@ -4122,13 +4143,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sold?</label>
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => updateKpiField('sold', true)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === true ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}>Yes</button>
-                                                    <button onClick={() => updateKpiField('sold', false)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors ${localOpp.kpis.sold === false ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-500'}`}>No</button>
+                                                    <button disabled={isSnapshot} onClick={() => updateKpiField('sold', true)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors disabled:opacity-50 ${localOpp.kpis.sold === true ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-white border-gray-200 text-gray-500'}`}>Yes</button>
+                                                    <button disabled={isSnapshot} onClick={() => updateKpiField('sold', false)} className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors disabled:opacity-50 ${localOpp.kpis.sold === false ? 'bg-red-100 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-500'}`}>No</button>
                                                 </div>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proposal Amount (USD)</label>
-                                                <input type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm" placeholder="0.00" />
+                                                <input disabled={isSnapshot} type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm disabled:bg-gray-50" placeholder="0.00" />
                                             </div>
                                         </div>
                                     </div>
@@ -4159,11 +4180,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
                                                 <label className="block text-[10px] font-bold text-gray-400 uppercase">Received At</label>
-                                                <input type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                                <input disabled={isSnapshot} type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1 disabled:bg-gray-50" />
                                             </div>
                                             <div>
                                                 <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivered / Tendered At</label>
-                                                <input type="date" value={localOpp.kpis.timeline?.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1" />
+                                                <input disabled={isSnapshot} type="date" value={localOpp.kpis.timeline?.deliveredAt || ''} onChange={(e) => updateKpiField('timeline.deliveredAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1 disabled:bg-gray-50" />
                                             </div>
                                         </div>
 
@@ -4221,9 +4242,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div>
                                             <div className="flex gap-2 mb-1">
                                                 <label className="block text-[10px] font-bold text-gray-400 uppercase">Cancelled At</label>
-                                                <input type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6 shrink-0" />
+                                                <input disabled={isSnapshot} type="date" value={localOpp.kpis.timeline.cancelledAt || ''} onChange={(e) => updateKpiField('timeline.cancelledAt', e.target.value)} className="border-gray-200 rounded text-xs p-1 h-6 shrink-0 disabled:bg-gray-50" />
                                             </div>
-                                            <textarea value={localOpp.kpis.timeline.cancelledReason || ''} onChange={(e) => updateKpiField('timeline.cancelledReason', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm h-16 resize-none" placeholder="Reason for cancellation..." />
+                                            <textarea disabled={isSnapshot} value={localOpp.kpis.timeline.cancelledReason || ''} onChange={(e) => updateKpiField('timeline.cancelledReason', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm h-16 resize-none disabled:bg-gray-50" placeholder="Reason for cancellation..." />
                                         </div>
                                     </div>
                                 </div>
@@ -4319,21 +4340,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
-                                        <OptimizedTextArea value={localOpp.presentation.executiveSummary} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
+                                        <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.executiveSummary} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
-                                            <OptimizedTextArea value={localOpp.presentation.issues} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, issues: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                            <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.issues} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, issues: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
-                                            <OptimizedTextArea value={localOpp.presentation.requirements} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
+                                            <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.requirements} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
-                                        <OptimizedTextArea value={localOpp.presentation.kpis} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: val })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
+                                        <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.kpis} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: val })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
                                     </div>
                                 </div>
 
@@ -4355,6 +4376,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Trigger Event & Client Motivation</label>
                                                 <OptimizedTextArea
+                                                    disabled={isSnapshot}
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0"
                                                     placeholder="Why are they buying now?"
                                                     value={localOpp.presentation.proposalAnalysis?.trigger || ''}
@@ -4364,6 +4386,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Missing Info / Questions</label>
                                                 <OptimizedTextArea
+                                                    disabled={isSnapshot}
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0 bg-red-50/50"
                                                     placeholder="What don't we know yet?"
                                                     value={localOpp.presentation.proposalAnalysis?.missingInfo || ''}
@@ -4380,6 +4403,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Key Risks</label>
                                                 <OptimizedTextArea
+                                                    disabled={isSnapshot}
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
                                                     value={localOpp.presentation.proposalAnalysis?.risks || ''}
                                                     onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), risks: val } })}
@@ -4388,6 +4412,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Competition Analysis</label>
                                                 <OptimizedTextArea
+                                                    disabled={isSnapshot}
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
                                                     placeholder="Who are we up against?"
                                                     value={localOpp.presentation.proposalAnalysis?.competition || ''}
@@ -4404,6 +4429,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Our Strategy / Next Steps</label>
                                                 <OptimizedTextArea
+                                                    disabled={isSnapshot}
                                                     className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-purple-500 focus:ring-0"
                                                     placeholder="How do we win?"
                                                     value={localOpp.presentation.proposalAnalysis?.strategy || ''}
@@ -4416,6 +4442,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     {['Client Needs Understood', 'Scope Defined', 'Commercials Approved', 'Risks Mitigated'].map(item => (
                                                         <label key={item} className="flex items-center gap-2 cursor-pointer group">
                                                             <input
+                                                                disabled={isSnapshot}
                                                                 type="checkbox"
                                                                 className="rounded text-purple-500 focus:ring-purple-500 w-3 h-3"
                                                                 checked={localOpp.presentation.proposalAnalysis?.checklist?.[item] || false}
@@ -4438,22 +4465,75 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                         {activeTab === 'commercial' && (
                             <div className="space-y-6">
+                                {(localOpp.versions || []).length > 0 && (
+                                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
+                                        <div className="flex items-center gap-3">
+                                            <div className="bg-blue-100 p-2 rounded-lg"><HistoryIcon className="w-5 h-5 text-blue-600" /></div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-blue-900">Last Snapshot Summary</h4>
+                                                <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wider">Historical reference from {localOpp.versions[0].snapshot.revision || 'previous'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-6">
+                                            <div className="text-right">
+                                                <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Sell</div>
+                                                <div className="text-sm font-black text-gray-700">${(localOpp.versions[0].snapshot.commercial?.cqaOfficialSellPrice || 0).toLocaleString()}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Margin</div>
+                                                <div className="text-sm font-black text-blue-700">{(localOpp.versions[0].snapshot.commercial?.cqaOfficialMargin || 0)}%</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     {['swHw', 'services', 'resale'].map((key) => {
                                         const row = localOpp.commercial[key as 'swHw'];
+                                        const labels: Record<string, string> = { swHw: 'Software & Hardware', services: 'Services (Implementation, Support)', resale: 'Resale / 3rd Party' };
                                         return (
-                                            <div key={key} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
-                                                <h4 className="text-sm font-black text-gray-800 uppercase tracking-wide border-b border-gray-100 pb-2">{key === 'swHw' ? 'Hardware / Software' : key}</h4>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Cost</label><OptimizedInput type="number" value={displayValue(row.cost)} onChange={(val: number) => updateCommercialRow(key as any, 'cost', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Margin %</label><OptimizedInput type="number" value={displayValue(row.margin)} onChange={(val: number) => updateCommercialRow(key as any, 'margin', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-blue-600 font-bold" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Sell Price</label><OptimizedInput type="number" value={displayValue(row.sellPrice)} onChange={(val: number) => updateCommercialRow(key as any, 'sellPrice', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono font-bold" /></div>
-                                                    <div><label className="text-[10px] font-bold text-gray-400 uppercase">Discount %</label><OptimizedInput type="number" value={displayValue(row.discount)} onChange={(val: number) => updateCommercialRow(key as any, 'discount', val)} className="w-full border-gray-200 rounded text-sm p-1.5 mt-1 font-mono text-orange-600" /></div>
+                                            <div key={key} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                                                <div className="flex items-center gap-3 mb-6">
+                                                    <div className="bg-gray-50 p-2 rounded-xl text-gray-400"><Database className="w-5 h-5" /></div>
+                                                    <h3 className="font-black text-gray-800 text-sm">{labels[key]}</h3>
                                                 </div>
-                                                <div className="pt-2 border-t border-gray-100 mt-auto">
-                                                    <div className="flex justify-between items-end">
-                                                        <span className="text-xs font-medium text-gray-500">Final Price</span>
-                                                        <span className="text-lg font-bold text-[#3DCD58]">${row.finalPrice.toLocaleString()}</span>
+                                                <div className="space-y-4">
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Estimated Cost (Net)</label>
+                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                                                            <DollarSign className="w-4 h-4 text-gray-300" />
+                                                            <OptimizedInput
+                                                                disabled={isSnapshot}
+                                                                type="number"
+                                                                className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-gray-700"
+                                                                value={row.cost}
+                                                                onChange={(val: string) => {
+                                                                    const num = parseFloat(val) || 0;
+                                                                    handleFieldChange('commercial', { ...localOpp.commercial, [key]: { ...row, cost: num, margin: row.margin, sellPrice: num / (1 - (row.margin / 100)) } });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Margin (%)</label>
+                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                                                            <Minus className="w-4 h-4 text-gray-300" />
+                                                            <OptimizedInput
+                                                                disabled={isSnapshot}
+                                                                type="number"
+                                                                className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-blue-600"
+                                                                value={row.margin}
+                                                                onChange={(val: string) => {
+                                                                    const m = parseFloat(val) || 0;
+                                                                    handleFieldChange('commercial', { ...localOpp.commercial, [key]: { ...row, margin: m, sellPrice: row.cost / (1 - (m / 100)) } });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="pt-2 border-t border-gray-50">
+                                                        <div className="flex justify-between items-center bg-blue-50/50 p-2.5 rounded-xl">
+                                                            <span className="text-[10px] font-black text-blue-900 uppercase">Sell Price</span>
+                                                            <span className="text-sm font-black text-blue-700">${(row.sellPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -4465,21 +4545,64 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Global Adjustments</h4>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.risk)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, risk: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
-                                            <div><label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.contingency)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                            <div>
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label>
+                                                <OptimizedInput
+                                                    disabled={isSnapshot}
+                                                    type="number"
+                                                    value={displayValue(localOpp.commercial.risk)}
+                                                    onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, risk: val })}
+                                                    className="w-full border-gray-200 rounded text-sm mt-1"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label>
+                                                <OptimizedInput
+                                                    disabled={isSnapshot}
+                                                    type="number"
+                                                    value={displayValue(localOpp.commercial.contingency)}
+                                                    onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: val })}
+                                                    className="w-full border-gray-200 rounded text-sm mt-1"
+                                                />
+                                            </div>
                                         </div>
-                                        <div><label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label><OptimizedTextArea value={localOpp.commercial.discountsAndNotes} onChange={(val: string) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: val })} className="w-full border-gray-200 rounded text-sm mt-1 h-20" /></div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label>
+                                            <OptimizedTextArea
+                                                disabled={isSnapshot}
+                                                value={localOpp.commercial.discountsAndNotes}
+                                                onChange={(val: string) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: val })}
+                                                className="w-full border-gray-200 rounded text-sm mt-1 h-20"
+                                            />
+                                        </div>
                                     </div>
                                     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                         <div className="flex justify-between items-center">
                                             <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Project Totals</h4>
                                             <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 font-mono">GM: {totalMargin}%</span>
                                         </div>
-                                        {/* REMOVED TOTAL SELL PRICE DISPLAY HERE */}
                                         <div className="p-4 border border-gray-100 rounded-lg">
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.cqaOfficialSellPrice)} onChange={(val: number) => updateOfficialSellPrice(val)} className="w-full border-gray-200 rounded text-sm mt-1 font-bold" /></div>
-                                                <div><label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label><OptimizedInput type="number" value={displayValue(localOpp.commercial.cqaOfficialMargin)} onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: val })} className="w-full border-gray-200 rounded text-sm mt-1" /></div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label>
+                                                    <OptimizedInput
+                                                        disabled={isSnapshot}
+                                                        type="number"
+                                                        value={displayValue(localOpp.commercial.cqaOfficialSellPrice)}
+                                                        onChange={(val: number) => updateOfficialSellPrice(val)}
+                                                        className="w-full border-gray-200 rounded text-sm mt-1 font-bold"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label>
+                                                    <OptimizedInput
+                                                        disabled={isSnapshot}
+                                                        type="number"
+                                                        value={displayValue(localOpp.commercial.cqaOfficialMargin)}
+                                                        onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: val })}
+                                                        className="w-full border-gray-200 rounded text-sm mt-1"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -4493,7 +4616,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <h3 className="font-bold text-gray-800">Change Log / Events</h3>
                                     <div className="flex gap-2">
                                         <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Copy for bFO</button>
-                                        <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
+                                        {!isSnapshot && (
+                                            <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
@@ -4502,10 +4627,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
                                             <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                                                 <div className="flex justify-between items-center mb-2">
-                                                    <OptimizedInput type="date" value={entry.date} onChange={(val: string) => updateHistoryEntry(entry.id, 'date', val)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0 cursor-pointer" />
-                                                    <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                    <OptimizedInput disabled={isSnapshot} type="date" value={entry.date} onChange={(val: string) => updateHistoryEntry(entry.id, 'date', val)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0 cursor-pointer disabled:opacity-70" />
+                                                    {!isSnapshot && (
+                                                        <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                    )}
                                                 </div>
-                                                <OptimizedTextArea value={entry.content} onChange={(val: string) => updateHistoryEntry(entry.id, 'content', val)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
+                                                <OptimizedTextArea disabled={isSnapshot} value={entry.content} onChange={(val: string) => updateHistoryEntry(entry.id, 'content', val)} className="w-full text-sm text-gray-600 border-none p-0 focus:ring-0 resize-none bg-transparent" placeholder="Event description..." />
                                             </div>
                                         </div>
                                     ))}
@@ -4524,11 +4651,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div key={q.id} className="p-4 border border-gray-200 rounded-xl hover:shadow-sm transition-shadow">
                                             <div className="flex justify-between mb-2">
                                                 <span className="text-[10px] font-bold bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase">Source: {q.sourceType}</span>
-                                                <button onClick={() => { if (window.confirm('Delete?')) handleFieldChange('questions', localOpp.questions.filter(qi => qi.id !== q.id)) }} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
+                                                {!isSnapshot && (
+                                                    <button onClick={() => { if (window.confirm('Delete?')) handleFieldChange('questions', localOpp.questions.filter(qi => qi.id !== q.id)) }} className="text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
+                                                )}
                                             </div>
                                             {q.quote && <div className="text-xs text-gray-400 italic mb-2 border-l-2 border-gray-200 pl-2">"{q.quote}"</div>}
-                                            <OptimizedInput className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(val: string) => updateQuestion(q.id, 'question', val)} />
-                                            <OptimizedTextArea className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(val: string) => updateQuestion(q.id, 'answer', val)} rows={2} />
+                                            <OptimizedInput disabled={isSnapshot} className="w-full font-bold text-gray-800 border-none p-0 focus:ring-0 mb-2" value={q.question} onChange={(val: string) => updateQuestion(q.id, 'question', val)} />
+                                            <OptimizedTextArea disabled={isSnapshot} className="w-full text-sm text-gray-600 border-gray-100 bg-gray-50 rounded p-2" placeholder="Answer..." value={q.answer} onChange={(val: string) => updateQuestion(q.id, 'answer', val)} rows={2} />
                                         </div>
                                     ))}
                                     {localOpp.questions.length === 0 && <p className="text-center text-gray-400 italic py-8">No questions logged from notes or tasks.</p>}
@@ -4827,8 +4956,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             placeholder="All Status"
                                         />
                                         <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
-                                        <button onClick={() => setShowCopyTasksModal(true)} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><Copy className="w-4 h-4" /> Copy Tasks</button>
-                                        <button onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
+                                        {!isSnapshot && (
+                                            <>
+                                                <button onClick={() => setShowCopyTasksModal(true)} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><Copy className="w-4 h-4" /> Copy Tasks</button>
+                                                <button onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
@@ -4860,29 +4993,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div key={task.id} id={`task-${task.id}`} className={`group border p-4 rounded-xl flex items-center justify-between cursor-pointer transition-all ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : 'border-gray-100 hover:bg-gray-50 hover:border-[#3DCD58]/30 hover:shadow-md'}`} onClick={() => setSelectedTaskForEdit({ task })}>
                                                     <div className="flex items-center gap-4">
                                                         <div
-                                                            className="text-xs font-bold text-gray-300 w-8 flex flex-col items-center gap-0.5"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            title="Execution Order"
-                                                        >
-                                                            <button 
-                                                                onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) - 1)); }}
-                                                                className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
-                                                            >
-                                                                <ChevronUp className="w-3 h-3" />
-                                                            </button>
+                                                           className={`text-xs font-bold text-gray-300 w-8 flex flex-col items-center gap-0.5 ${isSnapshot ? 'opacity-50 pointer-events-none' : ''}`}
+                                                           onClick={(e) => e.stopPropagation()}
+                                                           title="Execution Order"
+                                                       >
+                                                           {!isSnapshot && (
+                                                               <button 
+                                                                   onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) - 1)); }}
+                                                                   className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
+                                                               >
+                                                                   <ChevronUp className="w-3 h-3" />
+                                                               </button>
+                                                           )}
                                                             <input
-                                                                type="number"
-                                                                className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold h-4"
-                                                                placeholder="#"
-                                                                key={`order-${task.order}`}
-                                                                defaultValue={task.order || ''}
-                                                                onBlur={(e) => {
-                                                                    if (e.target.value) {
-                                                                        const newOrder = parseInt(e.target.value);
-                                                                        if (newOrder !== task.order) {
-                                                                            handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, newOrder));
-                                                                        }
-                                                                    }
+                                                               disabled={isSnapshot}
+                                                               type="number"
+                                                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold h-4 disabled:opacity-50"
+                                                               placeholder="#"
+                                                               key={`order-${task.order}`}
+                                                               defaultValue={task.order || ''}
+                                                               onBlur={(e) => {
+                                                                   if (isSnapshot) return;
+                                                                   if (e.target.value) {
+                                                                       const newOrder = parseInt(e.target.value);
+                                                                       if (newOrder !== task.order) {
+                                                                           handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, newOrder));
+                                                                       }
+                                                                   }
                                                                 }}
                                                                 onKeyDown={(e) => {
                                                                     if (e.key === 'Enter') e.currentTarget.blur();
@@ -5392,11 +5529,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 showCreateVersionModal && (
                     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-                            <h3 className="text-lg font-bold mb-4">Create Version Snapshot</h3>
+                            <h3 className="text-lg font-bold mb-4">
+                                {versionToRestore ? `Save work & Restore Snapshot` : `Create New Revision Snapshot`}
+                            </h3>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Commit Message *</label>
-                                    <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder="e.g. Initial Estimation" value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
+                                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                                        Commit Message for CURRENT work *
+                                    </label>
+                                    <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder={versionToRestore ? "e.g. Work before restoring V2" : "e.g. Initial Estimation"} value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
@@ -5411,8 +5552,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <strong>Normalization:</strong> Status will be reset to In Progress. Tasks will be pending. History is preserved.
                                 </div>
                                 <div className="flex gap-2 justify-end mt-2">
-                                    <button onClick={() => setShowCreateVersionModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
-                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">Create Version</button>
+                                    <button onClick={() => { setShowCreateVersionModal(false); setVersionToRestore(null); }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
+                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
+                                        {versionToRestore ? `Confirm Restore` : `Create Version`}
+                                    </button>
                                 </div>
                             </div>
                         </div>

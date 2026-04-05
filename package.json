@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev-flow": "vite --port 3003",
     "build": "vite build",
+    "build-flow": "vite build --config vite.flow.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xyflow/react": "^12.10.2",
+    "docx": "^9.6.1",
     "jspdf": "2.5.1",
     "jspdf-autotable": "3.8.1",
     "lucide-react": "^0.561.0",
