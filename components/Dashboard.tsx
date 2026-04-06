@@ -657,9 +657,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const viewMode = mode === 'tasks' ? tasksViewMode : proposalsViewMode;
     const setViewMode = mode === 'tasks' ? setTasksViewMode : setProposalsViewMode;
 
-    // PERFORMANCE: Defer the heavy opportunities list to prevent re-renders from blocking the UI (e.g. typing or modals)
-    const deferredOpportunities = useDeferredValue(opportunities);
-
     const [filterText, setFilterText] = useState('');
     const deferredFilterText = useDeferredValue(filterText); // Optimize search performance
     const [labelFilters, setLabelFilters] = useState<string[]>([]);
@@ -969,18 +966,15 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
     // NOTE: deferredOpportunities is already deferred above (line 659).
     // Use it directly to avoid a second useDeferredValue on the same value.
-    const deferredOpps = deferredOpportunities;
 
     // --- Filter Logic ---
-    // --- Optimized Filter Engine (v5000) ---
-    // Combined logic: Deduplication + Base Filters + Text Search in one pass.
     const filteredOpps = useMemo(() => {
         const seen = new Set();
         const booleanMatcher = parseBooleanQuery(deferredFilterText);
         const results: Opportunity[] = [];
 
-        for (let i = 0; i < deferredOpportunities.length; i++) {
-            const opp = deferredOpportunities[i];
+        for (let i = 0; i < opportunities.length; i++) {
+            const opp = opportunities[i];
 
             // 1. Deduplicate
             if (seen.has(opp.id)) continue;
@@ -1013,18 +1007,16 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) continue;
             if (detailedStatusFilters.length > 0 && (!opp.detailedStatus || !detailedStatusFilters.includes(opp.detailedStatus))) continue;
 
-            // 6. Multi-term Search (Optimized)
+            // 6. Multi-term Search (Ultra Optimized v5000)
             if (booleanMatcher) {
-                const lText = (opp.labels || []).map(l => l.text).join(' ');
-                const vText = (opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ');
-                const searchable = `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${vText} ${opp.alias || ''} ${lText}`.toLowerCase();
+                const searchable = (opp as any)._searchIndex || '';
                 if (!booleanMatcher(searchable)) continue;
             }
 
             results.push(opp);
         }
         return results;
-    }, [deferredOpportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters]);
+    }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {

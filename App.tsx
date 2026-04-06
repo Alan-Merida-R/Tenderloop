@@ -6,7 +6,7 @@ import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb,
 import Dashboard from './components/Dashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
-import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus } from 'lucide-react';
+import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
 import { StickyNotesWidget } from './components/StickyNotesWidget';
@@ -224,15 +224,12 @@ function App() {
       }
     }, 2000); // 2s debounce for cross-tab sync
 
-    // CRITICAL: Under high load (32k tasks/75MB DB), we must throttle disk saves. 
-    // However, 15s was too long and causing data loss.
-    // We now use a tiered approach: 
-    // - UI Status Changes: Save faster (3s)
-    // - Background/Broadcasting: Save slower (8s)
-    const isUrgent = status !== 'saving' && status !== 'loading'; 
-    const delay = isUrgent ? 3000 : 8000; 
+    // CRITICAL PERFORMANCE: Tiered Autosave
+    // With 50MB+ databases, structured cloning to the worker blocks the main thread.
+    // 10s gives enough breathing room for typing/photos without frequent disk UI locks.
+    const delay = 10000; 
 
-    console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms. (Urgent: ${isUrgent})`);
+    console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms.`);
 
     // @ts-ignore
     saveTimeoutRef.current = window.setTimeout(async () => {
@@ -1187,7 +1184,9 @@ function App() {
         ...opp,
         notes: (opp.notes || []).map(n => ({ ...n, content: '' })), // Content metadata only
         versions: [], // Strip heavy snapshots
-        _originalRef: opp // Tag for cache-busting
+        _originalRef: opp, // Tag for cache-busting
+        // PRE-CALCULATE Search Index: This prevents millions of string concatenations in Dashboard/v5000 filter.
+        _searchIndex: `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${(opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ')} ${opp.alias || ''} ${(opp.labels || []).map(l => l.text).join(' ')}`.toLowerCase()
       };
       lightCacheRef.current.set(opp.id, light);
       return light;
@@ -1239,6 +1238,14 @@ function App() {
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <CheckSquare className="w-4 h-4" /> Tasks
+              </button>
+              <div className="w-px h-4 bg-gray-200 mx-1 self-center"></div>
+              <button
+                onClick={() => window.open(`${window.location.origin}/index_flow.html`, '_blank')}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-bold rounded-md transition-all text-blue-600 hover:bg-blue-50 border border-blue-100"
+                title="Open executive questions and decision map"
+              >
+                <ExternalLink className="w-4 h-4" /> Executive Flow
               </button>
             </div>
           </div>

@@ -1,0 +1,262 @@
+/**
+ * Tender Executive Flow - Design System (Executive UX)
+ * Estética corporativa de alto nivel, legible y sobria.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Color Palette - Executive Pro Dark (Match Reference) */
+  --te-primary-900: #0b0e14; /* Background black */
+  --te-primary-800: #161b22; /* Card background */
+  --te-primary-700: #21262d; /* Border/Focus */
+  
+  --te-accent-500: #3b82f6; /* Blue Action */
+  --te-accent-600: #2563eb;
+  
+  --te-emerald-500: #10b981; /* Success / Answered */
+  --te-amber-500: #f59e0b;   /* Pending / Attention */
+  --te-rose-500: #e11d48;    /* Blocker / High Risk */
+  --te-indigo-500: #6366f1;  /* Branch / Decision */
+  
+  --te-bg-app: #0b0e14;
+  --te-bg-card: #161b22;
+  --te-border: rgba(255, 255, 255, 0.1);
+  --te-text-main: #f0f6fc;
+  --te-text-muted: #8b949e;
+  
+  /* Typography */
+  --te-font-display: 'Outfit', sans-serif;
+  --te-font-body: 'Inter', sans-serif;
+  
+  /* Spacing */
+  --te-radius-sm: 6px;
+  --te-radius-md: 10px;
+  --te-radius-lg: 14px;
+}
+
+.light-mode {
+  --te-bg-app: #f8fafc;
+  --te-bg-card: #ffffff;
+  --te-bg-card-alt: #f1f5f9;
+  --te-border: #e2e8f0;
+  --te-text-main: #1e293b;
+  --te-text-muted: #64748b;
+  --te-accent-500: #2563eb;
+  --te-primary-900: #0f172a;
+  --te-primary-800: #334155;
+  --te-primary-700: #e2e8f0;
+  --te-shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.light-mode .te-sidebar {
+  background: #ffffff !important;
+  color: #1a365d !important;
+  border-right: 1px solid #e2e8f0 !important;
+}
+
+.light-mode .te-sidebar-item {
+  color: #4a5568 !important;
+}
+
+.light-mode .te-sidebar-item:hover {
+  background: #f1f5f9 !important;
+}
+
+.light-mode .te-sidebar-item.active {
+  background: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.light-mode input, .light-mode select, .light-mode textarea {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+.light-mode h2, .light-mode h1, .light-mode h3, .light-mode h4 {
+  color: #0f172a !important;
+}
+
+.te-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  transition: all 0.3s ease;
+}
+
+.light-mode .te-modal-backdrop {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--te-font-body);
+  background-color: var(--te-bg-app);
+  color: var(--te-text-main);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Titles */
+h1, h2, h3 {
+  font-family: var(--te-font-display);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* Executive Card Style */
+.te-card {
+  background: var(--te-bg-card);
+  border: 1px solid var(--te-border);
+  border-radius: var(--te-radius-lg);
+  box-shadow: var(--te-shadow-sm);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.te-card:hover {
+  box-shadow: var(--te-shadow-md);
+  border-color: var(--te-accent-500);
+}
+
+/* Buttons */
+.te-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  border-radius: var(--te-radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+}
+
+.te-btn-primary {
+  background-color: var(--te-primary-900);
+  color: white;
+}
+
+.te-btn-primary:hover {
+  background-color: var(--te-primary-800);
+  transform: translateY(-1px);
+}
+
+.te-btn-outline {
+  background-color: transparent;
+  border: 1px solid var(--te-border);
+  color: var(--te-text-main);
+}
+
+.te-btn-outline:hover {
+  background-color: var(--te-bg-app);
+  border-color: var(--te-primary-700);
+}
+
+/* Status Badges */
+.te-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-answered { background: #d1fae5; color: #065f46; }
+.status-pending { background: #fef3c7; color: #92400e; }
+.status-blocked { background: #fee2e2; color: #991b1b; }
+.status-optional { background: #f1f5f9; color: #475569; }
+
+/* Transitions */
+.fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Layout Utilities */
+.executive-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.grid-flow {
+  display: grid;
+  gap: 1.5rem;
+}
+.hover-bright:hover {
+  background: var(--te-primary-700) !important;
+  opacity: 0.9;
+  cursor: pointer;
+}
+
+.te-flowchart-view::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.te-flowchart-view::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 10px;
+}
+
+.te-flowchart-view::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Glassmorphism utility */
+.te-glass {
+  background: var(--te-bg-card);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--te-border);
+}
+
+.light-mode .te-glass {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Force Dark Context */
+.te-force-dark {
+  --te-bg-app: #0b0e14 !important;
+  --te-bg-card: #161b22 !important;
+  --te-bg-card-alt: #1a1f26 !important;
+  --te-border: rgba(255, 255, 255, 0.1) !important;
+  --te-text-main: #f0f6fc !important;
+  --te-text-muted: #8b949e !important;
+  --te-primary-700: #21262d !important;
+  --te-primary-800: #161b22 !important;
+  --te-primary-900: #0b0e14 !important;
+}
+
+.te-force-dark h1, .te-force-dark h2, .te-force-dark h3, .te-force-dark h4, .te-force-dark p, .te-force-dark label, .te-force-dark span:not(.te-badge) {
+  color: #f0f6fc !important;
+}
+
+.te-force-dark .te-card, .te-force-dark aside {
+  background: #161b22 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.te-force-dark input, .te-force-dark select, .te-force-dark textarea {
+  background: #21262d !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f0f6fc !important;
+}

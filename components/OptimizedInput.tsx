@@ -12,14 +12,15 @@ interface OptimizedInputProps {
     autoComplete?: string;
     id?: string;
     onKeyDown?: (e: React.KeyboardEvent) => void;
+    disabled?: boolean;
 }
 
-export const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus, autoComplete, id, onKeyDown }: OptimizedInputProps) => {
+export const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus, autoComplete, id, onKeyDown, disabled }: OptimizedInputProps) => {
     const [localVal, setLocalVal] = useState(value || '');
     useEffect(() => { setLocalVal(value || ''); }, [value]);
 
     const handleSync = () => {
-        if (localVal !== value) {
+        if (!disabled && localVal !== value) {
             if (type === 'number') {
                 onChange(parseFloat(localVal as string) || 0);
             } else {
@@ -35,6 +36,7 @@ export const OptimizedInput = React.memo(({ value, onChange, className, placehol
             step={step}
             value={localVal}
             autoComplete={autoComplete}
+            disabled={disabled}
             onChange={(e) => setLocalVal(e.target.value)}
             onBlur={handleSync}
             onKeyDown={(e) => { 
@@ -52,20 +54,22 @@ export const OptimizedInput = React.memo(({ value, onChange, className, placehol
     );
 });
 
-export const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder }: any) => {
+export const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder, disabled }: any) => {
     const [localVal, setLocalVal] = useState(value || '');
     useEffect(() => { setLocalVal(value || ''); }, [value]);
 
     return (
         <textarea 
             value={localVal}
+            disabled={disabled}
             onChange={(e) => setLocalVal(e.target.value)}
-            onBlur={() => { if (localVal !== value) onChange(localVal); }}
+            onBlur={() => { if (!disabled && localVal !== value) onChange(localVal); }}
             className={className}
             placeholder={placeholder}
         />
     );
 });
+
 
 export const DebouncedInput = React.memo(({ value, onChange, className, placeholder, autoFocus, type = "text" }: any) => {
     const [localVal, setLocalVal] = useState(value || '');
