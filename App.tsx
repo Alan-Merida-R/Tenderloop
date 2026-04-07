@@ -581,9 +581,9 @@ function App() {
               ? o.links
               : {
                 ...o.links,
-                ba: (o.links as any).ba || '',
-                srLink: (o.links as any).srLink || '',
-                geet: (o.links as any).geet || ''
+                ba: (o.links as any)?.ba || '',
+                srLink: (o.links as any)?.srLink || '',
+                geet: (o.links as any)?.geet || ''
               },
             commercial: newCommercial as any,
             kpis: kpis,
