@@ -79,7 +79,7 @@ export interface ItemResponse {
 }
 
 /**
- * El contenedor principal de una oportunidad en Executive Flow
+ * The principal container for an opportunity in the Executive Flow strategic layer.
  */
 export interface ExecutiveFlowCase {
   id: string;                 
@@ -143,6 +143,9 @@ export interface WorkspaceSettings {
   defaultFilters?: ExecutiveFlowCase['activeFilters'];
 }
 
+/**
+ * Represents a complete Tender Flow workspace, including the standard logic backbone and all specific cases.
+ */
 export interface TenderFlowWorkspace {
   metadata: WorkspaceMetadata;
   settings: WorkspaceSettings;

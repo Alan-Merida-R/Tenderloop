@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import Dashboard from './components/Dashboard';
@@ -61,6 +61,10 @@ class LocalErrorBoundary extends React.Component {
   }
 }
 
+/**
+ * Main Application component for TenderLoop.
+ * Manages global state, database migrations, autosave, and cross-tab synchronization.
+ */
 function App() {
   const [db, setDb] = useState<DatabaseSchema>(INITIAL_DB);
   const [fileHandle, setFileHandle] = useState<FileSystemFileHandle | null>(null);
@@ -491,52 +495,47 @@ function App() {
             newStatus = oldStatus as OpportunityStatus;
           }
 
-          // Commercial Migration (Merging HW/SW)
-          let newCommercial = {
-            currency: 'USD',
-            swHw: emptyRow, services: emptyRow, resale: emptyRow,
-            risk: 0, contingency: 0,
-            escalations: { swHw: 0, services: 0, resale: 0 },
-            agreementsLink: '', cfLink: '',
-            discountsAndNotes: '', cqaOfficialSellPrice: 0, cqaOfficialMargin: 0
-          };
-
+          // Commercial Migration: Map legacy fields to customSections
+          let customSections: any[] = [];
           if (o.commercial) {
             const oldComm = o.commercial as any;
-            if (oldComm.hardware && oldComm.software) {
-              newCommercial.swHw = {
-                cost: oldComm.hardware.cost + oldComm.software.cost,
-                sellPrice: oldComm.hardware.sellPrice + oldComm.software.sellPrice,
-                finalPrice: oldComm.hardware.finalPrice + oldComm.software.finalPrice,
-                margin: 0,
-                discount: 0
-              };
-              if (newCommercial.swHw.sellPrice > 0) {
-                newCommercial.swHw.margin = Number(((1 - (newCommercial.swHw.cost / newCommercial.swHw.sellPrice)) * 100).toFixed(2));
-              }
-            } else if (oldComm.swHw) {
-              newCommercial.swHw = oldComm.swHw;
-            }
-
-            newCommercial.services = oldComm.services || emptyRow;
-            newCommercial.resale = oldComm.resale || emptyRow;
-            newCommercial.risk = oldComm.risk || 0;
-            newCommercial.contingency = oldComm.contingency || 0;
-            newCommercial.discountsAndNotes = oldComm.discountsAndNotes || '';
-            newCommercial.cqaOfficialSellPrice = oldComm.cqaOfficialSellPrice || 0;
-            newCommercial.cqaOfficialMargin = oldComm.cqaOfficialMargin || 0;
-
-            if (typeof oldComm.escalationPerYear === 'number') {
-              newCommercial.escalations = { swHw: oldComm.escalationPerYear, services: oldComm.escalationPerYear, resale: oldComm.escalationPerYear };
+            if (oldComm.customSections) {
+              customSections = oldComm.customSections;
             } else {
-              newCommercial.escalations = oldComm.escalations || { swHw: 0, services: 0, resale: 0 };
-            }
+              // Convert legacy rows
+              if (oldComm.hardware || oldComm.software) {
+                const hw = oldComm.hardware || { cost: 0, margin: 0, sellPrice: 0, discount: 0 };
+                const sw = oldComm.software || { cost: 0, margin: 0, sellPrice: 0, discount: 0 };
+                customSections.push({
+                  id: 'legacy-swhw',
+                  name: 'Software & Hardware',
+                  cost: (hw.cost || 0) + (sw.cost || 0),
+                  margin: hw.margin || sw.margin || 0,
+                  sellPrice: (hw.sellPrice || 0) + (sw.sellPrice || 0),
+                  discount: hw.discount || sw.discount || 0
+                });
+              } else if (oldComm.swHw) {
+                customSections.push({ id: 'legacy-swhw-merged', name: 'Software & Hardware', ...oldComm.swHw });
+              }
 
-            newCommercial.agreementsLink = oldComm.agreementsLink || '';
-            newCommercial.cfLink = oldComm.cfLink || '';
-            // @ts-ignore
-            newCommercial.currency = oldComm.currency || 'USD';
+              if (oldComm.services && (oldComm.services.cost > 0 || oldComm.services.sellPrice > 0)) {
+                customSections.push({ id: 'legacy-services', name: 'Services', ...oldComm.services });
+              }
+              if (oldComm.resale && (oldComm.resale.cost > 0 || oldComm.resale.sellPrice > 0)) {
+                customSections.push({ id: 'legacy-resale', name: 'Resale / 3rd Party', ...oldComm.resale });
+              }
+            }
           }
+
+          const newCommercial: Commercial = {
+            currency: (o.commercial as any)?.currency || 'USD',
+            customSections: customSections,
+            agreementsLink: (o.commercial as any)?.agreementsLink || '',
+            cfLink: (o.commercial as any)?.cfLink || '',
+            discountsAndNotes: (o.commercial as any)?.discountsAndNotes || '',
+            cqaOfficialSellPrice: (o.commercial as any)?.cqaOfficialSellPrice || 0,
+            cqaOfficialMargin: (o.commercial as any)?.cqaOfficialMargin || 0
+          };
 
           // KPI Initialization
           const kpis: KPIs = o.kpis || {
@@ -889,12 +888,7 @@ function App() {
       labels: [],
       commercial: {
         currency: 'USD',
-        swHw: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-        services: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-        resale: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-        risk: 0,
-        contingency: 0,
-        escalations: { swHw: 0, services: 0, resale: 0 },
+        customSections: [],
         agreementsLink: '',
         cfLink: '',
         discountsAndNotes: '',
@@ -1187,7 +1181,12 @@ function App() {
         versions: [], // Strip heavy snapshots
         _originalRef: opp, // Tag for cache-busting
         // PRE-CALCULATE Search Index: This prevents millions of string concatenations in Dashboard/v5000 filter.
-        _searchIndex: `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.srId || ''} ${(opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ')} ${opp.alias || ''} ${(opp.labels || []).map(l => l.text).join(' ')}`.toLowerCase()
+        _searchIndex: (
+          `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.quoteType || ''} ` +
+          `${opp.srId || ''} ${(opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ')} ` +
+          `${opp.alias || ''} ${(opp.labels || []).map(l => l.text).join(' ')} ` +
+          `${(opp.commercial.customSections || []).map(sec => sec.name).join(' ')}`
+        ).toLowerCase()
       };
       lightCacheRef.current.set(opp.id, light);
       return light;

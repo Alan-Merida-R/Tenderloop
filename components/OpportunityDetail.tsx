@@ -2332,6 +2332,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         alert("Task summary with links copied to clipboard!");
     };
 
+    /**
+     * Generates and downloads a comprehensive PDF documentation of the opportunity.
+     * Includes overview, commercial summary, tasks, Q&A, history, and meeting notes.
+     */
     const handleExportPDF = async () => {
         const doc = new jsPDF();
         const s = localOpp;

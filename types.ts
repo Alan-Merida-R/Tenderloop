@@ -51,10 +51,15 @@ export interface Escalations {
   resale: number;
 }
 
+/**
+ * Commercial data for an opportunity, including dynamic cost/sell sections.
+ */
 export interface Commercial {
   currency: 'USD' | 'MXN' | 'EUR';
 
-  // Dynamic Sections
+  /**
+   * Dynamic list of commercial items (Software, Services, etc.) defined by the user.
+   */
   customSections?: { id: string; name: string; cost: number; margin: number; sellPrice: number; discount: number }[];
 
   // Links (Kept)
@@ -63,8 +68,13 @@ export interface Commercial {
 
   discountsAndNotes: string;
 
-  // Official CQA Reference Values
+  /**
+   * Manual override for the total sell price used in KPI calculations.
+   */
   cqaOfficialSellPrice: number;
+  /**
+   * Manual override for the total margin used in KPI calculations.
+   */
   cqaOfficialMargin: number;
 }
 
@@ -232,6 +242,9 @@ export interface OpportunityLabel {
   color: string;
 }
 
+/**
+ * The core entity representing a project or proposal.
+ */
 export interface Opportunity {
   id: string;
   title: string;
@@ -242,10 +255,19 @@ export interface Opportunity {
   statusLabel: OpportunityStatus;
   detailedStatus?: DetailedStatus;
 
+  /**
+   * Project timeline dates (Requested, Expected, Assigned).
+   */
   dates: OpportunityDates;
   priority: 'High' | 'Medium' | 'Low';
   priorityOrder: number | null; // 1-N rank
-  alias?: string; // Quick identification nickname (1-2 words)
+  /**
+   * A short nickname for quick reference.
+   */
+  alias?: string; 
+  /**
+   * Indicates if the proposal is final (Firm) or a high-level estimate (Budgetary).
+   */
   quoteType?: 'Firm' | 'Budgetary';
 
   // Details
@@ -256,7 +278,7 @@ export interface Opportunity {
   // Lists
   notes: MeetingNote[];
   tasks: Task[];
-  questions: Question[]; // New module
+  questions: Question[]; 
   history: HistoryEntry[];
   presentation: PrdPresentation;
   tags: string[]; // Keep for legacy
@@ -266,10 +288,11 @@ export interface Opportunity {
   srId?: string; // Support Request ID (Logical Branch)
   versions?: OpportunityVersion[];
 
-  // Analytics
+  /**
+   * Calculated or raw KPI measurements for performance tracking.
+   */
   kpis: KPIs;
 
-  // Folder Manager Link
   folderLinked?: boolean;
 
   // Deprecated 
