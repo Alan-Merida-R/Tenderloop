@@ -962,9 +962,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     };
 
     const getSellPrice = (opp: Opportunity) => {
-        if (!opp.commercial) return opp.amount || 0;
+        if (!opp.commercial) return opp.kpis?.proposalAmountUSD || 0;
         if ((opp.commercial.cqaOfficialSellPrice || 0) > 0) return opp.commercial.cqaOfficialSellPrice;
-        return (opp.commercial.swHw?.sellPrice || 0) + (opp.commercial.services?.sellPrice || 0) + (opp.commercial.resale?.sellPrice || 0);
+        
+        const sections = opp.commercial.customSections || [];
+        if (sections.length > 0) {
+            return sections.reduce((acc, sec) => acc + (sec.sellPrice || 0), 0);
+        }
+        
+        // Fallback for legacy data
+        const legacy = opp.commercial as any;
+        return (legacy.swHw?.sellPrice || 0) + (legacy.services?.sellPrice || 0) + (legacy.resale?.sellPrice || 0);
     };
 
     // NOTE: deferredOpportunities is already deferred above (line 659).

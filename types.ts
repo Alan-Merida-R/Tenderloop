@@ -54,21 +54,14 @@ export interface Escalations {
 export interface Commercial {
   currency: 'USD' | 'MXN' | 'EUR';
 
-  // Table Rows (Updated: SW/HW merged)
-  swHw: CommercialRow; // Merged
-  services: CommercialRow;
-  resale: CommercialRow;
+  // Dynamic Sections
+  customSections?: { id: string; name: string; cost: number; margin: number; sellPrice: number; discount: number }[];
 
-  // Global Fields
-  risk: number;
-  contingency: number;
-  escalations: Escalations; // Split escalations
+  // Links (Kept)
+  agreementsLink: string;
+  cfLink: string;
 
-  // Links
-  agreementsLink: string; // Acuerdos Comerciales
-  cfLink: string; // Customer First
-
-  discountsAndNotes: string; // Kept for notes
+  discountsAndNotes: string;
 
   // Official CQA Reference Values
   cqaOfficialSellPrice: number;
@@ -253,6 +246,7 @@ export interface Opportunity {
   priority: 'High' | 'Medium' | 'Low';
   priorityOrder: number | null; // 1-N rank
   alias?: string; // Quick identification nickname (1-2 words)
+  quoteType?: 'Firm' | 'Budgetary';
 
   // Details
   description: string;

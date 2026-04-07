@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -1304,12 +1304,7 @@ const incrementRevision = (rev: string): string => {
 
 const resetCommercialData = (): Commercial => ({
     currency: 'USD',
-    swHw: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-    services: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-    resale: { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 },
-    risk: 0,
-    contingency: 0,
-    escalations: { swHw: 0, services: 0, resale: 0 },
+    customSections: [],
     agreementsLink: '',
     cfLink: '',
     discountsAndNotes: '',
@@ -1375,7 +1370,7 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
 
 const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
     const { getTimerState, confirmStop } = useTimerActions();
-    const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'presentation' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
     const [isDeferring, setIsDeferring] = useState(false);
 
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
@@ -1386,6 +1381,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
     const isSnapshot = !!viewingVersionId;
     const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+    const [showAddSectionModal, setShowAddSectionModal] = useState(false);
+    const [newSectionName, setNewSectionName] = useState('');
 
     const updateTimeoutRef = useRef<number | null>(null);
     const pendingUpdateRef = useRef<{ opp: Opportunity, id?: string } | null>(null);
@@ -1777,35 +1774,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     });
 
     const displayValue = (val: number) => val === 0 ? '' : val;
-    const updateCommercialRow = (rowKey: 'swHw' | 'services' | 'resale', field: keyof CommercialRow, value: number) => {
-        const currentRow = localOpp.commercial[rowKey];
-        let newRow = { ...currentRow, [field]: value };
-        if (field === 'cost' || field === 'margin') {
-            if (newRow.margin < 100) newRow.sellPrice = Number((newRow.cost / (1 - (newRow.margin / 100))).toFixed(2));
-        }
-        if (field === 'sellPrice') {
-            if (newRow.sellPrice !== 0) newRow.margin = Number(((1 - (newRow.cost / newRow.sellPrice)) * 100).toFixed(2));
-            else newRow.margin = 0;
-        }
-        newRow.finalPrice = Number((newRow.sellPrice * (1 - (newRow.discount / 100))).toFixed(2));
-        const updated = { ...localOpp, commercial: { ...localOpp.commercial, [rowKey]: newRow }, lastUpdated: new Date().toISOString() };
-        setLocalOpp(updated);
-        
-        // Debounce update to parent
-        if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
-        saveToParentTimeoutRef.current = window.setTimeout(() => {
-            onUpdate(updated, opportunity.id);
-        }, 2000);
-    };
     const commercialTotals = useMemo(() => {
-        const t = ['swHw', 'services', 'resale'].reduce((acc, key) => {
-            const row = localOpp.commercial[key as 'swHw'];
-            acc.cost += row.cost; acc.sellPrice += row.sellPrice; acc.finalPrice += row.finalPrice;
+        const sections = localOpp.commercial.customSections || [];
+        const t = sections.reduce((acc, sec) => {
+            const sp = sec.sellPrice || 0;
+            const ds = sec.discount || 0;
+            const netPrice = sp * (1 - (ds / 100));
+            const cost = netPrice * (1 - ((sec.margin || 0) / 100));
+            
+            acc.cost += cost;
+            acc.sellPrice += sp;
+            acc.finalPrice += netPrice;
             return acc;
         }, { cost: 0, sellPrice: 0, finalPrice: 0 });
-        const margin = t.sellPrice ? ((1 - (t.cost / t.sellPrice)) * 100).toFixed(1) : '0';
+        
+        const margin = t.finalPrice ? ((1 - (t.cost / t.finalPrice)) * 100).toFixed(1) : '0';
         return { ...t, margin };
-    }, [localOpp.commercial]);
+    }, [localOpp.commercial.customSections]);
 
     const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
     const totalMargin = commercialTotals.margin;
@@ -2433,11 +2418,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             autoTable(doc, {
                 startY: yPos,
                 head: [['Item', 'Cost', 'Margin %', 'Sell Price', 'Discount %', 'Final Price']],
-                body: [
-                    ['Hardware/Software', s.commercial.swHw.cost, s.commercial.swHw.margin, s.commercial.swHw.sellPrice, s.commercial.swHw.discount, s.commercial.swHw.finalPrice],
-                    ['Services', s.commercial.services.cost, s.commercial.services.margin, s.commercial.services.sellPrice, s.commercial.services.discount, s.commercial.services.finalPrice],
-                    ['Resale', s.commercial.resale.cost, s.commercial.resale.margin, s.commercial.resale.sellPrice, s.commercial.resale.discount, s.commercial.resale.finalPrice]
-                ],
+                body: (s.commercial.customSections || []).map(sec => {
+                    const sp = sec.sellPrice || 0;
+                    const ds = sec.discount || 0;
+                    const net = sp * (1 - (ds / 100));
+                    const cost = net * (1 - ((sec.margin || 0) / 100));
+                    return [
+                        sec.name,
+                        cost.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                        `${sec.margin}%`,
+                        sp.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                        `${sec.discount}%`,
+                        net.toLocaleString(undefined, { minimumFractionDigits: 2 })
+                    ];
+                }),
                 theme: 'grid',
                 headStyles: { fillColor: [61, 205, 88] }
             });
@@ -3445,7 +3439,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         ) : null;
                                     })()}
 
-                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                                        {localOpp.quoteType && (
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${
+                                                localOpp.quoteType === 'Firm' 
+                                                ? 'bg-[#3DCD58] text-white' 
+                                                : 'bg-white text-gray-700 border border-gray-200'
+                                            }`}>
+                                                {localOpp.quoteType} Proposal
+                                            </span>
+                                        )}
+                                        {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-2 mt-2">
                                         {(localOpp.labels || []).map(l => (
                                             <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
                                                 {l.text}
@@ -3521,7 +3528,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         <div className="w-full px-4 flex">
                             <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
                             <button onClick={() => setActiveTab('kpi')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
-                            <button onClick={() => setActiveTab('presentation')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'presentation' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Presentation className="w-4 h-4" /> Presentation</button>
                             <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
                             <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
                             <button onClick={() => setActiveTab('commercial')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
@@ -3847,26 +3853,43 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         className="w-full text-sm border-gray-200 rounded-lg min-h-[150px]"
                                         placeholder="Detailed description..."
                                     />
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">Requested</label>
+                                    <div className="grid grid-cols-2 gap-4 items-end">
+                                        <div className="space-y-1">
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Requested Date</label>
                                             <input
                                                 disabled={isSnapshot}
                                                 type="date"
                                                 value={localOpp.dates.requested}
                                                 onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })}
-                                                className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50"
+                                                className="w-full text-sm border-gray-200 rounded-xl bg-gray-50/30 focus:ring-[#3DCD58] focus:border-[#3DCD58] transition-all"
                                             />
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase">Expected</label>
+                                        <div className="space-y-1 relative">
+                                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Expected Date</label>
                                             <input
                                                 disabled={isSnapshot}
                                                 type="date"
                                                 value={localOpp.dates.expected}
                                                 onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })}
-                                                className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50"
+                                                className={`w-full text-sm rounded-xl focus:ring-[#3DCD58] focus:border-[#3DCD58] transition-all ${
+                                                    localOpp.dates.expected < new Date().toISOString().split('T')[0] && localOpp.statusLabel === 'In Progress'
+                                                    ? 'bg-red-50 border-red-200 text-red-900 font-bold'
+                                                    : 'bg-gray-50/30 border-gray-200 text-gray-900'
+                                                }`}
                                             />
+                                            {localOpp.dates.requested && localOpp.dates.expected && (() => {
+                                                const diff = countBusinessDays(localOpp.dates.requested, localOpp.dates.expected);
+                                                if (diff === 0) return null;
+                                                return (
+                                                    <div className="absolute -top-6 right-0">
+                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border shadow-sm ${
+                                                            diff < 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'
+                                                        }`}>
+                                                            {Math.abs(diff)} Work Days {diff < 0 ? 'Over' : 'Duration'}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-100">
@@ -3892,6 +3915,35 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 placeholder="e.g. Project X"
                                                 maxLength={20}
                                             />
+                                        </div>
+                                    </div>
+                                    <div className="pt-4 border-t border-gray-100">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1 mb-2">Proposal Nature: Budgetary / Firm</label>
+                                        <div className="flex gap-2 p-1.5 bg-gray-50 rounded-2xl border border-gray-100 shadow-inner">
+                                            <button
+                                                type="button"
+                                                disabled={isSnapshot}
+                                                onClick={() => handleFieldChange('quoteType', 'Budgetary')}
+                                                className={`flex-1 py-3 px-4 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 ${
+                                                    localOpp.quoteType === 'Budgetary' 
+                                                    ? 'bg-white text-gray-900 shadow-xl shadow-black/5 border border-gray-100 scale-[1.02]' 
+                                                    : 'text-gray-400 hover:bg-gray-200/50 hover:text-gray-600'
+                                                }`}
+                                            >
+                                                Budgetary
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={isSnapshot}
+                                                onClick={() => handleFieldChange('quoteType', 'Firm')}
+                                                className={`flex-1 py-3 px-4 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 ${
+                                                    localOpp.quoteType === 'Firm' 
+                                                    ? 'bg-[#3DCD58] text-white shadow-xl shadow-[#3DCD58]/30 scale-[1.02]' 
+                                                    : 'text-gray-400 hover:bg-gray-200/50 hover:text-gray-600'
+                                                }`}
+                                            >
+                                                Firm
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -4086,56 +4138,49 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         {activeTab === 'kpi' && localOpp.kpis && (
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Performance Ratings */}
+                                    {/* Opportunity Metrics */}
                                     <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                                        <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
-                                            <Target className="w-5 h-5 text-[#3DCD58]" />
-                                            <h3 className="font-bold text-gray-800">Performance Ratings</h3>
+                                        <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                            <div className="flex items-center gap-2">
+                                                <Target className="w-5 h-5 text-[#3DCD58]" />
+                                                <h3 className="font-bold text-gray-800">Opportunity Metrics</h3>
+                                            </div>
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 italic">Today: <span className="text-[#3DCD58]">{new Date().toLocaleDateString()}</span></span>
                                         </div>
 
-                                        <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                                    <span>Language Skill</span>
-                                                    <span>{localOpp.kpis.languageSkill || 0}%</span>
-                                                </div>
-                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.languageSkill || 0} onChange={(e) => updateKpiField('languageSkill', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Requested Date</label>
+                                                <input
+                                                    disabled={isSnapshot}
+                                                    type="date"
+                                                    value={localOpp.dates.requested}
+                                                    onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, requested: e.target.value })}
+                                                    className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50 bg-gray-50/10 font-bold"
+                                                />
                                             </div>
-                                            <div>
-                                                <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                                    <span>Technical Understanding</span>
-                                                    <span>{localOpp.kpis.technicalUnderstanding || 0}%</span>
-                                                </div>
-                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.technicalUnderstanding || 0} onChange={(e) => updateKpiField('technicalUnderstanding', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
-                                            </div>
-                                            <div>
-                                                <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1">
-                                                    <span>Deal Probability</span>
-                                                    <span>{localOpp.kpis.dealProbability || 0}%</span>
-                                                </div>
-                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.dealProbability || 0} onChange={(e) => updateKpiField('dealProbability', parseInt(e.target.value))} className="w-full accent-[#3DCD58] disabled:opacity-50" />
-                                            </div>
-                                            <div className="pt-2 border-t border-gray-50">
-                                                <div className="flex justify-between text-xs font-bold text-gray-500 uppercase mb-1 items-center">
-                                                    <div className="flex items-center gap-1.5" title="Represents the combined effort invested by me and all involved areas to make the proposal successful.">
-                                                        <span>Effort Contribution</span>
-                                                        <div className="w-3.5 h-3.5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] cursor-help border border-gray-200">?</div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {localOpp.kpis.effortContribution === null || localOpp.kpis.effortContribution === 0 ? (
-                                                            <button
-                                                                disabled={isSnapshot}
-                                                                onClick={() => updateKpiField('effortContribution', suggestedEffortScore)}
-                                                                className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100 hover:bg-blue-100 transition-colors disabled:opacity-50"
-                                                            >
-                                                                Suggest: {suggestedEffortScore}%
-                                                            </button>
-                                                        ) : null}
-                                                        <span className="text-blue-600 font-black">{localOpp.kpis.effortContribution || 0}%</span>
-                                                    </div>
-                                                </div>
-                                                <input disabled={isSnapshot} type="range" min="0" max="100" value={localOpp.kpis.effortContribution || 0} onChange={(e) => updateKpiField('effortContribution', parseInt(e.target.value))} className="w-full accent-blue-500 disabled:opacity-50" />
-                                                <p className="text-[9px] text-gray-400 italic mt-1 leading-tight">Combined scoring based on My Work ({myWorkStats.days}d) and Team Work ({totalAreaDays}d).</p>
+                                            <div className="relative">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Expected Date</label>
+                                                <input
+                                                    disabled={isSnapshot}
+                                                    type="date"
+                                                    value={localOpp.dates.expected}
+                                                    onChange={(e) => handleFieldChange('dates', { ...localOpp.dates, expected: e.target.value })}
+                                                    className="w-full text-sm border-gray-200 rounded-lg disabled:bg-gray-50 bg-gray-50/10 font-bold"
+                                                />
+                                                {localOpp.dates.requested && localOpp.dates.expected && (() => {
+                                                    const diff = countBusinessDays(localOpp.dates.requested, localOpp.dates.expected);
+                                                    if (diff === 0) return null;
+                                                    return (
+                                                        <div className="absolute -top-7 right-0">
+                                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md border shadow-sm ${
+                                                                diff < 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-[#3DCD58]/10 text-[#3DCD58] border-[#3DCD58]/20'
+                                                            }`}>
+                                                                {Math.abs(diff)} Work Days {diff < 0 ? 'Over' : 'Duration'}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
 
@@ -4149,7 +4194,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Proposal Amount (USD)</label>
-                                                <input disabled={isSnapshot} type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm disabled:bg-gray-50" placeholder="0.00" />
+                                                <input disabled={isSnapshot} type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm disabled:bg-gray-50 font-black text-gray-700" placeholder="0.00" />
                                             </div>
                                         </div>
                                     </div>
@@ -4334,274 +4379,209 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             />
                         )}
 
-                        {activeTab === 'presentation' && (
-                            <div className="space-y-8 h-full flex flex-col">
-                                {/* Section 1: Core Presentation Fields */}
-                                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-gray-500 uppercase">Executive Summary</label>
-                                        <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.executiveSummary} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, executiveSummary: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" placeholder="Summarize for leadership..." />
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Issues / Blockers</label>
-                                            <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.issues} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, issues: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-gray-500 uppercase">Key Requirements</label>
-                                            <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.requirements} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, requirements: val })} className="w-full border-gray-200 rounded-lg h-32 text-sm" />
-                                        </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-gray-500 uppercase">KPIs / Success Criteria</label>
-                                        <OptimizedTextArea disabled={isSnapshot} value={localOpp.presentation.kpis} onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, kpis: val })} className="w-full border-gray-200 rounded-lg h-20 text-sm" />
-                                    </div>
-                                </div>
 
-                                {/* Section 2: Proposal Analysis Wizard (Separate Card) */}
-                                <div className="bg-gradient-to-br from-gray-50 to-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 p-4 opacity-5">
-                                        <Zap className="w-24 h-24 text-gray-900" />
-                                    </div>
-                                    <h3 className="text-sm font-black text-gray-800 uppercase tracking-wide flex items-center gap-2 relative z-10">
-                                        <Zap className="w-4 h-4 text-amber-500" /> Proposal Analysis Hub
-                                    </h3>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
-                                        {/* Column 1: Context */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center gap-2 text-[#3DCD58] font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
-                                                <span className="bg-[#3DCD58] text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">1</span> Context
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Trigger Event & Client Motivation</label>
-                                                <OptimizedTextArea
-                                                    disabled={isSnapshot}
-                                                    className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0"
-                                                    placeholder="Why are they buying now?"
-                                                    value={localOpp.presentation.proposalAnalysis?.trigger || ''}
-                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), trigger: val } })}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Missing Info / Questions</label>
-                                                <OptimizedTextArea
-                                                    disabled={isSnapshot}
-                                                    className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-[#3DCD58] focus:ring-0 bg-red-50/50"
-                                                    placeholder="What don't we know yet?"
-                                                    value={localOpp.presentation.proposalAnalysis?.missingInfo || ''}
-                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), missingInfo: val } })}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Column 2: Strategy */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center gap-2 text-blue-500 font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
-                                                <span className="bg-blue-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">2</span> Strategy
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Key Risks</label>
-                                                <OptimizedTextArea
-                                                    disabled={isSnapshot}
-                                                    className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
-                                                    value={localOpp.presentation.proposalAnalysis?.risks || ''}
-                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), risks: val } })}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Competition Analysis</label>
-                                                <OptimizedTextArea
-                                                    disabled={isSnapshot}
-                                                    className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-blue-500 focus:ring-0"
-                                                    placeholder="Who are we up against?"
-                                                    value={localOpp.presentation.proposalAnalysis?.competition || ''}
-                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), competition: val } })}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Column 3: Action */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center gap-2 text-purple-500 font-bold text-xs uppercase tracking-wider border-b border-gray-200 pb-1">
-                                                <span className="bg-purple-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">3</span> Execution
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Our Strategy / Next Steps</label>
-                                                <OptimizedTextArea
-                                                    disabled={isSnapshot}
-                                                    className="w-full border-gray-200 rounded-lg text-xs p-2 h-20 focus:border-purple-500 focus:ring-0"
-                                                    placeholder="How do we win?"
-                                                    value={localOpp.presentation.proposalAnalysis?.strategy || ''}
-                                                    onChange={(val: string) => handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...(localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} }), strategy: val } })}
-                                                />
-                                            </div>
-                                            <div className="bg-white rounded-lg border border-gray-100 p-3 shadow-inner">
-                                                <label className="text-[9px] font-bold text-gray-400 uppercase mb-2 block">Readiness Checklist</label>
-                                                <div className="space-y-2">
-                                                    {['Client Needs Understood', 'Scope Defined', 'Commercials Approved', 'Risks Mitigated'].map(item => (
-                                                        <label key={item} className="flex items-center gap-2 cursor-pointer group">
-                                                            <input
-                                                                disabled={isSnapshot}
-                                                                type="checkbox"
-                                                                className="rounded text-purple-500 focus:ring-purple-500 w-3 h-3"
-                                                                checked={localOpp.presentation.proposalAnalysis?.checklist?.[item] || false}
-                                                                onChange={(e) => {
-                                                                    const current = localOpp.presentation.proposalAnalysis || { trigger: '', missingInfo: '', risks: '', competition: '', strategy: '', checklist: {} };
-                                                                    const newChecklist = { ...current.checklist, [item]: e.target.checked };
-                                                                    handleFieldChange('presentation', { ...localOpp.presentation, proposalAnalysis: { ...current, checklist: newChecklist } });
-                                                                }}
-                                                            />
-                                                            <span className={`text-[10px] font-medium transition-colors ${localOpp.presentation.proposalAnalysis?.checklist?.[item] ? 'text-purple-700 line-through decoration-purple-300' : 'text-gray-600 group-hover:text-purple-600'}`}>{item}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         {activeTab === 'commercial' && (
                             <div className="space-y-6">
+                                {/* Historical Snapshots Summary */}
                                 {(localOpp.versions || []).length > 0 && (
-                                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in slide-in-from-top-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="bg-blue-100 p-2 rounded-lg"><HistoryIcon className="w-5 h-5 text-blue-600" /></div>
-                                            <div>
-                                                <h4 className="text-sm font-bold text-blue-900">Last Snapshot Summary</h4>
-                                                <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wider">Historical reference from {localOpp.versions[0].snapshot.revision || 'previous'}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-6">
-                                            <div className="text-right">
-                                                <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Sell</div>
-                                                <div className="text-sm font-black text-gray-700">${(localOpp.versions[0].snapshot.commercial?.cqaOfficialSellPrice || 0).toLocaleString()}</div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Margin</div>
-                                                <div className="text-sm font-black text-blue-700">{(localOpp.versions[0].snapshot.commercial?.cqaOfficialMargin || 0)}%</div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                                         <div className="flex items-center gap-3">
+                                             <div className="bg-blue-100 p-2 rounded-lg"><HistoryIcon className="w-5 h-5 text-blue-600" /></div>
+                                             <div>
+                                                 <h4 className="text-sm font-bold text-blue-900">Last Snapshot Summary</h4>
+                                                 <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wider">Revision: {localOpp.versions[0].snapshot.revision || 'previous'}</p>
+                                             </div>
+                                         </div>
+                                         <div className="flex gap-6">
+                                             <div className="text-right">
+                                                 <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Sell</div>
+                                                 <div className="text-sm font-black text-gray-700">${(localOpp.versions[0].snapshot.commercial?.cqaOfficialSellPrice || 0).toLocaleString()}</div>
+                                             </div>
+                                             <div className="text-right">
+                                                 <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Margin</div>
+                                                 <div className="text-sm font-black text-blue-700">{(localOpp.versions[0].snapshot.commercial?.cqaOfficialMargin || 0)}%</div>
+                                             </div>
+                                         </div>
+                                     </div>
                                 )}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    {['swHw', 'services', 'resale'].map((key) => {
-                                        const row = localOpp.commercial[key as 'swHw'];
-                                        const labels: Record<string, string> = { swHw: 'Software & Hardware', services: 'Services (Implementation, Support)', resale: 'Resale / 3rd Party' };
-                                        return (
-                                            <div key={key} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                                                <div className="flex items-center gap-3 mb-6">
-                                                    <div className="bg-gray-50 p-2 rounded-xl text-gray-400"><Database className="w-5 h-5" /></div>
-                                                    <h3 className="font-black text-gray-800 text-sm">{labels[key]}</h3>
-                                                </div>
-                                                <div className="space-y-4">
-                                                    <div>
-                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Estimated Cost (Net)</label>
-                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                                                            <DollarSign className="w-4 h-4 text-gray-300" />
-                                                            <OptimizedInput
-                                                                disabled={isSnapshot}
-                                                                type="number"
-                                                                className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-gray-700"
-                                                                value={row.cost}
-                                                                onChange={(val: string) => {
-                                                                    const num = parseFloat(val) || 0;
-                                                                    handleFieldChange('commercial', { ...localOpp.commercial, [key]: { ...row, cost: num, margin: row.margin, sellPrice: num / (1 - (row.margin / 100)) } });
-                                                                }}
-                                                            />
-                                                        </div>
+
+                                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                                    <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
+                                        <DollarSign className="w-5 h-5 text-emerald-500" /> Commercial Breakdown
+                                    </h3>
+                                    {!isSnapshot && (
+                                        <button 
+                                            onClick={() => setShowAddSectionModal(true)}
+                                            className="px-6 py-2.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-xl shadow-lg shadow-[#3DCD58]/20 hover:scale-[1.03] active:scale-95 transition-all flex items-center gap-2"
+                                        >
+                                            <Plus className="w-4 h-4" /> Add Section
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {(localOpp.commercial.customSections || []).map((sec) => (
+                                        <div key={sec.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative group hover:border-[#3DCD58] transition-all">
+                                            {!isSnapshot && (
+                                                <button 
+                                                    onClick={() => {
+                                                        if (window.confirm("Delete this section?")) {
+                                                            const newSections = (localOpp.commercial.customSections || []).filter(s => s.id !== sec.id);
+                                                            handleFieldChange('commercial', { ...localOpp.commercial, customSections: newSections });
+                                                        }
+                                                    }}
+                                                    className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                            <div className="flex items-center gap-3 mb-6 pr-8">
+                                                <div className="bg-emerald-50 p-2 rounded-xl text-emerald-500"><Database className="w-5 h-5" /></div>
+                                                <input 
+                                                    disabled={isSnapshot}
+                                                    className="font-black text-gray-800 text-sm bg-transparent border-none p-0 focus:ring-0 w-full" 
+                                                    value={sec.name} 
+                                                    onChange={(e) => {
+                                                        const newSections = (localOpp.commercial.customSections || []).map(s => s.id === sec.id ? { ...s, name: e.target.value } : s);
+                                                        handleFieldChange('commercial', { ...localOpp.commercial, customSections: newSections });
+                                                    }}
+                                                    placeholder="Section Name"
+                                                />
+                                            </div>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block pl-1">Sell Price (Monto)</label>
+                                                    <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100 focus-within:bg-white focus-within:border-[#3DCD58] transition-all">
+                                                        <DollarSign className="w-4 h-4 text-gray-300" />
+                                                        <input
+                                                            disabled={isSnapshot}
+                                                            type="number"
+                                                            className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-gray-700"
+                                                            value={sec.sellPrice || 0}
+                                                            onChange={(e) => {
+                                                                const val = parseFloat(e.target.value) || 0;
+                                                                const newSections = (localOpp.commercial.customSections || []).map(s => s.id === sec.id ? { ...s, sellPrice: val } : s);
+                                                                handleFieldChange('commercial', { ...localOpp.commercial, customSections: newSections });
+                                                            }}
+                                                        />
                                                     </div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
                                                     <div>
-                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Margin (%)</label>
-                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                                                            <Minus className="w-4 h-4 text-gray-300" />
-                                                            <OptimizedInput
+                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block pl-1">Margin (%)</label>
+                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100 focus-within:bg-white focus-within:border-blue-500 transition-all">
+                                                            <Percent className="w-3.5 h-3.5 text-gray-300" />
+                                                            <input
                                                                 disabled={isSnapshot}
                                                                 type="number"
                                                                 className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-blue-600"
-                                                                value={row.margin}
-                                                                onChange={(val: string) => {
-                                                                    const m = parseFloat(val) || 0;
-                                                                    handleFieldChange('commercial', { ...localOpp.commercial, [key]: { ...row, margin: m, sellPrice: row.cost / (1 - (m / 100)) } });
+                                                                value={sec.margin || 0}
+                                                                onChange={(e) => {
+                                                                    const val = parseFloat(e.target.value) || 0;
+                                                                    const newSections = (localOpp.commercial.customSections || []).map(s => s.id === sec.id ? { ...s, margin: val } : s);
+                                                                    handleFieldChange('commercial', { ...localOpp.commercial, customSections: newSections });
                                                                 }}
                                                             />
                                                         </div>
                                                     </div>
-                                                    <div className="pt-2 border-t border-gray-50">
-                                                        <div className="flex justify-between items-center bg-blue-50/50 p-2.5 rounded-xl">
-                                                            <span className="text-[10px] font-black text-blue-900 uppercase">Sell Price</span>
-                                                            <span className="text-sm font-black text-blue-700">${(row.sellPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block pl-1">Discount (%)</label>
+                                                        <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border border-gray-100 focus-within:bg-white focus-within:border-amber-500 transition-all">
+                                                            <Tag className="w-3.5 h-3.5 text-gray-300" />
+                                                            <input
+                                                                disabled={isSnapshot}
+                                                                type="number"
+                                                                className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-black text-amber-600"
+                                                                value={sec.discount || 0}
+                                                                onChange={(e) => {
+                                                                    const val = parseFloat(e.target.value) || 0;
+                                                                    const newSections = (localOpp.commercial.customSections || []).map(s => s.id === sec.id ? { ...s, discount: val } : s);
+                                                                    handleFieldChange('commercial', { ...localOpp.commercial, customSections: newSections });
+                                                                }}
+                                                            />
                                                         </div>
                                                     </div>
                                                 </div>
+                                                <div className="pt-2 border-t border-gray-50">
+                                                    <div className="flex justify-between items-center bg-emerald-50/50 p-3 rounded-xl">
+                                                        <span className="text-[10px] font-black text-emerald-900 uppercase tracking-tight">Net Section Total</span>
+                                                        <span className="text-sm font-black text-emerald-700">${((sec.sellPrice || 0) * (1 - (sec.discount || 0)/100)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        );
-                                    })}
+                                        </div>
+                                    ))}
+                                    {(localOpp.commercial.customSections || []).length === 0 && (
+                                        <div className="col-span-full py-20 border-2 border-dashed border-gray-200 rounded-[32px] flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 animate-pulse">
+                                            <div className="bg-white p-6 rounded-3xl shadow-sm mb-4"><DollarSign className="w-12 h-12 text-gray-200" /></div>
+                                            <p className="font-black text-gray-500 uppercase tracking-widest text-xs">Awaiting Commercial Data</p>
+                                            <p className="text-[10px] uppercase font-bold mt-1">Add a new section to begin calculation</p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Global Adjustments</h4>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Risk</label>
-                                                <OptimizedInput
-                                                    disabled={isSnapshot}
-                                                    type="number"
-                                                    value={displayValue(localOpp.commercial.risk)}
-                                                    onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, risk: val })}
-                                                    className="w-full border-gray-200 rounded text-sm mt-1"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Contingency</label>
-                                                <OptimizedInput
-                                                    disabled={isSnapshot}
-                                                    type="number"
-                                                    value={displayValue(localOpp.commercial.contingency)}
-                                                    onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, contingency: val })}
-                                                    className="w-full border-gray-200 rounded text-sm mt-1"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-400 uppercase">Notes / Discounts Logic</label>
-                                            <OptimizedTextArea
-                                                disabled={isSnapshot}
-                                                value={localOpp.commercial.discountsAndNotes}
-                                                onChange={(val: string) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: val })}
-                                                className="w-full border-gray-200 rounded text-sm mt-1 h-20"
-                                            />
-                                        </div>
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
+                                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-emerald-500" /> Commercial Annotations
+                                        </h4>
+                                        <OptimizedTextArea
+                                            disabled={isSnapshot}
+                                            value={localOpp.commercial.discountsAndNotes}
+                                            onChange={(val: string) => handleFieldChange('commercial', { ...localOpp.commercial, discountsAndNotes: val })}
+                                            className="w-full border-gray-200 rounded-xl text-sm mt-1 h-40 focus:ring-emerald-500 focus:border-emerald-500 placeholder:italic p-4"
+                                            placeholder="Document logic, discount justifications, or special project terms here..."
+                                        />
                                     </div>
-                                    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Project Totals</h4>
-                                            <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500 font-mono">GM: {totalMargin}%</span>
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                                <BarChart3 className="w-4 h-4 text-emerald-500" /> Project Financial View
+                                            </h4>
+                                            <div className="flex items-center gap-2 bg-[#3DCD58]/10 px-4 py-1.5 rounded-full">
+                                                <span className="text-[10px] text-[#3DCD58] font-black uppercase tracking-widest">Global GM:</span>
+                                                <span className="text-xs text-[#3DCD58] font-black">{totalMargin}%</span>
+                                            </div>
                                         </div>
-                                        <div className="p-4 border border-gray-100 rounded-lg">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">CQA Official Sell</label>
-                                                    <OptimizedInput
-                                                        disabled={isSnapshot}
-                                                        type="number"
-                                                        value={displayValue(localOpp.commercial.cqaOfficialSellPrice)}
-                                                        onChange={(val: number) => updateOfficialSellPrice(val)}
-                                                        className="w-full border-gray-200 rounded text-sm mt-1 font-bold"
-                                                    />
+                                        <div className="flex-1 p-6 border-2 border-emerald-50 rounded-[28px] bg-gradient-to-br from-white to-emerald-50/30 flex flex-col justify-center space-y-8">
+                                            <div className="grid grid-cols-2 gap-10">
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">CQA Target Sell</label>
+                                                    <div className="flex items-center gap-2 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm focus-within:border-[#3DCD58] transition-all">
+                                                        <DollarSign className="w-5 h-5 text-emerald-500" />
+                                                        <input
+                                                            disabled={isSnapshot}
+                                                            type="number"
+                                                            value={localOpp.commercial.cqaOfficialSellPrice}
+                                                            onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialSellPrice: parseFloat(e.target.value) || 0 })}
+                                                            className="w-full bg-transparent border-none p-0 text-xl font-black text-gray-800 focus:ring-0"
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin %</label>
-                                                    <OptimizedInput
-                                                        disabled={isSnapshot}
-                                                        type="number"
-                                                        value={displayValue(localOpp.commercial.cqaOfficialMargin)}
-                                                        onChange={(val: number) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: val })}
-                                                        className="w-full border-gray-200 rounded text-sm mt-1"
-                                                    />
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">CQA Target GM %</label>
+                                                    <div className="flex items-center gap-2 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm focus-within:border-blue-500 transition-all">
+                                                        <Percent className="w-5 h-5 text-blue-500" />
+                                                        <input
+                                                            disabled={isSnapshot}
+                                                            type="number"
+                                                            value={localOpp.commercial.cqaOfficialMargin}
+                                                            onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialMargin: parseFloat(e.target.value) || 0 })}
+                                                            className="w-full bg-transparent border-none p-0 text-xl font-black text-blue-700 focus:ring-0"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="pt-6 border-t border-gray-200/60">
+                                                <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-[#3DCD58]/20 shadow-lg shadow-[#3DCD58]/5">
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-0.5 pl-0.5">Calculated Net Total</span>
+                                                        <span className="text-3xl font-black text-gray-900 tracking-tighter">${(commercialTotals.finalPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                    <div className="p-3 bg-emerald-50 rounded-2xl">
+                                                        <Target className="w-6 h-6 text-[#3DCD58]" />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -5639,6 +5619,71 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     </div>
                 )
             }
+            {showAddSectionModal && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-fade-in shadow-2xl">
+                    <div className="bg-white rounded-[32px] w-full max-w-md overflow-hidden shadow-2xl border border-gray-100 animate-slide-up">
+                        <div className="p-8 pb-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <div className="p-3 bg-emerald-50 rounded-2xl">
+                                    <Plus className="w-6 h-6 text-[#3DCD58]" />
+                                </div>
+                                <button onClick={() => { setShowAddSectionModal(false); setNewSectionName(''); }} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                                    <X className="w-5 h-5 text-gray-400" />
+                                </button>
+                            </div>
+                            <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2">New Commercial Section</h3>
+                            <p className="text-sm text-gray-500 font-medium">Define a custom category for the project breakdown.</p>
+                            
+                            <div className="mt-8 space-y-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Section Name</label>
+                                    <input 
+                                        autoFocus
+                                        className="w-full text-lg font-bold border-2 border-gray-100 focus:border-[#3DCD58] rounded-2xl p-4 transition-all focus:ring-0 outline-none"
+                                        placeholder="e.g., Software Licenses, HW Implementation..."
+                                        value={newSectionName}
+                                        onChange={(e) => setNewSectionName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && newSectionName.trim()) {
+                                                const current = localOpp.commercial.customSections || [];
+                                                handleFieldChange('commercial', { 
+                                                    ...localOpp.commercial, 
+                                                    customSections: [...current, { id: crypto.randomUUID(), name: newSectionName, sellPrice: 0, margin: 0, discount: 0, cost: 0 }] 
+                                                });
+                                                setShowAddSectionModal(false);
+                                                setNewSectionName('');
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-6 bg-gray-50/50 flex gap-3 border-t border-gray-100">
+                            <button 
+                                onClick={() => { setShowAddSectionModal(false); setNewSectionName(''); }}
+                                className="flex-1 py-4 text-xs font-black uppercase text-gray-500 hover:text-gray-700 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                disabled={!newSectionName.trim()}
+                                onClick={() => {
+                                    const current = localOpp.commercial.customSections || [];
+                                    handleFieldChange('commercial', { 
+                                        ...localOpp.commercial, 
+                                        customSections: [...current, { id: crypto.randomUUID(), name: newSectionName, sellPrice: 0, margin: 0, discount: 0, cost: 0 }] 
+                                    });
+                                    setShowAddSectionModal(false);
+                                    setNewSectionName('');
+                                }}
+                                className="flex-1 py-4 bg-[#3DCD58] text-white text-xs font-black uppercase rounded-2xl shadow-lg shadow-[#3DCD58]/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+                            >
+                                Create Section
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
                 </>
             ) : (
                 <div className="flex-1 flex items-center justify-center p-20">
