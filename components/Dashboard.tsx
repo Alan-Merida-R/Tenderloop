@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity } from 'lucide-react';
@@ -268,7 +268,7 @@ const OpportunityCard = React.memo(({
                         <OptimizedTextArea
                             placeholder="Quick note..."
                             value={kanbanMiniNote}
-                            onChange={onNoteChange}
+                            onChange={(val) => onNoteChange(val, opp.id)}
                             className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 h-12 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
                         />
                     </div>
@@ -285,7 +285,7 @@ const OpportunityCard = React.memo(({
                         {translateStatus(opp.statusLabel)}
                     </div>
                     {opp.priority && (
-                        <div className={`text-[9px] w-2 h-2 rounded-full ${PRIORITY_COLORS[opp.priority as TaskPriority]?.split(' ')[1]}`} title={`Priority: ${opp.priority}`}></div>
+                        <div className={`text-[9px] w-2 h-2 rounded-full ${(PRIORITY_COLORS[opp.priority as TaskPriority] || '').split(' ')[1] || ''}`} title={`Priority: ${opp.priority}`}></div>
                     )}
                 </div>
             </div>
@@ -301,10 +301,10 @@ const OpportunityCard = React.memo(({
                     />
                 </div>
                 <div className="flex gap-1">
-                    {opp.tasks.length > 0 && (
+                    {(opp.tasks || []).length > 0 && (
                         <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
                             <CheckSquare className="w-3 h-3" />
-                            {opp.tasks.filter((t: any) => t.status === 'Done').length}/{opp.tasks.length}
+                            {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
                         </div>
                     )}
                 </div>
@@ -319,6 +319,7 @@ const OpportunityCard = React.memo(({
 });
 
 const translateProcessStage = (stage: string) => {
+    if (!stage) return '';
     const parts = stage.split('. ');
     if (parts.length < 2) return stage;
     const name = parts[1];
@@ -425,7 +426,7 @@ const TaskCard = React.memo(({
                             const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
                             onUpdate(item.opp.id, item.id, { priority: next });
                         }}
-                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${PRIORITY_COLORS[item.priority as TaskPriority]?.split(' ')[1]}`}
+                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${(PRIORITY_COLORS[item.priority as TaskPriority] || '').split(' ')[1] || ''}`}
                         title={`Priority: ${item.priority} (Click to cycle)`}
                     ></button>
                 </div>
@@ -436,7 +437,7 @@ const TaskCard = React.memo(({
                     value={item.status}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
-                    className={`text-[10px] border-none p-0 bg-transparent font-medium cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus].split(' ')[1]}`}
+                    className={`text-[10px] border-none p-0 bg-transparent font-medium cursor-pointer ${(TASK_STATUS_COLORS[item.status as TaskStatus] || '').split(' ')[1] || ''}`}
                 >
                     {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}
                 </select>
@@ -826,7 +827,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
 
     // --- Calculations ---
-    const getBadgeInfo = (opp: Opportunity) => {
+    const getBadgeInfo = useCallback((opp: Opportunity) => {
         const status = opp.statusLabel;
 
         // A) Active states: Check Due Date (Expected Date)
@@ -882,7 +883,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         }
 
         return { text: opp.alias || opp.id, color: 'bg-gray-100 text-gray-400' };
-    };
+    }, [holidays]);
 
     const getCalendarItemStyles = (item: any, type: 'task' | 'opp') => {
         const today = new Date();
@@ -955,12 +956,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     };
 
     const calculateProgress = (stage: ProcessStage) => {
+        if (!stage) return 0;
         const stageNum = parseInt(stage.split('.')[0]) || 1;
         return Math.round((stageNum / 9) * 100);
     };
 
     const getSellPrice = (opp: Opportunity) => {
-        if (opp.commercial.cqaOfficialSellPrice > 0) return opp.commercial.cqaOfficialSellPrice;
+        if (!opp.commercial) return opp.amount || 0;
+        if ((opp.commercial.cqaOfficialSellPrice || 0) > 0) return opp.commercial.cqaOfficialSellPrice;
         return (opp.commercial.swHw?.sellPrice || 0) + (opp.commercial.services?.sellPrice || 0) + (opp.commercial.resale?.sellPrice || 0);
     };
 
@@ -973,7 +976,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const booleanMatcher = parseBooleanQuery(deferredFilterText);
         const results: Opportunity[] = [];
 
-        for (let i = 0; i < opportunities.length; i++) {
+        for (let i = 0; i < (opportunities || []).length; i++) {
             const opp = opportunities[i];
 
             // 1. Deduplicate
@@ -1082,6 +1085,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (targetOpps.length === 0) return null;
 
         const getPeriodKey = (dateStr: string, range: string) => {
+            if (!dateStr) return 'No_Date';
             const [y, m, d] = dateStr.split('-').map(Number);
             const date = new Date(y, m - 1, d);
             const year = date.getFullYear();
@@ -1146,7 +1150,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             let validWorkCount = 0;
 
             opps.forEach(o => {
-                if (o.kpis?.timeline.receivedAt && o.kpis?.timeline.deliveredAt) {
+                if (o.kpis?.timeline?.receivedAt && o.kpis?.timeline?.deliveredAt) {
                     const start = new Date(o.kpis.timeline.receivedAt).getTime();
                     const end = new Date(o.kpis.timeline.deliveredAt).getTime();
                     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
@@ -1182,10 +1186,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const opp = opportunities.find(o => o.id === oppId);
         if (!opp) return true;
 
-        const task = opp.tasks.find(t => t.id === taskId);
+        const task = (opp.tasks || []).find(t => t.id === taskId);
         if (!task || !task.blockDoneUntilDependenciesDone || !task.dependsOnTaskIds || task.dependsOnTaskIds.length === 0) return true;
 
-        const pendingDeps = opp.tasks.filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done' && t.status !== 'Canceled');
+        const pendingDeps = (opp.tasks || []).filter(t => task.dependsOnTaskIds!.includes(t.id) && t.status !== 'Done' && t.status !== 'Canceled');
 
         if (pendingDeps.length > 0) {
             alert("This task is blocked until its dependencies are completed.");
@@ -1196,7 +1200,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
     const { confirmStop } = useTimerActions();
 
-    const handleTaskStatusChange = (oppId: string, taskId: string, newStatus: TaskStatus): void => {
+    const handleTaskStatusChange = useCallback((oppId: string, taskId: string, newStatus: TaskStatus): void => {
         const currentState = getTimerState();
         // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
         if (newStatus === 'Done' && currentState.taskId === taskId && currentState.isRunning) {
@@ -1221,7 +1225,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (validateTaskCompletion(oppId, taskId, newStatus)) {
             onTaskUpdate(oppId, taskId, { status: newStatus });
         }
-    };
+    }, [opportunities, confirmStop, getTimerState, onTaskUpdate]);
 
     // Dynamic Opportunity Options for filter
     const oppFilterOptions = useMemo(() => {
@@ -1268,7 +1272,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             if (oppFilterSet.size > 0 && !oppFilterSet.has(opp.id)) return;
             if (oppStatusFilterSet.size > 0 && !oppStatusFilterSet.has(opp.statusLabel)) return;
 
-            opp.tasks.forEach(t => {
+            (opp.tasks || []).forEach(t => {
                 // 1. Task Search (Local)
                 if (taskMatcher) {
                     const raw = `${t.id} ${t.title} ${t.description || ''} ${t.responsible || ''} ${t.status} ${t.priority} ${(t.externalAreas || []).join(' ')}`.toLowerCase();
@@ -1300,7 +1304,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 const orderVal = t.order ?? 999999;
                 const dueDateKey = t.dueDate || '9999-99-99';
                 // Rank: [OppStatus(1)][DueDate(10)][Order(6)][TaskPriority(1)][OppPriority(3)][Title(20)]
-                const sortRank = `${oppStatusWeight}-${dueDateKey}-${String(orderVal).padStart(6, '0')}-${taskPriorityWeight}-${String(oppPriority).padStart(3, '0')}-${t.title.slice(0, 20)}`;
+                const sortRank = `${oppStatusWeight}-${dueDateKey}-${String(orderVal).padStart(6, '0')}-${taskPriorityWeight}-${String(oppPriority).padStart(3, '0')}-${(t.title || '').slice(0, 20)}`;
 
                 const taskWithOpp = { ...t, opp, sortRank };
                 taskWithRanks.push(taskWithOpp);
@@ -1331,7 +1335,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         });
 
         // FAST SORT using rank strings (much faster than calling helper 400k times)
-        taskWithRanks.sort((a, b) => a.sortRank.localeCompare(b.sortRank));
+        // taskWithRanks.sort((a, b) => a.sortRank.localeCompare(b.sortRank));
+        // ONLY sort the main array if we actually need it for a flat view
+        if (taskGroupBy === 'none') {
+            taskWithRanks.sort((a, b) => a.sortRank.localeCompare(b.sortRank));
+        }
         result.filtered = taskWithRanks;
 
         if (mode === 'tasks') {
@@ -1377,7 +1385,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const getWaitingOnAreas = (opp: Opportunity) => {
         if (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled') return null;
 
-        const externalPending = opp.tasks.filter(t => t.owner === 'External Area' && t.status !== 'Done');
+        const externalPending = (opp.tasks || []).filter(t => t.owner === 'External Area' && t.status !== 'Done');
         if (externalPending.length === 0) return null;
 
         const areas = Array.from(new Set(externalPending.flatMap(t => t.externalAreas || [])));
@@ -1409,21 +1417,25 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
         } else {
             Object.keys(STAGE_COLORS).forEach(stage => {
-                groups[stage] = filteredOpps
-                    .filter(o => o.stage === stage)
-                    .sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999));
+                groups[stage] = [];
             });
+            filteredOpps.forEach(o => {
+                const key = o.stage;
+                if (groups[key]) groups[key].push(o);
+                else if (groups['Lead']) groups['Lead'].push(o); // fallback
+            });
+            Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         }
         return groups;
     }, [filteredOpps, kanbanGroupBy]);
 
 
 
-    const handleDragStart = (e: React.DragEvent, id: string, type: 'opp' | 'task' = 'opp', extra?: string) => {
+    const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'opp' | 'task' = 'opp', extra?: string) => {
         e.dataTransfer.setData('id', id);
         e.dataTransfer.setData('type', type);
         if (extra) e.dataTransfer.setData('extra', extra);
-    };
+    }, []);
     const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
     const handleDrop = (e: React.DragEvent, target: string, type: 'column' | 'date' | 'taskGroup') => {
@@ -1473,9 +1485,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
     const exportTasksToCSV = () => {
         const headers = ['Opportunity ID', 'Task Title', 'Status', 'Priority', 'Due Date', 'Owner', 'Areas', 'Responsible', 'Description'];
-        const rows = filteredOpps.flatMap(opp => opp.tasks.map(t => [
+        const rows = filteredOpps.flatMap(opp => (opp.tasks || []).map(t => [
             opp.id,
-            `"${t.title.replace(/"/g, '""')}"`,
+            `"${(t.title || '').replace(/"/g, '""')}"`,
             t.status,
             t.priority,
             t.dueDate,
@@ -1495,7 +1507,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         document.body.removeChild(link);
     };
 
-    const handleInlineEdit = (opp: Opportunity, field: string, value: any) => {
+    const handleInlineEdit = useCallback((opp: Opportunity, field: string, value: any) => {
         let updated = { ...opp };
         if (field.includes('dates.')) {
             const sub = field.split('.')[1];
@@ -1505,7 +1517,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             updated[field] = value;
         }
         onOppUpdate(updated);
-    };
+    }, [onOppUpdate]);
+
+    const handleKanbanNoteChange = useCallback((val: any, oppId: string) => {
+        const opp = (opportunities || []).find(o => o.id === oppId);
+        if (opp) {
+            onOppUpdate({ ...opp, kanbanNote: val });
+        }
+    }, [onOppUpdate, opportunities]);
 
     const updateSelectedTask = (field: keyof Task, value: any) => {
         if (!selectedTask) return;
@@ -1517,7 +1536,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const opp = opportunities.find(o => o.id === selectedTask.oppId);
         if (!opp) return;
 
-        const updatedTasks = opp.tasks.map(t => t.id === selectedTask.task.id ? { ...t, [field]: value } : t);
+        const updatedTasks = (opp.tasks || []).map(t => t.id === selectedTask.task.id ? { ...t, [field]: value } : t);
         const updatedOpp = { ...opp, tasks: updatedTasks };
         onOppUpdate(updatedOpp);
         setSelectedTask({ ...selectedTask, task: { ...selectedTask.task, [field]: value } });
@@ -1528,7 +1547,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (!window.confirm("Are you sure you want to delete this task?")) return;
         const opp = opportunities.find(o => o.id === selectedTask.oppId);
         if (!opp) return;
-        const updatedTasks = opp.tasks.filter(t => t.id !== selectedTask.task.id);
+        const updatedTasks = (opp.tasks || []).filter(t => t.id !== selectedTask.task.id);
         onOppUpdate({ ...opp, tasks: updatedTasks });
         setSelectedTask(null);
     };
@@ -1567,14 +1586,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setSelectedTask({ task: newTask, oppId: opp.id });
     };
 
-    const handleDeleteTask = (e: React.MouseEvent, oppId: string, taskId: string) => {
+    const handleDeleteTask = useCallback((e: React.MouseEvent, oppId: string, taskId: string) => {
         e.stopPropagation();
         if (!window.confirm("Are you sure you want to delete this task?")) return;
         const opp = opportunities.find(o => o.id === oppId);
         if (opp) {
-            onOppUpdate({ ...opp, tasks: opp.tasks.filter(t => t.id !== taskId) });
+            onOppUpdate({ ...opp, tasks: (opp.tasks || []).filter(t => t.id !== taskId) });
         }
-    };
+    }, [opportunities, onOppUpdate]);
 
     const copyTaskSummary = async () => {
         if (!selectedTask) return;
@@ -1586,7 +1605,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (opp) {
             try {
                 const docs = await listLinkedForTask(opp.id, t.id);
-                docTitles = docs.map(d => d.fileKey.split('/').pop() || d.fileKey);
+                docTitles = docs.map(d => d.fileKey ? d.fileKey.split('/').pop() || d.fileKey : '');
             } catch (e) { console.error("Failed docs", e); }
         }
 
@@ -2249,7 +2268,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     handleDragStart={handleDragStart}
                                                     handleInlineEdit={handleInlineEdit}
                                                     kanbanMiniNote={opp.kanbanNote || ''}
-                                                    onNoteChange={(val: any) => onOppUpdate({ kanbanNote: val }, opp.id)}
+                                                    onNoteChange={handleKanbanNoteChange}
                                                     hideNextStepBadges={hideNextStepBadges}
                                                     getBadgeInfo={getBadgeInfo}
                                                     translateStatus={translateStatus}
@@ -2996,7 +3015,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         <div className="space-y-1">
                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity</label>
                             <OpportunitySearchInput
-                                opportunities={opportunities.filter(o => o.statusLabel === 'In Progress' || o.statusLabel === 'On Hold' || !o.statusLabel)}
+                                opportunities={(opportunities || []).filter(o => o.statusLabel === 'In Progress' || o.statusLabel === 'On Hold' || !o.statusLabel)}
                                 selectedIds={startTimerData.oppId ? [startTimerData.oppId] : []}
                                 onSelect={(id) => {
                                     setStartTimerData({ ...startTimerData, oppId: id, taskId: '' });
@@ -3198,7 +3217,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         style={{ height: `${Math.max(4, (d.count / maxCount) * 96)}px` }}
                                         title={`${d.count} tasks on ${d.label}`}
                                     />
-                                    <span className="text-[8px] text-gray-400 truncate w-full text-center" title={d.label}>{d.label.split(',')[0]}</span>
+                                    <span className="text-[8px] text-gray-400 truncate w-full text-center" title={d.label}>{d.label ? d.label.split(',')[0] : ''}</span>
                                 </div>
                             ))}
                         </div>

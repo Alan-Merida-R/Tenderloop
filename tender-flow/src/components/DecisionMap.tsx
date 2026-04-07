@@ -40,7 +40,8 @@ import {
   X,
   PlusCircle,
   HelpCircle,
-  Shapes
+  Shapes,
+  CheckCircle2
 } from 'lucide-react';
 import { isItemLocked } from '../engine/evaluator';
 
@@ -236,9 +237,45 @@ const EndNode: React.FC<NodeProps> = ({ data }) => {
   );
 };
 
+const ActionNode: React.FC<NodeProps> = ({ data }) => {
+  const isDone = data.isAnswered;
+  const areaColor = data.areaColor || 'var(--te-emerald-500)';
+  
+  return (
+    <div style={{
+      ...NodeCardStyle,
+      background: isDone ? 'rgba(16, 185, 129, 0.1)' : 'var(--te-bg-card)',
+      border: `2px ${isDone ? 'solid' : 'dashed'} ${areaColor}`,
+      borderRadius: '12px',
+      minWidth: '200px',
+      boxShadow: isDone ? `0 0 15px ${areaColor}44` : 'var(--te-shadow-sm)'
+    }}>
+      <Handle type="target" position={Position.Top} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Zap size={14} color={areaColor} />
+            <span style={{ fontSize: '0.6rem', fontWeight: 950, textTransform: 'uppercase', color: areaColor }}>ACTION NODE</span>
+         </div>
+         {isDone && <CheckCircle2 size={14} color={areaColor} />}
+      </div>
+      <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{data.label}</div>
+      <div style={{ marginTop: '0.4rem', fontSize: '0.65rem', color: isDone ? areaColor : 'var(--te-text-muted)', fontWeight: 800 }}>
+        STATUS: {data.value || 'Pending'}
+      </div>
+      {data.isEditMode && (
+        <button onClick={(e) => data.onDelete(data.id, e)} style={{ position: 'absolute', top: '-10px', right: '-10px', background: 'var(--te-rose-500)', color: 'white', border: 'none', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
+           <Trash2 size={10} />
+        </button>
+      )}
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+};
+
 const nodeTypes = {
   question: StandardNode,
   decision: DecisionNode,
+  action: ActionNode,
   end: EndNode
 };
 
@@ -293,7 +330,7 @@ export const DecisionMap: React.FC<Props> = ({
 
       return {
         id: item.id,
-        type: item.itemType === 'decision' ? 'decision' : (item.itemType === 'end' ? 'end' : 'question'),
+        type: item.itemType === 'decision' ? 'decision' : (item.itemType === 'end' ? 'end' : (item.itemType === 'action' ? 'action' : 'question')),
         position: item.visualPosition || { x: idx * 280, y: (stagesList.indexOf(item.stage) || 0) * 450 },
         data: { 
           id: item.id,
@@ -301,6 +338,7 @@ export const DecisionMap: React.FC<Props> = ({
           area: item.area, 
           areaColor, 
           isAnswered: resp?.status === 'answered' || resp?.status === 'confirmed',
+          value: resp?.value || '',
           isLocked: locked,
           isEditMode,
           onDelete: internalDelete
@@ -348,7 +386,7 @@ export const DecisionMap: React.FC<Props> = ({
      }
   };
 
-  const addNewQuestion = (type: 'question' | 'decision' | 'end') => {
+  const addNewQuestion = (type: 'question' | 'decision' | 'end' | 'action') => {
     if (!onSaveStandard) return;
     const newId = `Q_${allItems.length + 1}_${Date.now().toString().slice(-4)}`;
     const newQ: StandardItem = {
@@ -427,7 +465,10 @@ export const DecisionMap: React.FC<Props> = ({
                    <button onClick={() => addNewQuestion('decision')} className="te-btn te-btn-outline" style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.1rem', borderRadius: '16px', background: 'rgba(255,255,255,0.03)' }}>
                       <GitBranch size={20} /> <div style={{ display: 'flex', flexDirection: 'column' }}><span style={{ fontSize: '0.85rem', fontWeight: 900 }}>DECISION</span><span style={{ fontSize: '0.6rem', opacity: 0.7 }}>Diamond branch node</span></div>
                    </button>
-                   <button onClick={() => addNewQuestion('end')} className="te-btn te-btn-outline" style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.1rem', borderRadius: '16px', borderStyle: 'dashed', background: 'rgba(244, 63, 94, 0.05)', color: 'var(--te-rose-500)' }}>
+                    <button onClick={() => addNewQuestion('action')} className="te-btn te-btn-outline" style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.1rem', borderRadius: '16px', background: 'rgba(16, 185, 129, 0.05)', border: '1px dashed var(--te-emerald-500)', color: 'var(--te-emerald-500)' }}>
+                       <Zap size={20} /> <div style={{ display: 'flex', flexDirection: 'column' }}><span style={{ fontSize: '0.85rem', fontWeight: 900 }}>ACTION</span><span style={{ fontSize: '0.6rem', opacity: 0.7 }}>Loop Synchronized task</span></div>
+                    </button>
+                    <button onClick={() => addNewQuestion('end')} className="te-btn te-btn-outline" style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.1rem', borderRadius: '16px', borderStyle: 'dashed', background: 'rgba(244, 63, 94, 0.05)', color: 'var(--te-rose-500)' }}>
                       <X size={20} /> <div style={{ display: 'flex', flexDirection: 'column' }}><span style={{ fontSize: '0.85rem', fontWeight: 900 }}>TERMINATOR</span><span style={{ fontSize: '0.6rem', opacity: 0.7 }}>End of flow branch</span></div>
                    </button>
                 </div>

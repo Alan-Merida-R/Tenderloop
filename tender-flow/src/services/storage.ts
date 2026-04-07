@@ -253,10 +253,28 @@ export class WorkspaceManager {
     this.updateRecentList(handle.name, data.metadata.id);
   }
 
-  private async persistHandle(handle: any) {
+  private async persistHandle(handle: any, type: 'last_active' | 'loop_db' = 'last_active') {
     const db = await getDB();
     const tx = db.transaction(HANDLE_STORE, 'readwrite');
-    tx.objectStore(HANDLE_STORE).put({ id: 'last_active', handle });
+    tx.objectStore(HANDLE_STORE).put({ id: type, handle });
+  }
+
+  async setLoopDbHandle(handle: any) {
+    if (!handle) return;
+    if (await verifyPermission(handle, true)) {
+       await this.persistHandle(handle, 'loop_db');
+    }
+  }
+
+  async getLoopDbHandle(): Promise<any> {
+    const db = await getDB();
+    const tx = db.transaction(HANDLE_STORE, 'readonly');
+    const store = tx.objectStore(HANDLE_STORE);
+    const req = store.get('loop_db');
+    return new Promise((resolve) => {
+      req.onsuccess = () => resolve(req.result?.handle || null);
+      req.onerror = () => resolve(null);
+    });
   }
 
   private async updateRecentList(name: string, id: string) {

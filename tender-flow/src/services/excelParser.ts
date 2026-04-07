@@ -102,7 +102,31 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
     color: row.Color || row.color || undefined
   }));
 
-  return { questions, stages, areas };
+  // 4. Hoja de Acciones (Sincronizadas)
+  const aActionsSheet = workbook.Sheets['Actions'];
+  const aActionsRows: any[] = aActionsSheet ? XLSX.utils.sheet_to_json(aActionsSheet) : [];
+  const actionItems: StandardItem[] = aActionsRows.map((row, i) => {
+    // Re-use logic or handle action-specific defaults
+    const id = (row.ID || row.id || `ACT_${i}`).toString().trim();
+    return {
+       id,
+       active: true,
+       stage: (row.Stage || 'Unassigned').toString(),
+       area: (row.Area || 'Common').toString(),
+       priority: 'medium',
+       itemType: 'action',
+       content: (row.Content || row.Task || 'Untitled Action').toString(),
+       linkedTaskId: row.LinkedTaskId || undefined,
+       responseType: 'select',
+       mandatory: false,
+       tags: [],
+       logicString: '',
+       deliverableTarget: [],
+       order: 100 + i
+    };
+  });
+
+  return { questions: [...questions, ...actionItems], stages, areas };
 };
 
 export const parseProjectExcel = (buffer: ArrayBuffer): { 
@@ -115,74 +139,92 @@ export const parseProjectExcel = (buffer: ArrayBuffer): {
   const data = new Uint8Array(buffer);
   const workbook = XLSX.read(data, { type: 'array' });
   
-  // 1. Parse Structure using the same logic
+  // 1. Parse Structure using the same logic (questions will include Actions now)
   const { questions, stages, areas } = parseExcelSheet(buffer);
 
-  // 2. Extract Responses from the Questions Sheet
-  const qSheetName = workbook.SheetNames.includes('Questions') ? 'Questions' : workbook.SheetNames[0];
-  const qSheet = workbook.Sheets[qSheetName];
-  const qRows: any[] = XLSX.utils.sheet_to_json(qSheet);
-
+  // 2. Extract Responses from BOTH Questions and Actions sheets
   const responses: Record<string, any> = {};
-  let customer = '';
-  let loopId = '';
-  let name = 'Imported Project';
-
-  qRows.forEach(row => {
-    const id = String(row.ID || row.id || row['ID de Item'] || '').trim();
-    if (id && (row.Answer || row.Status || row.Notes)) {
-      responses[id] = {
-        itemId: id,
-        value: row.Answer || '',
-        status: (row.Status || 'pending').toLowerCase(),
-        isFlagged: row['Is Flagged'] === 'YES' || row['Is Flagged'] === true,
-        isLocked: row['Is Locked'] === 'YES' || row['Is Locked'] === true,
-        note: row.Notes || '',
-        updatedAt: new Date().toISOString()
-      };
-    }
-  });
-
-  // Try to find metadata if it was added to some specific place, otherwise use defaults from the first rows
-  // In our exporter, we don't save metadata in a separate sheet, so we just infer from filename or first row if possible
-  // For now let's assume standard import
   
-  return { questions, stages, areas, responses, metadata: { name, customer, loopId } };
+  const processSheet = (name: string) => {
+    const s = workbook.Sheets[name];
+    if (!s) return;
+    const rows: any[] = XLSX.utils.sheet_to_json(s);
+    rows.forEach(row => {
+      const id = String(row.ID || row.id || '').trim();
+      if (id && (row.Answer || row.Status || row.Notes || row.Status_Loop)) {
+        responses[id] = {
+          itemId: id,
+          value: row.Answer || row.Status_Loop || '',
+          status: (row.Status || (row.Status_Loop === 'Done' ? 'answered' : 'pending')).toLowerCase(),
+          isFlagged: row['Is Flagged'] === 'YES' || row['Is Flagged'] === true,
+          note: row.Notes || '',
+          updatedAt: new Date().toISOString()
+        };
+      }
+    });
+  };
+
+  processSheet('Questions');
+  processSheet('Actions');
+
+  return { questions, stages, areas, responses, metadata: { name: 'Imported Project', customer: '', loopId: '' } };
 };
 
 /**
- * Genera un template estándar v3.0 con 3 hojas
+ * Genera un template estándar v3.5 con 4 hojas
  */
 export const generateTemplateExcel = () => {
   const wb = XLSX.utils.book_new();
 
   const qData = [
-    { 
-      ID: 'OP-001', 
-      Stage: 'Pre-Assessment', 
-      Area: 'Sales', 
-      ItemType: 'decision', 
-      Content: 'Is this a firm opportunity?', 
-      Options: 'Yes,No,TBD', 
-      IsMultiple: 'No',
-      Priority: 'mandatory', 
-      LogicString: '' 
-    }
+    { ID: 'Q1', Stage: 'Intake', Area: 'Sales', ItemType: 'decision', Content: 'Is it a firm OP?', Options: 'Yes,No', Priority: 'mandatory' }
   ];
 
   const sData = [
-    { ID: 'S1', Name: 'Pre-Assessment', Order: 1, Active: 'YES' },
-    { ID: 'S2', Name: 'Clarification', Order: 2, Active: 'YES' }
+    { ID: 'S1', Name: 'Intake', Order: 1, Active: 'YES' }
   ];
 
   const aData = [
-    { ID: 'A1', Name: 'Sales', Order: 1, Active: 'YES', Color: '#3b82f6' },
-    { ID: 'A2', Name: 'TSC', Order: 2, Active: 'YES', Color: '#10b981' }
+    { ID: 'A1', Name: 'Sales', Order: 1, Active: 'YES', Color: '#3b82f6' }
+  ];
+
+  const actData = [
+    { ID: 'ACT1', Stage: 'Intake', Area: 'Sales', Content: 'Sync with Loop Task', LinkedTaskId: 'T-001' }
   ];
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(qData), 'Questions');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sData), 'Stages');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aData), 'Areas');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(actData), 'Actions');
 
-  XLSX.writeFile(wb, 'Tender_Standard_Template.xlsx');
+  XLSX.writeFile(wb, 'Tender_Standard_Template_v3.5.xlsx');
+};
+
+/**
+ * PARSE LOOP DATABASE (EXTERNAL)
+ * Lectura genérica de cualquier libro de Excel para búsqueda de tareas/ops.
+ */
+export const parseLoopDatabase = (buffer: ArrayBuffer): any[] => {
+  const data = new Uint8Array(buffer);
+  const workbook = XLSX.read(data, { type: 'array' });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(firstSheet);
+};
+
+/**
+ * PARSE LOOP JSON DATABASE
+ * Procesa el archivo nativo de TenderLoop (.json)
+ */
+export const parseLoopJsonDatabase = (content: string): any[] => {
+  try {
+    const data = JSON.parse(content);
+    if (!data.opportunities) return [];
+    
+    // Devolvemos el array de oportunidades directamente
+    // El modal se encargará de buscar en las tareas internas
+    return data.opportunities;
+  } catch (e) {
+    console.error("Invalid Loop JSON", e);
+    return [];
+  }
 };

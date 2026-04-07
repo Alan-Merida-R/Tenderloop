@@ -716,6 +716,7 @@ function App() {
         setDb(result.data);
         setFileHandle(result.handle);
         setIsDbLoaded(true);
+        await saveToDisk(result.handle, result.data); // Force immediate save
         await rememberDb(result.handle, { name: result.handle.name });
         setRecentDbs(await getRecentDbs());
         setStartupHint(null);
@@ -1019,7 +1020,7 @@ function App() {
         const orderChanged = oldOpp?.priorityOrder !== updatedOpp.priorityOrder;
         const statusChanged = oldOpp?.statusLabel !== updatedOpp.statusLabel;
 
-        const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? updatedOpp : o);
+        const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? { ...o, ...updatedOpp } : o);
 
         // OPTIMIZATION: Only run the expensive rebalance if order or status actually changed.
         // For field edits (title, date, description, tasks) just replace the opp directly.

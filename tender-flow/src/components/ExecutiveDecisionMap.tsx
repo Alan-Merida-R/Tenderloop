@@ -8,6 +8,7 @@ import {
   ArrowRight,
   GitBranch,
   Flag,
+  Zap,
   Lock as LockIcon
 } from 'lucide-react';
 import { isItemLocked, evaluateStatus } from '../engine/evaluator';
@@ -150,8 +151,18 @@ export const ExecutiveDecisionMap: React.FC<Props> = ({
                                )}
                             </div>
                             <div style={{ flex: 1 }}>
-                               <div style={{ fontSize: '0.65rem', fontWeight: 900, color: locked ? '#475569' : areaColor, textTransform: 'uppercase', marginBottom: '2px' }}>{item.area}</div>
-                               <div style={{ fontSize: '0.95rem', fontWeight: 800, color: locked ? '#475569' : 'var(--te-text-main)' }}>{item.content}</div>
+                               <div style={{ fontSize: '0.65rem', fontWeight: 900, color: locked ? '#475569' : areaColor, textTransform: 'uppercase', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                 {item.itemType === 'action' && <Zap size={10} />}
+                                 {item.area}
+                               </div>
+                               <div style={{ fontSize: '0.95rem', fontWeight: 800, color: locked ? '#475569' : 'var(--te-text-main)' }}>
+                                 {item.content}
+                               </div>
+                               {item.itemType === 'action' && (
+                                 <div style={{ fontSize: '0.6rem', fontWeight: 900, color: isDone ? 'var(--te-emerald-500)' : 'var(--te-text-muted)', marginTop: '4px', textTransform: 'uppercase' }}>
+                                    LOOP SYNC: {resp?.value || 'PENDING'}
+                                 </div>
+                               )}
                             </div>
                             {resp?.isFlagged && <Flag size={14} color="var(--te-rose-500)" fill="currentColor" />}
                          </div>

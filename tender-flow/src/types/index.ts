@@ -9,9 +9,8 @@ export type ItemType =
   | 'required_data' 
   | 'assumption'    
   | 'risk_check'    
-  | 'action_prompt' 
-  | 'document_input'
   | 'link'           // Nuevo: Pide Link Name + URL (Punto 10)
+  | 'action'         // Nuevo: Sincronizado con Loop Tasks
   | 'end';            // Nuevo: Nodo final de flujo
 
 export type Priority = 'low' | 'medium' | 'high' | 'critical' | 'mandatory';
@@ -31,7 +30,7 @@ export type ResponseStatus =
 export interface DependencyRule {
   targetId: string;       // El ID del item del que depende
   operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than' | 'exists' | 'any_value';
-  value: any;             // El valor contra el que se compara
+  value: any | any[];     // SOPORTE MULTI-VALOR (Lógica OR) (Punto 28 Fix)
 }
 
 export type ResponseType = 'text' | 'select' | 'boolean' | 'number' | 'date' | 'table' | 'string' | 'any';
@@ -59,6 +58,7 @@ export interface StandardItem {
   deliverableTags?: string[];
   logicString?: string;       
   isMultipleSelection?: boolean; // Nuevo: Soporta selecciones múltiples en Decisiones (Punto 28)
+  linkedTaskId?: string;         // Vincular a Tarea de Loop (ID de la fila de Loop DB)
   visualPosition?: { x: number; y: number }; // Posición en el mapa lógico
 }
 
@@ -75,6 +75,7 @@ export interface ItemResponse {
   updatedAt: string;          
   isFlagged: boolean;         // Marcado como importante (Punto 19)
   isLocked: boolean;          // Candado activado (Punto 17)
+  isSynced?: boolean;         // Nuevo: Indica si el valor viene de un Loop Task
 }
 
 /**

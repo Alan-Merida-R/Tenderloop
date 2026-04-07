@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { StandardItem, ExecutiveFlowCase, Priority, ResponseStatus, ItemResponse, ItemType } from '../types';
 import { getVisibleItems, getAreaStatus, getStageStatus, isStageLocked, isItemLocked, evaluateStatus } from '../engine/evaluator';
 import { MOCK_STANDARD, getSystemItems, SYSTEM_QUESTIONS_AREA } from '../engine/mockStandard';
-import { parseExcelSheet, generateTemplateExcel, parseProjectExcel } from '../services/excelParser';
+import { parseExcelSheet, generateTemplateExcel, parseProjectExcel, parseLoopDatabase, parseLoopJsonDatabase } from '../services/excelParser';
 import { workspaceManager } from '../services/storage';
 import { exportToWord, exportToExcel } from '../services/exporter';
 import { ChecklistWizard } from './ChecklistWizard';
@@ -43,6 +43,14 @@ export const FlowDashboard: React.FC = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [expandedTextId, setExpandedTextId] = useState<string | null>(null);
   const [hideCommon, setHideCommon] = useState(false);
+  const [showActions, setShowActions] = useState(false);
+
+  // --- SYNC STATE (TenderLoop) ---
+  const [loopDb, setLoopDb] = useState<any[]>(() => {
+    const cached = localStorage.getItem('te_loop_db_cache');
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [loopDbName, setLoopDbName] = useState<string | null>(localStorage.getItem('te_loop_db_name'));
 
   // --- COMPUTED SYNC ---
   const currentCase = useMemo(() => {
@@ -61,7 +69,9 @@ export const FlowDashboard: React.FC = () => {
 
   const visibleItems = useMemo(() => {
     if (!currentCase) return [];
+    // 1. Base filter by logic
     let items = getVisibleItems(activeBackboneItems, currentCase.responses);
+    
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       items = items.filter(i => 
@@ -74,6 +84,10 @@ export const FlowDashboard: React.FC = () => {
     if (selectedAreas.length > 0) items = items.filter(i => selectedAreas.includes(i.area));
     if (selectedStages.length > 0) items = items.filter(i => selectedStages.includes(i.stage));
     if (hideCommon) items = items.filter(i => i.stage.toLowerCase() !== 'intake' && i.stage.toLowerCase() !== 'common');
+    
+    if (selectedStages.length > 0) items = items.filter(i => selectedStages.includes(i.stage));
+    if (hideCommon) items = items.filter(i => i.stage.toLowerCase() !== 'intake' && i.stage.toLowerCase() !== 'common');
+    
     return items;
   }, [activeBackboneItems, currentCase, searchQuery, selectedAreas, selectedStages, hideCommon]);
 
@@ -92,7 +106,103 @@ export const FlowDashboard: React.FC = () => {
   useEffect(() => {
     workspaceManager.setCallbacks((s) => setWsStatus(s), (ws) => setWorkspace(ws));
     workspaceManager.tryAutoReopen();
+    handleAutoLoadLoopDb();
   }, []);
+
+  const handleAutoLoadLoopDb = async () => {
+    const handle = await workspaceManager.getLoopDbHandle();
+    if (handle) {
+      try {
+        const file = await handle.getFile();
+        let data: any[] = [];
+        if (file.name.endsWith('.json')) {
+          const text = await file.text();
+          data = parseLoopJsonDatabase(text);
+        } else {
+          const buffer = await file.arrayBuffer();
+          data = parseLoopDatabase(buffer);
+        }
+        setLoopDb(data);
+        setLoopDbName(handle.name);
+        localStorage.setItem('te_loop_db_cache', JSON.stringify(data));
+        localStorage.setItem('te_loop_db_name', handle.name);
+      } catch (e) {
+        console.warn('Loop DB handle expired or inaccessible');
+      }
+    }
+  };
+
+  // --- AUTOMATIC SYNCHRONIZATION ---
+  const syncWithLoop = useCallback(() => {
+    if (!currentCase || !loopDb || loopDb.length === 0) return;
+    
+    let hasChanges = false;
+    const nextResponses = { ...currentCase.responses };
+    
+    activeBackboneItems.forEach(item => {
+      if (item.linkedTaskId) {
+        let loopTask: any = null;
+        // Search inside opportunities if it's the JSON structure
+        for (const op of (loopDb as any[])) {
+           // 1. Check nested tasks (JSON format)
+           if (op.tasks && Array.isArray(op.tasks)) {
+              loopTask = op.tasks.find((t: any) => {
+                const searchId = item.linkedTaskId;
+                return String(t.id || '') === searchId || 
+                       String(t.Task_ID || '') === searchId ||
+                       String(t.TaskID || '') === searchId ||
+                       String(t.taskId || '') === searchId ||
+                       String(t._id || '') === searchId;
+              });
+              if (loopTask) break;
+           } 
+           
+           // 2. Check flat rows (Excel format)
+           const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || '');
+           if (opId === item.linkedTaskId) {
+              loopTask = op;
+              break;
+           }
+        }
+
+        if (loopTask) {
+           const rawStatus = (loopTask.status || loopTask.Status || loopTask.isDone || loopTask.completed || '').toString();
+           const loopStatus = rawStatus.trim().toUpperCase();
+           const currentResp = nextResponses[item.id];
+           
+           // SYNC LOGIC: Map many variations of success (Boolean 'true', '1', or Done strings)
+           const isDoneVariations = ['DONE', 'TERMINADO', 'COMPLETADO', 'COMPLETED', 'FINALIZADO', 'LISTO', 'TRUE', '1', 'FINISHED', 'CONCLUDED'];
+           const isDoneInLoop = isDoneVariations.includes(loopStatus) || loopTask.completed === true || loopTask.isDone === true;
+           
+           const targetStatus = isDoneInLoop ? 'answered' : 'not_started';
+           const targetValue = isDoneInLoop ? 'COMPLETED (LOOP)' : 'PENDING (LOOP)';
+
+           if (!currentResp || currentResp.status !== targetStatus || currentResp.value !== targetValue || !currentResp.isSynced) {
+              nextResponses[item.id] = {
+                ...(currentResp || { itemId: item.id, isFlagged: false, isLocked: false, note: '' }),
+                status: targetStatus,
+                value: targetValue,
+                isSynced: true,
+                updatedAt: new Date().toISOString()
+              };
+              hasChanges = true;
+           }
+        }
+      }
+    });
+
+    if (hasChanges && workspace) {
+       const nextCase = { ...currentCase, responses: nextResponses };
+       const updatedWs = { ...workspace, cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c) };
+       setWorkspace(updatedWs);
+       workspaceManager.markDirty(updatedWs);
+    }
+  }, [currentCase, loopDb, activeBackboneItems, workspace]);
+
+  // Trigger sync on Load/Change
+  useEffect(() => {
+    if (loopDb.length > 0) syncWithLoop();
+  }, [loopDb, activeCaseId]);
 
   // --- ACTIONS --- (Moved up to avoid TDZ)
   const handleSaveStandard = useCallback((data: { questions: StandardItem[], stages: any[], areas: any[] }) => {
@@ -232,7 +342,8 @@ export const FlowDashboard: React.FC = () => {
       'SYS_COMPANY': createRes('SYS_COMPANY', newCase.metadata.customer),
       'SYS_AMOUNT': createRes('SYS_AMOUNT', newCase.initialWizData.estimatedAmount),
       'SYS_ADDRESS': createRes('SYS_ADDRESS', newCase.initialWizData.customerAddress),
-      'SYS_DUEDATE': createRes('SYS_DUEDATE', newCase.initialWizData.dueDate)
+      'SYS_DUEDATE': createRes('SYS_DUEDATE', newCase.initialWizData.dueDate),
+      'SYS_SELLER': createRes('SYS_SELLER', newCase.initialWizData.sellerName)
     };
 
     const baseStage = { id: 'STG_INTAKE', name: 'Intake', order: 0, active: true };
@@ -378,47 +489,44 @@ export const FlowDashboard: React.FC = () => {
         ) : (
           <>
             <header style={{ padding: '1.5rem 2.5rem', borderBottom: '1px solid var(--te-border)', background: 'var(--te-bg-app)' }}>
-               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1.5rem', minWidth: 0 }}>
-                     <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                        <div style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-accent-500)', marginBottom: '0.2rem' }}>STRATEGIC PROJECT</div>
-                        <h2 style={{ fontSize: '1.8rem', fontWeight: 950, letterSpacing: '-0.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentCase.metadata.name}</h2>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', gap: '1.5rem', width: '100%' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0, flex: '1 1 auto' }}>
+                     <div style={{ minWidth: 'fit-content', flexShrink: 0 }}>
+                        <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--te-accent-500)', marginBottom: '0.1rem' }}>STRATEGIC PROJECT</div>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 950, letterSpacing: '-0.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentCase.metadata.name}</h2>
                      </div>
-                     <div className="te-search-bar" style={{ position: 'relative', width: '220px', flexShrink: 0 }}>
-                        <Search size={14} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                     <div className="te-search-bar" style={{ position: 'relative', width: '200px', flex: '0 1 200px', minWidth: '100px' }}>
+                        <Search size={14} style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
                         <input 
                           style={{ 
                             width: '100%', 
                             background: 'var(--te-bg-card-alt)', 
                             border: '1px solid var(--te-border)', 
                             borderRadius: '50px', 
-                            padding: '0.4rem 1rem 0.4rem 2.5rem', 
+                            padding: '0.35rem 0.8rem 0.35rem 2.2rem', 
                             outline: 'none', 
-                            fontSize: '0.85rem',
+                            fontSize: '0.75rem',
                             color: 'white' 
                           }} 
-                          placeholder="Search keywords..." 
+                          placeholder="Search..." 
                           value={searchQuery} 
                           onChange={e => setSearchQuery(e.target.value)} 
                         />
                      </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', background: 'var(--te-bg-card-alt)', padding: '4px', borderRadius: '12px', border: '1px solid var(--te-border)', marginRight: '0.5rem' }}>
-                       <button onClick={() => setViewMode('checklist')} className={`te-btn ${viewMode === 'checklist' ? 'te-btn-primary' : ''}`} style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: 900 }}>ROADMAP</button>
-                       <button onClick={() => setViewMode('map')} className={`te-btn ${viewMode === 'map' ? 'te-btn-primary' : ''}`} style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: 900 }}>FLOW</button>
-                       <button onClick={() => setViewMode('executive_map')} className={`te-btn ${viewMode === 'executive_map' ? 'te-btn-primary' : ''}`} style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', fontWeight: 900 }}>STRATEGIST</button>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', background: 'var(--te-bg-card-alt)', padding: '3px', borderRadius: '10px', border: '1px solid var(--te-border)', marginRight: '0.25rem' }}>
+                       <button onClick={() => setViewMode('checklist')} className={`te-btn ${viewMode === 'checklist' ? 'te-btn-primary' : ''}`} style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 950 }}>ROADMAP</button>
+                       <button onClick={() => setViewMode('map')} className={`te-btn ${viewMode === 'map' ? 'te-btn-primary' : ''}`} style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 950 }}>FLOW</button>
+                       <button onClick={() => setViewMode('executive_map')} className={`te-btn ${viewMode === 'executive_map' ? 'te-btn-primary' : ''}`} style={{ padding: '0.4rem 0.8rem', fontSize: '0.65rem', fontWeight: 950 }}>STRATEGIST</button>
                     </div>
                     
-                    <button onClick={handleExportExcelAction} className="te-btn te-btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 900 }}><FileSpreadsheet size={14} /> EXCEL</button>
-                    <button onClick={handleExportWordAction} className="te-btn te-btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 900 }}><FileText size={14} /> WORD</button>
-                    <label className="te-btn te-btn-outline" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 900 }}><FileUp size={14} /> IMPORT <input type="file" hidden accept=".xlsx" onChange={handleImportExcelAction} /></label>
-                    <button onClick={() => setHideCommon(!hideCommon)} className={`te-btn te-btn-outline ${hideCommon ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 900 }}>{hideCommon ? <EyeOff size={14} /> : <Eye size={14} />} COMMON</button>
-                    <button onClick={() => setIsAuditLogOpen(!isAuditLogOpen)} className={`te-btn te-btn-outline ${isAuditLogOpen ? 'active' : ''}`} style={{ padding: '8px', position: 'relative' }}>
-                        <Activity size={16} />
-                    </button>
-                    <button onClick={() => setIsEditMode(!isEditMode)} className={`te-btn te-btn-outline ${isEditMode ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', fontWeight: 900 }}>{isEditMode ? <Lock size={14} /> : <Unlock size={14} />} {isEditMode ? 'SAVE' : 'ENGINE'}</button>
-                    <button onClick={handleToggleTheme} className="te-btn te-btn-outline" style={{ padding: '8px' }}>{isDarkMode ? <Sun size={16} /> : <Moon size={16} />}</button>
+                    <button onClick={handleExportExcelAction} className="te-btn te-btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.65rem', fontWeight: 900 }}><FileSpreadsheet size={13} /> EXCEL</button>
+                    <button onClick={handleExportWordAction} className="te-btn te-btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.65rem', fontWeight: 900 }}><FileText size={13} /> WORD</button>
+                    <button onClick={() => setHideCommon(!hideCommon)} className={`te-btn te-btn-outline ${hideCommon ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.65rem', fontWeight: 900 }}>{hideCommon ? <EyeOff size={13} /> : <Eye size={13} />} COMMON</button>
+                    <button onClick={() => setShowActions(!showActions)} className={`te-btn te-btn-outline ${showActions ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.65rem', fontWeight: 900, border: showActions ? '1px solid var(--te-emerald-500)' : '1px solid var(--te-border)', color: showActions ? 'var(--te-emerald-500)' : 'inherit' }}>{showActions ? <Zap size={13} /> : <Zap size={13} style={{ opacity: 0.5 }} />} ACTIONS</button>
+                    <button onClick={() => setIsEditMode(!isEditMode)} className={`te-btn te-btn-outline ${isEditMode ? 'active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.65rem', fontWeight: 900 }}>{isEditMode ? <Lock size={13} /> : <Unlock size={13} />} {isEditMode ? 'SAVE' : 'ENGINE'}</button>
+                    <button onClick={handleToggleTheme} className="te-btn te-btn-outline" style={{ padding: '6px' }}>{isDarkMode ? <Sun size={14} /> : <Moon size={14} />}</button>
                   </div>
                </div>
 
@@ -479,7 +587,9 @@ export const FlowDashboard: React.FC = () => {
                {viewMode === 'checklist' && (
                  <div style={{ height: '100%', overflowY: 'auto', padding: '2rem 2.5rem' }}>
                     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                       {visibleItems.map(item => {
+                       {visibleItems
+                         .filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'))
+                         .map(item => {
                          const resp = currentCase.responses[item.id];
                          const { locked } = isItemLocked(item, currentCase.responses);
                          const currentStatus = evaluateStatus(resp);
@@ -516,7 +626,25 @@ export const FlowDashboard: React.FC = () => {
                                  {resp?.isFlagged && <div style={{ position: 'absolute', top: -10, right: -10, color: 'var(--te-rose-500)' }}><Flag size={12} fill="currentColor" /></div>}
                               </div>
                               <div style={{ flex: 1 }}>
-                                 <div style={{ fontSize: '0.7rem', color: locked ? '#64748b' : areaColor, fontWeight: 800 }}>{item.area.toUpperCase()} / {item.stage.toUpperCase()}</div>
+                                 <div style={{ fontSize: '0.7rem', color: locked ? '#64748b' : areaColor, fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <span>{item.area.toUpperCase()} / {item.stage.toUpperCase()}</span>
+                                    {resp?.isSynced && (
+                                       <span style={{ 
+                                         display: 'inline-flex', 
+                                         alignItems: 'center', 
+                                         gap: '3px', 
+                                         color: 'var(--te-emerald-500)', 
+                                         fontSize: '0.55rem', 
+                                         background: 'rgba(16, 185, 129, 0.1)', 
+                                         padding: '2px 6px', 
+                                         borderRadius: '4px',
+                                         fontWeight: 900,
+                                         letterSpacing: '0.05em'
+                                       }}>
+                                          <RefreshCw size={8} className="spin-slow" /> SYNCED
+                                       </span>
+                                    )}
+                                 </div>
                                  <h4 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, color: locked ? '#475569' : 'var(--te-text-main)' }}>{item.content}</h4>
                               </div>
                             </div>
@@ -587,7 +715,7 @@ export const FlowDashboard: React.FC = () => {
                            );
                         })}
                      </div>
-                 </div>
+                  </div>
                )}
             </div>
           </>
@@ -606,6 +734,12 @@ export const FlowDashboard: React.FC = () => {
               isEditMode={isEditMode} onEditModeToggle={() => setIsEditMode(!isEditMode)}
               onItemUpdate={handleUpdateStandardItem} onItemDelete={handleDeleteStandardItem} onItemDuplicate={handleDuplicateTask} availableAreas={activeBackboneAreas}
               availableStages={activeBackboneStages}
+              loopDb={loopDb}
+              dbName={loopDbName}
+              onLoopDbChange={(db, name) => {
+                setLoopDb(db);
+                setLoopDbName(name);
+              }}
             />
           </div>
         </>

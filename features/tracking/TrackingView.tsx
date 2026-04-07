@@ -119,7 +119,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
     const filteredOppsForSearch = useMemo(() => {
         if (!oppSearch) return [];
-        return opportunities.filter(o =>
+        return (opportunities || []).filter(o =>
             o.title.toLowerCase().includes(oppSearch.toLowerCase()) ||
             o.id.toLowerCase().includes(oppSearch.toLowerCase())
         ).slice(0, 5);
@@ -145,7 +145,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
             // 1. Tasks
             if (filters.itemTypes.includes('task')) {
-                opp.tasks.forEach(task => {
+                (opp.tasks || []).forEach(task => {
                     if (filters.taskStatuses.length > 0 && !filters.taskStatuses.includes(task.status)) return;
                     if (filters.taskPriorities.length > 0 && !filters.taskPriorities.includes(task.priority)) return;
                     if (filters.calendarizedFilter === 'calendarized' && !task.calendarized) return;
@@ -234,7 +234,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
         const items: TrackingWorkItem[] = [];
         opportunities.forEach(opp => {
             // 1. Tasks without dates
-            opp.tasks.forEach(task => {
+            (opp.tasks || []).forEach(task => {
                 if (!task.dueDate) {
                     items.push({
                         id: task.id,
@@ -250,7 +250,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                 }
             });
             // 2. Notes without dates
-            opp.notes.forEach(note => {
+            (opp.notes || []).forEach(note => {
                 if (!note.date) {
                     items.push({
                         id: note.id,
@@ -319,11 +319,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
 
         try {
             if (item.type === 'task') {
-                updatedOpp.tasks = updatedOpp.tasks.map(t => t.id === item.data.id ? { ...t, ...updates } : t);
+                updatedOpp.tasks = (updatedOpp.tasks || []).map(t => t.id === item.data.id ? { ...t, ...updates } : t);
             } else if (item.type === 'note') {
-                updatedOpp.notes = updatedOpp.notes.map(n => n.id === item.data.id ? { ...n, ...updates } : n);
+                updatedOpp.notes = (updatedOpp.notes || []).map(n => n.id === item.data.id ? { ...n, ...updates } : n);
             } else if (item.type === 'history') {
-                updatedOpp.history = updatedOpp.history.map(h => h.id === item.data.id ? { ...h, ...updates } : h);
+                updatedOpp.history = (updatedOpp.history || []).map(h => h.id === item.data.id ? { ...h, ...updates } : h);
             } else if (item.type === 'hours') {
                 if (!updatedOpp.kpis) return;
                 const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.area === item.data.area);
@@ -448,7 +448,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                             <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl z-[100] max-h-60 overflow-y-auto">
                                                 {opportunities
                                                     .filter(o => !filters.opportunityIds.includes(o.id))
-                                                    .filter(o => o.title.toLowerCase().includes(oppSearch.toLowerCase()) || o.id.toLowerCase().includes(oppSearch.toLowerCase()) || (o.customer || '').toLowerCase().includes(oppSearch.toLowerCase()))
+                                                    .filter(o => (o.title || '').toLowerCase().includes(oppSearch.toLowerCase()) || (o.id || '').toLowerCase().includes(oppSearch.toLowerCase()) || (o.customer || '').toLowerCase().includes(oppSearch.toLowerCase()))
                                                     .slice(0, 50)
                                                     .map(opp => (
                                                         <button

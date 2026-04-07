@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   X, 
   Lock, 
@@ -16,10 +16,15 @@ import {
   Trash2,
   GitBranch,
   CheckCircle2,
-  Plus
+  Plus,
+  Search,
+  RefreshCw
 } from 'lucide-react';
 import { StandardItem, ItemResponse, ResponseStatus, ItemType } from '../types';
 import { isItemLocked } from '../engine/evaluator';
+import { TaskMappingModal } from './TaskMappingModal';
+import { workspaceManager } from '../services/storage';
+import { parseLoopDatabase, parseLoopJsonDatabase } from '../services/excelParser';
 
 interface Props {
   item: StandardItem | null;
@@ -35,10 +40,13 @@ interface Props {
   onItemDuplicate?: (itemId: string) => void;
   availableAreas?: { id: string; name: string }[];
   availableStages?: { id: string; name: string }[];
+  loopDb?: any[];
+  dbName?: string | null;
+  onLoopDbChange?: (db: any[], name: string | null) => void;
 }
 
 /**
- * Panel Lateral Derecho - Detalle de Pregunta (Punto 18 del Checklist)
+ * Panel Lateral Derecho - Detalle de Pregunta
  */
 export const QuestionDetailPanel: React.FC<Props> = ({ 
   item, 
@@ -53,13 +61,67 @@ export const QuestionDetailPanel: React.FC<Props> = ({
   onItemDelete,
   onItemDuplicate,
   availableAreas = [],
-  availableStages = []
+  availableStages = [],
+  loopDb: propsLoopDb,
+  dbName: propsDbName,
+  onLoopDbChange
 }) => {
   if (!item) return null;
 
   const isManualLocked = response?.isLocked ?? false;
   const { locked: isLogicLocked, reasons } = isItemLocked(item, allResponses);
   const isLocked = isManualLocked || isLogicLocked;
+
+  const [showTaskMapper, setShowTaskMapper] = useState(false);
+  const [internalLoopDbName, setInternalLoopDbName] = useState<string | null>(localStorage.getItem('te_loop_db_name'));
+  const [internalLoopDb, setInternalLoopDb] = useState<any[]>(() => {
+    const cached = localStorage.getItem('te_loop_db_cache');
+    return cached ? JSON.parse(cached) : [];
+  });
+
+  const loopDb = propsLoopDb || internalLoopDb;
+  const loopDbName = propsDbName || internalLoopDbName;
+
+  const handleLoadLoopDb = async () => {
+    try {
+      const [handle] = await (window as any).showOpenFilePicker({
+        types: [
+          { description: 'Loop Database (JSON/Excel)', accept: { 'application/json': ['.json'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }
+        ]
+      });
+      const file = await handle.getFile();
+      let data: any[] = [];
+      
+      if (file.name.endsWith('.json')) {
+        const text = await file.text();
+        data = parseLoopJsonDatabase(text);
+      } else {
+        const buffer = await file.arrayBuffer();
+        data = parseLoopDatabase(buffer);
+      }
+      
+      if (onLoopDbChange) {
+         onLoopDbChange(data, handle.name);
+      } else {
+        setInternalLoopDb(data);
+        setInternalLoopDbName(handle.name);
+      }
+      
+      localStorage.setItem('te_loop_db_cache', JSON.stringify(data));
+      localStorage.setItem('te_loop_db_name', handle.name);
+      
+      await workspaceManager.setLoopDbHandle(handle);
+    } catch (e) {
+      console.error('Failed to load Loop DB', e);
+    }
+  };
+
+  React.useEffect(() => {
+    // Only used if not provided via props (standalone mode)
+    if (!propsLoopDb && internalLoopDb.length === 0) {
+       // Optional: could trigger a local auto-load here if needed
+    }
+  }, [propsLoopDb, internalLoopDb.length]);
 
   const handleUpdate = (updates: Partial<ItemResponse>) => {
     if (isLocked && !('isLocked' in updates)) return;
@@ -137,6 +199,47 @@ export const QuestionDetailPanel: React.FC<Props> = ({
               {opt}
             </button>
           ))}
+        </div>
+      );
+    }
+
+    if (item.itemType === 'action') {
+      const statuses = ['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'];
+      const currentValue = response?.value || 'Pending';
+      const isSynced = !!response?.isSynced;
+
+      return (
+        <div style={{ marginTop: '1rem' }}>
+          {isSynced && (
+            <div style={{ padding: '0.6rem 1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--te-emerald-500)', borderRadius: '10px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+               <RefreshCw size={14} color="var(--te-emerald-500)" className="spin-slow" />
+               <div>
+                  <div style={{ fontSize: '0.6rem', fontWeight: 950, color: 'var(--te-emerald-500)', textTransform: 'uppercase' }}>SYNCED WITH LOOP</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'white' }}>{currentValue.replace(' (LOOP)', '')}</div>
+               </div>
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', opacity: isSynced ? 0.6 : 1 }}>
+            {statuses.map(status => (
+              <button
+                key={status}
+                disabled={isLocked || isSynced}
+                onClick={() => handleUpdate({ value: status, status: status === 'Done' ? 'answered' : 'pending', isSynced: false })}
+                className={`te-btn ${currentValue.includes(status) ? 'te-btn-primary' : 'te-btn-outline'}`}
+                style={{ padding: '0.6rem 0.4rem', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase' }}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          {isSynced && (
+             <button 
+               onClick={() => handleUpdate({ isSynced: false })}
+               style={{ width: '100%', marginTop: '1rem', background: 'none', border: 'none', color: 'var(--te-text-muted)', fontSize: '0.65rem', textDecoration: 'underline', cursor: 'pointer', fontWeight: 900 }}
+             >
+                BREAK SYNC & MODIFY MANUALLY
+             </button>
+          )}
         </div>
       );
     }
@@ -298,10 +401,10 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                 style={{ width: '100%', padding: '0.8rem', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.86rem', fontWeight: 700 }}
               >
                 <option value="decision">Decision (Logic Branch)</option>
+                <option value="action">Action (Loop Task)</option>
                 <option value="boolean">Yes/No/NA</option>
                 <option value="link">Hyperlink Collection</option>
                 <option value="question">Open Response (Text)</option>
-                <option value="action">Action / Task</option>
               </select>
             </div>
             <div>
@@ -356,6 +459,49 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                 </label>
               </div>
             )}
+
+            {item.itemType === 'action' && (
+              <div style={{ marginTop: '0.5rem', padding: '1.25rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-emerald-500)', textTransform: 'uppercase', display: 'block', marginBottom: '0.8rem' }}>Loop Synchronization</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--te-text-main)', opacity: 0.8 }}>
+                    {item.linkedTaskId ? `Successfully linked to Task: ${item.linkedTaskId}` : 'Not currently linked to a Loop Task.'}
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setShowTaskMapper(true)}
+                    className="te-btn te-btn-outline" 
+                    style={{ fontSize: '0.65rem', padding: '10px', width: '100%', border: '1.5px solid var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.05)', color: 'var(--te-emerald-500)' }}
+                  >
+                    <Search size={14} style={{ marginRight: '6px' }} />
+                    {item.linkedTaskId ? 'CHANGE OR UNLINK TASK' : 'LINK LOOP TASK'}
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* ADD NEW ACTION BUTTON */}
+            <div style={{ marginTop: '2rem', borderTop: '1px solid var(--te-border)', paddingTop: '1.5rem' }}>
+               <button 
+                 onClick={() => {
+                   const newId = `ACT-${Date.now()}`;
+                   onItemUpdate(newId, { 
+                     id: newId, 
+                     content: 'New Strategic Action', 
+                     itemType: 'action', 
+                     area: item.area, 
+                     stage: item.stage, 
+                     active: true,
+                     priority: 'medium',
+                     order: item.order + 1
+                   });
+                   // Optionally trigger select of this new item if available in props
+                 }}
+                 style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', background: 'var(--te-emerald-500)', color: 'white', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontWeight: 950, fontSize: '0.75rem', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)' }}
+               >
+                 <Plus size={16} /> ADD NEW ACTION NODE
+               </button>
+            </div>
           </div>
         ) : (
           <>
@@ -441,24 +587,39 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                            const target = allItems.find(it => it.id === rule.targetId);
                            const hasOptions = (target?.allowedValues && target.allowedValues.length > 0) || target?.itemType === 'decision' || target?.responseType === 'boolean';
                            
-                           if (hasOptions) {
+                            if (hasOptions) {
                              const opts = (target?.allowedValues && target.allowedValues.length > 0) 
                                ? target.allowedValues 
-                               : (target?.itemType === 'boolean' || target?.responseType === 'boolean' ? ['Yes', 'No', 'N/A'] : ['TBD']);
+                               : (target?.itemType === 'boolean' || target?.responseType === 'boolean' ? ['Yes', 'No', 'N/A'] : (target?.itemType === 'action' ? ['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'] : ['TBD']));
                              
+                             const currentValArray = Array.isArray(rule.value) ? rule.value : (rule.value ? [rule.value] : []);
+
                              return (
-                               <select 
-                                 value={String(rule.value)}
-                                 onChange={(e) => {
-                                   const newRules = [...(item.dependencyRules || [])];
-                                   newRules[idx] = { ...rule, value: e.target.value };
-                                   onItemUpdate(item.id, { dependencyRules: newRules });
-                                 }}
-                                 style={{ background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '4px', fontSize: '0.75rem', flex: 1, padding: '4px' }}
-                               >
-                                  <option value="">Select Value...</option>
-                                  {opts.map(v => <option key={v} value={v}>{v}</option>)}
-                               </select>
+                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', flex: 1, background: 'var(--te-bg-card-alt)', padding: '4px', borderRadius: '4px', border: '1px solid var(--te-border)' }}>
+                                 {opts.map(v => (
+                                   <button 
+                                     key={v}
+                                     onClick={() => {
+                                       const newRules = [...(item.dependencyRules || [])];
+                                       const exists = currentValArray.includes(v);
+                                       const newVal = exists ? currentValArray.filter(i => i !== v) : [...currentValArray, v];
+                                       newRules[idx] = { ...rule, value: newVal.length === 1 ? newVal[0] : newVal };
+                                       onItemUpdate(item.id, { dependencyRules: newRules });
+                                     }}
+                                     style={{ 
+                                       fontSize: '9px', 
+                                       padding: '2px 6px', 
+                                       borderRadius: '3px', 
+                                       border: 'none',
+                                       background: currentValArray.includes(v) ? 'var(--te-accent-500)' : 'rgba(255,255,255,0.05)',
+                                       color: 'white',
+                                       cursor: 'pointer'
+                                     }}
+                                   >
+                                     {v}
+                                   </button>
+                                 ))}
+                               </div>
                              );
                            }
                            
@@ -507,6 +668,23 @@ export const QuestionDetailPanel: React.FC<Props> = ({
            </button>
         )}
       </div>
+      
+      {showTaskMapper && (
+        <TaskMappingModal 
+          loopDb={loopDb}
+          dbName={loopDbName}
+          currentOpId={localStorage.getItem('te_active_op_id') || null}
+          onSelectTask={(taskId) => {
+             onItemUpdate(item.id, { linkedTaskId: taskId });
+             setShowTaskMapper(false);
+          }}
+          onUpdateOpId={(id) => {
+             localStorage.setItem('te_active_op_id', id);
+          }}
+          onLoadDb={handleLoadLoopDb}
+          onClose={() => setShowTaskMapper(false)}
+        />
+      )}
     </div>
   );
 };

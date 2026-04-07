@@ -188,5 +188,18 @@ export const getSystemItems = (): any[] => [
     mandatory: false,
     priority: 'high',
     order: -95
+  },
+  {
+    id: 'SYS_SELLER',
+    active: true,
+    area: 'General',
+    stage: 'Intake',
+    itemType: 'question',
+    content: 'Seller (CSE)',
+    description: 'Commercial owner accountable for the opportunity.',
+    responseType: 'text',
+    mandatory: false,
+    priority: 'high',
+    order: -94
   }
 ];

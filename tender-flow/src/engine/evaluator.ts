@@ -17,6 +17,9 @@ export const checkDependency = (
 
   switch (rule.operator) {
     case 'equals':
+      if (Array.isArray(rule.value)) {
+        return rule.value.includes(value);
+      }
       return value === rule.value;
     case 'not_equals':
       return value !== rule.value;

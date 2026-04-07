@@ -52,30 +52,33 @@ export const ChecklistWizard: React.FC<Props> = ({ existingCases, onCancel, onCo
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
 
-  const handleFileBrowse = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setDbName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result;
-        let rows: any[] = [];
-        if (file.name.endsWith('.json')) {
-           const json = JSON.parse(content as string);
-           rows = Array.isArray(json) ? json : (json.opportunities || json.data || []);
-        } else {
-           const buffer = content as ArrayBuffer;
-           const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
-           rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-        }
-        setWorkbookData(rows);
-        localStorage.setItem('te_loop_db_cache', JSON.stringify(rows.slice(0, 500)));
-        localStorage.setItem('te_loop_db_name', file.name);
-      } catch (err) { setError("Parse error."); }
-    };
-    if (file.name.endsWith('.json')) reader.readAsText(file);
-    else reader.readAsArrayBuffer(file);
+  const handleFileBrowse = async () => {
+    try {
+      const [handle] = await (window as any).showOpenFilePicker({
+        types: [{ description: 'Strategy DB (Loop)', accept: { 'application/json': ['.json'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
+      });
+      
+      const { workspaceManager } = require('../services/storage');
+      await workspaceManager.setLoopDbHandle(handle);
+
+      const file = await handle.getFile();
+      setDbName(file.name);
+      
+      if (file.name.endsWith('.json')) {
+         const content = await file.text();
+         const json = JSON.parse(content);
+         const rows = Array.isArray(json) ? json : (json.opportunities || json.data || []);
+         setWorkbookData(rows);
+         localStorage.setItem('te_loop_db_cache', JSON.stringify(rows.slice(0, 500)));
+      } else {
+         const buffer = await file.arrayBuffer();
+         const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+         const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+         setWorkbookData(rows);
+         localStorage.setItem('te_loop_db_cache', JSON.stringify(rows.slice(0, 500)));
+      }
+      localStorage.setItem('te_loop_db_name', file.name);
+    } catch (err) { console.error(err); setError("Access denied or parse error."); }
   };
 
   const handleExcelBackboneImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,8 +189,7 @@ export const ChecklistWizard: React.FC<Props> = ({ existingCases, onCancel, onCo
                  <label style={labelStyle}>Loop DB Source</label>
                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
                     <input style={{ ...inputStyle, marginBottom: 0 }} readOnly value={dbName} />
-                    <button onClick={() => fileInputRef.current?.click()} className="te-btn te-btn-outline">BROWSE</button>
-                    <input type="file" ref={fileInputRef} hidden accept=".json,.xlsx,.xls,.csv" onChange={handleFileBrowse} />
+                    <button type="button" onClick={handleFileBrowse} className="te-btn te-btn-outline">BROWSE</button>
                  </div>
                  <div style={{ display: 'flex', gap: '1rem' }}>
                     <button onClick={() => setStep(2)} className="te-btn te-btn-primary" style={{ flex: 1, padding: '1.25rem' }}>START ONBOARDING</button>

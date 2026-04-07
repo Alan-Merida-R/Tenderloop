@@ -116,13 +116,13 @@ export const OpportunitySearchInput: React.FC<Props> = ({
 
                 const versionSRs = (o.versions || []).map(v => v.srId || '').filter(Boolean);
                 return (
-                    o.title.toLowerCase().includes(lower) ||
-                    o.id.toLowerCase().includes(lower) ||
-                    o.customer.toLowerCase().includes(lower) ||
+                    (o.title || '').toLowerCase().includes(lower) ||
+                    (o.id || '').toLowerCase().includes(lower) ||
+                    (o.customer || '').toLowerCase().includes(lower) ||
                     (o.srId || '').toLowerCase().includes(lower) ||
                     versionSRs.some(v => v.toLowerCase().includes(lower)) ||
                     (o.alias || '').toLowerCase().includes(lower) ||
-                    (o.labels || []).some(l => l.text.toLowerCase().includes(lower))
+                    (o.labels || []).some(l => (l.text || '').toLowerCase().includes(lower))
                 );
             })
             .slice(0, 50); // Increased limit
