@@ -1,4 +1,5 @@
 import { ExecutiveFlowCase, StandardItem, TenderFlowWorkspace, WorkspaceStatus, RecentDB } from '../types';
+import { MOCK_STANDARD } from '../engine/mockStandard';
 
 /**
  * STRATEGIC WORKSPACE ENGINE v5.0 - FILE SYSTEM FIRST
@@ -33,15 +34,20 @@ const getDB = (): Promise<IDBDatabase> => {
 let currentFileHandle: any = null;
 
 const verifyPermission = async (handle: any, readWrite: boolean) => {
-  const options: any = {};
-  if (readWrite) options.mode = 'readwrite';
-  if ((await handle.queryPermission(options)) === 'granted') return true;
-  if ((await handle.requestPermission(options)) === 'granted') return true;
+  try {
+    const options: any = {};
+    if (readWrite) options.mode = 'readwrite';
+    if ((await handle.queryPermission(options)) === 'granted') return true;
+    if ((await handle.requestPermission(options)) === 'granted') return true;
+  } catch (e) {
+    console.warn('Silent permission failure', e);
+  }
   return false;
 };
 
 // --- MIGRATION & VALIDATION ---
 export const validateWorkspace = (data: any): { isValid: boolean; error?: string } => {
+  if (!data) return { isValid: false, error: 'Empty file' };
   if (!data.metadata || !data.metadata.id) return { isValid: false, error: 'Missing metadata.id' };
   if (!data.standard) return { isValid: false, error: 'Missing standard backbone' };
   if (!Array.isArray(data.cases)) return { isValid: false, error: 'Cases must be an array' };
@@ -95,6 +101,8 @@ export class WorkspaceManager {
   setCallbacks(onStatus: (s: WorkspaceStatus) => void, onWS: (ws: TenderFlowWorkspace) => void) {
     this.onStatusChange = onStatus;
     this.onWorkspaceChange = onWS;
+    // Immediate callback if already loaded
+    if (this.currentWorkspace) onWS(this.currentWorkspace);
   }
 
   getStatus() { return this.status; }
@@ -115,8 +123,6 @@ export class WorkspaceManager {
         types: [{ description: 'JSON File', accept: { 'application/json': ['.json'] } }]
       });
       
-      const { MOCK_STANDARD } = require('../engine/mockStandard');
-
       const newWS: TenderFlowWorkspace = {
         metadata: {
           id: `WS-${Date.now()}`,
@@ -147,9 +153,13 @@ export class WorkspaceManager {
       this.currentWorkspace = newWS;
       await this.persistHandle(handle);
       this.updateStatus('Synced');
-      this.onWorkspaceChange?.(newWS);
+      
+      if (this.onWorkspaceChange) {
+        this.onWorkspaceChange(newWS);
+      }
     } catch (e) {
       console.error('Error creating new DB', e);
+      alert('Error creating workspace file. Check browser permissions.');
     }
   }
 
@@ -177,6 +187,7 @@ export class WorkspaceManager {
       this.onWorkspaceChange?.(migrated);
     } catch (e) {
       console.error('Error opening DB', e);
+      alert('Error opening workspace file.');
     }
   }
 

@@ -104,8 +104,20 @@ export const FlowDashboard: React.FC = () => {
 
   // --- STARTUP ---
   useEffect(() => {
-    workspaceManager.setCallbacks((s) => setWsStatus(s), (ws) => setWorkspace(ws));
-    workspaceManager.tryAutoReopen();
+    // Suscribirse antes de re-abrir
+    workspaceManager.setCallbacks(
+      (s) => setWsStatus(s),
+      (ws) => setWorkspace(ws)
+    );
+    
+    // Forzar lectura inicial si ya existe en memoria el workspace
+    const initialWS = workspaceManager.getWorkspace();
+    if (initialWS) {
+       setWorkspace(initialWS);
+    } else {
+       workspaceManager.tryAutoReopen();
+    }
+    
     handleAutoLoadLoopDb();
   }, []);
 
@@ -372,10 +384,8 @@ export const FlowDashboard: React.FC = () => {
     reader.onload = (event) => {
       try {
         const buffer = event.target?.result as ArrayBuffer;
-        const { parseExcelSheet } = require('../services/excelParser');
         const structure = parseExcelSheet(buffer);
-        // Assuming wizard state management is handled via context or props
-        // setExcelBackbone(structure);
+        // ... rest of logic
       } catch (err) {
         alert("Failed to parse Excel Backbone.");
       }
