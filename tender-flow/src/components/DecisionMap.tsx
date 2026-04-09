@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, memo } from 'react';
 import { 
   ReactFlow, 
   Background, 
@@ -20,7 +20,10 @@ import {
   OnConnect,
   Node,
   Edge,
-  MarkerType
+  MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
+  SelectionMode
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { StandardItem, ItemResponse, DependencyRule } from '../types';
@@ -45,62 +48,7 @@ import {
 } from 'lucide-react';
 import { isItemLocked } from '../engine/evaluator';
 
-// --- Custom Edge ---
-
-const LabeledEdge: React.FC<EdgeProps> = ({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  data,
-  style,
-  markerEnd,
-}) => {
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-  }) as any;
-
-  return (
-    <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
-      <EdgeLabelRenderer>
-        <div
-          style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-            pointerEvents: 'all',
-          }}
-          className="nodrag nopan"
-        >
-          {data?.label && (
-            <div style={{ 
-              padding: '2px 8px', 
-              borderRadius: '12px', 
-              background: 'white', 
-              border: '1px solid var(--te-border)',
-              fontSize: '0.65rem',
-              fontWeight: 900,
-              color: 'var(--te-primary-900)',
-              cursor: 'pointer'
-            }}>
-              {data.label}
-            </div>
-          )}
-        </div>
-      </EdgeLabelRenderer>
-    </>
-  );
-};
-
-// --- Custom Nodes ---
+// --- Memoized Custom Nodes ---
 
 const NodeCardStyle = {
   padding: '1.25rem',
@@ -114,7 +62,8 @@ const NodeCardStyle = {
   transition: 'all 0.3s ease'
 };
 
-const StandardNode: React.FC<NodeProps> = ({ data }) => {
+const StandardNode = memo(({ data: _data }: NodeProps) => {
+  const data = _data as any;
   const isAnswered = data.isAnswered;
   const areaColor = data.areaColor || 'var(--te-accent-500)';
   const isLocked = data.isLocked;
@@ -154,9 +103,10 @@ const StandardNode: React.FC<NodeProps> = ({ data }) => {
       <Handle type="source" position={Position.Bottom} />
     </div>
   );
-};
+});
 
-const DecisionNode: React.FC<NodeProps> = ({ data }) => {
+const DecisionNode = memo(({ data: _data }: NodeProps) => {
+  const data = _data as any;
   const isAnswered = data.isAnswered;
   const isLocked = data.isLocked;
   const areaColor = data.areaColor || 'var(--te-accent-500)';
@@ -213,9 +163,9 @@ const DecisionNode: React.FC<NodeProps> = ({ data }) => {
       <Handle type="source" position={Position.Right} id="yes" style={{ background: 'var(--te-emerald-500)', width: 10, height: 10 }} />
     </div>
   );
-};
+});
 
-const EndNode: React.FC<NodeProps> = ({ data }) => {
+const EndNode = memo(({ data }: NodeProps) => {
   return (
     <div style={{
       width: '80px',
@@ -235,32 +185,40 @@ const EndNode: React.FC<NodeProps> = ({ data }) => {
        END
     </div>
   );
-};
+});
 
-const ActionNode: React.FC<NodeProps> = ({ data }) => {
+const ActionNode = memo(({ data: _data }: NodeProps) => {
+  const data = _data as any;
   const isDone = data.isAnswered;
+  const isLocked = data.isLocked;
   const areaColor = data.areaColor || 'var(--te-emerald-500)';
   
   return (
     <div style={{
       ...NodeCardStyle,
-      background: isDone ? 'rgba(16, 185, 129, 0.1)' : 'var(--te-bg-card)',
-      border: `2px ${isDone ? 'solid' : 'dashed'} ${areaColor}`,
+      background: isDone ? 'rgba(16, 185, 129, 0.05)' : (isLocked ? 'rgba(0,0,0,0.3)' : 'var(--te-bg-card)'),
+      border: `2px ${isDone ? 'solid' : (isLocked ? 'solid' : 'dashed')} ${isLocked ? '#475569' : areaColor}`,
       borderRadius: '12px',
       minWidth: '200px',
-      boxShadow: isDone ? `0 0 15px ${areaColor}44` : 'var(--te-shadow-sm)'
+      boxShadow: isDone ? `0 0 15px ${areaColor}44` : 'var(--te-shadow-sm)',
+      color: isLocked ? '#64748b' : 'var(--te-text-main)',
+      opacity: isLocked ? 0.6 : 1
     }}>
       <Handle type="target" position={Position.Top} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Zap size={14} color={areaColor} />
-            <span style={{ fontSize: '0.6rem', fontWeight: 950, textTransform: 'uppercase', color: areaColor }}>ACTION NODE</span>
+            {isLocked ? (
+               <LockIcon size={12} color="#64748b" />
+            ) : (
+               <Zap size={14} color={areaColor} />
+            )}
+            <span style={{ fontSize: '0.6rem', fontWeight: 950, textTransform: 'uppercase', color: isLocked ? '#64748b' : areaColor }}>ACTION NODE</span>
          </div>
          {isDone && <CheckCircle2 size={14} color={areaColor} />}
       </div>
-      <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{data.label}</div>
-      <div style={{ marginTop: '0.4rem', fontSize: '0.65rem', color: isDone ? areaColor : 'var(--te-text-muted)', fontWeight: 800 }}>
-        STATUS: {data.value || 'Pending'}
+      <div style={{ fontWeight: 800, fontSize: '0.85rem', opacity: isLocked ? 0.6 : 1 }}>{data.label}</div>
+      <div style={{ marginTop: '0.4rem', fontSize: '0.65rem', color: isLocked ? '#64748b' : (isDone ? areaColor : 'var(--te-text-muted)'), fontWeight: 800 }}>
+        STATUS: {isLocked ? 'BLOCKED' : (data.value || 'Pending')}
       </div>
       {data.isEditMode && (
         <button onClick={(e) => data.onDelete(data.id, e)} style={{ position: 'absolute', top: '-10px', right: '-10px', background: 'var(--te-rose-500)', color: 'white', border: 'none', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
@@ -270,13 +228,95 @@ const ActionNode: React.FC<NodeProps> = ({ data }) => {
       <Handle type="source" position={Position.Bottom} />
     </div>
   );
-};
+});
+
+const LinkNode = memo(({ data }: NodeProps) => {
+  const isAnswered = data.isAnswered;
+  const areaColor = data.areaColor || 'var(--te-accent-500)';
+  const isLocked = data.isLocked;
+  
+  return (
+    <div style={{
+      ...NodeCardStyle,
+      background: isAnswered ? 'rgba(59, 130, 246, 0.1)' : (isLocked ? 'rgba(0,0,0,0.3)' : 'var(--te-bg-card)'),
+      border: `2px solid ${isLocked ? '#475569' : 'var(--te-accent-500)'}`,
+      borderLeft: `6px solid ${isLocked ? '#475569' : 'var(--te-accent-500)'}`,
+      borderRadius: '12px',
+      color: isLocked ? '#64748b' : 'var(--te-text-main)',
+      opacity: isLocked ? 0.7 : 1
+    }}>
+      <Handle type="target" position={Position.Top} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {isLocked ? <LockIcon size={12} color="#64748b" /> : <LinkIcon size={14} color="var(--te-accent-400)" />}
+            <span style={{ fontSize: '0.6rem', fontWeight: 950, textTransform: 'uppercase', color: isLocked ? '#64748b' : 'var(--te-accent-400)' }}>RESOURCE LINK</span>
+         </div>
+      </div>
+      <div style={{ fontWeight: 800, fontSize: '0.9rem', color: isLocked ? '#64748b' : 'var(--te-accent-400)', textDecoration: isLocked ? 'none' : 'underline' }}>{data.label}</div>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+});
 
 const nodeTypes = {
   question: StandardNode,
   decision: DecisionNode,
   action: ActionNode,
+  link: LinkNode,
   end: EndNode
+};
+
+const LabeledEdge: React.FC<EdgeProps> = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+  style,
+  markerEnd,
+}) => {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  }) as any;
+
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+          }}
+          className="nodrag nopan"
+        >
+          {data?.label && (
+            <div style={{ 
+              padding: '2px 8px', 
+              borderRadius: '12px', 
+              background: 'white', 
+              border: '1px solid var(--te-border)',
+              fontSize: '0.65rem',
+              fontWeight: 900,
+              color: 'var(--te-primary-900)',
+              cursor: 'pointer'
+            }}>
+              {data.label}
+            </div>
+          )}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
 };
 
 const edgeTypes = {
@@ -298,7 +338,7 @@ interface Props {
   onDeleteNode?: (id: string) => void;
 }
 
-export const DecisionMap: React.FC<Props> = ({ 
+const MapContent: React.FC<Props> = ({ 
   items, 
   allItems, 
   responses, 
@@ -312,8 +352,12 @@ export const DecisionMap: React.FC<Props> = ({
   onUpdateDependency,
   onDeleteNode
 }) => {
+  const { getViewport } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [clipboard, setClipboard] = useState<Node[]>([]);
+  const [history, setHistory] = useState<StandardItem[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const internalDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -330,7 +374,7 @@ export const DecisionMap: React.FC<Props> = ({
 
       return {
         id: item.id,
-        type: item.itemType === 'decision' ? 'decision' : (item.itemType === 'end' ? 'end' : (item.itemType === 'action' ? 'action' : 'question')),
+        type: item.itemType === 'decision' ? 'decision' : (item.itemType === 'end' ? 'end' : (item.itemType === 'action' ? 'action' : (item.itemType === 'link' ? 'link' : 'question'))),
         position: item.visualPosition || { x: idx * 280, y: (stagesList.indexOf(item.stage) || 0) * 450 },
         data: { 
           id: item.id,
@@ -369,16 +413,126 @@ export const DecisionMap: React.FC<Props> = ({
     setEdges(initialEdges);
   }, [items, responses, stagesList, areas, allItems, isEditMode]);
 
-  const onNodesChange: OnNodesChange = (changes) => setNodes((nds) => applyNodeChanges(changes, nds));
-  const onEdgesChange: OnEdgesChange = (changes) => setEdges((eds) => applyEdgeChanges(changes, eds));
+  const onNodesChange: OnNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange: OnEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
 
-  const onNodeDragStop = (event: any, node: Node) => {
+  const saveWithHistory = useCallback((newQuestions: StandardItem[]) => {
+    // Add current to history
+    const nextHistory = history.slice(0, historyIndex + 1);
+    nextHistory.push(newQuestions);
+    if (nextHistory.length > 50) nextHistory.shift();
+    
+    setHistory(nextHistory);
+    setHistoryIndex(nextHistory.length - 1);
+    
+    onSaveStandard?.({ questions: newQuestions, stages: stagesData || [], areas: areas || [] });
+  }, [history, historyIndex, onSaveStandard, stagesData, areas]);
+
+  const undo = useCallback(() => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1];
+      setHistoryIndex(historyIndex - 1);
+      onSaveStandard?.({ questions: prev, stages: stagesData || [], areas: areas || [] });
+    }
+  }, [history, historyIndex, onSaveStandard, stagesData, areas]);
+
+  const redo = useCallback(() => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1];
+      setHistoryIndex(historyIndex + 1);
+      onSaveStandard?.({ questions: next, stages: stagesData || [], areas: areas || [] });
+    }
+  }, [history, historyIndex, onSaveStandard, stagesData, areas]);
+
+  // Initial history record
+  useEffect(() => {
+    if (history.length === 0 && allItems.length > 0) {
+      setHistory([allItems]);
+      setHistoryIndex(0);
+    }
+  }, [allItems]);
+
+  const onNodeDragStop = (event: any, draggedNode: Node) => {
     if (!onSaveStandard) return;
-    const updatedItems = allItems.map(item => 
-      item.id === node.id ? { ...item, visualPosition: node.position } : item
-    );
-    onSaveStandard({ questions: updatedItems, stages: stagesData || [], areas: areas || [] });
+    
+    // Find all nodes that changed position (selected ones)
+    const selectedNodes = nodes.filter(n => n.selected);
+    const updatedItems = allItems.map(item => {
+      const movedNode = selectedNodes.find(n => n.id === item.id);
+      if (movedNode) {
+        return { ...item, visualPosition: movedNode.position };
+      }
+      return item;
+    });
+    
+    saveWithHistory(updatedItems);
   };
+
+  const copySelection = useCallback(() => {
+    const selected = nodes.filter(n => n.selected);
+    if (selected.length > 0) {
+      setClipboard(selected);
+      console.log(`[CLIPBOARD] Copied ${selected.length} items.`);
+    }
+  }, [nodes]);
+
+  const pasteSelection = useCallback(() => {
+     if (clipboard.length === 0) return;
+     
+     const newItems: StandardItem[] = [...allItems];
+     const offset = 50;
+     const idMap: Record<string, string> = {};
+
+     // Create new items for each clipped node
+     clipboard.forEach(clipNode => {
+        const originalItem = allItems.find(i => i.id === clipNode.id);
+        if (!originalItem) return;
+
+        const newId = `Q_${newItems.length + 1}_${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+        idMap[clipNode.id] = newId;
+
+        const newItem: StandardItem = {
+          ...originalItem,
+          id: newId,
+          content: `${originalItem.content} (Copy)`,
+          visualPosition: { 
+            x: clipNode.position.x + offset, 
+            y: clipNode.position.y + offset 
+          }
+        };
+        newItems.push(newItem);
+     });
+
+     // Re-link dependencies ONLY if the target was also in the clipboard
+     newItems.forEach(item => {
+       if (idMap[item.id]) { // This is one of the newly pasted items
+         if (item.dependencyRules) {
+           item.dependencyRules = item.dependencyRules.filter(rule => {
+             // Keep if target is also in the pasted set
+             return idMap[rule.targetId] !== undefined;
+           }).map(rule => {
+             return { ...rule, targetId: idMap[rule.targetId] };
+           });
+         }
+       }
+     });
+
+     saveWithHistory(newItems);
+  }, [clipboard, allItems, saveWithHistory]);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!isEditMode) return;
+      if ((e.ctrlKey || e.metaKey)) {
+        if (e.key === 'c') copySelection();
+        if (e.key === 'v') pasteSelection();
+        if (e.key === 'z') undo();
+        if (e.key === 'y') redo();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isEditMode, copySelection, pasteSelection]);
 
   const onConnect: OnConnect = (params) => {
      if (isEditMode && params.source && params.target) {
@@ -389,6 +543,12 @@ export const DecisionMap: React.FC<Props> = ({
   const addNewQuestion = (type: 'question' | 'decision' | 'end' | 'action') => {
     if (!onSaveStandard) return;
     const newId = `Q_${allItems.length + 1}_${Date.now().toString().slice(-4)}`;
+    
+    // Position in current center of viewport
+    const { x, y, zoom } = getViewport();
+    const centerX = -x / zoom + (window.innerWidth / 2) / zoom - 100;
+    const centerY = -y / zoom + (window.innerHeight / 2) / zoom - 50;
+
     const newQ: StandardItem = {
       id: newId,
       active: true,
@@ -396,7 +556,7 @@ export const DecisionMap: React.FC<Props> = ({
       area: areas[0]?.name || 'Initial Intake', 
       priority: 'medium',
       itemType: type,
-      content: type === 'end' ? 'Flow End' : 'New Decision Point',
+      content: type === 'end' ? 'Flow End' : (type === 'action' ? 'New Action Point' : 'New Decision Point'),
       responseType: type === 'decision' ? 'any' : 'boolean',
       allowedValues: type === 'decision' ? ['Option A', 'Option B', 'TBD'] : [],
       mandatory: false,
@@ -404,9 +564,9 @@ export const DecisionMap: React.FC<Props> = ({
       order: allItems.length,
       logicString: '',
       deliverableTarget: [],
-      visualPosition: { x: Math.random() * 500, y: Math.random() * 500 }
+      visualPosition: { x: centerX, y: centerY }
     };
-    onSaveStandard({ questions: [...allItems, newQ], stages: stagesData || [], areas: areas || [] });
+    saveWithHistory([...allItems, newQ]);
   };
 
   return (
@@ -423,7 +583,11 @@ export const DecisionMap: React.FC<Props> = ({
         onNodeClick={(_, node) => onNodeClick?.(node.id)}
         fitView
         minZoom={0.05}
+        maxZoom={4}
         connectionMode="loose"
+        panOnDrag={true}
+        selectionOnDrag={false}
+        selectionMode={SelectionMode.Partial}
       >
         <Background color="rgba(255,255,255,0.05)" />
         <Controls 
@@ -435,6 +599,14 @@ export const DecisionMap: React.FC<Props> = ({
            }} 
         />
         
+        <MiniMap 
+          style={{ height: 120, width: 220, background: 'rgba(10,15,25,0.85)', borderRadius: '12px', border: '1px solid var(--te-border)', borderBottom: '4px solid var(--te-accent-500)' }} 
+          nodeColor={(n) => (n.data as any).areaColor || '#3b82f6'}
+          maskColor="rgba(0,0,0,0.3)"
+          zoomable
+          pannable
+        />
+
         {isEditMode && (
           <Panel position="top-left">
             <div style={{ 
@@ -483,3 +655,9 @@ export const DecisionMap: React.FC<Props> = ({
     </div>
   );
 };
+
+export const DecisionMap: React.FC<Props> = (props) => (
+  <ReactFlowProvider>
+    <MapContent {...props} />
+  </ReactFlowProvider>
+);

@@ -208,25 +208,25 @@ export const StructureEditor: React.FC<Props> = ({
                                    </div>
                                    <div>
                                       <label style={labelStyle}>Question Type</label>
-                                      <select style={inputStyle} value={q.itemType} onChange={(e) => handleUpdateQuestion(q.id, { itemType: e.target.value as any })}>
-                                         <option value="decision">Decision (Logic Branch)</option>
-                                         <option value="boolean">Yes/No/NA</option>
-                                         <option value="link">Hyperlink Collection</option>
-                                         <option value="question">Open Response (Text)</option>
-                                         <option value="action">Action / Task</option>
+                                      <select style={{ ...inputStyle, color: 'white', backgroundColor: 'var(--te-primary-700)' }} value={q.itemType} onChange={(e) => handleUpdateQuestion(q.id, { itemType: e.target.value as any })}>
+                                         <option value="decision" style={{ color: 'black' }}>Decision (Logic Branch)</option>
+                                         <option value="boolean" style={{ color: 'black' }}>Yes/No/NA</option>
+                                         <option value="link" style={{ color: 'black' }}>Hyperlink Collection</option>
+                                         <option value="question" style={{ color: 'black' }}>Open Response (Text)</option>
+                                         <option value="action" style={{ color: 'black' }}>Action / Task</option>
                                       </select>
                                    </div>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
                                    <div>
                                      <label style={labelStyle}>Operative Stage</label>
-                                     <select style={inputStyle} value={q.stage} onChange={(e) => handleUpdateQuestion(q.id, { stage: e.target.value })}>
+                                     <select style={{ ...inputStyle, color: "white", backgroundColor: "var(--te-primary-700)" }} value={q.stage} onChange={(e) => handleUpdateQuestion(q.id, { stage: e.target.value })}>
                                        {stages.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                                      </select>
                                    </div>
                                    <div>
                                       <label style={labelStyle}>Functional Owner</label>
-                                      <select style={inputStyle} value={q.area} onChange={(e) => handleUpdateQuestion(q.id, { area: e.target.value })}>
+                                      <select style={{ ...inputStyle, color: "white", backgroundColor: "var(--te-primary-700)" }} value={q.area} onChange={(e) => handleUpdateQuestion(q.id, { area: e.target.value })}>
                                          {areas.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
                                       </select>
                                    </div>
@@ -289,28 +289,57 @@ export const StructureEditor: React.FC<Props> = ({
                                    </label>
                                    <p style={{ fontSize: '11px', color: 'var(--te-text-muted)', marginBottom: '1.5rem', lineHeight: '1.4' }}>Define which previous milestones unlock this investigation point.</p>
                                    
-                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
-                                      {(q.dependencyRules || []).map((rule, ridx) => {
-                                         const target = questions.find(x => x.id === rule.targetId);
-                                         return (
-                                            <div key={ridx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--te-bg-card)', padding: '0.85rem 1.25rem', borderRadius: '12px', border: '1px solid var(--te-border)' }}>
-                                               <div style={{ flex: 1 }}>
-                                                  <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'white' }}>{target?.content || rule.targetId}</div>
-                                                  <div style={{ fontSize: '0.65rem', color: 'var(--te-accent-500)', fontWeight: 800 }}>REQUIRES: {rule.operator === 'any_value' ? 'ANY VALID RESPONSE' : `MUST EQUAL "${rule.value}"`}</div>
-                                               </div>
-                                               <button 
-                                                  onClick={() => {
-                                                     const newRules = (q.dependencyRules || []).filter((_, i) => i !== ridx);
-                                                     handleUpdateQuestion(q.id, { dependencyRules: newRules });
-                                                  }}
-                                                  style={{ background: 'transparent', border: 'none', color: 'var(--te-rose-500)', cursor: 'pointer' }}
-                                               >
-                                                  <X size={16} />
-                                               </button>
-                                            </div>
-                                         );
-                                      })}
-                                   </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
+                                       {(q.dependencyRules || []).map((rule, ridx) => {
+                                          const target = questions.find(x => x.id === rule.targetId);
+                                          const isTargetAction = target?.itemType === 'action';
+
+                                          return (
+                                             <div key={ridx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: 'var(--te-bg-card)', padding: '0.85rem 1.25rem', borderRadius: '12px', border: '1px solid var(--te-border)' }}>
+                                                <div style={{ flex: 1 }}>
+                                                   <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'white' }}>{target?.content || rule.targetId}</div>
+                                                   <div style={{ fontSize: '0.65rem', color: 'var(--te-accent-500)', fontWeight: 800 }}>
+                                                      REQUIRES: {rule.operator === 'any_value' ? 'ANY VALID RESPONSE' : (isTargetAction ? `STATUS BECOMES "${String(rule.value).toUpperCase()}"` : `MUST EQUAL "${rule.value}"`)}
+                                                   </div>
+                                                </div>
+
+                                                {rule.operator === 'equals' && (
+                                                   <select 
+                                                      style={{ padding: '4px', fontSize: '0.65rem', borderRadius: '4px', border: 'none', background: 'var(--te-primary-900)', color: 'white' }}
+                                                      value={rule.value}
+                                                      onChange={(e) => {
+                                                         const next = [...(q.dependencyRules || [])];
+                                                         next[ridx] = { ...rule, value: e.target.value };
+                                                         handleUpdateQuestion(q.id, { dependencyRules: next });
+                                                      }}
+                                                   >
+                                                      {isTargetAction ? (
+                                                         <>
+                                                            <option value="pending" style={{ color: 'black' }}>Pending</option>
+                                                            <option value="in_progress" style={{ color: 'black' }}>In Progress</option>
+                                                            <option value="answered" style={{ color: 'black' }}>Completed</option>
+                                                         </>
+                                                      ) : (
+                                                         (target?.allowedValues || ['Yes', 'No']).map(v => (
+                                                            <option key={v} value={v} style={{ color: 'black' }}>{v}</option>
+                                                         ))
+                                                      )}
+                                                   </select>
+                                                )}
+
+                                                <button 
+                                                   onClick={() => {
+                                                      const newRules = (q.dependencyRules || []).filter((_, i) => i !== ridx);
+                                                      handleUpdateQuestion(q.id, { dependencyRules: newRules });
+                                                   }}
+                                                   style={{ background: 'transparent', border: 'none', color: 'var(--te-rose-500)', cursor: 'pointer' }}
+                                                >
+                                                   <X size={16} />
+                                                </button>
+                                             </div>
+                                          );
+                                       })}
+                                    </div>
 
                                    <div style={{ position: 'relative' }}>
                                       <div style={{ position: 'relative' }}>

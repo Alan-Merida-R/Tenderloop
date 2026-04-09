@@ -139,6 +139,85 @@ export const evaluateComplexLogic = (
 };
 
 /**
+ * Evalúa una expresión lógica basada en índices de reglas (Punto 25+.1)
+ * Ejemplo: ((1 AND 2) OR 3)
+ */
+export const evaluateNumberedLogic = (
+  expression: string,
+  ruleResults: boolean[]
+): boolean => {
+  try {
+    if (!expression || ruleResults.length === 0) return true;
+    
+    // 1. Normalizar (mantener espacios para que \b funcione)
+    let s = expression.toLowerCase();
+    
+    // 2. Reemplazar números por sus resultados (de atrás hacia adelante para evitar colisiones 10 -> 1)
+    for (let i = ruleResults.length; i >= 1; i--) {
+      const regex = new RegExp(`\\b${i}\\b`, 'g');
+      s = s.replace(regex, ruleResults[i-1].toString());
+    }
+
+    // 3. Limpiar espacios extras después de la sustitución
+    s = s.replace(/\s+/g, '');
+
+    // 4. Resolución recursiva de paréntesis con protección MAXIMA
+    let iterations = 0;
+    const MAX_ITERATIONS = 50;
+
+    const resolve = (str: string): boolean => {
+      iterations++;
+      if (iterations > MAX_ITERATIONS) return false; // Fail safe
+
+      let current = str.trim().toLowerCase();
+      if (current === '' || current === 'true') return true;
+      if (current === 'false') return false;
+      
+      // 3.1 Resolver paréntesis primero
+      let lastStr = '';
+      while (current.includes('(') && current !== lastStr && iterations < MAX_ITERATIONS) {
+        lastStr = current;
+        current = current.replace(/\(([^()]+)\)/g, (_, sub) => resolve(sub).toString());
+        iterations++;
+      }
+
+      // 3.2 Limpieza de residuos
+      if (current.includes('(') || current.includes(')')) return false;
+      
+      // 3.3 Resolver ORs (prioridad baja)
+      if (current.includes('or')) {
+        const parts = current.split('or');
+        for (const p of parts) {
+           if (resolve(p)) return true;
+        }
+        return false;
+      }
+      
+      // 3.4 Resolver ANDs (prioridad alta)
+      if (current.includes('and')) {
+        const parts = current.split('and');
+        for (const p of parts) {
+           if (!resolve(p)) return false;
+        }
+        return true;
+      }
+
+      // 3.5 Valor base / NOT
+      if (current.startsWith('not')) {
+        return !resolve(current.substring(3));
+      }
+
+      return current === 'true';
+    };
+
+    return resolve(s);
+  } catch (e) {
+    console.warn("Numbered logic evaluation failed:", expression, e);
+    return false;
+  }
+};
+
+/**
  * Filtra los items que deben ser visibles basándose en reglas lógicas AND/OR/NOT.
  */
 export const getVisibleItems = (
@@ -148,20 +227,28 @@ export const getVisibleItems = (
   return allItems.filter(item => {
 
     // SI HAY LOGIC STRING (Nuevas reglas de visibilidad Punto 25)
-    if (item.logicString) {
+    if (item.logicString && item.logicString.trim().length > 0) {
       try {
-        // Normalizar claves de respuestas para búsqueda insensible
-        const normalizedResponses: Record<string, ItemResponse> = {};
-        Object.keys(responses).forEach(k => {
-          normalizedResponses[normalize(k)] = responses[k];
-        });
-
-        const isVisibleNow = evaluateComplexLogic(item.logicString, normalizedResponses, false);
-        const couldBeVisibleLater = evaluateComplexLogic(item.logicString, normalizedResponses, true);
-
-        // Si es verdadero ahora, se muestra.
-        // Si no es verdadero ahora, pero PODRÍA serlo (porque faltan respuestas), lo mostramos como 'futuro'.
-        return isVisibleNow || couldBeVisibleLater;
+        const hasNumberedRules = item.dependencyRules && item.dependencyRules.length > 0;
+        
+        if (hasNumberedRules) {
+           const ruleMetArray = item.dependencyRules!.map(rule => checkDependency(rule, responses));
+           // Para visibilidad 'optimista', asumimos que si no hay respuesta aún, PODRÍA ser true
+           const ruleMetOptimistic = item.dependencyRules!.map(rule => {
+              const resp = responses[rule.targetId];
+              if (!resp || (resp.status !== 'answered' && resp.status !== 'confirmed')) return true;
+              return checkDependency(rule, responses);
+           });
+           
+           return evaluateNumberedLogic(item.logicString, ruleMetArray) || evaluateNumberedLogic(item.logicString, ruleMetOptimistic);
+        } else {
+          // Lógica antigua ID:VAL
+          const normalizedResponses: Record<string, ItemResponse> = {};
+          Object.keys(responses).forEach(k => {
+            normalizedResponses[normalize(k)] = responses[k];
+          });
+          return evaluateComplexLogic(item.logicString, normalizedResponses, false) || evaluateComplexLogic(item.logicString, normalizedResponses, true);
+        }
       } catch (err) {
         return true; 
       }
@@ -345,7 +432,11 @@ export const isItemLocked = (
   }));
 
   let isLocked = false;
-  if (dependencyOperator === 'AND') {
+  if (item.logicString && item.logicString.trim().length > 0) {
+    // Si hay una cadena de lógica numerada (Punto 25+.2)
+    const ruleMetArray = results.map(r => r.met);
+    isLocked = !evaluateNumberedLogic(item.logicString, ruleMetArray);
+  } else if (dependencyOperator === 'AND') {
     isLocked = results.some(r => !r.met);
   } else if (dependencyOperator === 'OR') {
     isLocked = !results.some(r => r.met);

@@ -21,14 +21,16 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
 
   const questions: StandardItem[] = qRows.map((row, index) => {
     // Normalización de IDs y limpieza profunda (Punto 28 & 30 Fix)
-    const rawId = row.ID || row.Id || row.id || row['ID de Item'] || row.Identificador || `Q_${index}`;
+    const rawId = row.ID || row.Id || row.id || row['ID de Item'] || row.Identificador || row['#'] || `Q_IDX_${index}`;
     const id = String(rawId).trim().replace(/[\u2013\u2014]/g, '-'); // Tratar guiones largos
 
     const stage = (row.Stage || row.stage || row.Etapa || row.etapa || row.Fase || 'Unassigned').toString().trim();
     const area = (row.Area || row.area || row.Área || row.área || row.Departamento || 'Common').toString().split(',')[0].trim();
-    const type = (row.Type || row.type || row.Tipo || row.tipo || row.ItemType || row.itemType || 'question').toLowerCase().trim() as ItemType;
-    const priority = (row.Priority || row.priority || row.Prioridad || row.prioridad || 'medium').toLowerCase().trim() as Priority;
-    const content = (row.Content || row.content || row.Contenido || row.contenido || row.Pregunta || 'Missing Content').toString().trim();
+    const rawType = (row.Type || row.type || row.Tipo || row.tipo || row.ItemType || row.itemType || 'question').toString().toLowerCase().trim();
+    const type = (rawType === 'pregunta' ? 'question' : (rawType === 'decision' || rawType === 'decisión' ? 'decision' : (rawType === 'tarea' || rawType === 'action' ? 'action' : rawType))) as ItemType;
+    
+    const priority = (row.Priority || row.priority || row.Prioridad || row.prioridad || 'medium').toString().toLowerCase().trim() as Priority;
+    const content = (row.Content || row.content || row.Contenido || row.contenido || row.Pregunta || row.Question || row.Task || 'Missing Content').toString().trim();
     const description = (row.Description || row.description || row.Descripción || row.descripción || row.Instrucciones || '').toString().trim();
     
     // Soporte extendido para lógica (Punto 24/25)

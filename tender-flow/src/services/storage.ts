@@ -112,6 +112,13 @@ export class WorkspaceManager {
   private updateStatus(s: WorkspaceStatus) {
     this.status = s;
     this.onStatusChange?.(s);
+    
+    // Safety check on unload
+    if (s === 'Save pending') {
+       window.onbeforeunload = () => "Changes not saved yet. Wait!";
+    } else {
+       window.onbeforeunload = null;
+    }
   }
 
   // --- CORE OPS ---
@@ -236,7 +243,13 @@ export class WorkspaceManager {
     this.updateStatus('Save pending');
     
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => this.commitChanges(), 3000);
+    this.saveTimeout = setTimeout(() => this.commitChanges(), 800);
+  }
+
+  // Force immediate save (for critical moments)
+  async forceSave() {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    return this.commitChanges();
   }
 
   private async commitChanges() {
@@ -244,7 +257,8 @@ export class WorkspaceManager {
     
     this.updateStatus('Saving');
     try {
-      await this.saveFileDirectly(currentFileHandle, this.currentWorkspace);
+      const dataToSave = JSON.parse(JSON.stringify(this.currentWorkspace)); // Deep clone to avoid mutations during write
+      await this.saveFileDirectly(currentFileHandle, dataToSave);
       this.updateStatus('Synced');
     } catch (e) {
       console.error('Failed to autosave', e);

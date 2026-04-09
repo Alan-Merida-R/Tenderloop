@@ -240,6 +240,16 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                 BREAK SYNC & MODIFY MANUALLY
              </button>
           )}
+
+          <div style={{ marginTop: '1.5rem' }}>
+             <label style={{ fontSize: '0.65rem', fontWeight: 950, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.5rem' }}>Task Notes / Comments</label>
+             <textarea 
+               placeholder="Write additional details about this action..."
+               value={response?.note || ''}
+               onChange={(e) => handleUpdate({ note: e.target.value })}
+               style={{ width: '100%', height: '80px', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', padding: '0.75rem', fontSize: '0.8rem', outline: 'none', resize: 'none' }}
+             />
+          </div>
         </div>
       );
     }
@@ -567,8 +577,9 @@ export const QuestionDetailPanel: React.FC<Props> = ({
               {(item.dependencyRules || []).map((rule, idx) => {
                 const targetItem = allItems.find(i => i.id === rule.targetId);
                 return (
-                  <div key={idx} style={{ padding: '1rem', background: 'var(--te-bg-card-alt)', borderRadius: '12px', border: '1px solid var(--te-border)' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--te-accent-500)', fontWeight: 950, marginBottom: '0.5rem' }}>Depends on: {targetItem?.content || rule.targetId}</div>
+                  <div key={idx} style={{ padding: '1rem', background: 'var(--te-bg-card-alt)', borderRadius: '12px', border: '1px solid var(--te-border)', position: 'relative', marginTop: '10px' }}>
+                    <div style={{ position: 'absolute', top: '-10px', left: '10px', background: 'var(--te-accent-500)', color: 'white', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 950, boxShadow: '0 2px 5px rgba(0,0,0,0.4)', zIndex: 5 }}>{idx + 1}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--te-accent-500)', fontWeight: 950, marginBottom: '0.6rem', paddingLeft: '1.2rem' }}>Depends on: {targetItem?.content || rule.targetId}</div>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <select 
                         value={rule.operator}
@@ -577,7 +588,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                           newRules[idx] = { ...rule, operator: e.target.value as any };
                           onItemUpdate(item.id, { dependencyRules: newRules });
                         }}
-                        style={{ background: 'transparent', color: 'white', border: '1px solid var(--te-border)', borderRadius: '4px', fontSize: '0.75rem', flex: 1 }}
+                        style={{ background: 'transparent', color: 'white', border: '1px solid var(--te-border)', borderRadius: '4px', fontSize: '0.75rem', flex: 1, padding: '4px' }}
                       >
                         <option value="any_value">Any Response</option>
                         <option value="equals">Equals</option>
@@ -585,12 +596,12 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                       {rule.operator === 'equals' && (
                         (() => {
                            const target = allItems.find(it => it.id === rule.targetId);
-                           const hasOptions = (target?.allowedValues && target.allowedValues.length > 0) || target?.itemType === 'decision' || target?.responseType === 'boolean';
+                           const hasOptions = (target?.allowedValues && target.allowedValues.length > 0) || target?.itemType === 'decision' || target?.responseType === 'boolean' || target?.itemType === 'action';
                            
                             if (hasOptions) {
                              const opts = (target?.allowedValues && target.allowedValues.length > 0) 
                                ? target.allowedValues 
-                               : (target?.itemType === 'boolean' || target?.responseType === 'boolean' ? ['Yes', 'No', 'N/A'] : (target?.itemType === 'action' ? ['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'] : ['TBD']));
+                               : (target?.itemType === 'action' ? ['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'] : ['Yes', 'No', 'N/A']);
                              
                              const currentValArray = Array.isArray(rule.value) ? rule.value : (rule.value ? [rule.value] : []);
 
@@ -643,7 +654,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                           const newRules = (item.dependencyRules || []).filter((_, i) => i !== idx);
                           onItemUpdate(item.id, { dependencyRules: newRules });
                         }}
-                        style={{ color: 'var(--te-rose-500)', background: 'none', border: 'none', cursor: 'pointer' }}
+                        style={{ color: 'var(--te-rose-500)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px' }}
                       >
                          <Trash2 size={14} />
                       </button>
@@ -651,6 +662,23 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                   </div>
                 );
               })}
+              
+              {item.dependencyRules && item.dependencyRules.length > 0 && (
+                <div style={{ marginTop: '1rem', padding: '1.25rem', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px dashed var(--te-accent-500)' }}>
+                  <label style={{ fontSize: '0.65rem', fontWeight: 950, color: 'var(--te-accent-500)', textTransform: 'uppercase', display: 'block', marginBottom: '0.6rem' }}>LOGIC_STRUCTURE.sys</label>
+                  <input 
+                    type="text"
+                    value={item.logicString || ''}
+                    onChange={(e) => onItemUpdate(item.id, { logicString: e.target.value })}
+                    placeholder="e.g. ((1 AND 2) OR 3) AND 4"
+                    style={{ width: '100%', padding: '0.8rem', background: '#0a0b10', color: '#00ff41', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'monospace', outline: 'none' }}
+                  />
+                  <div style={{ fontSize: '0.65rem', color: 'var(--te-text-muted)', marginTop: '0.6rem', lineHeight: '1.4' }}>
+                    Reference rules by <span style={{ color: 'var(--te-accent-500)', fontWeight: 900 }}>NUMBER</span>. Use <span style={{ color: 'white' }}>AND, OR, NOT</span> and <span style={{ color: 'white' }}>()</span>.
+                    <br/>If empty, all rules must be met (AND).
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
