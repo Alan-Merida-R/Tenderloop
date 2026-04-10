@@ -103,7 +103,7 @@ const MemoizedBackboneItem = React.memo(({
                   BOARD :: {
                     (item.allowedValues && item.allowedValues.length > 0) ? 'SELECTION' :
                     item.responseType === 'boolean' ? 'DECISION' : 
-                    (item.responseType === 'text' || item.responseType === 'any') ? 'OPEN QUESTION' : 
+                    (item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') ? 'OPEN QUESTION' : 
                     item.responseType === 'date' ? 'TARGET DATE' : 
                     item.responseType === 'link' ? 'RESOURCE / LINK' : 
                     item.responseType.toUpperCase()
@@ -121,7 +121,7 @@ const MemoizedBackboneItem = React.memo(({
              </div>
 
              {/* MAIN INPUT AREA (Show textarea only if it's open text and NO choices exist) */}
-             {((item.responseType === 'text' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
+             {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
                <textarea 
                   value={resp?.value || ''} 
                   onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
@@ -225,22 +225,24 @@ const MemoizedBackboneItem = React.memo(({
              )}
 
              {/* DYNAMIC ACTION BUTTONS (Show if choices exist or it's a boolean choice) */}
-             {(!locked && ((item.allowedValues && item.allowedValues.length > 0) || item.responseType === 'boolean')) && (
+             {(((item.allowedValues && item.allowedValues.length > 0) || item.responseType === 'boolean')) && (
                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                   {(item.allowedValues && item.allowedValues.length > 0) ? (
                     item.allowedValues.map((val: any) => (
                       <button 
                         key={val}
                         onClick={() => handleDetailUpdate(item.id, { value: val, status: 'answered' })} 
+                        disabled={locked}
                         style={{ 
                           padding: '0.4rem 0.8rem', 
                           borderRadius: '8px', 
                           background: resp?.value === val ? 'var(--te-accent-600)' : 'rgba(255,255,255,0.05)', 
-                          border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,0.1)'}`, 
-                          color: 'white', 
+                          border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,1)'}`, 
+                          color: locked ? 'var(--te-text-muted)' : 'white', 
                           fontSize: '0.65rem', 
                           fontWeight: 800, 
-                          cursor: 'pointer',
+                          cursor: locked ? 'not-allowed' : 'pointer',
+                          opacity: locked ? 0.5 : 1,
                           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
                         }}
                       >
@@ -249,8 +251,14 @@ const MemoizedBackboneItem = React.memo(({
                     ))
                   ) : item.responseType === 'boolean' && (
                     <>
-                      <button onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>YES</button>
-                      <button onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>NO</button>
+                      <button 
+                        onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })} 
+                        disabled={locked}
+                        style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>YES</button>
+                      <button 
+                        onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })} 
+                        disabled={locked}
+                        style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>NO</button>
                     </>
                   )}
                </div>
@@ -779,10 +787,17 @@ export const FlowDashboard: React.FC = () => {
       'SYS_ADDRESS': createRes('SYS_ADDRESS', newCase.initialWizData.customerAddress), 'SYS_DUEDATE': createRes('SYS_DUEDATE', newCase.initialWizData.dueDate),
       'SYS_SELLER': createRes('SYS_SELLER', newCase.initialWizData.sellerName)
     };
+    const combinedQuestions = [...getSystemItems()];
+    sourceSnapshot.questions.forEach(q => {
+      if (!combinedQuestions.some(cq => cq.id === q.id)) {
+        combinedQuestions.push(q);
+      }
+    });
+
     const withSnapshot = { 
       ...newCase, responses: initialResponses,
       snapshot: { 
-        questions: [...getSystemItems(), ...sourceSnapshot.questions].map(q => ({...q, active: true})), 
+        questions: combinedQuestions.map(q => ({...q, active: true})), 
         stages: [{ id: 'STG_INTAKE', name: 'Intake', order: 0, active: true }, ...sourceSnapshot.stages.filter(s => s.name !== 'Intake')], 
         areas: [{ id: 'AREA_GENERAL', name: 'General', order: 0, active: true, color: '#3b82f6' }, ...sourceSnapshot.areas.filter(a => a.name !== 'General')],
         deliverables: (sourceSnapshot as any).deliverables || []

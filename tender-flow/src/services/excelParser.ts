@@ -19,27 +19,27 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
   const qSheet = workbook.Sheets[qSheetName];
   const qRows: any[] = XLSX.utils.sheet_to_json(qSheet);
 
-  const questions: StandardItem[] = qRows.map((row, index) => {
-    // Normalización de IDs y limpieza profunda (Punto 28 & 30 Fix)
+  const questions: StandardItem[] = [];
+  const seenIds = new Set<string>();
+
+  qRows.forEach((row, index) => {
     const rawId = row.ID || row.Id || row.id || row['ID de Item'] || row.Identificador || row['#'] || `Q_IDX_${index}`;
-    const id = String(rawId).trim().replace(/[\u2013\u2014]/g, '-'); // Tratar guiones largos
+    const id = String(rawId).trim().replace(/[\u2013\u2014]/g, '-'); 
+    
+    if (seenIds.has(id)) return;
+    seenIds.add(id);
 
     const stage = (row.Stage || row.stage || row.Etapa || row.etapa || row.Fase || 'Unassigned').toString().trim();
     const area = (row.Area || row.area || row.Área || row.área || row.Departamento || 'Common').toString().split(',')[0].trim();
     const rawType = (row.Type || row.type || row.Tipo || row.tipo || row.ItemType || row.itemType || 'question').toString().toLowerCase().trim();
     const type = (rawType === 'pregunta' ? 'question' : (rawType === 'decision' || rawType === 'decisión' ? 'decision' : (rawType === 'tarea' || rawType === 'action' ? 'action' : rawType))) as ItemType;
-    
     const priority = (row.Priority || row.priority || row.Prioridad || row.prioridad || 'medium').toString().toLowerCase().trim() as Priority;
     const content = (row.Content || row.content || row.Contenido || row.contenido || row.Pregunta || row.Question || row.Task || 'Missing Content').toString().trim();
     const description = (row.Description || row.description || row.Descripción || row.descripción || row.Instrucciones || '').toString().trim();
-    
-    // Soporte extendido para lógica (Punto 24/25)
     const options = (row.Options || row.options || row.Opciones || row.opciones || row.AllowedValues || row.allowedValues || row.Valores);
     const logicString = (row.LogicString || row.logicString || row.Logic || row.logic || row.Dependency || row.Dependencies || row.Dependencia || '').toString().trim();
-
     const parsedOperator = (row.LogicOperator || row.logicOperator || row.Operador || 'AND').toString().toUpperCase() as any;
     
-    // Convert LogicString back into visual dependencyRules to preserve flowchart links
     const extractedRules: any[] = [];
     if (logicString) {
        const chunks = logicString.split(parsedOperator === 'OR' ? ' OR ' : ' AND ');
@@ -52,28 +52,15 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
            targetId = parts[0].trim();
            value = parts.slice(1).join(':').trim();
            if (value === 'ANY') op = 'any_value';
-         } else {
-           op = 'any_value';
-         }
-         if (targetId) {
-           extractedRules.push({ targetId, operator: op, value });
-         }
+         } else { op = 'any_value'; }
+         if (targetId) extractedRules.push({ targetId, operator: op, value });
        });
     }
 
-    return {
-      id,
-      active: true,
-      stage,
-      area,
-      priority,
-      itemType: type,
-      content,
-      description,
+    questions.push({
+      id, active: true, stage, area, priority, itemType: type, content, description,
       responseType: row.ResponseType || (type === 'decision' ? 'select' : 'any'),
-      dependencyOperator: parsedOperator,
-      logicString,
-      dependencyRules: extractedRules,
+      dependencyOperator: parsedOperator, logicString, dependencyRules: extractedRules,
       deliverableTarget: (row.Entregable || row.Deliverables || row.Entregables) ? String(row.Entregable || row.Deliverables || row.Entregables).split(',').map(t => t.trim()) : [],
       allowedValues: options ? String(options).split(',').map(v => v.trim()) : undefined,
       isMultipleSelection: row.IsMultiple === true || String(row.IsMultiple).toLowerCase() === 'yes' || String(row.IsMultiple).toLowerCase() === 'si',
@@ -81,7 +68,7 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
       tags: row.Tags || row.tags ? String(row.Tags || row.tags).split(',').map(t => t.trim()) : [],
       order: row.Order || row.order ? Number(row.Order || row.order) : index,
       visualPosition: (row.PosX !== undefined && row.PosY !== undefined) ? { x: Number(row.PosX), y: Number(row.PosY) } : undefined
-    };
+    });
   });
 
   // 2. Hoja de Etapas
@@ -108,25 +95,21 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
   // 4. Hoja de Acciones (Sincronizadas)
   const aActionsSheet = workbook.Sheets['Actions'];
   const aActionsRows: any[] = aActionsSheet ? XLSX.utils.sheet_to_json(aActionsSheet) : [];
-  const actionItems: StandardItem[] = aActionsRows.map((row, i) => {
-    // Re-use logic or handle action-specific defaults
+  const actionItems: StandardItem[] = [];
+  aActionsRows.forEach((row, i) => {
     const id = (row.ID || row.id || `ACT_${i}`).toString().trim();
-    return {
-       id,
-       active: true,
+    if (seenIds.has(id)) return;
+    seenIds.add(id);
+
+    actionItems.push({
+       id, active: true,
        stage: (row.Stage || 'Unassigned').toString(),
        area: (row.Area || 'Common').toString(),
-       priority: 'medium',
-       itemType: 'action',
+       priority: 'medium', itemType: 'action',
        content: (row.Content || row.Task || 'Untitled Action').toString(),
        linkedTaskId: row.LinkedTaskId || undefined,
-       responseType: 'select',
-       mandatory: false,
-       tags: [],
-       logicString: '',
-       deliverableTarget: [],
-       order: 100 + i
-    };
+       responseType: 'select', mandatory: false, tags: [], logicString: '', deliverableTarget: [], order: 100 + i
+    });
   });
 
   return { questions: [...questions, ...actionItems], stages, areas };

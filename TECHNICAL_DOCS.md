@@ -91,3 +91,20 @@ When the user requests changes, they often use specific terms. Use this table to
 2. **Respect the Migration Engine:** When adding new fields, update `migrateData` in `App.tsx`.
 3. **Check `isSubView`:** Components behave differently in sidebar vs. full screen.
 4. **Avoid Deep Spreads:** Be precise with updates to avoid cloning 5,000 objects.
+
+---
+
+## 🗺️ 6. Tender Flow: Strategic Matrix Logic
+
+The strategic layer (`tender-flow/`) handles complex decision trees and executive reporting using a high-performance "Backbone" architecture.
+
+### A. Data Integrity & Deduplication
+To prevent recursive item multiplication (e.g., importing a case into its own source):
+- **ID-Based Guard:** The `parseExcelSheet` service uses a `seenIds` Set to ensure only one item per ID is added to the backbone.
+- **System Injector Guard:** In `handleCreateNew`, the system auto-injects `SYS_*` fields (Alias, OP ID, Amount) only if they are not already present in the source snapshot.
+
+### B. Versatile Responder Engine
+The `MemoizedBackboneItem` dynamically adapts its UI based on `responseType` and `itemType`:
+- **Selective UI:** Notes/Textarea are hidden for `boolean`, `link`, and `selection` types to maintain a minimalist executive dashboard.
+- **Type Versatility:** Supports `text`, `string`, `number`, `date`, `link`, and `boolean` natively.
+- **Visual Dependencies:** Locked items (unmet dependencies) remain visible to provide context, but inputs are disabled (`opacity: 0.5`, `cursor: not-allowed`).
