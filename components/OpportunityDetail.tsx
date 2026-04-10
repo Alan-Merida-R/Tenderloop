@@ -97,6 +97,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     editorRef.current.innerHTML = content || '';
                 }
             }
+            // Reset the internal update flag AFTER the prop sync attempt.
+            // This ensures that if the content prop changes (e.g., switching notes),
+            // it will be allowed to update the innerHTML.
+            isInternalUpdate.current = false;
         }, [content]);
 
         const exec = (command: string, value: string | undefined = undefined) => {
@@ -174,7 +178,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         useEffect(() => {
             return () => {
-                if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
+                if (debounceTimeoutRef.current) {
+                    window.clearTimeout(debounceTimeoutRef.current);
+                    // CRITICAL: Flush pending changes on unmount (e.g. tab switch)
+                    // We check if it was an internal update that hasn't synced yet
+                    if (isInternalUpdate.current && editorRef.current) {
+                        onChange(editorRef.current.innerHTML);
+                    }
+                }
             };
         }, []);
 
@@ -329,6 +340,31 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         );
     }
 );
+
+/**
+ * PERFORMANCE ALGORITHM: NoteEditorWrapper
+ * This component isolates the 'activeNoteHtml' state to prevent the massive 
+ * OpportunityDetail component from re-rendering on every single keystroke.
+ */
+const NoteEditorWrapper = forwardRef<RichTextEditorHandle, any>(({ initialContent, onChange, ...rest }, ref) => {
+    const [localValue, setLocalValue] = useState(initialContent);
+    const lastInitial = useRef(initialContent);
+
+    // If the note ID changes in the parent, sync the new initial content
+    useEffect(() => {
+        if (initialContent !== lastInitial.current) {
+            setLocalValue(initialContent);
+            lastInitial.current = initialContent;
+        }
+    }, [initialContent]);
+
+    const handleInnerChange = (val: string) => {
+        setLocalValue(val);
+        onChange(val); // Bubbles up to the debounced parent handler
+    };
+
+    return <RichTextEditor {...rest} ref={ref} content={localValue} onChange={handleInnerChange} />;
+});
 
 const MultiSelect = ({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -1488,33 +1524,49 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const flushNoteRef = useRef<(() => void) | null>(null);
     const syncNoteTimeoutRef = useRef<number | null>(null);
 
+    // Ref for localOpp to avoid stale closures in effects and callbacks
+    const localOppRef = useRef(localOpp);
+    useEffect(() => { localOppRef.current = localOpp; }, [localOpp]);
+
+    // Ref for activeNoteHtml to avoid stale closures and unnecessary effect re-runs
+    const activeNoteHtmlRef = useRef(activeNoteHtml);
+    useEffect(() => { activeNoteHtmlRef.current = activeNoteHtml; }, [activeNoteHtml]);
+
     // HOTFIX PERFORMANCE: Isolated Note Sync (v5000-compatible)
-    // We stop updating the global db state every 3 seconds while editing.
-    // Instead, we keep the heavy HTML local and only sync it to localOpp/App when switching notes or closing.
+    // We keep the heavy HTML local and only sync it to localOpp/App when switching notes or closing.
     useEffect(() => {
         if (!selectedNoteId) return;
 
         flushNoteRef.current = () => {
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
-            const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
-            // Sync ONLY if content actually changed and it's substantial
-            if (currentNote && currentNote.content !== activeNoteHtml) {
-                const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, content: activeNoteHtml } : n);
-                // Important: this updates LOCAL state first, which flows to onOppUpdate eventually
-                // but we call it only when we "leave" the note.
+            const currentNote = localOppRef.current.notes.find(n => n.id === selectedNoteId);
+            const content = activeNoteHtmlRef.current;
+            
+            // Sync ONLY if content actually changed
+            if (currentNote && currentNote.content !== content) {
+                const updatedNotes = localOppRef.current.notes.map(n => n.id === selectedNoteId ? { ...n, content: content } : n);
                 setLocalOpp(prev => ({ ...prev, notes: updatedNotes }));
-                handleFieldChange('notes', updatedNotes);
+                handleFieldChange('notes', updatedNotes, true); // IMMEDIATE SYNC
             }
         };
 
-        // Removed the window.setTimeout that was triggering every 3 seconds.
-        // The HTML will be flushed by the Note Selection effect or on Unmount.
         return () => {
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
-            // Flush on exit
+            // Flush on unmount, note switch, or tab switch
             if (flushNoteRef.current) flushNoteRef.current();
         };
-    }, [activeNoteHtml, selectedNoteId]);
+    }, [selectedNoteId, activeTab]); // Added activeTab to ensure we save when leaving 'notes' view
+
+    // Handle note content changes with local debouncing (UI only)
+    const handleNoteContentChange = (val: string) => {
+        setActiveNoteHtml(val);
+        // We don't update setLocalOpp immediately to prevent UI lag.
+        // But we set a timeout to eventually flush it if the user stops typing for a while.
+        if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+        syncNoteTimeoutRef.current = window.setTimeout(() => {
+            if (flushNoteRef.current) flushNoteRef.current();
+        }, 5000); // 5s idle auto-save
+    };
 
     // Handle note selection (lazy load content to local editing state)
     const lastNoteId = useRef<string | null>(null);
@@ -1534,7 +1586,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             setActiveNoteHtml(n?.content || '');
             lastNoteId.current = selectedNoteId;
         }
-    }, [selectedNoteId, localOpp.notes]);
+    }, [selectedNoteId]); // Note: We removed localOpp.notes from dependency to prevent typing wipe-out
     const [isNoteFullScreen, setIsNoteFullScreen] = useState(false);
     const [textSelection, setTextSelection] = useState<string | null>(null);
     const [showQuestionsSplit, setShowQuestionsSplit] = useState(false);
@@ -1686,11 +1738,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return () => {
             if (saveToParentTimeoutRef.current) {
                 window.clearTimeout(saveToParentTimeoutRef.current);
-                // We can't easily pass the latest localOpp state here in a clean way without another ref,
-                // but usually, the last tick of the debounce or an explicit blur should handle it.
             }
+            // PERSISTENCE GUARANTEE: Force save the absolute latest local state on unmount
+            onUpdate(localOppRef.current, opportunity.id);
         };
-    }, []);
+    }, [opportunity.id]);
 
     // Helper to immediately sync (e.g. on blur of critical fields)
     const syncToParentNow = (updated: Opportunity) => {
@@ -1820,7 +1872,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const updateSelectedNote = (field: keyof MeetingNote, value: string) => {
         if (!selectedNoteId) return;
         if (field === 'content') {
-            setActiveNoteHtml(value);
+            handleNoteContentChange(value);
         } else {
             const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, [field]: value } : n);
             handleFieldChange('notes', updatedNotes);
@@ -4774,11 +4826,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             {/* Editor Container with Vertical Flex */}
                                             <div className="flex-1 flex flex-col min-h-0">
-                                                <RichTextEditor
+                                                <NoteEditorWrapper
                                                     key={currentNote.id}
                                                     ref={noteEditorRef}
-                                                    content={activeNoteHtml}
-                                                    onChange={(val) => updateSelectedNote('content', val)}
+                                                    initialContent={activeNoteHtml}
+                                                    onChange={(val: string) => updateSelectedNote('content', val)}
                                                     onSelection={handleSelection}
                                                     onLinkClick={handleLinkClick}
                                                     onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}

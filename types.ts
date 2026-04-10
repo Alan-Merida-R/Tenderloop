@@ -299,6 +299,11 @@ export interface Opportunity {
   kanbanNote?: string;
 
   lastUpdated: string;
+
+  // Internal Performance Tags (Not persisted, used for caching)
+  _isLight?: boolean;
+  _originalRef?: Opportunity;
+  _searchIndex?: string;
 }
 
 export interface OpportunityVersion {

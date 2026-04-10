@@ -38,8 +38,11 @@ interface Props {
   onItemUpdate: (itemId: string, updates: Partial<StandardItem>) => void;
   onItemDelete: (itemId: string) => void;
   onItemDuplicate?: (itemId: string) => void;
+  onItemClone?: (itemId: string) => void;
+  onAddDeliverable?: (name: string) => void;
   availableAreas?: { id: string; name: string }[];
   availableStages?: { id: string; name: string }[];
+  availableDeliverables?: { id: string; name: string; order: number; active: boolean }[];
   loopDb?: any[];
   dbName?: string | null;
   onLoopDbChange?: (db: any[], name: string | null) => void;
@@ -60,8 +63,11 @@ export const QuestionDetailPanel: React.FC<Props> = ({
   onItemUpdate,
   onItemDelete,
   onItemDuplicate,
+  onItemClone,
+  onAddDeliverable,
   availableAreas = [],
   availableStages = [],
+  availableDeliverables = [],
   loopDb: propsLoopDb,
   dbName: propsDbName,
   onLoopDbChange
@@ -73,6 +79,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
   const isLocked = isManualLocked || isLogicLocked;
 
   const [showTaskMapper, setShowTaskMapper] = useState(false);
+  const [delivSearch, setDelivSearch] = useState('');
   const [internalLoopDbName, setInternalLoopDbName] = useState<string | null>(localStorage.getItem('te_loop_db_name'));
   const [internalLoopDb, setInternalLoopDb] = useState<any[]>(() => {
     const cached = localStorage.getItem('te_loop_db_cache');
@@ -364,12 +371,22 @@ export const QuestionDetailPanel: React.FC<Props> = ({
 
       <div style={{ padding: '1.5rem' }}>
         {isEditMode && (
-          <button 
-            onClick={() => onItemDuplicate?.(item.id)}
-            style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', background: 'var(--te-primary-900)', color: 'white', border: '1px solid var(--te-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontWeight: 900, fontSize: '0.75rem' }}
-          >
-            <GitBranch size={16} /> CLONE / DUPLICATE (OR BRANCH)
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '1.5rem' }}>
+            <button 
+              onClick={() => onItemDuplicate?.(item.id)}
+              style={{ padding: '0.75rem', borderRadius: '8px', background: 'var(--te-primary-900)', color: 'white', border: '1px solid var(--te-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontWeight: 900, fontSize: '0.75rem' }}
+              title="Synchronized Duplicate (Shares Answer)"
+            >
+              <GitBranch size={16} color="var(--te-amber-500)" /> DUPLICATE
+            </button>
+            <button 
+              onClick={() => onItemClone?.(item.id)}
+              style={{ padding: '0.75rem', borderRadius: '8px', background: 'var(--te-primary-900)', color: 'white', border: '1px solid var(--te-border)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', fontWeight: 900, fontSize: '0.75rem' }}
+              title="Independent Copy (Separate Answer)"
+            >
+              <Plus size={16} color="var(--te-emerald-500)" /> CLONE
+            </button>
+          </div>
         )}
         {isEditMode ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.5rem' }}>
@@ -435,13 +452,63 @@ export const QuestionDetailPanel: React.FC<Props> = ({
               />
             </div>
             <div>
-              <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-emerald-500)', textTransform: 'uppercase', display: 'block', marginBottom: '0.5rem' }}>Deliverable Target (comma separated)</label>
-              <input 
-                value={item.deliverableTarget?.join(', ') || ''}
-                onChange={(e) => onItemUpdate(item.id, { deliverableTarget: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-                style={{ width: '100%', padding: '0.8rem', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.8rem' }}
-                placeholder="e.g. Annex A, Proposal Text"
-              />
+               <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-emerald-500)', textTransform: 'uppercase', display: 'block', marginBottom: '0.8rem' }}>Deliverable Target Selection</label>
+               
+               <div style={{ position: 'relative', marginBottom: '1rem' }}>
+                 <Search style={{ position: 'absolute', left: '0.8rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} size={14} />
+                 <input 
+                   style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.2rem', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.75rem', outline: 'none' }}
+                   placeholder="Search or add new deliverable..."
+                   value={delivSearch}
+                   onChange={e => setDelivSearch(e.target.value)}
+                 />
+                 {delivSearch && !availableDeliverables.some(d => d.name.toLowerCase() === delivSearch.toLowerCase()) && (
+                   <button 
+                     onClick={() => { onAddDeliverable?.(delivSearch); setDelivSearch(''); }}
+                     style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'var(--te-emerald-500)', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.6rem', padding: '4px 8px', fontWeight: 950, cursor: 'pointer' }}
+                   >
+                     ADD NEW
+                   </button>
+                 )}
+               </div>
+
+               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', background: 'var(--te-bg-card-alt)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--te-border)', maxHeight: '200px', overflowY: 'auto' }}>
+                 {(availableDeliverables || [])
+                   .filter(d => !delivSearch || d.name.toLowerCase().includes(delivSearch.toLowerCase()))
+                   .map(deliv => {
+                     const isSelected = (item.deliverableTarget || []).includes(deliv.name);
+                     return (
+                       <div 
+                         key={deliv.id}
+                         onClick={() => {
+                           const current = item.deliverableTarget || [];
+                           const next = isSelected ? current.filter(d => d !== deliv.name) : [...current, deliv.name];
+                           onItemUpdate(item.id, { deliverableTarget: next });
+                         }}
+                         style={{ 
+                           padding: '0.45rem 1rem', 
+                           borderRadius: '8px', 
+                           fontSize: '0.75rem', 
+                           fontWeight: 950, 
+                           cursor: 'pointer',
+                           background: isSelected ? 'rgba(16, 185, 129, 0.15)' : 'var(--te-primary-900)',
+                           color: isSelected ? 'var(--te-emerald-500)' : 'var(--te-text-muted)',
+                           border: `1px solid ${isSelected ? 'var(--te-emerald-500)' : 'var(--te-border)'}`,
+                           transition: 'all 0.2s',
+                           display: 'flex',
+                           alignItems: 'center',
+                           gap: '0.5rem'
+                         }}
+                       >
+                         <FileText size={12} /> {deliv.name.toUpperCase()}
+                       </div>
+                     );
+                   })
+                 }
+                 {availableDeliverables.length === 0 && !delivSearch && (
+                   <div style={{ fontSize: '0.75rem', color: 'var(--te-text-muted)', fontStyle: 'italic' }}>No deliverables defined. Type above to add one.</div>
+                 )}
+               </div>
             </div>
 
             {item.itemType === 'decision' && (

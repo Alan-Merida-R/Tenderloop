@@ -80,6 +80,7 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
       mandatory: priority === 'mandatory' || !!row.Mandatory || !!row.mandatory || row.Obligatorio === 'SI' || row.Obligatorio === true,
       tags: row.Tags || row.tags ? String(row.Tags || row.tags).split(',').map(t => t.trim()) : [],
       order: row.Order || row.order ? Number(row.Order || row.order) : index,
+      visualPosition: (row.PosX !== undefined && row.PosY !== undefined) ? { x: Number(row.PosX), y: Number(row.PosY) } : undefined
     };
   });
 

@@ -17,7 +17,8 @@ import {
   Search,
   CheckCircle2,
   Lock,
-  FileDown
+  FileDown,
+  FileText
 } from 'lucide-react';
 import { exportToExcel } from '../services/exporter';
 
@@ -25,7 +26,8 @@ interface Props {
   questions: StandardItem[];
   stages: { id: string; name: string; order: number; active: boolean }[];
   areas: { id: string; name: string; order: number; active: boolean; color?: string }[];
-  onSave: (data: { questions: StandardItem[], stages: any[], areas: any[] }) => void;
+  deliverables?: { id: string; name: string; order: number; active: boolean }[];
+  onSave: (data: { questions: StandardItem[], stages: any[], areas: any[], deliverables: any[] }) => void;
   onClose: () => void;
   responses?: Record<string, any>;
   onResponseUpdate?: (itemId: string, updates: any) => void;
@@ -38,15 +40,17 @@ export const StructureEditor: React.FC<Props> = ({
   questions: initialQuestions, 
   stages: initialStages, 
   areas: initialAreas, 
+  deliverables: initialDeliverables = [],
   onSave, 
   onClose,
   responses,
   onResponseUpdate
 }) => {
-  const [activeTab, setActiveTab] = useState<'questions' | 'stages' | 'areas'>('questions');
+  const [activeTab, setActiveTab] = useState<'questions' | 'stages' | 'areas' | 'deliverables'>('questions');
   const [questions, setQuestions] = useState<StandardItem[]>(initialQuestions);
   const [stages, setStages] = useState(initialStages);
   const [areas, setAreas] = useState(initialAreas);
+  const [deliverables, setDeliverables] = useState(initialDeliverables);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [depSearch, setDepSearch] = useState('');
   const [mainSearch, setMainSearch] = useState('');
@@ -119,7 +123,7 @@ export const StructureEditor: React.FC<Props> = ({
             <button onClick={() => exportToExcel({ responses: {} } as any, questions, stages, areas)} className="te-btn te-btn-outline" style={{ fontWeight: 900, padding: '0.8rem 2rem', borderRadius: '12px' }}>
               <FileDown size={18} /> DOWNLOAD BACKBONE
             </button>
-            <button onClick={() => onSave({ questions, stages, areas })} className="te-btn te-btn-primary" style={{ background: 'var(--te-emerald-500)', color: 'white', fontWeight: 900, padding: '0.8rem 2rem', borderRadius: '12px', boxShadow: '0 10px 20px -5px rgba(16, 185, 129, 0.4)' }}>
+            <button onClick={() => onSave({ questions, stages, areas, deliverables })} className="te-btn te-btn-primary" style={{ background: 'var(--te-emerald-500)', color: 'white', fontWeight: 900, padding: '0.8rem 2rem', borderRadius: '12px', boxShadow: '0 10px 20px -5px rgba(16, 185, 129, 0.4)' }}>
               <Save size={18} /> SAVE MASTER BACKBONE
             </button>
             <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--te-text-muted)', cursor: 'pointer' }}><X size={32} /></button>
@@ -131,7 +135,8 @@ export const StructureEditor: React.FC<Props> = ({
             {[
               { id: 'questions', icon: ClipboardList, label: 'MASTER Q' },
               { id: 'stages', icon: Layers, label: 'STAGES & GATING' },
-              { id: 'areas', icon: MapPin, label: 'FUNCTIONAL AREAS' }
+              { id: 'areas', icon: MapPin, label: 'FUNCTIONAL AREAS' },
+              { id: 'deliverables', icon: FileText, label: 'DELIVERABLES' }
             ].map(tab => (
               <div key={tab.id} onClick={() => setActiveTab(tab.id as any)} style={{ padding: '1rem 1.25rem', borderRadius: '14px', cursor: 'pointer', display: 'flex', gap: '1rem', alignItems: 'center', background: activeTab === tab.id ? 'var(--te-accent-500)' : 'transparent', color: activeTab === tab.id ? 'white' : 'var(--te-text-muted)', marginBottom: '0.75rem', transition: 'all 0.2s', boxShadow: activeTab === tab.id ? '0 10px 20px -5px rgba(59, 130, 246, 0.4)' : 'none' }}>
                 <tab.icon size={20} /> <span style={{ fontWeight: 900, fontSize: '0.9rem' }}>{tab.label}</span>
@@ -516,6 +521,38 @@ export const StructureEditor: React.FC<Props> = ({
                           </div>
                         );
                       })}
+                  </div>
+               </div>
+            )}
+
+            {activeTab === 'deliverables' && (
+               <div style={{ maxWidth: '650px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3.5rem' }}>
+                     <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--te-text-main)' }}>STRATEGIC DELIVERABLES</h3>
+                     <button onClick={() => setDeliverables([...deliverables, { id: `D_${Date.now()}`, name: 'New Deliverable', order: deliverables.length + 1, active: true }])} className="te-btn te-btn-primary" style={{ background: 'var(--te-emerald-500)', color: 'white', fontWeight: 900, borderRadius: '12px' }}><Plus size={18} /> ADD DELIVERABLE</button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {deliverables.sort((a,b) => a.order - b.order).map((d, idx) => (
+                        <div key={d.id} style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', background: 'var(--te-bg-card-alt)', padding: '1.25rem 2rem', borderRadius: '16px', border: '1px solid var(--te-border)' }}>
+                           <div style={{ width: '40px', fontSize: '1.1rem', fontWeight: 900, color: 'var(--te-emerald-500)' }}><FileText size={20} /></div>
+                           <input 
+                              style={{ ...inputStyle, flex: 1, marginBottom: 0, fontWeight: 800, background: 'var(--te-primary-700)', border: '1px solid var(--te-border)' }} 
+                              value={d.name} 
+                              onChange={e => setDeliverables(prev => prev.map(x => x.id === d.id ? {...x, name: e.target.value} : x))} 
+                           />
+                           <div style={{ display: 'flex', gap: '8px' }}>
+                              <button disabled={idx === 0} onClick={() => {
+                                 const next = [...deliverables]; const old = next[idx].order; next[idx].order = next[idx-1].order; next[idx-1].order = old;
+                                 setDeliverables(next.sort((a,b) => a.order - b.order));
+                              }} className="te-btn te-btn-outline" style={{ padding: '0.6rem', border: '1px solid var(--te-border)' }}><ArrowUp size={16} /></button>
+                              <button disabled={idx === deliverables.length - 1} onClick={() => {
+                                 const next = [...deliverables]; const old = next[idx].order; next[idx].order = next[idx+1].order; next[idx+1].order = old;
+                                 setDeliverables(next.sort((a,b) => a.order - b.order));
+                              }} className="te-btn te-btn-outline" style={{ padding: '0.6rem', border: '1px solid var(--te-border)' }}><ArrowDown size={16} /></button>
+                           </div>
+                           <button onClick={() => setDeliverables(prev => prev.filter(x => x.id !== d.id))} style={{ background: 'transparent', border: 'none', color: 'var(--te-rose-500)', cursor: 'pointer' }}><Trash2 size={20} /></button>
+                        </div>
+                      ))}
                   </div>
                </div>
             )}

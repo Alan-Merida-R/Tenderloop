@@ -191,8 +191,19 @@ function App() {
     const initSync = () => {
       syncChannel.current = new BroadcastChannel('tenderloop_db_sync');
       syncChannel.current.onmessage = (event) => {
-        if (event.data.type === 'DB_UPDATE' && event.data.originTabId !== tabId) {
-          console.debug("[Sync] Received DB update from another tab");
+        if (event.data.originTabId === tabId) return;
+
+        if (event.data.type === 'OPP_UPDATE') {
+          const { oppId, oppData } = event.data;
+          console.debug("[Sync] Received OPP update delta from another tab:", oppId);
+          isBroadcastingRef.current = true;
+          setDb(prev => ({
+            ...prev,
+            opportunities: prev.opportunities.map(o => o.id === oppId ? { ...o, ...oppData } : o)
+          }));
+          setStatus('saved');
+        } else if (event.data.type === 'DB_UPDATE') {
+          console.debug("[Sync] Received FULL DB update from another tab");
           isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
           setDb(event.data.db);
           setStatus('saved');
@@ -223,8 +234,18 @@ function App() {
     // @ts-ignore
     window[broadcastTimeoutKey] = setTimeout(() => {
       if (syncChannel.current) {
-        console.debug("[Sync] Broadcasting update (debounced)");
-        syncChannel.current.postMessage({ type: 'DB_UPDATE', db, originTabId: tabId });
+        console.debug("[Sync] Broadcasting OPPORTUNITY update (debounced)");
+        // ALGORITHM: Only send the ID of the changed item + its content if small.
+        // For large DBs, sending the whole array freezes the UI due to structural clone.
+        const lastDetailId = selectedOppId;
+        const currentOpp = db.opportunities.find(o => o.id === lastDetailId);
+        
+        syncChannel.current.postMessage({ 
+          type: 'OPP_UPDATE', 
+          oppId: lastDetailId, 
+          oppData: currentOpp,
+          originTabId: tabId 
+        });
       }
     }, 2000); // 2s debounce for cross-tab sync
 
@@ -1011,10 +1032,24 @@ function App() {
     React.startTransition(() => {
       setDb(prev => {
         const oldOpp = prev.opportunities.find(o => o.id === (id || updatedOpp.id));
-        const orderChanged = oldOpp?.priorityOrder !== updatedOpp.priorityOrder;
-        const statusChanged = oldOpp?.statusLabel !== updatedOpp.statusLabel;
+        if (!oldOpp) return prev; // Should not happen
 
-        const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? { ...o, ...updatedOpp } : o);
+        // PROTECTION: If the incoming object is "light" (strips notes/versions for speed),
+        // we must preserve the full record's heavy content.
+        let cleanedUpdate = { ...updatedOpp };
+        if (updatedOpp._isLight) {
+          const { _isLight, _originalRef, _searchIndex, notes, versions, ...rest } = updatedOpp;
+          cleanedUpdate = {
+            ...rest,
+            notes: oldOpp.notes,
+            versions: oldOpp.versions
+          };
+        }
+
+        const orderChanged = oldOpp.priorityOrder !== updatedOpp.priorityOrder;
+        const statusChanged = oldOpp.statusLabel !== updatedOpp.statusLabel;
+
+        const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? { ...o, ...cleanedUpdate } : o);
 
         // OPTIMIZATION: Only run the expensive rebalance if order or status actually changed.
         // For field edits (title, date, description, tasks) just replace the opp directly.
@@ -1180,6 +1215,7 @@ function App() {
         notes: (opp.notes || []).map(n => ({ ...n, content: '' })), // Content metadata only
         versions: [], // Strip heavy snapshots
         _originalRef: opp, // Tag for cache-busting
+        _isLight: true, // Safety tag to prevent overwriting full records in updateOpportunity
         // PRE-CALCULATE Search Index: This prevents millions of string concatenations in Dashboard/v5000 filter.
         _searchIndex: (
           `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.quoteType || ''} ` +

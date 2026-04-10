@@ -60,6 +60,7 @@ export interface StandardItem {
   isMultipleSelection?: boolean; // Nuevo: Soporta selecciones múltiples en Decisiones (Punto 28)
   linkedTaskId?: string;         // Vincular a Tarea de Loop (ID de la fila de Loop DB)
   visualPosition?: { x: number; y: number }; // Posición en el mapa lógico
+  syncId?: string;               // Nuevo: Sincronizar respuestas entre nodos duplicados
 }
 
 /**
@@ -124,6 +125,7 @@ export interface ExecutiveFlowCase {
     questions: StandardItem[];
     stages: { id: string; name: string; order: number; active: boolean }[];
     areas: { id: string; name: string; order: number; active: boolean; color?: string }[];
+    deliverables?: { id: string; name: string; order: number; active: boolean }[];
   };
 }
 
@@ -153,6 +155,7 @@ export interface TenderFlowWorkspace {
     questions: StandardItem[];
     stages: { id: string; name: string; order: number; active: boolean }[];
     areas: { id: string; name: string; order: number; active: boolean; color?: string }[];
+    deliverables: { id: string; name: string; order: number; active: boolean }[];
   };
   cases: ExecutiveFlowCase[];
 }

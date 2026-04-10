@@ -259,6 +259,12 @@ h1, h2, h3 {
   background: #21262d !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   color: #f0f6fc !important;
+  color-scheme: dark !important;
+}
+
+select option {
+  background-color: #161b22 !important;
+  color: #f0f6fc !important;
 }
 
 /* --- React Flow Custom Styling (Dark Mode Overrides) --- */
@@ -287,4 +293,24 @@ h1, h2, h3 {
 
 .react-flow__background {
   background-color: var(--te-bg-app);
+}
+
+@keyframes pulse-amber {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+.hover-danger:hover {
+  color: var(--te-rose-500) !important;
+  background: rgba(225, 29, 72, 0.1) !important;
+}
+
+.spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

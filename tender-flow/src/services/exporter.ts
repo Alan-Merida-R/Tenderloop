@@ -11,7 +11,8 @@ export const exportToExcel = (
   flowCase: ExecutiveFlowCase, 
   items: StandardItem[], 
   stages: any[] = [], 
-  areas: any[] = []
+  areas: any[] = [],
+  deliverables: any[] = []
 ) => {
   try {
     console.log("Exporting to Excel (v3.0 Strategic Protocol)...", { questions: items.length, stages: stages.length, areas: areas.length });
@@ -44,7 +45,9 @@ export const exportToExcel = (
         LogicString: computedLogicString,
         'Is Flagged': response?.isFlagged ? 'YES' : 'NO',
         'Is Locked': response?.isLocked ? 'YES' : 'NO',
-        'Notes': response?.note || ''
+        'Notes': response?.note || '',
+        'PosX': item.visualPosition?.x || 0,
+        'PosY': item.visualPosition?.y || 0
       };
     });
 
@@ -63,6 +66,13 @@ export const exportToExcel = (
       Color: a.color || '#3b82f6'
     }));
 
+    const dData = deliverables.map(d => ({
+      ID: d.id,
+      Name: d.name,
+      Order: d.order,
+      Active: d.active ? 'YES' : 'NO'
+    }));
+
     // 2. Workbook Construction
     const wb = XLSX.utils.book_new();
     
@@ -74,6 +84,9 @@ export const exportToExcel = (
 
     // Sheet 3: Areas
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aData.length > 0 ? aData : [{ Name: 'No Areas Defined' }]), 'Areas');
+
+    // Sheet 4: Deliverables
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dData.length > 0 ? dData : [{ Name: 'No Deliverables Defined' }]), 'Deliverables');
 
     // 3. Robust Physical Download - Multi-Sheet Strategic Logic
     const prefix = String(flowCase.loopId || 'NEW_PROJECT').replace(/[^a-z0-9]/gi, '_');

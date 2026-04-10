@@ -93,6 +93,15 @@ const StandardNode = memo(({ data: _data }: NodeProps) => {
            )}
            <span style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', color: isLocked ? '#64748b' : areaColor }}>{data.area}</span>
         </div>
+        {data.isSynced && (
+          <div 
+            onClick={(e) => { e.stopPropagation(); data.onMirrorFilter?.(data.label); }}
+            title="Synchronized / Mirrored Item. Click to filter siblings." 
+            style={{ cursor: 'pointer', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--te-emerald-500)', fontSize: '0.55rem', fontWeight: 950, padding: '2px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px', border: '1px solid rgba(16, 185, 129, 0.2)' }}
+          >
+            <LinkIcon size={10} /> MIRROR
+          </div>
+        )}
       </div>
       <div style={{ fontWeight: 800, lineHeight: 1.4, fontSize: '0.95rem' }}>{data.label}</div>
       {data.isEditMode && (
@@ -149,6 +158,15 @@ const DecisionNode = memo(({ data: _data }: NodeProps) => {
             )}
             <div style={{ fontSize: '0.6rem', fontWeight: 950, color: isLocked ? '#64748b' : areaColor, textTransform: 'uppercase' }}>{data.area}</div>
          </div>
+         {data.isSynced && (
+            <div 
+               onClick={(e) => { e.stopPropagation(); data.onMirrorFilter?.(data.label); }}
+               title="Synchronized / Mirrored. Click to filter siblings." 
+               style={{ cursor: 'pointer', position: 'absolute', top: '-15px', color: 'var(--te-emerald-500)', display: 'flex', alignItems: 'center', gap: '3px', filter: 'drop-shadow(0 0 5px rgba(16,185,129,0.3))' }}
+            >
+               <LinkIcon size={12} /> <span style={{ fontSize: '0.5rem', fontWeight: 950 }}>MIRROR</span>
+            </div>
+         )}
          <div style={{ fontWeight: 950, fontSize: '0.95rem', lineHeight: 1.3, color: isLocked ? '#64748b' : 'var(--te-text-main)' }}>{data.label}</div>
       </div>
       {data.isEditMode && (
@@ -214,6 +232,15 @@ const ActionNode = memo(({ data: _data }: NodeProps) => {
             )}
             <span style={{ fontSize: '0.6rem', fontWeight: 950, textTransform: 'uppercase', color: isLocked ? '#64748b' : areaColor }}>ACTION NODE</span>
          </div>
+         {data.isSynced && (
+           <div 
+             onClick={(e) => { e.stopPropagation(); data.onMirrorFilter?.(data.label); }}
+             title="Synced Action. Click to filter siblings." 
+             style={{ cursor: 'pointer', background: 'rgba(16, 185, 129, 0.15)', color: 'var(--te-emerald-500)', borderRadius: '50%', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+           >
+             <LinkIcon size={10} />
+           </div>
+         )}
          {isDone && <CheckCircle2 size={14} color={areaColor} />}
       </div>
       <div style={{ fontWeight: 800, fontSize: '0.85rem', opacity: isLocked ? 0.6 : 1 }}>{data.label}</div>
@@ -336,6 +363,7 @@ interface Props {
   onAddDependency?: (sourceId: string, targetId: string) => void;
   onUpdateDependency?: (targetItemId: string, sourceItemId: string, newValue: string) => void;
   onDeleteNode?: (id: string) => void;
+  onMirrorFilter?: (text: string) => void;
 }
 
 const MapContent: React.FC<Props> = ({ 
@@ -350,7 +378,8 @@ const MapContent: React.FC<Props> = ({
   isEditMode = false,
   onAddDependency,
   onUpdateDependency,
-  onDeleteNode
+  onDeleteNode,
+  onMirrorFilter
 }) => {
   const { getViewport } = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -358,6 +387,7 @@ const MapContent: React.FC<Props> = ({
   const [clipboard, setClipboard] = useState<Node[]>([]);
   const [history, setHistory] = useState<StandardItem[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const saveTimeoutRef = React.useRef<any>(null);
 
   const internalDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -384,8 +414,10 @@ const MapContent: React.FC<Props> = ({
           isAnswered: resp?.status === 'answered' || resp?.status === 'confirmed',
           value: resp?.value || '',
           isLocked: locked,
+          isSynced: !!item.syncId,
           isEditMode,
-          onDelete: internalDelete
+          onDelete: internalDelete,
+          onMirrorFilter
         },
       };
     });
@@ -411,7 +443,7 @@ const MapContent: React.FC<Props> = ({
 
     setNodes(initialNodes);
     setEdges(initialEdges);
-  }, [items, responses, stagesList, areas, allItems, isEditMode]);
+  }, [items, responses, stagesList, areas, allItems, isEditMode, onMirrorFilter]);
 
   const onNodesChange: OnNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange: OnEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
@@ -455,8 +487,7 @@ const MapContent: React.FC<Props> = ({
   const onNodeDragStop = (event: any, draggedNode: Node) => {
     if (!onSaveStandard) return;
     
-    // Find all nodes that changed position (selected ones)
-    const selectedNodes = nodes.filter(n => n.selected);
+    const selectedNodes = nodes.filter(n => n.selected || n.id === draggedNode.id);
     const updatedItems = allItems.map(item => {
       const movedNode = selectedNodes.find(n => n.id === item.id);
       if (movedNode) {
@@ -464,8 +495,11 @@ const MapContent: React.FC<Props> = ({
       }
       return item;
     });
-    
-    saveWithHistory(updatedItems);
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+       saveWithHistory(updatedItems);
+    }, 1000);
   };
 
   const copySelection = useCallback(() => {
@@ -494,6 +528,7 @@ const MapContent: React.FC<Props> = ({
         const newItem: StandardItem = {
           ...originalItem,
           id: newId,
+          syncId: undefined, // CLONE is independent by definition in the map
           content: `${originalItem.content} (Copy)`,
           visualPosition: { 
             x: clipNode.position.x + offset, 
