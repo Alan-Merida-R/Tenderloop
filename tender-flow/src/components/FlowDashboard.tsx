@@ -22,6 +22,245 @@ import {
   FileText, FileSpreadsheet, Sun, Moon, PieChart, Activity, Unlock, Terminal, Check
 } from 'lucide-react';
 
+/**
+ * Tender Executive Flow - Dashboard Core
+ * ---------------------------------------
+ * Este componente es el núcleo de la matriz estratégica de Tender Flow.
+ * Implementa una arquitectura de alto rendimiento diseñada para una experiencia corporativa fluida.
+ * 
+ * Optimizaciones de Fluidez:
+ * 1. Memoización de Componentes: Uso de React.memo para evitar re-renders de la lista completa.
+ * 2. GPU Acceleration: Estilos CSS optimizados con will-change para animaciones sedosas.
+ * 3. Debounce de Búsqueda: Filtrado asíncrono para mantener la responsividad del UI.
+ */
+
+// Optimized Memoized Item Component for High-Fluidity Dashboard
+// Este sub-componente maneja el renderizado individual de cada punto de decisión.
+// Al usar React.memo, solo se re-renderiza cuando su respuesta específica o estado cambia.
+const MemoizedBackboneItem = React.memo(({ 
+  item, 
+  resp, 
+  locked, 
+  selectedItemId, 
+  setSelectedItemId, 
+  isMeetingMode, 
+  handleDetailUpdate, 
+  activeBackboneAreas 
+}: any) => {
+  const currentStatus = evaluateStatus(resp);
+  const isDone = currentStatus === 'answered' || currentStatus === 'confirmed';
+  const areaDef = activeBackboneAreas.find((a: any) => a.name === item.area);
+  const areaColor = areaDef?.color || 'var(--te-accent-500)';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: locked ? 0.6 : 1, transition: 'opacity 0.2s ease' }}>
+      <div 
+        onClick={isMeetingMode ? undefined : () => setSelectedItemId(item.id)} 
+        style={{ 
+          padding: isMeetingMode ? '0.6rem 1rem' : '1rem 1.25rem', 
+          borderRadius: '12px', 
+          background: 'var(--te-bg-card)', 
+          border: `1px solid ${selectedItemId === item.id ? areaColor : 'var(--te-border)'}`, 
+          borderLeft: `4px solid ${locked ? 'var(--te-text-muted)' : areaColor}`, 
+          cursor: isMeetingMode ? 'default' : 'pointer', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '1rem', 
+          opacity: locked && !isMeetingMode ? 0.5 : 1,
+          filter: locked && isMeetingMode ? 'grayscale(0.8)' : 'none',
+          transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+          willChange: 'transform, opacity'
+        }}
+      >
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDone ? areaColor : 'transparent', border: `2px solid ${areaColor}`, opacity: locked ? 0.4 : 1 }} />
+        <div style={{ flex: 1 }}>
+           <div style={{ fontSize: '0.55rem', color: locked ? 'var(--te-text-muted)' : areaColor, fontWeight: 900, opacity: 0.8 }}>{item.area} / {item.stage}</div>
+           <h4 style={{ fontSize: isMeetingMode ? '0.9rem' : '1rem', fontWeight: 800, margin: 0, color: locked ? 'var(--te-text-muted)' : 'var(--te-text-main)' }}>{item.content}</h4>
+        </div>
+        {item.syncId && <div style={{ fontSize: '0.45rem', color: 'var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 5px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px', opacity: locked ? 0.3 : 1 }}><LinkIcon size={7} /> MIRROR</div>}
+        {locked && isMeetingMode && <Lock size={12} color="var(--te-text-muted)" style={{ opacity: 0.5 }} />}
+      </div>
+       {isMeetingMode && (
+          <div style={{ 
+            padding: '0.8rem 1rem', 
+            background: 'rgba(255,255,255,0.03)', 
+            borderRadius: '16px', 
+            border: '1px solid var(--te-border)', 
+            backdropFilter: 'blur(10px)',
+            marginLeft: '1.5rem', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '0.75rem',
+            position: 'relative',
+            pointerEvents: locked ? 'none' : 'auto',
+            filter: locked ? 'blur(0.8px) grayscale(0.5)' : 'none',
+            opacity: locked ? 0.6 : 1,
+            boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}>
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+               <div style={{ fontSize: '0.55rem', fontWeight: 950, color: 'var(--te-text-muted)', opacity: 0.6, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  BOARD :: {
+                    (item.allowedValues && item.allowedValues.length > 0) ? 'SELECTION' :
+                    item.responseType === 'boolean' ? 'DECISION' : 
+                    (item.responseType === 'text' || item.responseType === 'any') ? 'OPEN QUESTION' : 
+                    item.responseType === 'date' ? 'TARGET DATE' : 
+                    item.responseType === 'link' ? 'RESOURCE / LINK' : 
+                    item.responseType.toUpperCase()
+                  }
+               </div>
+               {!locked && resp?.value && (
+                 <button 
+                   onClick={(e: any) => { e.stopPropagation(); handleDetailUpdate(item.id, { value: '', status: 'not_started' }); }}
+                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--te-text-muted)', opacity: 0.5, transition: 'all 0.2s' }}
+                   title="Reset Response"
+                 >
+                   <X size={10} />
+                 </button>
+               )}
+             </div>
+
+             {/* MAIN INPUT AREA (Show textarea only if it's open text and NO choices exist) */}
+             {((item.responseType === 'text' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
+               <textarea 
+                  value={resp?.value || ''} 
+                  onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                  placeholder={locked ? "Prerequisites pending..." : "Execution notes or outcomes..."}
+                  disabled={locked}
+                  style={{ 
+                    width: '100%', 
+                    minHeight: '80px', 
+                    maxHeight: '150px',
+                    background: 'rgba(0,0,0,0.3)', 
+                    border: '1px solid rgba(255,255,255,0.1)', 
+                    borderRadius: '10px', 
+                    padding: '0.6rem', 
+                    color: locked ? 'var(--te-text-muted)' : 'white', 
+                    resize: 'vertical', 
+                    fontSize: '0.8rem',
+                    outline: 'none',
+                    transition: 'all 0.3s ease'
+                  }}
+               />
+             ) : (
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  {/* SPECIALIZED VALUE FIELDS */}
+                   {item.responseType === 'link' && (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>Label</label>
+                          <input 
+                            type="text"
+                            value={resp?.linkInfo?.label || ''}
+                            onChange={(e) => handleDetailUpdate(item.id, { linkInfo: { ...resp?.linkInfo, label: e.target.value } })}
+                            placeholder="e.g. Documentation Portal"
+                            style={{ width: '100%', padding: '0.55rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>Hyperlink</label>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <div style={{ flex: 1, position: 'relative' }}>
+                               <LinkIcon size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                               <input 
+                                 type="text"
+                                 value={resp?.value || ''}
+                                 onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                                 placeholder="https://..."
+                                 style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                               />
+                            </div>
+                            {resp?.value && (
+                              <button onClick={() => window.open(resp.value.startsWith('http') ? resp.value : `https://${resp.value}`, '_blank')} style={{ padding: '0.6rem', borderRadius: '8px', background: 'var(--te-accent-600)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ExternalLink size={12} /></button>
+                            )}
+                          </div>
+                        </div>
+                     </div>
+                   )}
+
+                  {item.responseType === 'date' && (
+                    <div style={{ position: 'relative' }}>
+                       <Clock size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                       <input 
+                         type="date"
+                         value={resp?.value || ''}
+                         onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                         style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none', colorScheme: 'dark' }}
+                       />
+                    </div>
+                  )}
+
+                  {item.responseType === 'number' && (
+                    <input 
+                      type="number"
+                      value={resp?.value || ''}
+                      onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                      placeholder="Enter numeric value..."
+                      style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                    />
+                  )}
+
+                  {/* SHARED NOTES FIELD (Hide for selections/decisions/links as requested) */}
+                  {!(item.responseType === 'boolean' || item.responseType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
+                    <textarea 
+                       value={resp?.note || ''} 
+                       onChange={(e) => handleDetailUpdate(item.id, { note: e.target.value })}
+                       placeholder="Execution notes or outcomes..."
+                       style={{ 
+                         width: '100%', 
+                         minHeight: '35px', 
+                         maxHeight: '100px',
+                         background: 'rgba(0,0,0,0.2)', 
+                         border: '1px solid rgba(255,255,255,0.05)', 
+                         borderRadius: '8px', 
+                         padding: '0.4rem', 
+                         color: 'var(--te-text-muted)', 
+                         resize: 'vertical', 
+                         fontSize: '0.75rem',
+                         outline: 'none'
+                       }}
+                    />
+                  )}
+               </div>
+             )}
+
+             {/* DYNAMIC ACTION BUTTONS (Show if choices exist or it's a boolean choice) */}
+             {(!locked && ((item.allowedValues && item.allowedValues.length > 0) || item.responseType === 'boolean')) && (
+               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {(item.allowedValues && item.allowedValues.length > 0) ? (
+                    item.allowedValues.map((val: any) => (
+                      <button 
+                        key={val}
+                        onClick={() => handleDetailUpdate(item.id, { value: val, status: 'answered' })} 
+                        style={{ 
+                          padding: '0.4rem 0.8rem', 
+                          borderRadius: '8px', 
+                          background: resp?.value === val ? 'var(--te-accent-600)' : 'rgba(255,255,255,0.05)', 
+                          border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,0.1)'}`, 
+                          color: 'white', 
+                          fontSize: '0.65rem', 
+                          fontWeight: 800, 
+                          cursor: 'pointer',
+                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                      >
+                        {val.toUpperCase()}
+                      </button>
+                    ))
+                  ) : item.responseType === 'boolean' && (
+                    <>
+                      <button onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>YES</button>
+                      <button onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>NO</button>
+                    </>
+                  )}
+               </div>
+             )}
+          </div>
+       )}
+    </div>
+  );
+});
+
 export const FlowDashboard: React.FC = () => {
   // --- CORE WORKSPACE STATE ---
   const [workspace, setWorkspace] = useState<TenderFlowWorkspace | null>(workspaceManager.getWorkspace());
@@ -31,6 +270,13 @@ export const FlowDashboard: React.FC = () => {
   // --- UI STATE ---
   const [isDarkMode, setIsDarkMode] = useState(workspace?.settings?.theme !== 'light');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search to prevent heavy filter recalculation on every key stroke
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearch(searchQuery), 150);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
   const [selectedDeliverables, setSelectedDeliverables] = useState<string[]>([]);
@@ -77,60 +323,52 @@ export const FlowDashboard: React.FC = () => {
 
   const visibleItems = useMemo(() => {
     if (!currentCase) return [];
-    let items = isEditMode ? activeBackboneItems : getVisibleItems(activeBackboneItems, currentCase.responses);
+    const baseItems = isEditMode ? activeBackboneItems : getVisibleItems(activeBackboneItems, currentCase.responses);
     
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(i => 
-        i.content.toLowerCase().includes(q) || 
-        i.area.toLowerCase().includes(q) || 
-        i.stage.toLowerCase().includes(q) ||
-        (i.tags && i.tags.some(t => t.toLowerCase().includes(q)))
-      );
-    }
-    if (selectedAreas.length > 0) items = items.filter(i => selectedAreas.includes(i.area));
-    if (selectedStages.length > 0) items = items.filter(i => selectedStages.includes(i.stage));
-    if (selectedDeliverables.length > 0) items = items.filter(i => i.deliverableTarget && i.deliverableTarget.some(d => selectedDeliverables.includes(d)));
-    if (hideCommon) items = items.filter(i => i.stage.toLowerCase() !== 'intake' && i.stage.toLowerCase() !== 'common');
-    
-    // User Roadmap Deduplication: Only show one mirror point
-    if (viewMode === 'checklist') {
-       const seenSyncIds = new Set<string>();
-       items = items.filter(item => {
-         if (item.syncId) {
-           if (seenSyncIds.has(item.syncId)) return false;
-           seenSyncIds.add(item.syncId);
-         }
-         return true;
-       });
-    }
+    // Performance: Consolidated single-pass filtering
+    const q = debouncedSearch.toLowerCase();
+    const hasAreas = selectedAreas.length > 0;
+    const hasStages = selectedStages.length > 0;
+    const hasDelivs = selectedDeliverables.length > 0;
+    const seenSyncIds = new Set<string>();
+    const isRoadmap = viewMode === 'checklist';
+    const isStrategist = viewMode === 'executive_map';
 
-    if (isMeetingMode) {
-       if (hideAnswered) {
-          items = items.filter(item => {
-            const resp = currentCase.responses[item.id];
-            return !resp || (resp.status !== 'answered' && resp.status !== 'confirmed');
-          });
-       }
-       if (hideLocked) {
-          items = items.filter(item => !isItemLocked(item, currentCase.responses).locked);
-       }
-       return items;
-    }
+    return baseItems.filter(i => {
+      // 0. Hide Actions in Roadmap/Strategist
+      if ((isRoadmap || isStrategist) && (i.itemType === 'action' || i.itemType === 'task')) return false;
 
-    if (hideAnswered) {
-       items = items.filter(item => {
-         const resp = currentCase.responses[item.id];
-         return !resp || (resp.status !== 'answered' && resp.status !== 'confirmed');
-       });
-    }
+      // 1. Search filter
+      if (q) {
+        const match = i.content.toLowerCase().includes(q) || 
+                      i.area.toLowerCase().includes(q) || 
+                      i.stage.toLowerCase().includes(q) ||
+                      (i.tags && i.tags.some(t => t.toLowerCase().includes(q)));
+        if (!match) return false;
+      }
 
-    if (hideLocked) {
-       items = items.filter(item => !isItemLocked(item, currentCase.responses).locked);
-    }
+      // 2. Metadata filters
+      if (hasAreas && !selectedAreas.includes(i.area)) return false;
+      if (hasStages && !selectedStages.includes(i.stage)) return false;
+      if (hasDelivs && (!i.deliverableTarget || !i.deliverableTarget.some(d => selectedDeliverables.includes(d)))) return false;
+      
+      if (hideCommon && (i.stage.toLowerCase() === 'intake' || i.stage.toLowerCase() === 'common')) return false;
 
-    return items;
-  }, [activeBackboneItems, currentCase, searchQuery, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, isMeetingMode, hideAnswered, hideLocked, selectedDeliverables]);
+      // 3. Status filters (Answered / Locked)
+      const resp = currentCase.responses[i.id];
+      const isAns = resp?.status === 'answered' || resp?.status === 'confirmed';
+      if (hideAnswered && isAns) return false;
+      if (hideLocked && isItemLocked(i, currentCase.responses).locked) return false;
+
+      // 4. Roadmap Deduplication
+      if (isRoadmap && i.syncId) {
+        if (seenSyncIds.has(i.syncId)) return false;
+        seenSyncIds.add(i.syncId);
+      }
+
+      return true;
+    });
+  }, [activeBackboneItems, currentCase, debouncedSearch, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, hideAnswered, hideLocked, selectedDeliverables]);
 
   const areaStatuses = useMemo(() => getAreaStatus(activeBackboneItems, currentCase?.responses || {}), [activeBackboneItems, currentCase]);
   const stagesList = useMemo(() => activeBackboneStages.filter(s => s.active !== false).sort((a,b) => a.order - b.order).map(s => s.name), [activeBackboneStages]);
@@ -751,200 +989,26 @@ export const FlowDashboard: React.FC = () => {
                </div>
             </header>
 
+
             <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
                {viewMode === 'checklist' && (
                  <div style={{ height: '100%', overflowY: 'auto', padding: '2rem' }}>
                     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                        {visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action')).map(item => {
-                         const resp = currentCase.responses[item.id]; const { locked } = isItemLocked(item, currentCase.responses); const currentStatus = evaluateStatus(resp); const isDone = currentStatus === 'answered' || currentStatus === 'confirmed'; const areaColor = activeBackboneAreas.find(a => a.name === item.area)?.color || 'var(--te-accent-500)';
+                         const resp = currentCase.responses[item.id];
+                         const { locked } = isItemLocked(item, currentCase.responses);
                          return (
-                            <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: locked ? 0.6 : 1 }}>
-                              <div 
-                                onClick={isMeetingMode ? undefined : () => setSelectedItemId(item.id)} 
-                                style={{ 
-                                  padding: isMeetingMode ? '0.6rem 1rem' : '1rem 1.25rem', 
-                                  borderRadius: '12px', 
-                                  background: 'var(--te-bg-card)', 
-                                  border: `1px solid ${selectedItemId === item.id ? areaColor : 'var(--te-border)'}`, 
-                                  borderLeft: `4px solid ${locked ? 'var(--te-text-muted)' : areaColor}`, 
-                                  cursor: isMeetingMode ? 'default' : 'pointer', 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  gap: '1rem', 
-                                  opacity: locked && !isMeetingMode ? 0.5 : 1,
-                                  filter: locked && isMeetingMode ? 'grayscale(0.8)' : 'none'
-                                }}
-                              >
-                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDone ? areaColor : 'transparent', border: `2px solid ${areaColor}`, opacity: locked ? 0.4 : 1 }} />
-                                <div style={{ flex: 1 }}>
-                                   <div style={{ fontSize: '0.55rem', color: locked ? 'var(--te-text-muted)' : areaColor, fontWeight: 900, opacity: 0.8 }}>{item.area} / {item.stage}</div>
-                                   <h4 style={{ fontSize: isMeetingMode ? '0.9rem' : '1rem', fontWeight: 800, margin: 0, color: locked ? 'var(--te-text-muted)' : 'var(--te-text-main)' }}>{item.content}</h4>
-                                </div>
-                                {item.syncId && <div style={{ fontSize: '0.45rem', color: 'var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 5px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px', opacity: locked ? 0.3 : 1 }}><LinkIcon size={7} /> MIRROR</div>}
-                                {locked && isMeetingMode && <Lock size={12} color="var(--te-text-muted)" style={{ opacity: 0.5 }} />}
-                              </div>
-                               {isMeetingMode && (
-                                  <div style={{ 
-                                    padding: '0.8rem 1rem', 
-                                    background: 'rgba(255,255,255,0.03)', 
-                                    borderRadius: '16px', 
-                                    border: '1px solid var(--te-border)', 
-                                    backdropFilter: 'blur(10px)',
-                                    marginLeft: '1.5rem', 
-                                    display: 'flex', 
-                                    flexDirection: 'column', 
-                                    gap: '0.75rem',
-                                    position: 'relative',
-                                    pointerEvents: locked ? 'none' : 'auto',
-                                    filter: locked ? 'blur(0.8px) grayscale(0.5)' : 'none',
-                                    opacity: locked ? 0.6 : 1,
-                                    boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
-                                  }}>
-                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                       <div style={{ fontSize: '0.55rem', fontWeight: 950, color: 'var(--te-text-muted)', opacity: 0.6, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                          BOARD :: {
-                                            (item.itemType === 'question' && (!item.allowedValues || item.allowedValues.length === 0)) ? 'OPEN QUESTION' :
-                                            item.responseType === 'boolean' ? 'DECISION' : 
-                                            item.responseType === 'text' ? 'OPEN QUESTION' : 
-                                            item.responseType === 'date' ? 'TARGET DATE' : 
-                                            item.responseType === 'link' ? 'RESOURCE / LINK' : 
-                                            item.responseType === 'select' ? 'SELECTION' : 
-                                            item.responseType === 'number' ? 'NUMERIC VALUE' : 
-                                            item.responseType.toUpperCase()
-                                          }
-                                       </div>
-                                       {!locked && resp?.value && (
-                                         <button 
-                                           onClick={(e) => { e.stopPropagation(); handleDetailUpdate(item.id, { value: '', status: 'not_started' }); }}
-                                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--te-text-muted)', opacity: 0.5, transition: 'all 0.2s' }}
-                                           title="Reset Response"
-                                         >
-                                           <X size={10} />
-                                         </button>
-                                       )}
-                                     </div>
-
-                                     {/* MAIN INPUT AREA (DYNAMIC PER TYPE) */}
-                                     {item.responseType === 'text' ? (
-                                       <textarea 
-                                          value={resp?.value || ''} 
-                                          onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                                          placeholder={locked ? "Prerequisites pending..." : "Execution notes or outcomes..."}
-                                          disabled={locked}
-                                          style={{ 
-                                            width: '100%', 
-                                            minHeight: '60px', 
-                                            maxHeight: '150px',
-                                            background: 'rgba(0,0,0,0.3)', 
-                                            border: '1px solid rgba(255,255,255,0.1)', 
-                                            borderRadius: '10px', 
-                                            padding: '0.6rem', 
-                                            color: locked ? 'var(--te-text-muted)' : 'white', 
-                                            resize: 'vertical', 
-                                            fontSize: '0.8rem',
-                                            outline: 'none',
-                                            transition: 'all 0.3s ease'
-                                          }}
-                                       />
-                                     ) : (
-                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                                          {/* SPECIALIZED VALUE FIELDS */}
-                                          {item.responseType === 'link' && (
-                                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                              <div style={{ flex: 1, position: 'relative' }}>
-                                                 <LinkIcon size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
-                                                 <input 
-                                                   type="text"
-                                                   value={resp?.value || ''}
-                                                   onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                                                   placeholder="Paste resource URL here..."
-                                                   style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
-                                                 />
-                                              </div>
-                                              {resp?.value && (
-                                                <button onClick={() => window.open(resp.value.startsWith('http') ? resp.value : `https://${resp.value}`, '_blank')} style={{ padding: '0.5rem', borderRadius: '8px', background: 'var(--te-accent-600)', border: 'none', color: 'white', cursor: 'pointer' }}><ExternalLink size={12} /></button>
-                                              )}
-                                            </div>
-                                          )}
-                                          
-                                          {item.responseType === 'date' && (
-                                            <div style={{ position: 'relative' }}>
-                                               <Clock size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
-                                               <input 
-                                                 type="date"
-                                                 value={resp?.value || ''}
-                                                 onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                                                 style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none', colorScheme: 'dark' }}
-                                               />
-                                            </div>
-                                          )}
-
-                                          {item.responseType === 'number' && (
-                                            <input 
-                                              type="number"
-                                              value={resp?.value || ''}
-                                              onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                                              placeholder="Enter numeric value..."
-                                              style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
-                                            />
-                                          )}
-
-                                          {/* SHARED NOTES FIELD */}
-                                          <textarea 
-                                             value={resp?.note || ''} 
-                                             onChange={(e) => handleDetailUpdate(item.id, { note: e.target.value })}
-                                             placeholder="Execution notes or outcomes..."
-                                             style={{ 
-                                               width: '100%', 
-                                               minHeight: '35px', 
-                                               maxHeight: '100px',
-                                               background: 'rgba(0,0,0,0.2)', 
-                                               border: '1px solid rgba(255,255,255,0.05)', 
-                                               borderRadius: '8px', 
-                                               padding: '0.4rem', 
-                                               color: 'var(--te-text-muted)', 
-                                               resize: 'vertical', 
-                                               fontSize: '0.75rem',
-                                               outline: 'none'
-                                             }}
-                                          />
-                                       </div>
-                                     )}
-
-                                     {/* DYNAMIC ACTION BUTTONS (ONLY BOO/SEL, but hide YES/NO for 'question' labels to keep them open) */}
-                                     {((item.responseType === 'boolean' || item.responseType === 'select') && !locked && (item.itemType !== 'question' || (item.allowedValues && item.allowedValues.length > 0))) && (
-                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                          {(item.allowedValues && item.allowedValues.length > 0) ? (
-                                            item.allowedValues.map(val => (
-                                              <button 
-                                                key={val}
-                                                onClick={() => handleDetailUpdate(item.id, { value: val, status: 'answered' })} 
-                                                style={{ 
-                                                  padding: '0.4rem 0.8rem', 
-                                                  borderRadius: '8px', 
-                                                  background: resp?.value === val ? 'var(--te-accent-600)' : 'rgba(255,255,255,0.05)', 
-                                                  border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,0.1)'}`, 
-                                                  color: 'white', 
-                                                  fontSize: '0.65rem', 
-                                                  fontWeight: 800, 
-                                                  cursor: 'pointer',
-                                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                                                }}
-                                              >
-                                                {val.toUpperCase()}
-                                              </button>
-                                            ))
-                                          ) : item.responseType === 'boolean' && (
-                                            <>
-                                              <button onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>YES</button>
-                                              <button onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })} style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.65rem', fontWeight: 900, cursor: 'pointer' }}>NO</button>
-                                            </>
-                                          )}
-                                       </div>
-                                     )}
-                                  </div>
-                               )}
-                            </div>
+                            <MemoizedBackboneItem 
+                              key={item.id}
+                              item={item} 
+                              resp={resp} 
+                              locked={locked} 
+                              selectedItemId={selectedItemId}
+                              setSelectedItemId={setSelectedItemId}
+                              isMeetingMode={isMeetingMode}
+                              handleDetailUpdate={handleDetailUpdate}
+                              activeBackboneAreas={activeBackboneAreas}
+                            />
                          );
                        })}
                     </div>

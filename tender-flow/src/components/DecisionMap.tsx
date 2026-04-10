@@ -366,7 +366,7 @@ interface Props {
   onMirrorFilter?: (text: string) => void;
 }
 
-const MapContent: React.FC<Props> = ({ 
+const MapContentInternal: React.FC<Props> = ({ 
   items, 
   allItems, 
   responses, 
@@ -389,10 +389,10 @@ const MapContent: React.FC<Props> = ({
   const [historyIndex, setHistoryIndex] = useState(-1);
   const saveTimeoutRef = React.useRef<any>(null);
 
-  const internalDelete = (id: string, e: React.MouseEvent) => {
+  const internalDelete = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     onDeleteNode?.(id);
-  };
+  }, [onDeleteNode]);
 
   useEffect(() => {
     const visibleIds = new Set(items.map(i => i.id));
@@ -691,8 +691,10 @@ const MapContent: React.FC<Props> = ({
   );
 };
 
-export const DecisionMap: React.FC<Props> = (props) => (
+const MapContent = memo(MapContentInternal);
+
+export const DecisionMap: React.FC<Props> = memo((props) => (
   <ReactFlowProvider>
     <MapContent {...props} />
   </ReactFlowProvider>
-);
+));

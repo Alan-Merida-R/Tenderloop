@@ -123,11 +123,13 @@ h1, h2, h3 {
   border-radius: var(--te-radius-lg);
   box-shadow: var(--te-shadow-sm);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, box-shadow;
 }
 
 .te-card:hover {
   box-shadow: var(--te-shadow-md);
   border-color: var(--te-accent-500);
+  transform: translateY(-2px);
 }
 
 /* Buttons */
@@ -227,6 +229,8 @@ h1, h2, h3 {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--te-border);
+  will-change: backdrop-filter;
+  transition: backdrop-filter 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .light-mode .te-glass {
@@ -308,9 +312,32 @@ select option {
 
 .spin-slow {
   animation: spin 3s linear infinite;
+  will-change: transform;
 }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Fluid UI - Performance Overrides */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.te-app-container {
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+}
+
+.te-content-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  will-change: scroll-position;
 }

@@ -1,4 +1,7 @@
-# TenderLoop - Local Tendering Manager
+# TenderLoop Ecosystem - Executive Tendering Solution
+===================================================
+
+Este repositorio contiene el ecosistema **TenderLoop** (Gestión Operativa) y **Tender Flow** (Matriz Estratégica Ejecutiva), diseñados para optimizar el ciclo de vida completo de las propuestas técnicas de alto nivel.
 
 ## 0) TÍTULO + VISIÓN GENERAL
 
@@ -236,3 +239,31 @@ Se recomienda seguir la siguiente convención para mantener el historial limpio:
 - **GEET:** Enlace a la herramienta de estimación de entrega.
 - **KPI:** Key Performance Indicators (Métricas de calidad y tiempos).
 - **BFO:** Salesforce / Sistema comercial de referencia.
+
+---
+
+## 13) TENDER FLOW V3.1 (Estrategia Ejecutiva)
+
+**Tender Flow** es el motor de decisiones estratégicas integrado. Mientras que TenderLoop gestiona la operación diaria, Tender Flow permite a los directores y líderes técnicos visualizar la macro-estrategia y tomar decisiones rápidas.
+
+### Innovaciones de Fluidez (V15.3):
+- **Arquitectura Memoizada**: Uso intensivo de `MemoizedBackboneItem` para asegurar que el UI no sufra lags, incluso con cientos de puntos de decisión.
+- **Aceleración por Hardware**: Implementación de `will-change: transform` y curvas de suavizado `cubic-bezier` para una navegación sedosa.
+- **Context-Aware Board**: El tablero de respuesta se ajusta dinámicamente al tipo de pregunta (Link, Decisión, Texto), eliminando ruido visual.
+
+---
+
+## 14) GUÍA PARA CONTRIBUIDORES
+
+Si deseas realizar cambios o mejoras en la aplicación, sigue estas directrices para mantener la integridad del sistema:
+
+1.  **Check de Fluidez**: Antes de commitear un nuevo componente en el Dashboard, asegúrate de que esté envuelto en `React.memo` si va a renderizarse repetidamente.
+2.  **Sincronización**: La comunicación entre TenderLoop y Tender Flow se basa en el `syncId`. No alteres esta propiedad sin actualizar el motor de mapeo.
+3.  **Estética Premium**: Se requiere el uso de gradientes sutiles, desenfoques de fondo (Glassmorphism) y animaciones de entrada suaves para mantener el estándar ejecutivo.
+
+---
+
+## 15) CRÉDITOS E INGENIERÍA
+Desarrollado con un enfoque en **Performance-First Design**. 
+
+© 2026 TenderLoop Team. Todos los derechos reservados.

@@ -267,17 +267,17 @@ export const QuestionDetailPanel: React.FC<Props> = ({
        return (
          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
            <div>
-             <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Link Label</label>
+             <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Etiqueta</label>
              <input 
                disabled={isLocked}
-               placeholder="e.g. Documentation Portal"
-               value={linkData.name}
-               onChange={(e) => handleUpdate({ linkInfo: { ...linkData, name: e.target.value }, status: 'answered', value: e.target.value })}
+               placeholder="Ej: Portal de Documentación"
+               value={linkData.label || linkData.name || ''}
+               onChange={(e) => handleUpdate({ linkInfo: { ...linkData, label: e.target.value }, status: 'answered', value: e.target.value })}
                style={inputStyle}
              />
            </div>
            <div>
-             <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Hyperlink URL</label>
+             <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Hipervínculo</label>
              <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <input 
                   disabled={isLocked}
