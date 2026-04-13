@@ -45,6 +45,14 @@ export const checkDependency = (
 const normalize = (val: any): string => String(val || '').trim().toLowerCase().replace(/[\u2013\u2014]/g, '-');
 
 /**
+ * Detects whether a logicString is in "numbered format" ((1 AND 2) OR 3)
+ * vs "old ID:VALUE format" (Q1:YES AND Q2:No).
+ * Numbered format never contains a colon and always contains at least one digit.
+ * Old format always contains a colon to separate targetId from expected value.
+ */
+const isNumberedLogicFormat = (s: string): boolean => !s.includes(':') && /\d/.test(s);
+
+/**
  * Evalúa lógica compleja de tipo: (Q1:Yes,AND,Q2:No),OR,(Q3:Yes)
  * PUNTO 13 del Checklist
  */
@@ -229,8 +237,12 @@ export const getVisibleItems = (
     // SI HAY LOGIC STRING (Nuevas reglas de visibilidad Punto 25)
     if (item.logicString && item.logicString.trim().length > 0) {
       try {
-        const hasNumberedRules = item.dependencyRules && item.dependencyRules.length > 0;
-        
+        // Only use evaluateNumberedLogic when the string is truly in numbered format
+        // (digits + AND/OR/NOT/parentheses). Old-format strings like "Q1:ANY AND Q2:Yes"
+        // must NOT be passed to evaluateNumberedLogic because it replaces digit substrings
+        // ('1' in 'Q1', '2' in 'Q2') with boolean values, breaking all logic evaluation.
+        const hasNumberedRules = item.dependencyRules && item.dependencyRules.length > 0 && isNumberedLogicFormat(item.logicString);
+
         if (hasNumberedRules) {
            const ruleMetArray = item.dependencyRules!.map(rule => checkDependency(rule, responses));
            // Para visibilidad 'optimista', asumimos que si no hay respuesta aún, PODRÍA ser true
@@ -239,10 +251,10 @@ export const getVisibleItems = (
               if (!resp || (resp.status !== 'answered' && resp.status !== 'confirmed')) return true;
               return checkDependency(rule, responses);
            });
-           
+
            return evaluateNumberedLogic(item.logicString, ruleMetArray) || evaluateNumberedLogic(item.logicString, ruleMetOptimistic);
         } else {
-          // Lógica antigua ID:VAL
+          // Lógica antigua ID:VAL (or any non-numbered format)
           const normalizedResponses: Record<string, ItemResponse> = {};
           Object.keys(responses).forEach(k => {
             normalizedResponses[normalize(k)] = responses[k];
@@ -250,7 +262,7 @@ export const getVisibleItems = (
           return evaluateComplexLogic(item.logicString, normalizedResponses, false) || evaluateComplexLogic(item.logicString, normalizedResponses, true);
         }
       } catch (err) {
-        return true; 
+        return true;
       }
     }
 
@@ -432,8 +444,9 @@ export const isItemLocked = (
   }));
 
   let isLocked = false;
-  if (item.logicString && item.logicString.trim().length > 0) {
+  if (item.logicString && item.logicString.trim().length > 0 && isNumberedLogicFormat(item.logicString)) {
     // Si hay una cadena de lógica numerada (Punto 25+.2)
+    // Guard: only call evaluateNumberedLogic for actual numbered-format strings.
     const ruleMetArray = results.map(r => r.met);
     isLocked = !evaluateNumberedLogic(item.logicString, ruleMetArray);
   } else if (dependencyOperator === 'AND') {

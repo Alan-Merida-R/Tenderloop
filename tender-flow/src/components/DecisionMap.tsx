@@ -388,29 +388,45 @@ const MapContentInternal: React.FC<Props> = ({
   const [history, setHistory] = useState<StandardItem[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const saveTimeoutRef = React.useRef<any>(null);
+  // Ref keeps latest responses available inside structure-rebuild effect without
+  // including `responses` in that effect's dependency array.
+  const responsesRef = useRef(responses);
+  useEffect(() => { responsesRef.current = responses; }, [responses]);
+  // Debounce ref for the response-only node-data update (Effect B).
+  const responseUpdateTimerRef = useRef<any>(null);
 
   const internalDelete = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     onDeleteNode?.(id);
   }, [onDeleteNode]);
 
+  // ---------------------------------------------------------------------------
+  // EFFECT A — STRUCTURAL REBUILD
+  // Fires when question items, dependency rules, stage/area metadata, or edit
+  // mode change. These changes are infrequent (structure edits, not typing).
+  //
+  // PERF FIX: `responses` is intentionally NOT in this dep array.
+  // Response-based node-data updates are handled by Effect B (debounced), so we
+  // no longer rebuild 200 nodes + O(N²) edges on every single keystroke.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+    const currentResponses = responsesRef.current;
     const visibleIds = new Set(items.map(i => i.id));
-    
+
     const initialNodes: Node[] = items.map((item, idx) => {
-      const resp = responses[item.id];
+      const resp = currentResponses[item.id];
       const areaColor = areas.find(a => a.name === item.area)?.color || '#64748b';
-      const { locked } = isItemLocked(item, responses);
+      const { locked } = isItemLocked(item, currentResponses);
 
       return {
         id: item.id,
         type: item.itemType === 'decision' ? 'decision' : (item.itemType === 'end' ? 'end' : (item.itemType === 'action' ? 'action' : (item.itemType === 'link' ? 'link' : 'question'))),
         position: item.visualPosition || { x: idx * 280, y: (stagesList.indexOf(item.stage) || 0) * 450 },
-        data: { 
+        data: {
           id: item.id,
-          label: item.content, 
-          area: item.area, 
-          areaColor, 
+          label: item.content,
+          area: item.area,
+          areaColor,
           isAnswered: resp?.status === 'answered' || resp?.status === 'confirmed',
           value: resp?.value || '',
           isLocked: locked,
@@ -431,7 +447,7 @@ const MapContentInternal: React.FC<Props> = ({
             source: rule.targetId,
             target: item.id,
             type: 'labeled',
-            data: { 
+            data: {
               label: rule.operator === 'equals' ? String(rule.value) : (rule.operator === 'any_value' ? 'IF ANY' : ''),
             },
             markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--te-accent-500)', width: 20, height: 20 },
@@ -443,7 +459,41 @@ const MapContentInternal: React.FC<Props> = ({
 
     setNodes(initialNodes);
     setEdges(initialEdges);
-  }, [items, responses, stagesList, areas, allItems, isEditMode, onMirrorFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, stagesList, areas, allItems, isEditMode, internalDelete, onMirrorFilter]);
+
+  // ---------------------------------------------------------------------------
+  // EFFECT B — RESPONSE DATA UPDATE (debounced, 120ms)
+  // Only updates `isAnswered`, `value`, and `isLocked` on existing nodes.
+  // Node positions, edges, and structure are NOT touched.
+  //
+  // PERF FIX: 120ms debounce means we batch rapid keystrokes into one update.
+  // The graph map stays readable during typing without per-character re-renders.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (responseUpdateTimerRef.current) clearTimeout(responseUpdateTimerRef.current);
+    responseUpdateTimerRef.current = setTimeout(() => {
+      setNodes(prevNodes => {
+        let changed = false;
+        const next = prevNodes.map(node => {
+          const item = allItems.find(i => i.id === node.id);
+          if (!item) return node;
+          const resp = responses[node.id];
+          const { locked } = isItemLocked(item, responses);
+          const isAnswered = resp?.status === 'answered' || resp?.status === 'confirmed';
+          const value = resp?.value || '';
+          // Skip update when nothing changed to avoid invalidating memo'd nodes
+          if (node.data.isAnswered === isAnswered && node.data.value === value && node.data.isLocked === locked) {
+            return node;
+          }
+          changed = true;
+          return { ...node, data: { ...node.data, isAnswered, value, isLocked: locked } };
+        });
+        return changed ? next : prevNodes;
+      });
+    }, 120);
+    return () => { if (responseUpdateTimerRef.current) clearTimeout(responseUpdateTimerRef.current); };
+  }, [responses, allItems]);
 
   const onNodesChange: OnNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange: OnEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);

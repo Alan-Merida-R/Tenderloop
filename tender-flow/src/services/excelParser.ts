@@ -41,6 +41,10 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
     const parsedOperator = (row.LogicOperator || row.logicOperator || row.Operador || 'AND').toString().toUpperCase() as any;
     
     const extractedRules: any[] = [];
+    // Detect if this is old-format logic (ID:VALUE pairs) vs numbered logic ((1 AND 2) OR 3)
+    // Old format always contains ':' separating the targetId from the expected value.
+    // Numbered format only has digits, AND, OR, NOT, parentheses.
+    const isOldFormatLogic = logicString.includes(':');
     if (logicString) {
        const chunks = logicString.split(parsedOperator === 'OR' ? ' OR ' : ' AND ');
        chunks.forEach(chunk => {
@@ -57,10 +61,19 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
        });
     }
 
+    // CRITICAL FIX: When we successfully extracted rules from an old-format logicString,
+    // clear the logicString field. The evaluator interprets a non-empty logicString as a
+    // "numbered logic" expression (e.g. "((1 AND 2) OR 3)") and will corrupt old-format
+    // strings (e.g. "Q1:ANY AND Q2:Yes") by replacing digit substrings with booleans,
+    // causing questions to appear locked when they should be unlocked.
+    // With logicString cleared, the evaluator uses dependencyRules + dependencyOperator
+    // directly, which evaluates correctly.
+    const finalLogicString = (isOldFormatLogic && extractedRules.length > 0) ? '' : logicString;
+
     questions.push({
       id, active: true, stage, area, priority, itemType: type, content, description,
       responseType: row.ResponseType || (type === 'decision' ? 'select' : 'any'),
-      dependencyOperator: parsedOperator, logicString, dependencyRules: extractedRules,
+      dependencyOperator: parsedOperator, logicString: finalLogicString, dependencyRules: extractedRules,
       deliverableTarget: (row.Entregable || row.Deliverables || row.Entregables) ? String(row.Entregable || row.Deliverables || row.Entregables).split(',').map(t => t.trim()) : [],
       allowedValues: options ? String(options).split(',').map(v => v.trim()) : undefined,
       isMultipleSelection: row.IsMultiple === true || String(row.IsMultiple).toLowerCase() === 'yes' || String(row.IsMultiple).toLowerCase() === 'si',

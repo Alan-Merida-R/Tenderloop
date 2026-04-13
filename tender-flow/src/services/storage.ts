@@ -254,11 +254,16 @@ export class WorkspaceManager {
 
   private async commitChanges() {
     if (!this.currentWorkspace || !currentFileHandle) return;
-    
+
     this.updateStatus('Saving');
     try {
-      const dataToSave = JSON.parse(JSON.stringify(this.currentWorkspace)); // Deep clone to avoid mutations during write
-      await this.saveFileDirectly(currentFileHandle, dataToSave);
+      // PERF FIX: Previously did JSON.parse(JSON.stringify(ws)) as a "deep clone",
+      // then JSON.stringify(clone) again inside saveFileDirectly = TWO full serializations.
+      // Now we serialize once to a string, write that string directly, and skip the clone.
+      // The workspace object is treated immutably throughout the app (spread-based updates),
+      // so there is no mutation risk during the async write.
+      const jsonStr = JSON.stringify(this.currentWorkspace, null, 2);
+      await this.saveFileDirectly(currentFileHandle, jsonStr);
       this.updateStatus('Synced');
     } catch (e) {
       console.error('Failed to autosave', e);
@@ -266,16 +271,20 @@ export class WorkspaceManager {
     }
   }
 
-  private async saveFileDirectly(handle: any, data: TenderFlowWorkspace) {
+  private async saveFileDirectly(handle: any, jsonStr: string) {
     const writable = await handle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
+    await writable.write(jsonStr);
     await writable.close();
-    
-    // Update metadata locally
-    data.metadata.lastModified = new Date().toISOString();
-    
+
+    // Update in-memory metadata (no re-serialization needed)
+    if (this.currentWorkspace) {
+      this.currentWorkspace.metadata.lastModified = new Date().toISOString();
+    }
+
     // Recent list update
-    this.updateRecentList(handle.name, data.metadata.id);
+    if (this.currentWorkspace) {
+      this.updateRecentList(handle.name, this.currentWorkspace.metadata.id);
+    }
   }
 
   private async persistHandle(handle: any, type: 'last_active' | 'loop_db' = 'last_active') {

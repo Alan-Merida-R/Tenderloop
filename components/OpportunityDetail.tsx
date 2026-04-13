@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -19,10 +19,25 @@ import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedIn
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
-// @ts-ignore
-import { jsPDF } from 'jspdf';
-// @ts-ignore
-import autoTable from 'jspdf-autotable';
+// PERF FIX: jsPDF + autoTable are large libraries (~400KB combined).
+// Loading them statically caused ~200-400ms of parse/execution on every
+// OpportunityDetail mount, even when the user never exports a PDF.
+// Lazy loading defers this cost to the first export action only.
+let _pdfLibsCache: { jsPDF: any; autoTable: any } | null = null;
+const loadPdfLibs = async (): Promise<{ jsPDF: any; autoTable: any }> => {
+    if (!_pdfLibsCache) {
+        const [jsPDFMod, autoTableMod] = await Promise.all([
+            import('jspdf'),
+            import('jspdf-autotable')
+        ]);
+        // Handle both named and default exports (jsPDF has changed its export style)
+        _pdfLibsCache = {
+            jsPDF: (jsPDFMod as any).jsPDF || jsPDFMod.default,
+            autoTable: (autoTableMod as any).default || autoTableMod
+        };
+    }
+    return _pdfLibsCache!;
+};
 
 interface Props {
     opportunity: Opportunity;
@@ -1764,15 +1779,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const updateKpiField = (path: string, value: any) => {
-        const newKpis = JSON.parse(JSON.stringify(localOpp.kpis));
-
+        let newKpis: KPIs;
+        const baseKpis = localOpp.kpis as any;
         if (path.includes('.')) {
             const parts = path.split('.');
-            // @ts-ignore
-            newKpis[parts[0]][parts[1]] = value;
+            newKpis = {
+                ...baseKpis,
+                [parts[0]]: {
+                    ...baseKpis?.[parts[0]],
+                    [parts[1]]: value
+                }
+            } as KPIs;
         } else {
-            // @ts-ignore
-            newKpis[path] = value;
+            newKpis = { ...baseKpis, [path]: value } as KPIs;
         }
 
         let updatedOpp = { ...localOpp, kpis: newKpis, lastUpdated: new Date().toISOString() };
@@ -1789,13 +1808,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onUpdate(updatedOpp, opportunity.id);
     };
 
-    const filteredNotes = localOpp.notes.filter(n => {
+    const filteredNotes = useMemo(() => localOpp.notes.filter(n => {
         const term = searchTerm.toLowerCase();
         const plainContent = n.content.replace(/<[^>]*>/g, '').toLowerCase();
         return n.title.toLowerCase().includes(term) || plainContent.includes(term);
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [localOpp.notes, searchTerm]);
 
-    const filteredTasks = localOpp.tasks.filter(t => {
+    const filteredTasks = useMemo(() => localOpp.tasks.filter(t => {
         const matchesText = t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||
             t.description.toLowerCase().includes(taskFilter.toLowerCase()) ||
             (t.externalAreas && t.externalAreas.some(area => area.toLowerCase().includes(taskFilter.toLowerCase())));
@@ -1823,7 +1842,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             { task: a, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder },
             { task: b, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder }
         );
-    });
+    }), [localOpp.tasks, localOpp.statusLabel, localOpp.priorityOrder, taskFilter, taskStatusFilters, taskSort]);
 
     const displayValue = (val: number) => val === 0 ? '' : val;
     const commercialTotals = useMemo(() => {
@@ -2255,8 +2274,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     /**
      * Shared Helper: Renders note content (text, tables, images) to a jsPDF document.
+     * Accepts autoTable as a parameter so the caller can pass the lazily-loaded library.
      */
-    const renderNoteContentToPdf = async (doc: any, html: string, currentY: number, pageWidth: number): Promise<number> => {
+    const renderNoteContentToPdf = async (doc: any, autoTable: any, html: string, currentY: number, pageWidth: number): Promise<number> => {
         let y = currentY;
         const normalizedHtml = await normalizeImagesForPdf(html);
         const tempDiv = document.createElement('div');
@@ -2389,6 +2409,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
      * Includes overview, commercial summary, tasks, Q&A, history, and meeting notes.
      */
     const handleExportPDF = async () => {
+        const { jsPDF, autoTable } = await loadPdfLibs();
         const doc = new jsPDF();
         const s = localOpp;
         const pageWidth = doc.internal.pageSize.getWidth();
@@ -2658,7 +2679,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 doc.setFont(undefined, 'normal');
 
                 // Render note content with centralized helper (text, images, tables)
-                yPos = await renderNoteContentToPdf(doc, note.content, yPos, pageWidth);
+                yPos = await renderNoteContentToPdf(doc, autoTable, note.content, yPos, pageWidth);
                 yPos += 10;
             }
         }
@@ -2867,6 +2888,80 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         handleFieldChange('notes', updatedNotes);
     };
 
+    /**
+     * Exports ALL tasks of the current opportunity to an Excel (.xlsx) file.
+     * - Always uses all tasks, ignoring any active visual filter.
+     * - Sorted by internal numeric order (order field), not shown in output.
+     * - Works in both editable and read-only (snapshot) modes.
+     */
+    const exportTasksToExcel = async () => {
+        const allTasks = [...localOpp.tasks].sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999));
+
+        if (allTasks.length === 0) {
+            alert('No tasks to export.');
+            return;
+        }
+
+        const rows = allTasks.map(task => {
+            // Status: use friendly display value directly (already human-readable in the type)
+            const status = task.status || 'Pending';
+
+            // TaskName: fall back to placeholder so a corrupt/empty task is still visible
+            const taskName = (task.title && task.title.trim()) ? task.title.trim() : '[No Title]';
+
+            // Sub-task: all subtasks grouped in one cell, newline-separated
+            const subTaskCell = (task.subtasks && task.subtasks.length > 0)
+                ? task.subtasks.map((st, i) => `${i + 1}. [${st.completed ? 'x' : ' '}] ${st.title || ''}`.trimEnd()).join('\n')
+                : '';
+
+            // DueDate: MM/DD/YYYY, fallback to "Pending"
+            let dueDate = 'Pending';
+            if (task.dueDate && task.dueDate.trim()) {
+                try {
+                    const parts = task.dueDate.split('-');
+                    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+                        dueDate = `${parts[1]}/${parts[2]}/${parts[0]}`;
+                    }
+                } catch {
+                    dueDate = 'Pending';
+                }
+            }
+
+            return {
+                'Status': status,
+                'TaskName': taskName,
+                'Sub-task': subTaskCell,
+                'DueDate': dueDate,
+            };
+        });
+
+        try {
+            // Dynamic import — xlsx is already a project dependency (used in tender-flow and previews)
+            const XLSX = await import('xlsx');
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(rows);
+
+            // Column widths for readability
+            ws['!cols'] = [
+                { wch: 16 },  // Status
+                { wch: 42 },  // TaskName
+                { wch: 52 },  // Sub-task
+                { wch: 14 },  // DueDate
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+
+            // Filename: [OP_ID]_Tasks_[OpportunityTitle].xlsx — sanitize invalid chars
+            const sanitize = (s: string) => s.replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_');
+            const fileName = `${sanitize(localOpp.id)}_Tasks_${sanitize(localOpp.title)}.xlsx`;
+
+            XLSX.writeFile(wb, fileName);
+        } catch (err) {
+            console.error('[exportTasksToExcel] Failed:', err);
+            alert('Failed to export tasks. Please try again.');
+        }
+    };
+
     // New: Handle opening Split View from inline task
     const handleOpenSplitView = (task: Task, noteId: string) => {
         setSelectedTaskForEdit({ task });
@@ -2910,8 +3005,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return Math.min(100, Math.max(0, score));
     }, [myWorkStats.days, totalAreaDays, waitingOnOthersDays, localOpp.kpis]);
 
+    const nextTask = useMemo(() => getNextTask(localOpp.tasks || []), [localOpp.tasks]);
+
     const handleExportNotePDF = async (note: MeetingNote) => {
         if (!note) return;
+        const { jsPDF, autoTable } = await loadPdfLibs();
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
         const opportunityName = localOpp.title.replace(/[/\\?%*:|"<>]/g, '-');
@@ -2943,7 +3041,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         doc.setTextColor(0);
 
         // Render note content with centralized helper (text, images, tables)
-        yPos = await renderNoteContentToPdf(doc, note.content, yPos, pageWidth);
+        yPos = await renderNoteContentToPdf(doc, autoTable, note.content, yPos, pageWidth);
 
         if ('showSaveFilePicker' in window) {
             try {
@@ -2963,8 +3061,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const handleExportKpiPDF = async () => {
-        const jsPDF = (await import('jspdf')).default;
-        const autoTable = (await import('jspdf-autotable')).default;
+        const { jsPDF, autoTable } = await loadPdfLibs();
         const doc = new jsPDF();
 
         // Header
@@ -3472,10 +3569,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
 
-                                    {(() => {
-                                        const nextTask = getNextTask(localOpp.tasks || []);
-                                        return nextTask ? (
-                                            <div 
+                                    {nextTask ? (
+                                            <div
                                                 className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
                                                 onClick={() => {
                                                     if (onSelectOpp) onSelectOpp(opportunity.id, { tab: 'tasks', taskId: nextTask.id });
@@ -3492,8 +3587,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover/next:text-blue-600" />
                                                 </div>
                                             </div>
-                                        ) : null;
-                                    })()}
+                                        ) : null}
 
                                     <div className="flex flex-wrap items-center gap-2 mt-2">
                                         {localOpp.quoteType && (
@@ -4992,6 +5086,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             placeholder="All Status"
                                         />
                                         <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
+                                        <button onClick={exportTasksToExcel} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2 text-green-700 border-green-200 hover:border-green-400" title="Export all tasks to Excel (.xlsx)"><FileSpreadsheet className="w-4 h-4" /> Export to Excel</button>
                                         {!isSnapshot && (
                                             <>
                                                 <button onClick={() => setShowCopyTasksModal(true)} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><Copy className="w-4 h-4" /> Copy Tasks</button>

@@ -97,6 +97,13 @@ function App() {
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
   const isSavingRef = useRef(false);
+  // PERF FIX: Debounce refs for sessionStorage writes.
+  // sessionStorage.setItem is synchronous and runs on the main thread.
+  // On low-RAM machines it can spike for 5-15ms per call.
+  // Rapid state changes (e.g. typing + navigation) queued multiple writes per second.
+  // 300ms debounce batches bursts of changes into a single write.
+  const sessionTabsTimerRef = useRef<number | null>(null);
+  const sessionNavTimerRef = useRef<number | null>(null);
 
   // Redirect legacy tracking view
   useEffect(() => {
@@ -140,19 +147,24 @@ function App() {
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
   };
 
-  // NEW: Save minimized records whenever they change
+  // PERF FIX: Debounced sessionStorage writes (was synchronous on every render).
+  // sessionStorage.setItem blocks the main thread. On low-RAM machines this
+  // contributes visible jank when the user types or changes tabs frequently.
   useEffect(() => {
-    sessionStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
+    if (sessionTabsTimerRef.current) clearTimeout(sessionTabsTimerRef.current);
+    sessionTabsTimerRef.current = window.setTimeout(() => {
+      sessionStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
+    }, 300);
+    return () => { if (sessionTabsTimerRef.current) clearTimeout(sessionTabsTimerRef.current); };
   }, [floatingTabs]);
 
-  // NEW: Save navigation state whenever it changes
   useEffect(() => {
-    const navState = {
-      currentView,
-      selectedOppId,
-      activeDeepLink
-    };
-    sessionStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
+    if (sessionNavTimerRef.current) clearTimeout(sessionNavTimerRef.current);
+    sessionNavTimerRef.current = window.setTimeout(() => {
+      const navState = { currentView, selectedOppId, activeDeepLink };
+      sessionStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
+    }, 300);
+    return () => { if (sessionNavTimerRef.current) clearTimeout(sessionNavTimerRef.current); };
   }, [currentView, selectedOppId, activeDeepLink]);
 
   // Load Recents & Auto-open last DB
@@ -948,12 +960,12 @@ function App() {
     setSelectedOppId(newId);
   };
 
-  const rebalancePriorities = (opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
+  const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
     // Optimization: If no priority or status change, return early (or just basic sort)
     // But for safety and to keep the 1..N property, we'll run an O(N) version.
-    
+
     const statuses: OpportunityStatus[] = ['In Progress', 'On Hold', 'Submitted', 'Won', 'Lost', 'Canceled'];
-    
+
     // 1. Group by status - O(N)
     const groups: Record<string, Opportunity[]> = {};
     statuses.forEach(s => groups[s] = []);
@@ -1010,20 +1022,20 @@ function App() {
         }
       });
     });
-    
-    return resultOpps;
-  };
 
-  const updateOpportunity = (updatedOpp: Opportunity, id?: string) => {
+    return resultOpps;
+  }, []);
+
+  const updateOpportunity = useCallback((updatedOpp: Opportunity, id?: string) => {
     // Auto-assign any missing task orders before saving globally
     if (updatedOpp.tasks) {
         updatedOpp.tasks = assignMissingOrders(updatedOpp.tasks);
     }
-    
+
     // HOTFIX PERFORMANCE: Trim history and old versions globally to prevent DB bloat
     if (updatedOpp.history && updatedOpp.history.length > 300) updatedOpp.history = updatedOpp.history.slice(0, 300);
     if (updatedOpp.versions && updatedOpp.versions.length > 20) updatedOpp.versions = updatedOpp.versions.slice(-20);
-    
+
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
     }
@@ -1063,7 +1075,7 @@ function App() {
         };
       });
     });
-  };
+  }, [selectedOppId, rebalancePriorities]);
 
   const moveOpportunityStage = useCallback((id: string, newStage: ProcessStage) => {
     React.startTransition(() => {

@@ -7,7 +7,9 @@ import { workspaceManager } from '../services/storage';
 import { exportToWord, exportToExcel } from '../services/exporter';
 import { ChecklistWizard } from './ChecklistWizard';
 import { QuestionDetailPanel } from './QuestionDetailPanel';
-import * as XLSX from 'xlsx';
+// PERF FIX: 'xlsx' (700KB) was imported statically but never used directly in this file.
+// All Excel operations go through excelParser.ts and exporter.ts which import xlsx themselves.
+// Removing this dead import cuts ~700KB from the FlowDashboard bundle parse cost.
 import { DecisionMap } from './DecisionMap';
 import { StructureEditor } from './StructureEditor';
 import { ExecutiveDecisionMap } from './ExecutiveDecisionMap';
@@ -329,9 +331,17 @@ export const FlowDashboard: React.FC = () => {
   const activeBackboneAreas = useMemo(() => currentCase?.snapshot?.areas || areasData, [currentCase, areasData]);
   const activeBackboneDeliverables = useMemo(() => currentCase?.snapshot?.deliverables || deliverablesData, [currentCase, deliverablesData]);
 
+  // Compute logic-visible items once and share between visibleItems and hasPendingActions.
+  // Previously getVisibleItems was called twice per render (once here, once in hasPendingActions),
+  // doubling the full dependency-evaluation cost on every response change.
+  const logicVisibleItems = useMemo(() => {
+    if (!currentCase) return [] as typeof activeBackboneItems;
+    return getVisibleItems(activeBackboneItems, currentCase.responses);
+  }, [activeBackboneItems, currentCase]);
+
   const visibleItems = useMemo(() => {
     if (!currentCase) return [];
-    const baseItems = isEditMode ? activeBackboneItems : getVisibleItems(activeBackboneItems, currentCase.responses);
+    const baseItems = isEditMode ? activeBackboneItems : logicVisibleItems;
     
     // Performance: Consolidated single-pass filtering
     const q = debouncedSearch.toLowerCase();
@@ -376,7 +386,7 @@ export const FlowDashboard: React.FC = () => {
 
       return true;
     });
-  }, [activeBackboneItems, currentCase, debouncedSearch, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, hideAnswered, hideLocked, selectedDeliverables]);
+  }, [logicVisibleItems, activeBackboneItems, currentCase, debouncedSearch, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, hideAnswered, hideLocked, selectedDeliverables]);
 
   const areaStatuses = useMemo(() => getAreaStatus(activeBackboneItems, currentCase?.responses || {}), [activeBackboneItems, currentCase]);
   const stagesList = useMemo(() => activeBackboneStages.filter(s => s.active !== false).sort((a,b) => a.order - b.order).map(s => s.name), [activeBackboneStages]);
@@ -410,15 +420,14 @@ export const FlowDashboard: React.FC = () => {
 
   const hasPendingActions = useMemo(() => {
     if (!currentCase) return false;
-    // Only glow for actions that are logic-unlocked (visible in flow)
-    const logicVisibleItems = getVisibleItems(activeBackboneItems, currentCase.responses);
-    return logicVisibleItems.some(i => 
-      i.itemType === 'action' && 
-      (!currentCase.responses[i.id] || 
-       currentCase.responses[i.id].status === 'not_started' || 
+    // Reuse logicVisibleItems (already computed above) instead of calling getVisibleItems again.
+    return logicVisibleItems.some(i =>
+      i.itemType === 'action' &&
+      (!currentCase.responses[i.id] ||
+       currentCase.responses[i.id].status === 'not_started' ||
        currentCase.responses[i.id].status === 'pending')
     );
-  }, [currentCase, activeBackboneItems]);
+  }, [logicVisibleItems, currentCase]);
 
   const handleDeleteCase = useCallback((caseId: string) => {
     if (!workspace) return;
@@ -461,8 +470,23 @@ export const FlowDashboard: React.FC = () => {
         }
         setLoopDb(data);
         setLoopDbName(handle.name);
-        localStorage.setItem('te_loop_db_cache', JSON.stringify(data));
-        localStorage.setItem('te_loop_db_name', handle.name);
+        // Guard: only cache to localStorage if the payload is small enough (~2MB).
+        // Large databases would exceed the 5-10MB quota and throw synchronously,
+        // freezing the main thread on low-RAM machines.
+        try {
+          const cacheStr = JSON.stringify(data);
+          if (cacheStr.length < 2_000_000) {
+            localStorage.setItem('te_loop_db_cache', cacheStr);
+            localStorage.setItem('te_loop_db_name', handle.name);
+          } else {
+            // DB is too large for localStorage; keep it in memory only.
+            localStorage.removeItem('te_loop_db_cache');
+            localStorage.setItem('te_loop_db_name', handle.name);
+          }
+        } catch (e) {
+          // Quota exceeded — keep in memory only, don't crash.
+          console.warn('Loop DB too large for localStorage cache, keeping in memory only.');
+        }
       } catch (e) {
         console.warn('Loop DB handle expired or inaccessible');
       }
@@ -675,14 +699,19 @@ export const FlowDashboard: React.FC = () => {
     handleSaveStandard({ ...currentCase.snapshot, questions: updatedItems });
   }, [currentCase, handleSaveStandard]);
 
-  const handleDetailUpdate = (itemId: string, updates: Partial<ItemResponse> | null) => {
+  // PERF FIX: Wrapped in useCallback so MemoizedBackboneItem components don't
+  // re-render when unrelated state (selectedItemId, isEditMode, etc.) changes.
+  // Previously, every state change in FlowDashboard created a new function reference
+  // here, invalidating the React.memo() on every child item even when its own
+  // response data hadn't changed.
+  const handleDetailUpdate = useCallback((itemId: string, updates: Partial<ItemResponse> | null) => {
     if (!currentCase || !workspace) return;
     let nextResponses = { ...currentCase.responses };
     if (updates === null) { delete nextResponses[itemId]; }
     else {
       const trimmed = String(updates.value || '').trim();
       if (updates.value !== undefined) updates.status = trimmed === '' ? 'not_started' : 'answered';
-      
+
       const newResponse = {
         ...(nextResponses[itemId] || { itemId, value: '', status: 'not_started', isFlagged: false, isLocked: false, updatedAt: new Date().toISOString() }),
         ...updates, updatedAt: new Date().toISOString()
@@ -699,7 +728,7 @@ export const FlowDashboard: React.FC = () => {
             } else {
               nextResponses[other.id] = {
                 ...(nextResponses[other.id] || { itemId: other.id, value: '', status: 'not_started', isFlagged: false, isLocked: false, updatedAt: new Date().toISOString() }),
-                ...updates, 
+                ...updates,
                 itemId: other.id,
                 updatedAt: new Date().toISOString()
               };
@@ -718,7 +747,7 @@ export const FlowDashboard: React.FC = () => {
     if (item?.linkedTaskId && loopDb.length > 0 && updates?.value !== undefined) {
        handleUpdateLoopTask(item.linkedTaskId, String(updates.value));
     }
-  };
+  }, [currentCase, workspace, activeBackboneItems, loopDb]);
 
   const handleUpdateLoopTask = async (taskId: string, newStatus: string) => {
     let hasChanges = false;
@@ -825,6 +854,88 @@ export const FlowDashboard: React.FC = () => {
     reader.readAsArrayBuffer(file);
   };
 
+  /**
+   * IMPORT RESPONSES FROM EXCEL (Round-trip)
+   * Reads a previously-exported Excel file and merges the Answer/Status columns
+   * back into the CURRENT case's responses without touching the question structure.
+   * This enables the workflow: Export → edit responses in Excel → re-import.
+   *
+   * Rules:
+   * - Only existing question IDs are updated (new IDs in Excel are ignored).
+   * - Existing responses that are NOT present in the Excel are left untouched.
+   * - An empty Answer cell clears the response for that item (status → not_started).
+   * - Notes, Is Flagged columns are also merged when present.
+   */
+  const handleImportResponsesFromExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !workspace || !currentCase) return;
+
+    // Reset the input so the same file can be re-selected after changes
+    e.target.value = '';
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        const { responses: importedResponses } = parseProjectExcel(buffer);
+
+        // Build the set of valid question IDs in the current case
+        const validIds = new Set(activeBackboneItems.map(i => i.id));
+
+        const nextResponses = { ...currentCase.responses };
+        let mergedCount = 0;
+        let clearedCount = 0;
+
+        Object.entries(importedResponses).forEach(([id, resp]) => {
+          if (!validIds.has(id)) return; // Skip unknown IDs
+
+          const trimmedValue = String(resp.value || '').trim();
+          if (trimmedValue === '') {
+            // Empty answer → clear the response (preserve flags/notes if present)
+            if (nextResponses[id]) {
+              nextResponses[id] = {
+                ...nextResponses[id],
+                value: '',
+                status: 'not_started',
+                updatedAt: new Date().toISOString()
+              };
+              clearedCount++;
+            }
+          } else {
+            // Merge: existing response fields are preserved; imported fields win
+            const existing = nextResponses[id] || { itemId: id, value: '', status: 'not_started' as const, isFlagged: false, isLocked: false, note: '' };
+            nextResponses[id] = {
+              ...existing,
+              value: trimmedValue,
+              status: (resp.status === 'answered' || resp.status === 'confirmed') ? resp.status : 'answered',
+              isFlagged: resp.isFlagged ?? existing.isFlagged ?? false,
+              note: resp.note || existing.note || '',
+              updatedAt: new Date().toISOString()
+            };
+            mergedCount++;
+          }
+        });
+
+        const nextCase = { ...currentCase, responses: nextResponses };
+        const updatedWs = {
+          ...workspace,
+          cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c)
+        };
+        setWorkspace(updatedWs);
+        workspaceManager.markDirty(updatedWs);
+
+        alert(`Responses imported: ${mergedCount} updated, ${clearedCount} cleared.`);
+      } catch (err) {
+        console.error('Import Responses failed:', err);
+        alert('Failed to import responses from Excel. Check the file format.');
+      } finally {
+        setIsImporting(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   return (
     <div className={`te-app-container ${isDarkMode ? 'dark-mode' : 'light-mode'}`} style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--te-bg-app)', color: 'var(--te-text-main)', overflow: 'hidden' }}>
       {!workspace && <ZeroStateOverlay onOpenDB={() => workspaceManager.openWorkspace()} onNewDB={() => workspaceManager.newWorkspace()} />}
@@ -894,7 +1005,22 @@ export const FlowDashboard: React.FC = () => {
                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '2rem' }}>
                   <div style={{ flexShrink: 0 }}><div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--te-accent-500)', marginBottom: '0.1rem' }}>Strategic Project</div><h2 style={{ fontSize: '1.4rem', fontWeight: 950, margin: 0 }}>{currentCase.metadata.name}</h2></div>
                   <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-                    <button onClick={handleExportExcelAction} className="te-btn te-btn-outline"><FileSpreadsheet size={13} /> EXCEL</button>
+                    <button onClick={handleExportExcelAction} className="te-btn te-btn-outline" title="Export current project to Excel"><FileSpreadsheet size={13} /> EXCEL</button>
+                    {/* Hidden input for importing responses from a previously-exported Excel */}
+                    <input
+                      type="file" accept=".xlsx,.xls"
+                      id="import-responses-input"
+                      style={{ display: 'none' }}
+                      onChange={handleImportResponsesFromExcel}
+                    />
+                    <button
+                      onClick={() => document.getElementById('import-responses-input')?.click()}
+                      className="te-btn te-btn-outline"
+                      title="Import responses from a previously exported Excel file (merges into current project)"
+                      disabled={isImporting}
+                    >
+                      <FileUp size={13} /> {isImporting ? '...' : 'IMPORT RESP.'}
+                    </button>
                     <button onClick={handleExportWordAction} className="te-btn te-btn-outline"><FileText size={13} /> WORD</button>
                     <div style={{ width: '1px', height: '20px', background: 'var(--te-border)', margin: '0 0.5rem' }} />
                     <button onClick={() => setHideCommon(!hideCommon)} className={`te-btn te-btn-outline ${hideCommon ? 'active' : ''}`}><EyeOff size={13} /> COMMON</button>
