@@ -70,6 +70,13 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
     // directly, which evaluates correctly.
     const finalLogicString = (isOldFormatLogic && extractedRules.length > 0) ? '' : logicString;
 
+    // MIRROR: respect the SyncId column if the Excel came from a previous export
+    // (or the user authored it intentionally). Items sharing a SyncId stay in
+    // lock-step. Empty cell → standalone. We normalize to string+trim so that
+    // numeric group IDs (1, 2, 3) and alphanumerics all work the same way.
+    const rawSyncId = row.SyncId ?? row.syncId ?? row.SyncID ?? row['Sync Id'] ?? row.MirrorId ?? row.mirrorId ?? row.Grupo ?? row.Mirror ?? '';
+    const syncIdCell = String(rawSyncId).trim();
+
     questions.push({
       id, active: true, stage, area, priority, itemType: type, content, description,
       responseType: row.ResponseType || (type === 'decision' ? 'select' : 'any'),
@@ -80,8 +87,56 @@ export const parseExcelSheet = (buffer: ArrayBuffer): {
       mandatory: priority === 'mandatory' || !!row.Mandatory || !!row.mandatory || row.Obligatorio === 'SI' || row.Obligatorio === true,
       tags: row.Tags || row.tags ? String(row.Tags || row.tags).split(',').map(t => t.trim()) : [],
       order: row.Order || row.order ? Number(row.Order || row.order) : index,
-      visualPosition: (row.PosX !== undefined && row.PosY !== undefined) ? { x: Number(row.PosX), y: Number(row.PosY) } : undefined
+      visualPosition: (row.PosX !== undefined && row.PosY !== undefined) ? { x: Number(row.PosX), y: Number(row.PosY) } : undefined,
+      syncId: syncIdCell || undefined
     });
+  });
+
+  // MIRROR NORMALIZATION (two passes):
+  //
+  // Pass A — resolve explicit SyncId groups. Any group with ≥2 members becomes
+  // a real mirror set; singletons get their syncId cleared (a group of one is
+  // not a mirror). We also remap arbitrary user labels ("A", "grupo-1") to a
+  // canonical SYNC_* id so downstream code has a single predictable format.
+  //
+  // Pass B — auto-detect mirrors for imports that do NOT carry a SyncId column
+  // (hand-authored Excels, legacy exports). Two or more questions with the
+  // exact same normalized content are treated as mirrors — this matches the
+  // in-app behavior where "duplicate" creates identical copies that share a
+  // syncId. Items already in an explicit group from Pass A are skipped.
+  const explicitGroups = new Map<string, string[]>(); // rawLabel → ids
+  questions.forEach(q => {
+    if (!q.syncId) return;
+    const key = q.syncId;
+    if (!explicitGroups.has(key)) explicitGroups.set(key, []);
+    explicitGroups.get(key)!.push(q.id);
+  });
+  const labelToCanonical = new Map<string, string>();
+  explicitGroups.forEach((ids, label) => {
+    if (ids.length >= 2) {
+      labelToCanonical.set(label, `SYNC_${label.replace(/[^a-z0-9]/gi, '_')}`);
+    }
+  });
+  questions.forEach(q => {
+    if (!q.syncId) return;
+    const canonical = labelToCanonical.get(q.syncId);
+    q.syncId = canonical; // undefined if the group had only 1 member → cleared
+  });
+
+  // Pass B — content-based auto-mirror for rows without an explicit SyncId.
+  const normalizeContent = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const contentBuckets = new Map<string, typeof questions>();
+  questions.forEach(q => {
+    if (q.syncId) return; // already grouped explicitly
+    if (!q.content || q.content === 'Missing Content') return;
+    const key = `${q.itemType}::${normalizeContent(q.content)}`;
+    if (!contentBuckets.has(key)) contentBuckets.set(key, []);
+    contentBuckets.get(key)!.push(q);
+  });
+  contentBuckets.forEach(bucket => {
+    if (bucket.length < 2) return;
+    const canonical = `SYNC_AUTO_${bucket[0].id.replace(/[^a-z0-9]/gi, '_')}`;
+    bucket.forEach(q => { q.syncId = canonical; });
   });
 
   // 2. Hoja de Etapas
@@ -166,6 +221,32 @@ export const parseProjectExcel = (buffer: ArrayBuffer): {
   processSheet('Questions');
   processSheet('Actions');
 
+  // MIRROR RESPONSE PROPAGATION: if any member of a mirror group has an
+  // answer but its siblings don't (common when the Excel was hand-edited
+  // and only one row was filled in), copy the answer across the group so
+  // the in-app invariant "mirror items share one response" holds from
+  // the moment of import — mirroring handleDetailUpdate's behavior.
+  const bySyncId = new Map<string, StandardItem[]>();
+  questions.forEach(q => {
+    if (!q.syncId) return;
+    if (!bySyncId.has(q.syncId)) bySyncId.set(q.syncId, []);
+    bySyncId.get(q.syncId)!.push(q);
+  });
+  bySyncId.forEach(group => {
+    const sourceResp = group.map(g => responses[g.id]).find(r => r && String(r.value || '').trim() !== '');
+    if (!sourceResp) return;
+    group.forEach(member => {
+      const existing = responses[member.id];
+      if (!existing || String(existing.value || '').trim() === '') {
+        responses[member.id] = {
+          ...sourceResp,
+          itemId: member.id,
+          updatedAt: new Date().toISOString()
+        };
+      }
+    });
+  });
+
   return { questions, stages, areas, responses, metadata: { name: 'Imported Project', customer: '', loopId: '' } };
 };
 
@@ -176,7 +257,11 @@ export const generateTemplateExcel = () => {
   const wb = XLSX.utils.book_new();
 
   const qData = [
-    { ID: 'Q1', Stage: 'Intake', Area: 'Sales', ItemType: 'decision', Content: 'Is it a firm OP?', Options: 'Yes,No', Priority: 'mandatory' }
+    { ID: 'Q1', Stage: 'Intake', Area: 'Sales', ItemType: 'decision', Content: 'Is it a firm OP?', Options: 'Yes,No', Priority: 'mandatory', SyncId: '' },
+    // Example of a mirror group: two questions sharing SyncId="GRP_BUDGET"
+    // will stay in lock-step (same answer across all copies).
+    { ID: 'Q2A', Stage: 'Intake', Area: 'Sales', ItemType: 'question', Content: 'What is the budget?', Priority: 'high', SyncId: 'GRP_BUDGET' },
+    { ID: 'Q2B', Stage: 'Commercial Proposal', Area: 'Sales', ItemType: 'question', Content: 'What is the budget?', Priority: 'high', SyncId: 'GRP_BUDGET' }
   ];
 
   const sData = [

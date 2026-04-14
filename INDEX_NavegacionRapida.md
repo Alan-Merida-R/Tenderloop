@@ -47,7 +47,8 @@ El proyecto no es una sola aplicación, sino **dos aplicaciones distintas** conv
 
 ### 🔄 Funcionalidad: Loop (Main) vs Flow
 *   **LOOP:** Gestor general en `App.tsx`. Maneja la base de datos completa.
-*   **FLOW:** En `tender-flow/src/components/FlowDashboard.tsx`. Analiza lógica estricta (`evaluator.ts`) usando una DB separada que se sincroniza usando cachés locales a Loop.
+*   **FLOW:** En `tender-flow/src/components/FlowDashboard.tsx`. Analiza lógica estricta (`evaluator.ts`) usando una DB separada propia (JSON workspace).
+*   **IMPORTANTE (2026-04-14):** La sincronización bidireccional Loop ↔ Flow fue **eliminada por completo**. Flow ahora es 100% standalone. Las acciones se manejan solo dentro del workspace de Flow. Se removió: `syncWithLoop`, `handleAutoLoadLoopDb`, `handleUpdateLoopTask`, `loopDb/loopDbName` state, `loopTaskMap`, prop drilling `loopDb/dbName/onLoopDbChange` a QuestionDetailPanel, `TaskMappingModal`, imports `parseLoopDatabase/parseLoopJsonDatabase`, campo `isSynced` rendering en acciones, bloque "SYNCED WITH LOOP" y "BREAK SYNC & MODIFY MANUALLY", botón Refresh del sidebar, y el `focus` listener que recargaba Loop DB. Los tipos `ItemResponse.isSynced` y `StandardItem.linkedTaskId` permanecen como campos muertos no usados. El localStorage cache (`te_loop_db_cache`, `te_loop_db_name`) se limpia al arranque del workspace.
 
 ### 💾 Persistencia / Guardado Local y Autosave
 *   **Dónde ocurre:** En `App.tsx` exclusivamente.
@@ -185,16 +186,9 @@ Si necesitas hacer una tarea específica, busca literalmente esto:
 - `MemoizedBackboneItem` crea `localValue`, `localNote`, `localLabel` + 3 `useRef` de timeout por cada ítem visible. Con 50 ítems = 150 timers simultáneos.
 - Fix: un único `useCallback(debounce(...), [])` en el padre pasado como prop estable.
 
-**#3 — `FlowDashboard.tsx` L558-606: sync con Loop es O(N×M)**
-- Por cada ítem de acción, recorre `loopDb` con dos loops anidados. 100 ítems × 1000 filas DB = 100 000 iteraciones en cada sync.
-- Fix: `useMemo` que construya `Map<taskId, task>` desde `loopDb` una sola vez.
-  ```tsx
-  const loopTaskMap = useMemo(() => {
-    const m = new Map();
-    loopDb?.forEach(op => op.tasks?.forEach(t => m.set(t.id, t)));
-    return m;
-  }, [loopDb]);
-  ```
+**#3 — ~~Sync con Loop O(N×M)~~ → RESUELTO (2026-04-14): sync eliminado por completo**
+- Se eliminó toda la sincronización Loop ↔ Flow. Flow ahora es 100% standalone.
+- Motivo: la sync rompía las tareas y ralentizaba la app. El usuario pidió removerla completamente en vez de optimizarla.
 
 **#4 — `services/storage.ts` L266: JSON.stringify bloquea el hilo principal**
 - `JSON.stringify(workspace, null, 2)` sobre workspaces grandes (100+ ítems, 50 casos) puede tardar 100-500 ms y congelar la UI.
@@ -237,7 +231,7 @@ Si el agente recibe un reporte de lag, busca aquí primero:
 | Lag al escribir respuestas                    | `FlowDashboard.tsx`              | 42, 59-76           | Debounces inestables en cada BackboneItem |
 | Panel derecho se re-renderiza todo            | `QuestionDetailPanel.tsx`        | 1, 138              | Sin React.memo, renderInput no memoizado |
 | Congelamiento al guardar workspace            | `services/storage.ts`            | 256-273             | JSON.stringify en hilo principal         |
-| Sync con Loop lento                           | `FlowDashboard.tsx`              | 558-606             | Loop O(N×M), sin Map de índice           |
+| ~~Sync con Loop lento~~                       | —                                | —                   | **RESUELTO**: sync Loop ↔ Flow eliminada 2026-04-14 |
 | Mapa visual lento al editar                   | `DecisionMap.tsx`                | 418-465             | Reconstrucción completa de nodos         |
 | Editor de estructura tarda en abrir           | `StructureEditor.tsx`            | 148-432             | Lista sin virtualizar, 200+ nodos DOM    |
 | Visibilidad de ítems lenta                    | `engine/evaluator.ts`            | 235-305             | logicString re-parseada sin caché        |
@@ -261,7 +255,6 @@ Si el agente recibe un reporte de lag, busca aquí primero:
 ### 9.4 Patrones de Optimización Ya Implementados (NO deshacer)
 
 - `handleDetailUpdate` en `FlowDashboard.tsx`: `useCallback(fn, [])` con refs de render-body. Es intencional y correcto.
-- `handleUpdateLoopTask` en `FlowDashboard.tsx`: igual que arriba, dependencia vía ref.
 - `MemoizedBackboneItem`: envuelto en `React.memo`. Mantener.
 - `DecisionMap.tsx` Effect A/B: separación de reconstrucción estructural vs actualizaciones de respuesta con debounce 120 ms. Mantener.
 - `evaluateNumberedLogic`: normalización de expresión con `.replace(/(\d+)/g, ' $1 ')` antes de usar `\b`. Mantener.

@@ -17,14 +17,10 @@ import {
   GitBranch,
   CheckCircle2,
   Plus,
-  Search,
-  RefreshCw
+  Search
 } from 'lucide-react';
 import { StandardItem, ItemResponse, ResponseStatus, ItemType } from '../types';
 import { isItemLocked } from '../engine/evaluator';
-import { TaskMappingModal } from './TaskMappingModal';
-import { workspaceManager } from '../services/storage';
-import { parseLoopDatabase, parseLoopJsonDatabase } from '../services/excelParser';
 
 interface Props {
   item: StandardItem | null;
@@ -43,9 +39,6 @@ interface Props {
   availableAreas?: { id: string; name: string }[];
   availableStages?: { id: string; name: string }[];
   availableDeliverables?: { id: string; name: string; order: number; active: boolean }[];
-  loopDb?: any[];
-  dbName?: string | null;
-  onLoopDbChange?: (db: any[], name: string | null) => void;
 }
 
 /**
@@ -68,9 +61,6 @@ const QuestionDetailPanel_: React.FC<Props> = ({
   availableAreas = [],
   availableStages = [],
   availableDeliverables = [],
-  loopDb: propsLoopDb,
-  dbName: propsDbName,
-  onLoopDbChange
 }) => {
   if (!item) return null;
 
@@ -78,13 +68,7 @@ const QuestionDetailPanel_: React.FC<Props> = ({
   const { locked: isLogicLocked, reasons } = isItemLocked(item, allResponses);
   const isLocked = isManualLocked || isLogicLocked;
 
-  const [showTaskMapper, setShowTaskMapper] = useState(false);
   const [delivSearch, setDelivSearch] = useState('');
-  const [internalLoopDbName, setInternalLoopDbName] = useState<string | null>(localStorage.getItem('te_loop_db_name'));
-  const [internalLoopDb, setInternalLoopDb] = useState<any[]>(() => {
-    const cached = localStorage.getItem('te_loop_db_cache');
-    return cached ? JSON.parse(cached) : [];
-  });
 
   // PERF: Local state for text inputs — UI updates instantly, parent notified after 250ms.
   // Prevents every keystroke from triggering handleDetailUpdate → setWorkspace → full re-render.
@@ -121,50 +105,6 @@ const QuestionDetailPanel_: React.FC<Props> = ({
 
   // PERF: Pre-build Map for O(1) lookups instead of O(N) find() per dependency rule per render
   const allItemsMap = useMemo(() => new Map(allItems.map(i => [i.id, i])), [allItems]);
-
-  const loopDb = propsLoopDb || internalLoopDb;
-  const loopDbName = propsDbName || internalLoopDbName;
-
-  const handleLoadLoopDb = async () => {
-    try {
-      const [handle] = await (window as any).showOpenFilePicker({
-        types: [
-          { description: 'Loop Database (JSON/Excel)', accept: { 'application/json': ['.json'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }
-        ]
-      });
-      const file = await handle.getFile();
-      let data: any[] = [];
-      
-      if (file.name.endsWith('.json')) {
-        const text = await file.text();
-        data = parseLoopJsonDatabase(text);
-      } else {
-        const buffer = await file.arrayBuffer();
-        data = parseLoopDatabase(buffer);
-      }
-      
-      if (onLoopDbChange) {
-         onLoopDbChange(data, handle.name);
-      } else {
-        setInternalLoopDb(data);
-        setInternalLoopDbName(handle.name);
-      }
-      
-      localStorage.setItem('te_loop_db_cache', JSON.stringify(data));
-      localStorage.setItem('te_loop_db_name', handle.name);
-      
-      await workspaceManager.setLoopDbHandle(handle);
-    } catch (e) {
-      console.error('Failed to load Loop DB', e);
-    }
-  };
-
-  React.useEffect(() => {
-    // Only used if not provided via props (standalone mode)
-    if (!propsLoopDb && internalLoopDb.length === 0) {
-       // Optional: could trigger a local auto-load here if needed
-    }
-  }, [propsLoopDb, internalLoopDb.length]);
 
   const handleUpdate = (updates: Partial<ItemResponse>) => {
     if (isLocked && !('isLocked' in updates)) return;
@@ -249,25 +189,15 @@ const QuestionDetailPanel_: React.FC<Props> = ({
     if (item.itemType === 'action') {
       const statuses = ['Pending', 'In Progress', 'Done', 'On Hold', 'Missing Info', 'Canceled'];
       const currentValue = response?.value || 'Pending';
-      const isSynced = !!response?.isSynced;
 
       return (
         <div style={{ marginTop: '1rem' }}>
-          {isSynced && (
-            <div style={{ padding: '0.6rem 1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--te-emerald-500)', borderRadius: '10px', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-               <RefreshCw size={14} color="var(--te-emerald-500)" className="spin-slow" />
-               <div>
-                  <div style={{ fontSize: '0.6rem', fontWeight: 950, color: 'var(--te-emerald-500)', textTransform: 'uppercase' }}>SYNCED WITH LOOP</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'white' }}>{currentValue.replace(' (LOOP)', '')}</div>
-               </div>
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', opacity: isSynced ? 0.6 : 1 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
             {statuses.map(status => (
               <button
                 key={status}
-                disabled={isLocked || isSynced}
-                onClick={() => handleUpdate({ value: status, status: status === 'Done' ? 'answered' : 'pending', isSynced: false })}
+                disabled={isLocked}
+                onClick={() => handleUpdate({ value: status, status: status === 'Done' ? 'answered' : 'pending' })}
                 className={`te-btn ${currentValue.includes(status) ? 'te-btn-primary' : 'te-btn-outline'}`}
                 style={{ padding: '0.6rem 0.4rem', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase' }}
               >
@@ -275,14 +205,6 @@ const QuestionDetailPanel_: React.FC<Props> = ({
               </button>
             ))}
           </div>
-          {isSynced && (
-             <button 
-               onClick={() => handleUpdate({ isSynced: false })}
-               style={{ width: '100%', marginTop: '1rem', background: 'none', border: 'none', color: 'var(--te-text-muted)', fontSize: '0.65rem', textDecoration: 'underline', cursor: 'pointer', fontWeight: 900 }}
-             >
-                BREAK SYNC & MODIFY MANUALLY
-             </button>
-          )}
 
           <div style={{ marginTop: '1.5rem' }}>
              <label style={{ fontSize: '0.65rem', fontWeight: 950, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.5rem' }}>Task Notes / Comments</label>
@@ -489,7 +411,7 @@ const QuestionDetailPanel_: React.FC<Props> = ({
                 style={{ width: '100%', padding: '0.8rem', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.86rem', fontWeight: 700 }}
               >
                 <option value="decision">Decision (Logic Branch)</option>
-                <option value="action">Action (Loop Task)</option>
+                <option value="action">Action (Task)</option>
                 <option value="boolean">Yes/No/NA</option>
                 <option value="link">Hyperlink Collection</option>
                 <option value="question">Open Response (Text)</option>
@@ -598,26 +520,6 @@ const QuestionDetailPanel_: React.FC<Props> = ({
               </div>
             )}
 
-            {item.itemType === 'action' && (
-              <div style={{ marginTop: '0.5rem', padding: '1.25rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-emerald-500)', textTransform: 'uppercase', display: 'block', marginBottom: '0.8rem' }}>Loop Synchronization</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--te-text-main)', opacity: 0.8 }}>
-                    {item.linkedTaskId ? `Successfully linked to Task: ${item.linkedTaskId}` : 'Not currently linked to a Loop Task.'}
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={() => setShowTaskMapper(true)}
-                    className="te-btn te-btn-outline" 
-                    style={{ fontSize: '0.65rem', padding: '10px', width: '100%', border: '1.5px solid var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.05)', color: 'var(--te-emerald-500)' }}
-                  >
-                    <Search size={14} style={{ marginRight: '6px' }} />
-                    {item.linkedTaskId ? 'CHANGE OR UNLINK TASK' : 'LINK LOOP TASK'}
-                  </button>
-                </div>
-              </div>
-            )}
-            
             {/* ADD NEW ACTION BUTTON */}
             <div style={{ marginTop: '2rem', borderTop: '1px solid var(--te-border)', paddingTop: '1.5rem' }}>
                <button 
@@ -825,22 +727,6 @@ const QuestionDetailPanel_: React.FC<Props> = ({
         )}
       </div>
       
-      {showTaskMapper && (
-        <TaskMappingModal 
-          loopDb={loopDb}
-          dbName={loopDbName}
-          currentOpId={localStorage.getItem('te_active_op_id') || null}
-          onSelectTask={(taskId) => {
-             onItemUpdate(item.id, { linkedTaskId: taskId });
-             setShowTaskMapper(false);
-          }}
-          onUpdateOpId={(id) => {
-             localStorage.setItem('te_active_op_id', id);
-          }}
-          onLoadDb={handleLoadLoopDb}
-          onClose={() => setShowTaskMapper(false)}
-        />
-      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { StandardItem, ExecutiveFlowCase, Priority, ResponseStatus, ItemResponse, ItemType } from '../types';
 import { getVisibleItems, getAreaStatus, getStageStatus, isStageLocked, isItemLocked, evaluateStatus } from '../engine/evaluator';
 import { MOCK_STANDARD, getSystemItems, SYSTEM_QUESTIONS_AREA } from '../engine/mockStandard';
-import { parseExcelSheet, generateTemplateExcel, parseProjectExcel, parseLoopDatabase, parseLoopJsonDatabase } from '../services/excelParser';
+import { parseExcelSheet, generateTemplateExcel, parseProjectExcel } from '../services/excelParser';
 import { workspaceManager } from '../services/storage';
 import { exportToWord, exportToExcel } from '../services/exporter';
 import { ChecklistWizard } from './ChecklistWizard';
@@ -19,7 +19,7 @@ import {
   ChevronRight, Search, Filter, Map as MapIcon, Users, ClipboardCheck, 
   AlertCircle, ExternalLink, MessageSquare, Flag, MoreHorizontal, CheckCircle2, 
   Clock, ShieldAlert, FileUp, FileDown, LayoutList, GitBranch, Save, Plus, 
-  FolderOpen, ArrowUpRight, Download, X, Briefcase, RefreshCw, Edit2, Lock, 
+  FolderOpen, ArrowUpRight, Download, X, Briefcase, Edit2, Lock, 
   Link as LinkIcon, Database, Eye, EyeOff, ChevronDown, AlertTriangle, Trash2, Zap,
   FileText, FileSpreadsheet, Sun, Moon, PieChart, Activity, Unlock, Terminal, Check
 } from 'lucide-react';
@@ -358,14 +358,11 @@ export const FlowDashboard: React.FC = () => {
     localStorage.setItem('te_hide_answered', String(hideAnswered));
   }, [hideAnswered]);
 
-  // --- SYNC STATE (TenderLoop) ---
-  const [loopDb, setLoopDb] = useState<any[]>(() => {
-    const cached = localStorage.getItem('te_loop_db_cache');
-    return cached ? JSON.parse(cached) : [];
-  });
-  const [loopDbName, setLoopDbName] = useState<string | null>(localStorage.getItem('te_loop_db_name'));
+  // NOTE: Loop synchronization was fully removed. Actions behave as standalone items
+  // managed only inside the Flow workspace. Any legacy Loop cache is cleaned up below
+  // so re-opened workspaces do not keep phantom connection metadata.
 
-  // --- COMPUTED SYNC ---
+  // --- COMPUTED ---
   const currentCase = useMemo(() => {
     if (!workspace) return null;
     if (activeCaseId) return workspace.cases.find(c => c.id === activeCaseId) || workspace.cases[0] || null;
@@ -469,28 +466,6 @@ export const FlowDashboard: React.FC = () => {
     return uniqueResps;
   }, [currentCase, visibleItems, activeBackboneItems]);
 
-  // PERF: Pre-build a flat Map<id|name → task/op> from loopDb so syncWithLoop is O(N)
-  // instead of O(N×M). With 100 linked items and 1000 DB rows, this reduces ~100K iterations to ~100.
-  const loopTaskMap = useMemo(() => {
-    const map = new Map<string, any>();
-    if (!loopDb || loopDb.length === 0) return map;
-    loopDb.forEach((op: any) => {
-      const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
-      const opName = String(op.name || op.content || op.Task || op.keyName || '').trim().toUpperCase();
-      if (opId) map.set(opId, op);
-      if (opName && opName !== opId) map.set(opName, op);
-      if (op.tasks && Array.isArray(op.tasks)) {
-        op.tasks.forEach((t: any) => {
-          const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
-          const tName = String(t.name || t.content || t.Task || t.Name || '').trim().toUpperCase();
-          if (tId) map.set(tId, t);
-          if (tName && tName !== tId) map.set(tName, t);
-        });
-      }
-    });
-    return map;
-  }, [loopDb]);
-
   const hasPendingActions = useMemo(() => {
     if (!currentCase) return false;
     // Reuse logicVisibleItems (already computed above) instead of calling getVisibleItems again.
@@ -525,96 +500,12 @@ export const FlowDashboard: React.FC = () => {
     const initialWS = workspaceManager.getWorkspace();
     if (initialWS) setWorkspace(initialWS);
     else workspaceManager.tryAutoReopen();
-    handleAutoLoadLoopDb();
+    // Clean up legacy Loop DB cache from previous versions — Loop sync fully removed.
+    try {
+      localStorage.removeItem('te_loop_db_cache');
+      localStorage.removeItem('te_loop_db_name');
+    } catch {}
   }, []);
-
-  const handleAutoLoadLoopDb = async () => {
-    const handle = await workspaceManager.getLoopDbHandle();
-    if (handle) {
-      try {
-        const file = await handle.getFile();
-        let data: any[] = [];
-        if (file.name.endsWith('.json')) {
-          const text = await file.text();
-          data = parseLoopJsonDatabase(text);
-        } else {
-          const buffer = await file.arrayBuffer();
-          data = parseLoopDatabase(buffer);
-        }
-        setLoopDb(data);
-        setLoopDbName(handle.name);
-        // Guard: only cache to localStorage if the payload is small enough (~2MB).
-        // Large databases would exceed the 5-10MB quota and throw synchronously,
-        // freezing the main thread on low-RAM machines.
-        try {
-          const cacheStr = JSON.stringify(data);
-          if (cacheStr.length < 2_000_000) {
-            localStorage.setItem('te_loop_db_cache', cacheStr);
-            localStorage.setItem('te_loop_db_name', handle.name);
-          } else {
-            // DB is too large for localStorage; keep it in memory only.
-            localStorage.removeItem('te_loop_db_cache');
-            localStorage.setItem('te_loop_db_name', handle.name);
-          }
-        } catch (e) {
-          // Quota exceeded — keep in memory only, don't crash.
-          console.warn('Loop DB too large for localStorage cache, keeping in memory only.');
-        }
-      } catch (e) {
-        console.warn('Loop DB handle expired or inaccessible');
-      }
-    }
-  };
-
-  // NEW: Auto-refresh data when user refocuses the tab
-  useEffect(() => {
-    const handleFocus = () => {
-      console.log("[SYNC] Tab focused, checking for Loop DB updates...");
-      handleAutoLoadLoopDb();
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, []);
-
-  // SYNC CORE — PERF: O(N) via loopTaskMap instead of the previous O(N×M) nested loop
-  const syncWithLoop = useCallback(() => {
-    if (!currentCase || !loopDb || loopDb.length === 0) return;
-    let hasChanges = false;
-    const nextResponses = { ...currentCase.responses };
-    const isDoneVariations = new Set(['DONE', 'TERMINADO', 'COMPLETADO', 'COMPLETED', 'FINALIZADO', 'LISTO', 'TRUE', '1', 'FINISHED', 'CONCLUDED', 'OK', 'READY', 'YES']);
-
-    activeBackboneItems.forEach(item => {
-      if (!item.linkedTaskId) return;
-      const rawId = String(item.linkedTaskId).trim().toUpperCase();
-      const loopTask = loopTaskMap.get(rawId);
-      if (!loopTask) return;
-
-      const rawStatus = (loopTask.status || loopTask.Status || loopTask.taskStatus || loopTask.state || loopTask.isDone || loopTask.completed || loopTask.done || '').toString();
-      const loopStatus = rawStatus.trim().toUpperCase();
-      const currentResp = nextResponses[item.id];
-      const isDoneInLoop = isDoneVariations.has(loopStatus) || loopTask.completed === true || loopTask.isDone === true || loopTask.done === true;
-      const targetStatus = isDoneInLoop ? 'answered' : 'not_started';
-      const targetValue = isDoneInLoop ? 'COMPLETED (LOOP)' : 'PENDING (LOOP)';
-      if (!currentResp || currentResp.status !== targetStatus || currentResp.value !== targetValue || !currentResp.isSynced) {
-        nextResponses[item.id] = {
-          ...(currentResp || { itemId: item.id, isFlagged: false, isLocked: false, note: '' }),
-          status: targetStatus, value: targetValue, isSynced: true, updatedAt: new Date().toISOString()
-        };
-        hasChanges = true;
-      }
-    });
-
-    if (hasChanges && workspace) {
-      const nextCase = { ...currentCase, responses: nextResponses };
-      const updatedWs = { ...workspace, cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c) };
-      setWorkspace(updatedWs);
-      workspaceManager.markDirty(updatedWs);
-    }
-  }, [currentCase, loopDb, loopTaskMap, activeBackboneItems, workspace]);
-
-  useEffect(() => {
-    if (loopDb.length > 0) syncWithLoop();
-  }, [loopDb, activeCaseId, activeBackboneItems]); // Added items for instant reaction when linking
 
   const handleSaveStandard = useCallback((data: any) => {
     if (!workspace) return;
@@ -763,7 +654,7 @@ export const FlowDashboard: React.FC = () => {
     setSearchQuery(prev => (prev === text ? '' : text));
   }, []); // setSearchQuery is stable (setState), no deps needed
 
-  // PERF FIX: Render-body refs so handleDetailUpdate/handleUpdateLoopTask can have
+  // PERF FIX: Render-body refs so handleDetailUpdate can have
   // empty deps [] and never get a new reference, making React.memo fully effective.
   // The "always-latest ref" pattern: assign during render (not in useEffect) so the
   // ref is always current before any event fires.
@@ -773,47 +664,9 @@ export const FlowDashboard: React.FC = () => {
   workspaceRef.current = workspace;
   const activeBackboneItemsRef = useRef(activeBackboneItems);
   activeBackboneItemsRef.current = activeBackboneItems;
-  const loopDbRef = useRef(loopDb);
-  loopDbRef.current = loopDb;
-
-  // Stable — never recreated. Reads latest values from refs at call time.
-  const handleUpdateLoopTask = useCallback(async (taskId: string, newStatus: string) => {
-    const loopDb = loopDbRef.current;
-    let hasChanges = false;
-    const nextLoopDb = (loopDb as any[]).map(op => {
-        let opTasks = op.tasks || [];
-        let tasksChanged = false;
-        const nextTasks = opTasks.map((t: any) => {
-            const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
-            if (tId === taskId.trim().toUpperCase()) {
-                tasksChanged = true;
-                return { ...t, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
-            }
-            return t;
-        });
-        const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
-        if (opId === taskId.trim().toUpperCase()) {
-            hasChanges = true;
-            return { ...op, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
-        }
-        if (tasksChanged) { hasChanges = true; return { ...op, tasks: nextTasks }; }
-        return op;
-    });
-    if (hasChanges) {
-        setLoopDb(nextLoopDb);
-        const handle = await workspaceManager.getLoopDbHandle();
-        if (handle && handle.name.endsWith('.json')) {
-            try {
-               const writable = await handle.createWritable();
-               await writable.write(JSON.stringify({ ...JSON.parse(await (await handle.getFile()).text()), opportunities: nextLoopDb }, null, 2));
-               await writable.close();
-            } catch (e) { console.warn("Could not write back to Loop JSON file.", e); }
-        }
-    }
-  }, []); // stable — reads loopDbRef.current at call time
 
   // PERF FIX: useCallback with empty deps [] so this function NEVER gets a new reference.
-  // With the previous [currentCase, workspace, activeBackboneItems, loopDb] deps, every
+  // With the previous [currentCase, workspace, activeBackboneItems] deps, every
   // response change (every keystroke) recreated the function → React.memo on every
   // MemoizedBackboneItem was bypassed → all N cards re-rendered per keystroke.
   // Now the callback reads currentCaseRef/workspaceRef at call time instead of closing
@@ -858,12 +711,6 @@ export const FlowDashboard: React.FC = () => {
     const updatedWs = { ...workspace, cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c) };
     setWorkspace(updatedWs);
     workspaceManager.markDirty(updatedWs);
-
-    // TWO-WAY SYNC: If this is an action and has a linkedTaskId, update Loop DB too
-    const item = activeBackboneItems.find(i => i.id === itemId);
-    if (item?.linkedTaskId && loopDbRef.current.length > 0 && updates?.value !== undefined) {
-       handleUpdateLoopTask(item.linkedTaskId, String(updates.value));
-    }
   }, []); // stable — reads all values from refs at call time
 
   const handleExportWordAction = () => exportToWord(currentCase!, activeBackboneItems);
@@ -1050,7 +897,6 @@ export const FlowDashboard: React.FC = () => {
                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--te-accent-500)', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workspace?.metadata.name || 'Disconnected'}</div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.4rem' }}>
-                   <button title="Refresh Data" onClick={() => handleAutoLoadLoopDb()} style={{ background: 'var(--te-primary-700)', border: 'none', padding: '6px', borderRadius: '4px', color: 'white', cursor: 'pointer' }}><RefreshCw size={14} className={wsStatus === 'Saving' ? 'spin-slow' : ''} /></button>
                    <button title="Open DB" onClick={() => workspaceManager.openWorkspace()} style={{ background: 'var(--te-primary-700)', border: 'none', padding: '6px', borderRadius: '4px', color: 'white', cursor: 'pointer' }}><FolderOpen size={14} /></button>
                 </div>
               </div>
@@ -1325,7 +1171,7 @@ export const FlowDashboard: React.FC = () => {
         <>
           <div onClick={() => setSelectedItemId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)', zIndex: 200 }} />
           <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: '500px', zIndex: 210, background: 'var(--te-bg-card)', borderLeft: '1px solid var(--te-border)' }}>
-            <QuestionDetailPanel item={activeBackboneItems.find(i => i.id === selectedItemId) || null} response={currentCase?.responses[selectedItemId!] || null} onClose={() => setSelectedItemId(null)} onResponseChange={handleDetailUpdate} allResponses={currentCase?.responses || {}} allItems={activeBackboneItems} isEditMode={isEditMode} onEditModeToggle={() => setIsEditMode(!isEditMode)} onItemUpdate={handleUpdateStandardItem} onItemDelete={handleDeleteStandardItem} onItemDuplicate={handleDuplicateTask} onItemClone={handleCloneTask} onAddDeliverable={handleAddGlobalDeliverable} availableAreas={activeBackboneAreas} availableStages={activeBackboneStages} availableDeliverables={activeBackboneDeliverables} loopDb={loopDb} dbName={loopDbName} onLoopDbChange={(db, name) => { setLoopDb(db); setLoopDbName(name); }} />
+            <QuestionDetailPanel item={activeBackboneItems.find(i => i.id === selectedItemId) || null} response={currentCase?.responses[selectedItemId!] || null} onClose={() => setSelectedItemId(null)} onResponseChange={handleDetailUpdate} allResponses={currentCase?.responses || {}} allItems={activeBackboneItems} isEditMode={isEditMode} onEditModeToggle={() => setIsEditMode(!isEditMode)} onItemUpdate={handleUpdateStandardItem} onItemDelete={handleDeleteStandardItem} onItemDuplicate={handleDuplicateTask} onItemClone={handleCloneTask} onAddDeliverable={handleAddGlobalDeliverable} availableAreas={activeBackboneAreas} availableStages={activeBackboneStages} availableDeliverables={activeBackboneDeliverables} />
           </div>
         </>
       )}

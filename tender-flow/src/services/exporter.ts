@@ -32,12 +32,16 @@ export const exportToExcel = (
       return {
         ID: item.id,
         Stage: item.stage,
-        Area: item.area, 
+        Area: item.area,
         Type: item.itemType,
         Priority: item.priority || (item.mandatory ? 'mandatory' : 'medium'),
         Content: item.content,
         Options: (item.allowedValues || []).join(','), // Nuevo: Opciones cerradas
         IsMultiple: item.isMultipleSelection ? 'YES' : 'NO', // Nuevo: Multi-selección
+        // MIRROR: items sharing SyncId stay in lock-step (same response across all copies).
+        // Empty = standalone question. Preserving this column is what lets round-trip
+        // export → edit → import keep mirror relationships intact.
+        SyncId: item.syncId || '',
         Answer: response?.value ?? '',
         Status: response?.status ?? 'pending',
         Entregable: (item.deliverableTarget || []).join(', '),
