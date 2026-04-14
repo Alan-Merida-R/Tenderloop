@@ -469,6 +469,28 @@ export const FlowDashboard: React.FC = () => {
     return uniqueResps;
   }, [currentCase, visibleItems, activeBackboneItems]);
 
+  // PERF: Pre-build a flat Map<id|name → task/op> from loopDb so syncWithLoop is O(N)
+  // instead of O(N×M). With 100 linked items and 1000 DB rows, this reduces ~100K iterations to ~100.
+  const loopTaskMap = useMemo(() => {
+    const map = new Map<string, any>();
+    if (!loopDb || loopDb.length === 0) return map;
+    loopDb.forEach((op: any) => {
+      const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
+      const opName = String(op.name || op.content || op.Task || op.keyName || '').trim().toUpperCase();
+      if (opId) map.set(opId, op);
+      if (opName && opName !== opId) map.set(opName, op);
+      if (op.tasks && Array.isArray(op.tasks)) {
+        op.tasks.forEach((t: any) => {
+          const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
+          const tName = String(t.name || t.content || t.Task || t.Name || '').trim().toUpperCase();
+          if (tId) map.set(tId, t);
+          if (tName && tName !== tId) map.set(tName, t);
+        });
+      }
+    });
+    return map;
+  }, [loopDb]);
+
   const hasPendingActions = useMemo(() => {
     if (!currentCase) return false;
     // Reuse logicVisibleItems (already computed above) instead of calling getVisibleItems again.
@@ -554,56 +576,41 @@ export const FlowDashboard: React.FC = () => {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  // SYNC CORE
+  // SYNC CORE — PERF: O(N) via loopTaskMap instead of the previous O(N×M) nested loop
   const syncWithLoop = useCallback(() => {
     if (!currentCase || !loopDb || loopDb.length === 0) return;
     let hasChanges = false;
     const nextResponses = { ...currentCase.responses };
+    const isDoneVariations = new Set(['DONE', 'TERMINADO', 'COMPLETADO', 'COMPLETED', 'FINALIZADO', 'LISTO', 'TRUE', '1', 'FINISHED', 'CONCLUDED', 'OK', 'READY', 'YES']);
+
     activeBackboneItems.forEach(item => {
-      if (item.linkedTaskId) {
-        let loopTask: any = null;
-        for (const op of (loopDb as any[])) {
-            const rawId = String(item.linkedTaskId || '').trim().toUpperCase();
-            if (op.tasks && Array.isArray(op.tasks)) {
-               loopTask = op.tasks.find((t: any) => {
-                 const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
-                 const tName = String(t.name || t.content || t.Task || t.Name || '').trim().toUpperCase();
-                 return tId === rawId || tName === rawId;
-               });
-               if (loopTask) break;
-            } 
-            const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
-            const opName = String(op.name || op.content || op.Task || op.keyName || '').trim().toUpperCase();
-            if (opId === rawId || opName === rawId) {
-               loopTask = op;
-               break;
-            }
-        }
-        if (loopTask) {
-           const rawStatus = (loopTask.status || loopTask.Status || loopTask.taskStatus || loopTask.state || loopTask.isDone || loopTask.completed || loopTask.done || '').toString();
-           const loopStatus = rawStatus.trim().toUpperCase();
-           const currentResp = nextResponses[item.id];
-           const isDoneVariations = ['DONE', 'TERMINADO', 'COMPLETADO', 'COMPLETED', 'FINALIZADO', 'LISTO', 'TRUE', '1', 'FINISHED', 'CONCLUDED', 'OK', 'READY', 'YES'];
-           const isDoneInLoop = isDoneVariations.includes(loopStatus) || loopTask.completed === true || loopTask.isDone === true || loopTask.done === true;
-           const targetStatus = isDoneInLoop ? 'answered' : 'not_started';
-           const targetValue = isDoneInLoop ? 'COMPLETED (LOOP)' : 'PENDING (LOOP)';
-           if (!currentResp || currentResp.status !== targetStatus || currentResp.value !== targetValue || !currentResp.isSynced) {
-              nextResponses[item.id] = {
-                ...(currentResp || { itemId: item.id, isFlagged: false, isLocked: false, note: '' }),
-                status: targetStatus, value: targetValue, isSynced: true, updatedAt: new Date().toISOString()
-              };
-              hasChanges = true;
-           }
-        }
+      if (!item.linkedTaskId) return;
+      const rawId = String(item.linkedTaskId).trim().toUpperCase();
+      const loopTask = loopTaskMap.get(rawId);
+      if (!loopTask) return;
+
+      const rawStatus = (loopTask.status || loopTask.Status || loopTask.taskStatus || loopTask.state || loopTask.isDone || loopTask.completed || loopTask.done || '').toString();
+      const loopStatus = rawStatus.trim().toUpperCase();
+      const currentResp = nextResponses[item.id];
+      const isDoneInLoop = isDoneVariations.has(loopStatus) || loopTask.completed === true || loopTask.isDone === true || loopTask.done === true;
+      const targetStatus = isDoneInLoop ? 'answered' : 'not_started';
+      const targetValue = isDoneInLoop ? 'COMPLETED (LOOP)' : 'PENDING (LOOP)';
+      if (!currentResp || currentResp.status !== targetStatus || currentResp.value !== targetValue || !currentResp.isSynced) {
+        nextResponses[item.id] = {
+          ...(currentResp || { itemId: item.id, isFlagged: false, isLocked: false, note: '' }),
+          status: targetStatus, value: targetValue, isSynced: true, updatedAt: new Date().toISOString()
+        };
+        hasChanges = true;
       }
     });
+
     if (hasChanges && workspace) {
-       const nextCase = { ...currentCase, responses: nextResponses };
-       const updatedWs = { ...workspace, cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c) };
-       setWorkspace(updatedWs);
-       workspaceManager.markDirty(updatedWs);
+      const nextCase = { ...currentCase, responses: nextResponses };
+      const updatedWs = { ...workspace, cases: workspace.cases.map(c => c.id === currentCase.id ? nextCase : c) };
+      setWorkspace(updatedWs);
+      workspaceManager.markDirty(updatedWs);
     }
-  }, [currentCase, loopDb, activeBackboneItems, workspace]);
+  }, [currentCase, loopDb, loopTaskMap, activeBackboneItems, workspace]);
 
   useEffect(() => {
     if (loopDb.length > 0) syncWithLoop();

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, 
   Lock, 
@@ -51,7 +51,7 @@ interface Props {
 /**
  * Panel Lateral Derecho - Detalle de Pregunta
  */
-export const QuestionDetailPanel: React.FC<Props> = ({ 
+const QuestionDetailPanel_: React.FC<Props> = ({
   item, 
   response, 
   onClose, 
@@ -85,6 +85,42 @@ export const QuestionDetailPanel: React.FC<Props> = ({
     const cached = localStorage.getItem('te_loop_db_cache');
     return cached ? JSON.parse(cached) : [];
   });
+
+  // PERF: Local state for text inputs — UI updates instantly, parent notified after 250ms.
+  // Prevents every keystroke from triggering handleDetailUpdate → setWorkspace → full re-render.
+  const [localTextValue, setLocalTextValue] = useState(response?.value != null ? String(response.value) : '');
+  const [localNoteValue, setLocalNoteValue] = useState(response?.note || '');
+  const [localLinkLabel, setLocalLinkLabel] = useState(response?.linkInfo?.name || '');
+  const [localLinkUrl, setLocalLinkUrl] = useState(response?.linkInfo?.url || '');
+  const textDebounceRef = useRef<any>(null);
+  const noteDebounceRef = useRef<any>(null);
+  const linkLabelDebounceRef = useRef<any>(null);
+  const linkUrlDebounceRef = useRef<any>(null);
+
+  // Always-latest refs so debounced callbacks use the freshest value of both link fields
+  const localLinkLabelRef = useRef(localLinkLabel);
+  localLinkLabelRef.current = localLinkLabel;
+  const localLinkUrlRef = useRef(localLinkUrl);
+  localLinkUrlRef.current = localLinkUrl;
+
+  // Sync local state when the response is reset/updated from outside (e.g. mirror sync, import)
+  useEffect(() => { setLocalTextValue(response?.value != null ? String(response.value) : ''); }, [response?.value]);
+  useEffect(() => { setLocalNoteValue(response?.note || ''); }, [response?.note]);
+  useEffect(() => {
+    setLocalLinkLabel(response?.linkInfo?.name || '');
+  }, [response?.linkInfo?.name]);
+  useEffect(() => { setLocalLinkUrl(response?.linkInfo?.url || ''); }, [response?.linkInfo?.url]);
+
+  // Cleanup pending debounce timers on unmount
+  useEffect(() => () => {
+    if (textDebounceRef.current) clearTimeout(textDebounceRef.current);
+    if (noteDebounceRef.current) clearTimeout(noteDebounceRef.current);
+    if (linkLabelDebounceRef.current) clearTimeout(linkLabelDebounceRef.current);
+    if (linkUrlDebounceRef.current) clearTimeout(linkUrlDebounceRef.current);
+  }, []);
+
+  // PERF: Pre-build Map for O(1) lookups instead of O(N) find() per dependency rule per render
+  const allItemsMap = useMemo(() => new Map(allItems.map(i => [i.id, i])), [allItems]);
 
   const loopDb = propsLoopDb || internalLoopDb;
   const loopDbName = propsDbName || internalLoopDbName;
@@ -250,10 +286,15 @@ export const QuestionDetailPanel: React.FC<Props> = ({
 
           <div style={{ marginTop: '1.5rem' }}>
              <label style={{ fontSize: '0.65rem', fontWeight: 950, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.5rem' }}>Task Notes / Comments</label>
-             <textarea 
+             <textarea
                placeholder="Write additional details about this action..."
-               value={response?.note || ''}
-               onChange={(e) => handleUpdate({ note: e.target.value })}
+               value={localNoteValue}
+               onChange={(e) => {
+                 const val = e.target.value;
+                 setLocalNoteValue(val);
+                 if (noteDebounceRef.current) clearTimeout(noteDebounceRef.current);
+                 noteDebounceRef.current = setTimeout(() => handleUpdate({ note: val }), 250);
+               }}
                style={{ width: '100%', height: '80px', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', padding: '0.75rem', fontSize: '0.8rem', outline: 'none', resize: 'none' }}
              />
           </div>
@@ -262,32 +303,45 @@ export const QuestionDetailPanel: React.FC<Props> = ({
     }
 
     if (item.itemType === 'link') {
-       const linkData = response?.linkInfo || { name: '', url: '' };
        const inputStyle = { width: '100%', padding: '0.8rem', background: 'var(--te-bg-card-alt)', color: 'white', border: '1px solid var(--te-border)', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' };
        return (
          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
            <div>
              <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Etiqueta</label>
-             <input 
+             <input
                disabled={isLocked}
                placeholder="Ej: Portal de Documentación"
-               value={linkData.label || linkData.name || ''}
-               onChange={(e) => handleUpdate({ linkInfo: { ...linkData, label: e.target.value }, status: 'answered', value: e.target.value })}
+               value={localLinkLabel}
+               onChange={(e) => {
+                 const val = e.target.value;
+                 setLocalLinkLabel(val);
+                 if (linkLabelDebounceRef.current) clearTimeout(linkLabelDebounceRef.current);
+                 linkLabelDebounceRef.current = setTimeout(() => {
+                   handleUpdate({ linkInfo: { name: localLinkLabelRef.current, url: localLinkUrlRef.current }, status: 'answered', value: localLinkLabelRef.current });
+                 }, 250);
+               }}
                style={inputStyle}
              />
            </div>
            <div>
              <label style={{ fontSize: '0.65rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.4rem' }}>Hipervínculo</label>
              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <input 
+                <input
                   disabled={isLocked}
                   placeholder="https://..."
-                  value={linkData.url}
-                  onChange={(e) => handleUpdate({ linkInfo: { ...linkData, url: e.target.value }, status: 'answered' })}
+                  value={localLinkUrl}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLocalLinkUrl(val);
+                    if (linkUrlDebounceRef.current) clearTimeout(linkUrlDebounceRef.current);
+                    linkUrlDebounceRef.current = setTimeout(() => {
+                      handleUpdate({ linkInfo: { name: localLinkLabelRef.current, url: localLinkUrlRef.current }, status: 'answered' });
+                    }, 250);
+                  }}
                   style={{ ...inputStyle, flex: 1 }}
                 />
-                {linkData.url && (
-                  <a href={linkData.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '42px', background: 'var(--te-primary-700)', borderRadius: '8px', color: 'var(--te-accent-500)', border: '1px solid var(--te-border)' }}>
+                {localLinkUrl && (
+                  <a href={localLinkUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '42px', background: 'var(--te-primary-700)', borderRadius: '8px', color: 'var(--te-accent-500)', border: '1px solid var(--te-border)' }}>
                     <ExternalLink size={16} />
                   </a>
                 )}
@@ -301,8 +355,15 @@ export const QuestionDetailPanel: React.FC<Props> = ({
       <textarea
         disabled={isLocked}
         placeholder="Enter response or notes..."
-        value={response?.value || ''}
-        onChange={(e) => handleUpdate({ value: e.target.value, status: 'answered' })}
+        value={localTextValue}
+        onChange={(e) => {
+          const val = e.target.value;
+          setLocalTextValue(val);
+          if (textDebounceRef.current) clearTimeout(textDebounceRef.current);
+          textDebounceRef.current = setTimeout(() => {
+            handleUpdate({ value: val, status: val.trim() ? 'answered' : 'not_started' });
+          }, 250);
+        }}
         style={{ width: '100%', height: '120px', padding: '0.75rem', background: 'var(--te-bg-card-alt)', color: 'var(--te-text-main)', border: '1px solid var(--te-border)', borderRadius: '4px', marginTop: '1rem', resize: 'none' }}
       />
     );
@@ -642,7 +703,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {(item.dependencyRules || []).map((rule, idx) => {
-                const targetItem = allItems.find(i => i.id === rule.targetId);
+                const targetItem = allItemsMap.get(rule.targetId);
                 return (
                   <div key={idx} style={{ padding: '1rem', background: 'var(--te-bg-card-alt)', borderRadius: '12px', border: '1px solid var(--te-border)', position: 'relative', marginTop: '10px' }}>
                     <div style={{ position: 'absolute', top: '-10px', left: '10px', background: 'var(--te-accent-500)', color: 'white', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 950, boxShadow: '0 2px 5px rgba(0,0,0,0.4)', zIndex: 5 }}>{idx + 1}</div>
@@ -662,7 +723,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
                       </select>
                       {rule.operator === 'equals' && (
                         (() => {
-                           const target = allItems.find(it => it.id === rule.targetId);
+                           const target = allItemsMap.get(rule.targetId);
                            const hasOptions = (target?.allowedValues && target.allowedValues.length > 0) || target?.itemType === 'decision' || target?.responseType === 'boolean' || target?.itemType === 'action';
                            
                             if (hasOptions) {
@@ -783,3 +844,7 @@ export const QuestionDetailPanel: React.FC<Props> = ({
     </div>
   );
 };
+
+// PERF: React.memo prevents the panel from re-rendering when FlowDashboard state changes
+// for reasons unrelated to the selected item (e.g. filter changes, UI toggles, search input).
+export const QuestionDetailPanel = React.memo(QuestionDetailPanel_);

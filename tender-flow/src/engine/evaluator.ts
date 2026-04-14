@@ -157,9 +157,13 @@ export const evaluateNumberedLogic = (
   try {
     if (!expression || ruleResults.length === 0) return true;
     
-    // 1. Normalizar (mantener espacios para que \b funcione)
-    let s = expression.toLowerCase();
-    
+    // 1. Normalizar: añadir espacios alrededor de dígitos para que los límites de palabra
+    //    funcionen aunque el usuario escriba "(1or2)and3" sin espacios.
+    let s = expression.toLowerCase()
+      .replace(/(\d+)/g, ' $1 ')   // espacio alrededor de cada número
+      .replace(/\s+/g, ' ')        // colapsar espacios múltiples
+      .trim();
+
     // 2. Reemplazar números por sus resultados (de atrás hacia adelante para evitar colisiones 10 -> 1)
     for (let i = ruleResults.length; i >= 1; i--) {
       const regex = new RegExp(`\\b${i}\\b`, 'g');
@@ -245,14 +249,9 @@ export const getVisibleItems = (
 
         if (hasNumberedRules) {
            const ruleMetArray = item.dependencyRules!.map(rule => checkDependency(rule, responses));
-           // Para visibilidad 'optimista', asumimos que si no hay respuesta aún, PODRÍA ser true
-           const ruleMetOptimistic = item.dependencyRules!.map(rule => {
-              const resp = responses[rule.targetId];
-              if (!resp || (resp.status !== 'answered' && resp.status !== 'confirmed')) return true;
-              return checkDependency(rule, responses);
-           });
-
-           return evaluateNumberedLogic(item.logicString, ruleMetArray) || evaluateNumberedLogic(item.logicString, ruleMetOptimistic);
+           // Evaluación estricta: cuando hay logicString explícita el ítem se oculta
+           // hasta que la condición se cumpla realmente (sin fallback optimista).
+           return evaluateNumberedLogic(item.logicString, ruleMetArray);
         } else {
           // Lógica antigua ID:VAL (or any non-numbered format)
           const normalizedResponses: Record<string, ItemResponse> = {};

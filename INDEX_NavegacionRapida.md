@@ -147,4 +147,129 @@ Si necesitas hacer una tarea específica, busca literalmente esto:
 *   **"Añadir color a un label (Prioridad o Stage)"** → Ve directo a `types.ts` y modifica `PRIORITY_COLORS` o `STAGE_COLORS`.
 
 ---
+
+## 9. ⚡ AUDIT DE PERFORMANCE — TenderFlow (Abril 2026)
+
+> Resultado de auditoría profunda. Usa esta sección antes de leer cualquier archivo de Flow para ir directo al punto de dolor.
+
+### 9.1 Mapa de Archivos — TenderFlow (`tender-flow/src/`)
+
+| Archivo                                      | Líneas | Qué Hace                                                  |
+| -------------------------------------------- | ------ | --------------------------------------------------------- |
+| `components/FlowDashboard.tsx`               | ~1 330 | Orquestador principal: estado, filtros, render de items   |
+| `components/QuestionDetailPanel.tsx`         | ~785   | Panel derecho de edición de pregunta y respuesta          |
+| `components/DecisionMap.tsx`                 | ~752   | Mapa visual ReactFlow del árbol de decisiones             |
+| `components/StructureEditor.tsx`             | ~564   | Modal para editar la estructura del estándar              |
+| `components/ChecklistWizard.tsx`             | ~264   | Wizard de onboarding para nuevos proyectos                |
+| `components/ExecutiveDecisionMap.tsx`        | ~178   | Árbol estratégico agrupado por etapas                     |
+| `components/TaskMappingModal.tsx`            | ~213   | Modal para vincular acciones con tareas de Loop           |
+| `engine/evaluator.ts`                        | ~469   | Evaluación de dependencias y visibilidad de ítems         |
+| `engine/mockStandard.ts`                     | ~205   | Mock data de preguntas estándar                           |
+| `services/storage.ts`                        | ~353   | File System API + IndexedDB para guardar workspace        |
+| `services/excelParser.ts`                    | ~229   | Importación desde Excel/JSON                              |
+| `services/exporter.ts`                       | ~205   | Exportación a Excel y Word                                |
+| `types/index.ts`                             | ~168   | Interfaces TypeScript (sin problemas de runtime)          |
+
+---
+
+### 9.2 Top 10 Optimizaciones por Impacto
+
+#### TIER 1 — Críticas (bloquean la UI de inmediato)
+
+**#1 — `QuestionDetailPanel.tsx` no tiene React.memo**
+- Cada tecla en el padre re-renderiza todo el panel aunque el ítem seleccionado no cambie.
+- Línea afectada: `1` (export de componente)
+- Fix: `export const QuestionDetailPanel = React.memo(...)` + extraer `renderInput` como sub-componente memo.
+
+**#2 — `FlowDashboard.tsx` L42-100: 150+ instancias de debounce activas**
+- `MemoizedBackboneItem` crea `localValue`, `localNote`, `localLabel` + 3 `useRef` de timeout por cada ítem visible. Con 50 ítems = 150 timers simultáneos.
+- Fix: un único `useCallback(debounce(...), [])` en el padre pasado como prop estable.
+
+**#3 — `FlowDashboard.tsx` L558-606: sync con Loop es O(N×M)**
+- Por cada ítem de acción, recorre `loopDb` con dos loops anidados. 100 ítems × 1000 filas DB = 100 000 iteraciones en cada sync.
+- Fix: `useMemo` que construya `Map<taskId, task>` desde `loopDb` una sola vez.
+  ```tsx
+  const loopTaskMap = useMemo(() => {
+    const m = new Map();
+    loopDb?.forEach(op => op.tasks?.forEach(t => m.set(t.id, t)));
+    return m;
+  }, [loopDb]);
+  ```
+
+**#4 — `services/storage.ts` L266: JSON.stringify bloquea el hilo principal**
+- `JSON.stringify(workspace, null, 2)` sobre workspaces grandes (100+ ítems, 50 casos) puede tardar 100-500 ms y congelar la UI.
+- Fix: mover a Web Worker. Hasta entonces, al menos quitar el `null, 2` (pretty-print) en producción.
+
+**#5 — `StructureEditor.tsx` L148-432: lista de 200+ preguntas sin virtualizar**
+- Renderiza todos los ítems expandibles del estándar al mismo tiempo. Con 200 preguntas cada una con su form JSX, el DOM crece >2 000 nodos.
+- Fix: `react-window` o `@tanstack/virtual` en la lista de preguntas.
+
+#### TIER 2 — Alto impacto (implementar siguiente sprint)
+
+**#6 — `evaluator.ts` L235-305: `getVisibleItems` parsea lógica por ítem sin caché**
+- Cada llamada re-parsea `logicString` con regex+split para todos los ítems. Con 200 ítems y evaluación frecuente = 200 parseos por ciclo.
+- Fix: pre-compilar cada `logicString` a función en un `useMemo` del componente padre.
+
+**#7 — `DecisionMap.tsx` L418-441: todos los nodos reconstruidos aunque solo 1 cambie**
+- `.map()` sobre todos los ítems recrea 200+ objetos de nodo por cada cambio estructural.
+- Fix: mantener Map de nodos por ID y actualizar solo los nodos modificados.
+
+**#8 — `FlowDashboard.tsx` L369-440: `visibleItems` aplica 6 filtros en cadena sin índices**
+- Cada filtro (search, areas, stages, deliverables, hideCommon, hideAnswered, hideLocked) itera el array completo por separado.
+- Fix: pasar a una sola pasada con todas las condiciones en un `filter` compuesto.
+
+**#9 — `QuestionDetailPanel.tsx` L455-512: búsqueda de deliverables sin debounce**
+- `availableDeliverables.filter()` se ejecuta con cada carácter tecleado en el campo `delivSearch` sin ningún debounce.
+- Fix: debounce de 200 ms en el input o `useDeferredValue`.
+
+**#10 — `services/storage.ts` L527-530: localStorage escribe sincrónicamente en cada guardado**
+- `localStorage.setItem()` con el workspace completo serializado bloquea el hilo. Sin guard de cuota.
+- Fix: envolver en `try/catch`, debounce de 500 ms, y considerar IndexedDB para datos grandes.
+
+---
+
+### 9.3 Quick-Find de Performance en TenderFlow
+
+Si el agente recibe un reporte de lag, busca aquí primero:
+
+| Síntoma                                       | Archivo                          | Línea(s) de inicio | Causa probable                          |
+| --------------------------------------------- | -------------------------------- | ------------------- | --------------------------------------- |
+| Lag al escribir respuestas                    | `FlowDashboard.tsx`              | 42, 59-76           | Debounces inestables en cada BackboneItem |
+| Panel derecho se re-renderiza todo            | `QuestionDetailPanel.tsx`        | 1, 138              | Sin React.memo, renderInput no memoizado |
+| Congelamiento al guardar workspace            | `services/storage.ts`            | 256-273             | JSON.stringify en hilo principal         |
+| Sync con Loop lento                           | `FlowDashboard.tsx`              | 558-606             | Loop O(N×M), sin Map de índice           |
+| Mapa visual lento al editar                   | `DecisionMap.tsx`                | 418-465             | Reconstrucción completa de nodos         |
+| Editor de estructura tarda en abrir           | `StructureEditor.tsx`            | 148-432             | Lista sin virtualizar, 200+ nodos DOM    |
+| Visibilidad de ítems lenta                    | `engine/evaluator.ts`            | 235-305             | logicString re-parseada sin caché        |
+| Cálculo de semáforos lento (áreas/etapas)     | `engine/evaluator.ts`            | 315-354             | O(N×M) sin índice previo por área        |
+| Búsqueda de entregables lenta                 | `QuestionDetailPanel.tsx`        | 455-512             | Filter sin debounce por cada tecla       |
+
+---
+
+### 9.5 Optimizaciones Pendientes (NO implementadas aún)
+
+| # | Archivo | Línea | Descripción |
+|---|---------|-------|-------------|
+| 1 | `StructureEditor.tsx` | L148-432 | Lista de 200+ preguntas sin virtualización — usar `@tanstack/virtual` |
+| 2 | `evaluator.ts` | L235-305 | logicString re-parseada por ítem sin caché — compilar a función en useMemo del padre |
+| 3 | `DecisionMap.tsx` | L418-441 | Todos los nodos reconstruidos aunque solo 1 cambie — Map de nodos por ID |
+| 4 | `services/storage.ts` | L266 | JSON.stringify bloquea hilo principal — mover a Web Worker |
+| 5 | `ExecutiveDecisionMap.tsx` | L104 | `areas.find()` por ítem — pre-construir Map de áreas |
+
+---
+
+### 9.4 Patrones de Optimización Ya Implementados (NO deshacer)
+
+- `handleDetailUpdate` en `FlowDashboard.tsx`: `useCallback(fn, [])` con refs de render-body. Es intencional y correcto.
+- `handleUpdateLoopTask` en `FlowDashboard.tsx`: igual que arriba, dependencia vía ref.
+- `MemoizedBackboneItem`: envuelto en `React.memo`. Mantener.
+- `DecisionMap.tsx` Effect A/B: separación de reconstrucción estructural vs actualizaciones de respuesta con debounce 120 ms. Mantener.
+- `evaluateNumberedLogic`: normalización de expresión con `.replace(/(\d+)/g, ' $1 ')` antes de usar `\b`. Mantener.
+- Evaluación estricta (sin optimistic fallback) en `getVisibleItems` cuando hay `logicString`. Mantener.
+- `QuestionDetailPanel` exportado como `React.memo(QuestionDetailPanel_)` — el nombre interno es `QuestionDetailPanel_`. NO quitar el memo.
+- Local state + debounce (250ms) en `QuestionDetailPanel` para `localTextValue`, `localNoteValue`, `localLinkLabel`, `localLinkUrl`. Refs always-latest: `localLinkLabelRef`, `localLinkUrlRef`. NO eliminar.
+- `allItemsMap = useMemo(() => new Map(...), [allItems])` en `QuestionDetailPanel` para O(1) lookup en reglas de dependencia. NO cambiar a `allItems.find()`.
+- `loopTaskMap` useMemo en `FlowDashboard.tsx` (después de `hasPendingActions`): Map plano de `loopDb` para sync O(N). syncWithLoop usa `loopTaskMap.get(rawId)` en lugar de loops anidados. NO revertir.
+
+---
 *Este documento te ahorrará una enorme cantidad de investigación (y por tanto tokens) en el futuro. Empieza por revisarlo cada vez que se te encomiende un nuevo bug fix o feature.*
