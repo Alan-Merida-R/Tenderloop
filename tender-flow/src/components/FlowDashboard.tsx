@@ -151,7 +151,7 @@ const MemoizedBackboneItem = React.memo(({
                   item.responseType === 'boolean' ? 'DECISION' :
                   (item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') ? 'OPEN QUESTION' :
                   item.responseType === 'date' ? 'TARGET DATE' :
-                  item.responseType === 'link' ? 'RESOURCE / LINK' :
+                  item.itemType === 'link' ? 'RESOURCE / LINK' :
                   item.responseType.toUpperCase()
                 }
               </div>
@@ -166,8 +166,8 @@ const MemoizedBackboneItem = React.memo(({
               )}
             </div>
 
-            {/* MAIN INPUT AREA — open text */}
-            {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
+            {/* MAIN INPUT AREA — open text (excludes link items which need Label+URL fields) */}
+            {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && item.itemType !== 'link' && (!item.allowedValues || item.allowedValues.length === 0)) ? (
               <textarea
                 value={localValue}
                 onChange={(e) => handleValueChange(e.target.value)}
@@ -191,7 +191,7 @@ const MemoizedBackboneItem = React.memo(({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
                 {/* SPECIALIZED VALUE FIELDS */}
-                {item.responseType === 'link' && (
+                {item.itemType === 'link' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
                     <div>
                       <label style={{ fontSize: '0.5rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem', display: 'block' }}>Label</label>
@@ -247,7 +247,7 @@ const MemoizedBackboneItem = React.memo(({
                 )}
 
                 {/* SHARED NOTES FIELD (Hide for selections/decisions/links) */}
-                {!(item.responseType === 'boolean' || item.responseType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
+                {!(item.responseType === 'boolean' || item.itemType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
                   <textarea
                     value={localNote}
                     onChange={(e) => handleNoteChange(e.target.value)}
