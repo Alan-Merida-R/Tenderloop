@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) ! -path \"*/node_modules/*\" ! -path \"*/.git/*\" -exec wc -l {} +)",
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(find \"C:\\\\Users\\\\Alan Merida\\\\Documents\\\\GitHub\\\\Tenderloop\\\\components\" -name \"*.tsx\" -exec wc -l {} \\\\;)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
