@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { StandardItem, ExecutiveFlowCase, Priority, ResponseStatus, ItemResponse, ItemType } from '../types';
 import { getVisibleItems, getAreaStatus, getStageStatus, isStageLocked, isItemLocked, evaluateStatus } from '../engine/evaluator';
 import { MOCK_STANDARD, getSystemItems, SYSTEM_QUESTIONS_AREA } from '../engine/mockStandard';
@@ -39,20 +39,65 @@ import {
 // Optimized Memoized Item Component for High-Fluidity Dashboard
 // Este sub-componente maneja el renderizado individual de cada punto de decisión.
 // Al usar React.memo, solo se re-renderiza cuando su respuesta específica o estado cambia.
-const MemoizedBackboneItem = React.memo(({ 
-  item, 
-  resp, 
-  locked, 
-  selectedItemId, 
-  setSelectedItemId, 
-  isMeetingMode, 
-  handleDetailUpdate, 
-  activeBackboneAreas 
+const MemoizedBackboneItem = React.memo(({
+  item,
+  resp,
+  locked,
+  selectedItemId,
+  setSelectedItemId,
+  isMeetingMode,
+  handleDetailUpdate,
+  activeBackboneAreas
 }: any) => {
   const currentStatus = evaluateStatus(resp);
   const isDone = currentStatus === 'answered' || currentStatus === 'confirmed';
   const areaDef = activeBackboneAreas.find((a: any) => a.name === item.area);
   const areaColor = areaDef?.color || 'var(--te-accent-500)';
+
+  // LOCAL STATE for text inputs — UI updates instantly, parent notified after 250ms pause.
+  // This prevents the heavy FlowDashboard re-render pipeline from running on every keystroke.
+  const [localValue, setLocalValue] = useState(resp?.value || '');
+  const [localNote, setLocalNote] = useState(resp?.note || '');
+  const [localLabel, setLocalLabel] = useState(resp?.linkInfo?.label || '');
+  const valueDebounceRef = useRef<any>(null);
+  const noteDebounceRef = useRef<any>(null);
+  const labelDebounceRef = useRef<any>(null);
+
+  // Sync local state when the response changes from outside (e.g. mirror sync, reset)
+  useEffect(() => { setLocalValue(resp?.value || ''); }, [resp?.value]);
+  useEffect(() => { setLocalNote(resp?.note || ''); }, [resp?.note]);
+  useEffect(() => { setLocalLabel(resp?.linkInfo?.label || ''); }, [resp?.linkInfo?.label]);
+
+  // Cleanup pending debounces on unmount
+  useEffect(() => () => {
+    if (valueDebounceRef.current) clearTimeout(valueDebounceRef.current);
+    if (noteDebounceRef.current) clearTimeout(noteDebounceRef.current);
+    if (labelDebounceRef.current) clearTimeout(labelDebounceRef.current);
+  }, []);
+
+  const handleValueChange = (val: string) => {
+    setLocalValue(val);
+    if (valueDebounceRef.current) clearTimeout(valueDebounceRef.current);
+    valueDebounceRef.current = setTimeout(() => {
+      handleDetailUpdate(item.id, { value: val, status: val.trim() ? 'answered' : 'not_started' });
+    }, 250);
+  };
+
+  const handleNoteChange = (val: string) => {
+    setLocalNote(val);
+    if (noteDebounceRef.current) clearTimeout(noteDebounceRef.current);
+    noteDebounceRef.current = setTimeout(() => {
+      handleDetailUpdate(item.id, { note: val });
+    }, 250);
+  };
+
+  const handleLabelChange = (val: string) => {
+    setLocalLabel(val);
+    if (labelDebounceRef.current) clearTimeout(labelDebounceRef.current);
+    labelDebounceRef.current = setTimeout(() => {
+      handleDetailUpdate(item.id, { linkInfo: { ...resp?.linkInfo, label: val } });
+    }, 250);
+  };
 
   return (
     <div style={{ opacity: locked ? 0.6 : 1, transition: 'opacity 0.2s ease' }}>
@@ -124,8 +169,8 @@ const MemoizedBackboneItem = React.memo(({
             {/* MAIN INPUT AREA — open text */}
             {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
               <textarea
-                value={resp?.value || ''}
-                onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                value={localValue}
+                onChange={(e) => handleValueChange(e.target.value)}
                 placeholder={locked ? "Prerequisites pending..." : "Execution notes or outcomes..."}
                 disabled={locked}
                 style={{
@@ -152,8 +197,8 @@ const MemoizedBackboneItem = React.memo(({
                       <label style={{ fontSize: '0.5rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem', display: 'block' }}>Label</label>
                       <input
                         type="text"
-                        value={resp?.linkInfo?.label || ''}
-                        onChange={(e) => handleDetailUpdate(item.id, { linkInfo: { ...resp?.linkInfo, label: e.target.value } })}
+                        value={localLabel}
+                        onChange={(e) => handleLabelChange(e.target.value)}
                         placeholder="e.g. Documentation Portal"
                         style={{ width: '100%', padding: '0.45rem 0.5rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '7px', color: 'white', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }}
                       />
@@ -204,8 +249,8 @@ const MemoizedBackboneItem = React.memo(({
                 {/* SHARED NOTES FIELD (Hide for selections/decisions/links) */}
                 {!(item.responseType === 'boolean' || item.responseType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
                   <textarea
-                    value={resp?.note || ''}
-                    onChange={(e) => handleDetailUpdate(item.id, { note: e.target.value })}
+                    value={localNote}
+                    onChange={(e) => handleNoteChange(e.target.value)}
                     placeholder="Execution notes or outcomes..."
                     style={{
                       width: '100%',
@@ -711,12 +756,65 @@ export const FlowDashboard: React.FC = () => {
     setSearchQuery(prev => (prev === text ? '' : text));
   }, []); // setSearchQuery is stable (setState), no deps needed
 
-  // PERF FIX: Wrapped in useCallback so MemoizedBackboneItem components don't
-  // re-render when unrelated state (selectedItemId, isEditMode, etc.) changes.
-  // Previously, every state change in FlowDashboard created a new function reference
-  // here, invalidating the React.memo() on every child item even when its own
-  // response data hadn't changed.
+  // PERF FIX: Render-body refs so handleDetailUpdate/handleUpdateLoopTask can have
+  // empty deps [] and never get a new reference, making React.memo fully effective.
+  // The "always-latest ref" pattern: assign during render (not in useEffect) so the
+  // ref is always current before any event fires.
+  const currentCaseRef = useRef(currentCase);
+  currentCaseRef.current = currentCase;
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const activeBackboneItemsRef = useRef(activeBackboneItems);
+  activeBackboneItemsRef.current = activeBackboneItems;
+  const loopDbRef = useRef(loopDb);
+  loopDbRef.current = loopDb;
+
+  // Stable — never recreated. Reads latest values from refs at call time.
+  const handleUpdateLoopTask = useCallback(async (taskId: string, newStatus: string) => {
+    const loopDb = loopDbRef.current;
+    let hasChanges = false;
+    const nextLoopDb = (loopDb as any[]).map(op => {
+        let opTasks = op.tasks || [];
+        let tasksChanged = false;
+        const nextTasks = opTasks.map((t: any) => {
+            const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
+            if (tId === taskId.trim().toUpperCase()) {
+                tasksChanged = true;
+                return { ...t, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
+            }
+            return t;
+        });
+        const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
+        if (opId === taskId.trim().toUpperCase()) {
+            hasChanges = true;
+            return { ...op, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
+        }
+        if (tasksChanged) { hasChanges = true; return { ...op, tasks: nextTasks }; }
+        return op;
+    });
+    if (hasChanges) {
+        setLoopDb(nextLoopDb);
+        const handle = await workspaceManager.getLoopDbHandle();
+        if (handle && handle.name.endsWith('.json')) {
+            try {
+               const writable = await handle.createWritable();
+               await writable.write(JSON.stringify({ ...JSON.parse(await (await handle.getFile()).text()), opportunities: nextLoopDb }, null, 2));
+               await writable.close();
+            } catch (e) { console.warn("Could not write back to Loop JSON file.", e); }
+        }
+    }
+  }, []); // stable — reads loopDbRef.current at call time
+
+  // PERF FIX: useCallback with empty deps [] so this function NEVER gets a new reference.
+  // With the previous [currentCase, workspace, activeBackboneItems, loopDb] deps, every
+  // response change (every keystroke) recreated the function → React.memo on every
+  // MemoizedBackboneItem was bypassed → all N cards re-rendered per keystroke.
+  // Now the callback reads currentCaseRef/workspaceRef at call time instead of closing
+  // over the state values, achieving correctness without dependency churn.
   const handleDetailUpdate = useCallback((itemId: string, updates: Partial<ItemResponse> | null) => {
+    const currentCase = currentCaseRef.current;
+    const workspace = workspaceRef.current;
+    const activeBackboneItems = activeBackboneItemsRef.current;
     if (!currentCase || !workspace) return;
     let nextResponses = { ...currentCase.responses };
     if (updates === null) { delete nextResponses[itemId]; }
@@ -756,52 +854,10 @@ export const FlowDashboard: React.FC = () => {
 
     // TWO-WAY SYNC: If this is an action and has a linkedTaskId, update Loop DB too
     const item = activeBackboneItems.find(i => i.id === itemId);
-    if (item?.linkedTaskId && loopDb.length > 0 && updates?.value !== undefined) {
+    if (item?.linkedTaskId && loopDbRef.current.length > 0 && updates?.value !== undefined) {
        handleUpdateLoopTask(item.linkedTaskId, String(updates.value));
     }
-  }, [currentCase, workspace, activeBackboneItems, loopDb]);
-
-  const handleUpdateLoopTask = async (taskId: string, newStatus: string) => {
-    let hasChanges = false;
-    const nextLoopDb = (loopDb as any[]).map(op => {
-        let opTasks = op.tasks || [];
-        let tasksChanged = false;
-        const nextTasks = opTasks.map((t: any) => {
-            const tId = String(t.id || t.Task_ID || t.TaskID || t.taskId || t._id || t.Index || t.order || '').trim().toUpperCase();
-            if (tId === taskId.trim().toUpperCase()) {
-                tasksChanged = true;
-                return { ...t, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
-            }
-            return t;
-        });
-        
-        // Also check if op itself is the task
-        const opId = String(op.id || op.Task_ID || op.TaskID || op.taskId || op._id || op.ID || op['#'] || '').trim().toUpperCase();
-        if (opId === taskId.trim().toUpperCase()) {
-            hasChanges = true;
-            return { ...op, status: newStatus, completed: newStatus.toUpperCase() === 'DONE' };
-        }
-
-        if (tasksChanged) {
-            hasChanges = true;
-            return { ...op, tasks: nextTasks };
-        }
-        return op;
-    });
-
-    if (hasChanges) {
-        setLoopDb(nextLoopDb);
-        // Persist back to the Loop JSON if possible
-        const handle = await workspaceManager.getLoopDbHandle();
-        if (handle && handle.name.endsWith('.json')) {
-            try {
-               const writable = await handle.createWritable();
-               await writable.write(JSON.stringify({ ...JSON.parse(await (await handle.getFile()).text()), opportunities: nextLoopDb }, null, 2));
-               await writable.close();
-            } catch (e) { console.warn("Could not write back to Loop JSON file.", e); }
-        }
-    }
-  };
+  }, []); // stable — reads all values from refs at call time
 
   const handleExportWordAction = () => exportToWord(currentCase!, activeBackboneItems);
   const handleExportExcelAction = () => exportToExcel(currentCase!, activeBackboneItems, activeBackboneStages, activeBackboneAreas, activeBackboneDeliverables);
