@@ -55,218 +55,219 @@ const MemoizedBackboneItem = React.memo(({
   const areaColor = areaDef?.color || 'var(--te-accent-500)';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: locked ? 0.6 : 1, transition: 'opacity 0.2s ease' }}>
-      <div 
-        onClick={isMeetingMode ? undefined : () => setSelectedItemId(item.id)} 
-        style={{ 
-          padding: isMeetingMode ? '0.6rem 1rem' : '1rem 1.25rem', 
-          borderRadius: '12px', 
-          background: 'var(--te-bg-card)', 
-          border: `1px solid ${selectedItemId === item.id ? areaColor : 'var(--te-border)'}`, 
-          borderLeft: `4px solid ${locked ? 'var(--te-text-muted)' : areaColor}`, 
-          cursor: isMeetingMode ? 'default' : 'pointer', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '1rem', 
-          opacity: locked && !isMeetingMode ? 0.5 : 1,
+    <div style={{ opacity: locked ? 0.6 : 1, transition: 'opacity 0.2s ease' }}>
+      <div
+        onClick={isMeetingMode ? undefined : () => setSelectedItemId(item.id)}
+        style={{
+          borderRadius: '12px',
+          background: 'var(--te-bg-card)',
+          border: `1px solid ${selectedItemId === item.id ? areaColor : 'var(--te-border)'}`,
+          borderLeft: `4px solid ${locked ? 'var(--te-text-muted)' : areaColor}`,
+          cursor: isMeetingMode ? 'default' : 'pointer',
+          overflow: 'hidden',
           filter: locked && isMeetingMode ? 'grayscale(0.8)' : 'none',
           transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-          willChange: 'transform, opacity'
+          willChange: 'transform, opacity',
+          pointerEvents: isMeetingMode && locked ? 'none' : 'auto',
         }}
       >
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDone ? areaColor : 'transparent', border: `2px solid ${areaColor}`, opacity: locked ? 0.4 : 1 }} />
-        <div style={{ flex: 1 }}>
-           <div style={{ fontSize: '0.55rem', color: locked ? 'var(--te-text-muted)' : areaColor, fontWeight: 900, opacity: 0.8 }}>{item.area} / {item.stage}</div>
-           <h4 style={{ fontSize: isMeetingMode ? '0.9rem' : '1rem', fontWeight: 800, margin: 0, color: locked ? 'var(--te-text-muted)' : 'var(--te-text-main)' }}>{item.content}</h4>
+        {/* Question header row */}
+        <div style={{
+          padding: isMeetingMode ? '0.55rem 1rem' : '1rem 1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1rem',
+          opacity: locked && !isMeetingMode ? 0.5 : 1,
+        }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: isDone ? areaColor : 'transparent', border: `2px solid ${areaColor}`, opacity: locked ? 0.4 : 1, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+             <div style={{ fontSize: '0.55rem', color: locked ? 'var(--te-text-muted)' : areaColor, fontWeight: 900, opacity: 0.8 }}>{item.area} / {item.stage}</div>
+             <h4 style={{ fontSize: isMeetingMode ? '0.88rem' : '1rem', fontWeight: 800, margin: 0, color: locked ? 'var(--te-text-muted)' : 'var(--te-text-main)' }}>{item.content}</h4>
+          </div>
+          {item.syncId && <div style={{ fontSize: '0.45rem', color: 'var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 5px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px', opacity: locked ? 0.3 : 1, flexShrink: 0 }}><LinkIcon size={7} /> MIRROR</div>}
+          {locked && isMeetingMode && <Lock size={12} color="var(--te-text-muted)" style={{ opacity: 0.5, flexShrink: 0 }} />}
         </div>
-        {item.syncId && <div style={{ fontSize: '0.45rem', color: 'var(--te-emerald-500)', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 5px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '3px', opacity: locked ? 0.3 : 1 }}><LinkIcon size={7} /> MIRROR</div>}
-        {locked && isMeetingMode && <Lock size={12} color="var(--te-text-muted)" style={{ opacity: 0.5 }} />}
-      </div>
-       {isMeetingMode && (
-          <div style={{ 
-            padding: '0.8rem 1rem', 
-            background: 'rgba(255,255,255,0.03)', 
-            borderRadius: '16px', 
-            border: '1px solid var(--te-border)', 
-            backdropFilter: 'blur(10px)',
-            marginLeft: '1.5rem', 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: '0.75rem',
-            position: 'relative',
-            pointerEvents: locked ? 'none' : 'auto',
-            filter: locked ? 'blur(0.8px) grayscale(0.5)' : 'none',
-            opacity: locked ? 0.6 : 1,
-            boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}>
-             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-               <div style={{ fontSize: '0.55rem', fontWeight: 950, color: 'var(--te-text-muted)', opacity: 0.6, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  BOARD :: {
-                    (item.allowedValues && item.allowedValues.length > 0) ? 'SELECTION' :
-                    item.responseType === 'boolean' ? 'DECISION' : 
-                    (item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') ? 'OPEN QUESTION' : 
-                    item.responseType === 'date' ? 'TARGET DATE' : 
-                    item.responseType === 'link' ? 'RESOURCE / LINK' : 
-                    item.responseType.toUpperCase()
-                  }
-               </div>
-               {!locked && resp?.value && (
-                 <button 
-                   onClick={(e: any) => { e.stopPropagation(); handleDetailUpdate(item.id, { value: '', status: 'not_started' }); }}
-                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--te-text-muted)', opacity: 0.5, transition: 'all 0.2s' }}
-                   title="Reset Response"
-                 >
-                   <X size={10} />
-                 </button>
-               )}
-             </div>
 
-             {/* MAIN INPUT AREA (Show textarea only if it's open text and NO choices exist) */}
-             {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
-               <textarea 
-                  value={resp?.value || ''} 
-                  onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                  placeholder={locked ? "Prerequisites pending..." : "Execution notes or outcomes..."}
-                  disabled={locked}
-                  style={{ 
-                    width: '100%', 
-                    minHeight: '80px', 
-                    maxHeight: '150px',
-                    background: 'rgba(0,0,0,0.3)', 
-                    border: '1px solid rgba(255,255,255,0.1)', 
-                    borderRadius: '10px', 
-                    padding: '0.6rem', 
-                    color: locked ? 'var(--te-text-muted)' : 'white', 
-                    resize: 'vertical', 
-                    fontSize: '0.8rem',
-                    outline: 'none',
-                    transition: 'all 0.3s ease'
-                  }}
-               />
-             ) : (
-               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  {/* SPECIALIZED VALUE FIELDS */}
-                   {item.responseType === 'link' && (
-                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                        <div>
-                          <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>Label</label>
-                          <input 
+        {/* Inline response area — integrated within the card, no separate floating panel */}
+        {isMeetingMode && (
+          <div style={{
+            borderTop: '1px solid var(--te-border)',
+            padding: '0.55rem 1rem 0.65rem',
+            background: 'rgba(0,0,0,0.18)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+          }}>
+            {/* Type label + reset button */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '0.5rem', fontWeight: 950, color: 'var(--te-text-muted)', opacity: 0.55, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {
+                  (item.allowedValues && item.allowedValues.length > 0) ? 'SELECTION' :
+                  item.responseType === 'boolean' ? 'DECISION' :
+                  (item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') ? 'OPEN QUESTION' :
+                  item.responseType === 'date' ? 'TARGET DATE' :
+                  item.responseType === 'link' ? 'RESOURCE / LINK' :
+                  item.responseType.toUpperCase()
+                }
+              </div>
+              {!locked && resp?.value && (
+                <button
+                  onClick={(e: any) => { e.stopPropagation(); handleDetailUpdate(item.id, { value: '', status: 'not_started' }); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--te-text-muted)', opacity: 0.5, transition: 'all 0.2s', display: 'flex', alignItems: 'center' }}
+                  title="Reset Response"
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+
+            {/* MAIN INPUT AREA — open text */}
+            {((item.responseType === 'text' || item.responseType === 'string' || item.responseType === 'any') && (!item.allowedValues || item.allowedValues.length === 0)) ? (
+              <textarea
+                value={resp?.value || ''}
+                onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                placeholder={locked ? "Prerequisites pending..." : "Execution notes or outcomes..."}
+                disabled={locked}
+                style={{
+                  width: '100%',
+                  minHeight: '60px',
+                  maxHeight: '130px',
+                  background: 'rgba(0,0,0,0.25)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '8px',
+                  padding: '0.5rem 0.6rem',
+                  color: locked ? 'var(--te-text-muted)' : 'white',
+                  resize: 'vertical',
+                  fontSize: '0.8rem',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                {/* SPECIALIZED VALUE FIELDS */}
+                {item.responseType === 'link' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.5rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem', display: 'block' }}>Label</label>
+                      <input
+                        type="text"
+                        value={resp?.linkInfo?.label || ''}
+                        onChange={(e) => handleDetailUpdate(item.id, { linkInfo: { ...resp?.linkInfo, label: e.target.value } })}
+                        placeholder="e.g. Documentation Portal"
+                        style={{ width: '100%', padding: '0.45rem 0.5rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '7px', color: 'white', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.5rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem', display: 'block' }}>Hyperlink</label>
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <div style={{ flex: 1, position: 'relative' }}>
+                          <LinkIcon size={11} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                          <input
                             type="text"
-                            value={resp?.linkInfo?.label || ''}
-                            onChange={(e) => handleDetailUpdate(item.id, { linkInfo: { ...resp?.linkInfo, label: e.target.value } })}
-                            placeholder="e.g. Documentation Portal"
-                            style={{ width: '100%', padding: '0.55rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                            value={resp?.value || ''}
+                            onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                            placeholder="https://..."
+                            style={{ width: '100%', padding: '0.45rem 0.5rem 0.45rem 1.8rem', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '7px', color: 'white', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }}
                           />
                         </div>
-                        <div>
-                          <label style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--te-text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>Hyperlink</label>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <div style={{ flex: 1, position: 'relative' }}>
-                               <LinkIcon size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
-                               <input 
-                                 type="text"
-                                 value={resp?.value || ''}
-                                 onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                                 placeholder="https://..."
-                                 style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
-                               />
-                            </div>
-                            {resp?.value && (
-                              <button onClick={() => window.open(resp.value.startsWith('http') ? resp.value : `https://${resp.value}`, '_blank')} style={{ padding: '0.6rem', borderRadius: '8px', background: 'var(--te-accent-600)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ExternalLink size={12} /></button>
-                            )}
-                          </div>
-                        </div>
-                     </div>
-                   )}
-
-                  {item.responseType === 'date' && (
-                    <div style={{ position: 'relative' }}>
-                       <Clock size={12} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
-                       <input 
-                         type="date"
-                         value={resp?.value || ''}
-                         onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                         style={{ width: '100%', padding: '0.5rem 0.5rem 0.5rem 2rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none', colorScheme: 'dark' }}
-                       />
+                        {resp?.value && (
+                          <button onClick={() => window.open(resp.value.startsWith('http') ? resp.value : `https://${resp.value}`, '_blank')} style={{ padding: '0.45rem 0.5rem', borderRadius: '7px', background: 'var(--te-accent-600)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ExternalLink size={11} /></button>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  {item.responseType === 'number' && (
-                    <input 
-                      type="number"
+                {item.responseType === 'date' && (
+                  <div style={{ position: 'relative' }}>
+                    <Clock size={11} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }} />
+                    <input
+                      type="date"
                       value={resp?.value || ''}
                       onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
-                      placeholder="Enter numeric value..."
-                      style={{ width: '100%', padding: '0.5rem', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                      style={{ width: '100%', padding: '0.45rem 0.5rem 0.45rem 1.8rem', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '7px', color: 'white', fontSize: '0.75rem', outline: 'none', colorScheme: 'dark', boxSizing: 'border-box' }}
                     />
-                  )}
+                  </div>
+                )}
 
-                  {/* SHARED NOTES FIELD (Hide for selections/decisions/links as requested) */}
-                  {!(item.responseType === 'boolean' || item.responseType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
-                    <textarea 
-                       value={resp?.note || ''} 
-                       onChange={(e) => handleDetailUpdate(item.id, { note: e.target.value })}
-                       placeholder="Execution notes or outcomes..."
-                       style={{ 
-                         width: '100%', 
-                         minHeight: '35px', 
-                         maxHeight: '100px',
-                         background: 'rgba(0,0,0,0.2)', 
-                         border: '1px solid rgba(255,255,255,0.05)', 
-                         borderRadius: '8px', 
-                         padding: '0.4rem', 
-                         color: 'var(--te-text-muted)', 
-                         resize: 'vertical', 
-                         fontSize: '0.75rem',
-                         outline: 'none'
-                       }}
-                    />
-                  )}
-               </div>
-             )}
+                {item.responseType === 'number' && (
+                  <input
+                    type="number"
+                    value={resp?.value || ''}
+                    onChange={(e) => handleDetailUpdate(item.id, { value: e.target.value, status: e.target.value ? 'answered' : 'not_started' })}
+                    placeholder="Enter numeric value..."
+                    style={{ width: '100%', padding: '0.45rem 0.5rem', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '7px', color: 'white', fontSize: '0.75rem', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                )}
 
-             {/* DYNAMIC ACTION BUTTONS (Show if choices exist or it's a boolean choice) */}
-             {(((item.allowedValues && item.allowedValues.length > 0) || item.responseType === 'boolean')) && (
-               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {(item.allowedValues && item.allowedValues.length > 0) ? (
-                    item.allowedValues.map((val: any) => (
-                      <button 
-                        key={val}
-                        onClick={() => handleDetailUpdate(item.id, { value: val, status: 'answered' })} 
-                        disabled={locked}
-                        style={{ 
-                          padding: '0.4rem 0.8rem', 
-                          borderRadius: '8px', 
-                          background: resp?.value === val ? 'var(--te-accent-600)' : 'rgba(255,255,255,0.05)', 
-                          border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,1)'}`, 
-                          color: locked ? 'var(--te-text-muted)' : 'white', 
-                          fontSize: '0.65rem', 
-                          fontWeight: 800, 
-                          cursor: locked ? 'not-allowed' : 'pointer',
-                          opacity: locked ? 0.5 : 1,
-                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                        }}
-                      >
-                        {val.toUpperCase()}
-                      </button>
-                    ))
-                  ) : item.responseType === 'boolean' && (
-                    <>
-                      <button 
-                        onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })} 
-                        disabled={locked}
-                        style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>YES</button>
-                      <button 
-                        onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })} 
-                        disabled={locked}
-                        style={{ flex: 1, padding: '0.45rem', borderRadius: '8px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>NO</button>
-                    </>
-                  )}
-               </div>
-             )}
+                {/* SHARED NOTES FIELD (Hide for selections/decisions/links) */}
+                {!(item.responseType === 'boolean' || item.responseType === 'link' || (item.allowedValues && item.allowedValues.length > 0)) && (
+                  <textarea
+                    value={resp?.note || ''}
+                    onChange={(e) => handleDetailUpdate(item.id, { note: e.target.value })}
+                    placeholder="Execution notes or outcomes..."
+                    style={{
+                      width: '100%',
+                      minHeight: '30px',
+                      maxHeight: '80px',
+                      background: 'rgba(0,0,0,0.15)',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      borderRadius: '7px',
+                      padding: '0.35rem 0.5rem',
+                      color: 'var(--te-text-muted)',
+                      resize: 'vertical',
+                      fontSize: '0.72rem',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* DYNAMIC ACTION BUTTONS (selections / boolean) */}
+            {((item.allowedValues && item.allowedValues.length > 0) || item.responseType === 'boolean') && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {(item.allowedValues && item.allowedValues.length > 0) ? (
+                  item.allowedValues.map((val: any) => (
+                    <button
+                      key={val}
+                      onClick={() => handleDetailUpdate(item.id, { value: val, status: 'answered' })}
+                      disabled={locked}
+                      style={{
+                        padding: '0.35rem 0.7rem',
+                        borderRadius: '7px',
+                        background: resp?.value === val ? 'var(--te-accent-600)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${resp?.value === val ? 'var(--te-accent-400)' : 'rgba(255,255,255,0.12)'}`,
+                        color: locked ? 'var(--te-text-muted)' : 'white',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        cursor: locked ? 'not-allowed' : 'pointer',
+                        opacity: locked ? 0.5 : 1,
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                      }}
+                    >
+                      {val.toUpperCase()}
+                    </button>
+                  ))
+                ) : item.responseType === 'boolean' && (
+                  <>
+                    <button
+                      onClick={() => handleDetailUpdate(item.id, { value: 'YES', status: 'answered' })}
+                      disabled={locked}
+                      style={{ flex: 1, padding: '0.4rem', borderRadius: '7px', background: resp?.value === 'YES' ? 'var(--te-emerald-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>YES</button>
+                    <button
+                      onClick={() => handleDetailUpdate(item.id, { value: 'NO', status: 'answered' })}
+                      disabled={locked}
+                      style={{ flex: 1, padding: '0.4rem', borderRadius: '7px', background: resp?.value === 'NO' ? 'var(--te-rose-600)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: locked ? 'var(--te-text-muted)' : 'white', fontSize: '0.65rem', fontWeight: 900, cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1 }}>NO</button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
-       )}
+        )}
+      </div>
     </div>
   );
 });
@@ -302,10 +303,15 @@ export const FlowDashboard: React.FC = () => {
   const [hideCommon, setHideCommon] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [isMeetingMode, setIsMeetingMode] = useState(false);
-  const [hideAnswered, setHideAnswered] = useState(false);
+  const [hideAnswered, setHideAnswered] = useState(() => localStorage.getItem('te_hide_answered') === 'true');
   const [hideLocked, setHideLocked] = useState(false);
   const [expandedInlineId, setExpandedInlineId] = useState<string | null>(null);
   const [isDelivDropdownOpen, setIsDelivDropdownOpen] = useState(false);
+
+  // Persist hideAnswered filter to localStorage
+  useEffect(() => {
+    localStorage.setItem('te_hide_answered', String(hideAnswered));
+  }, [hideAnswered]);
 
   // --- SYNC STATE (TenderLoop) ---
   const [loopDb, setLoopDb] = useState<any[]>(() => {
@@ -1067,13 +1073,33 @@ export const FlowDashboard: React.FC = () => {
                   </div>
                    <div style={{ display: 'flex', gap: '0.3rem' }}>
                       {viewMode === 'checklist' && (
-                        <button 
-                          onClick={() => setIsMeetingMode(!isMeetingMode)} 
-                          className={`te-btn ${isMeetingMode ? 'te-btn-primary' : 'te-btn-outline'}`} 
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', fontWeight: 950, padding: '0.6rem 1rem', borderRadius: '12px', background: isMeetingMode ? 'var(--te-emerald-500)' : 'transparent', color: isMeetingMode ? 'white' : 'var(--te-text-muted)', border: isMeetingMode ? 'none' : '1px solid var(--te-border)' }}
-                        >
-                          <MessageSquare size={14} /> RESPONSE
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setIsMeetingMode(!isMeetingMode)}
+                            className={`te-btn ${isMeetingMode ? 'te-btn-primary' : 'te-btn-outline'}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', fontWeight: 950, padding: '0.6rem 1rem', borderRadius: '12px', background: isMeetingMode ? 'var(--te-emerald-500)' : 'transparent', color: isMeetingMode ? 'white' : 'var(--te-text-muted)', border: isMeetingMode ? 'none' : '1px solid var(--te-border)' }}
+                          >
+                            <MessageSquare size={14} /> RESPONSE
+                          </button>
+                          <button
+                            onClick={() => setHideAnswered(!hideAnswered)}
+                            className={`te-btn ${hideAnswered ? 'te-btn-primary' : 'te-btn-outline'}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', fontWeight: 950, padding: '0.6rem 1rem', borderRadius: '12px', background: hideAnswered ? 'var(--te-accent-600)' : 'transparent', color: hideAnswered ? 'white' : 'var(--te-text-muted)', border: hideAnswered ? 'none' : '1px solid var(--te-border)' }}
+                            title="Hide completed questions"
+                          >
+                            {hideAnswered ? <EyeOff size={14} /> : <Eye size={14} />} HIDE DONE
+                          </button>
+                          {(searchQuery || selectedAreas.length > 0 || selectedStages.length > 0 || selectedDeliverables.length > 0 || hideAnswered || hideCommon || hideLocked) && (
+                            <button
+                              onClick={() => { setSearchQuery(''); setSelectedAreas([]); setSelectedStages([]); setSelectedDeliverables([]); setHideAnswered(false); setHideCommon(false); setHideLocked(false); }}
+                              className="te-btn te-btn-outline"
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', fontWeight: 950, padding: '0.6rem 1rem', borderRadius: '12px', background: 'transparent', color: 'var(--te-rose-400)', border: '1px solid var(--te-rose-400)', opacity: 0.8 }}
+                              title="Clear all filters"
+                            >
+                              <X size={13} /> CLEAR
+                            </button>
+                          )}
+                        </>
                       )}
                       <button 
                         onClick={() => setHideLocked(!hideLocked)} 
@@ -1141,23 +1167,39 @@ export const FlowDashboard: React.FC = () => {
                {viewMode === 'checklist' && (
                  <div style={{ height: '100%', overflowY: 'auto', padding: '2rem' }}>
                     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                       {visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action')).map(item => {
-                         const resp = currentCase.responses[item.id];
-                         const { locked } = isItemLocked(item, currentCase.responses);
-                         return (
-                            <MemoizedBackboneItem
-                              key={item.id}
-                              item={item}
-                              resp={resp}
-                              locked={locked}
-                              selectedItemId={selectedItemId}
-                              setSelectedItemId={setSelectedItemId}
-                              isMeetingMode={isMeetingMode}
-                              handleDetailUpdate={handleDetailUpdate}
-                              activeBackboneAreas={activeBackboneAreas}
-                            />
-                         );
-                       })}
+                       {(() => {
+                         const checklistItems = visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'));
+                         if (checklistItems.length === 0) {
+                           return (
+                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1rem', gap: '0.75rem', opacity: 0.55 }}>
+                               <CheckCircle2 size={32} color="var(--te-emerald-500)" />
+                               <div style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--te-text-main)' }}>
+                                 {hideAnswered ? 'No unanswered questions' : 'No questions match the current filters'}
+                               </div>
+                               <div style={{ fontSize: '0.75rem', color: 'var(--te-text-muted)' }}>
+                                 {hideAnswered ? 'All visible questions have been answered.' : 'Try adjusting or clearing your filters.'}
+                               </div>
+                             </div>
+                           );
+                         }
+                         return checklistItems.map(item => {
+                           const resp = currentCase.responses[item.id];
+                           const { locked } = isItemLocked(item, currentCase.responses);
+                           return (
+                              <MemoizedBackboneItem
+                                key={item.id}
+                                item={item}
+                                resp={resp}
+                                locked={locked}
+                                selectedItemId={selectedItemId}
+                                setSelectedItemId={setSelectedItemId}
+                                isMeetingMode={isMeetingMode}
+                                handleDetailUpdate={handleDetailUpdate}
+                                activeBackboneAreas={activeBackboneAreas}
+                              />
+                           );
+                         });
+                       })()}
                     </div>
                  </div>
                )}
