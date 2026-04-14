@@ -1539,13 +1539,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const flushNoteRef = useRef<(() => void) | null>(null);
     const syncNoteTimeoutRef = useRef<number | null>(null);
 
-    // Ref for localOpp to avoid stale closures in effects and callbacks
+    // Refs updated directly in render body (not useEffect) so they are always current
+    // when effect cleanups run. useEffect-based updates would be one render behind,
+    // causing the flush to read stale notes and overwrite recently added ones.
     const localOppRef = useRef(localOpp);
-    useEffect(() => { localOppRef.current = localOpp; }, [localOpp]);
+    localOppRef.current = localOpp;
 
-    // Ref for activeNoteHtml to avoid stale closures and unnecessary effect re-runs
     const activeNoteHtmlRef = useRef(activeNoteHtml);
-    useEffect(() => { activeNoteHtmlRef.current = activeNoteHtml; }, [activeNoteHtml]);
+    activeNoteHtmlRef.current = activeNoteHtml;
+
+    // Stable ref to onUpdate so flushNoteRef can call it without capturing a stale closure.
+    // onUpdate itself is a useCallback, but its identity changes when parentOnUpdate changes;
+    // using a ref guarantees the flush always calls the latest version.
+    const onUpdateRef = useRef(onUpdate);
+    onUpdateRef.current = onUpdate;
+
+    // Ref for viewingVersionId so flush can guard against saving snapshot content
+    const viewingVersionIdRef = useRef(viewingVersionId);
+    viewingVersionIdRef.current = viewingVersionId;
 
     // HOTFIX PERFORMANCE: Isolated Note Sync (v5000-compatible)
     // We keep the heavy HTML local and only sync it to localOpp/App when switching notes or closing.
@@ -1554,14 +1565,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
         flushNoteRef.current = () => {
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
+            if (viewingVersionIdRef.current) return; // LOCK: never save snapshot content
             const currentNote = localOppRef.current.notes.find(n => n.id === selectedNoteId);
             const content = activeNoteHtmlRef.current;
-            
+
             // Sync ONLY if content actually changed
             if (currentNote && currentNote.content !== content) {
-                const updatedNotes = localOppRef.current.notes.map(n => n.id === selectedNoteId ? { ...n, content: content } : n);
-                setLocalOpp(prev => ({ ...prev, notes: updatedNotes }));
-                handleFieldChange('notes', updatedNotes, true); // IMMEDIATE SYNC
+                const updatedNotes = localOppRef.current.notes.map(n =>
+                    n.id === selectedNoteId ? { ...n, content } : n
+                );
+                // Build the full update from localOppRef.current (always latest) instead of
+                // calling handleFieldChange (which closes over a stale localOpp snapshot).
+                // This prevents the flush from overwriting notes that were added after the
+                // effect last ran (e.g. creating a new note while typing in the current one).
+                const updated = {
+                    ...localOppRef.current,
+                    notes: updatedNotes,
+                    lastUpdated: new Date().toISOString()
+                };
+                setLocalOpp(updated);
+                // Cancel any in-flight debounced save so the immediate flush wins
+                if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+                onUpdateRef.current(updated, updated.id, true); // IMMEDIATE SYNC
             }
         };
 

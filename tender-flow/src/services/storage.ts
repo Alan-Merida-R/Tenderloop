@@ -150,12 +150,13 @@ export class WorkspaceManager {
           areas: [
             { id: 'AREA_GEN', name: 'General', order: 0, active: true, color: '#3b82f6' },
             { id: 'AREA_TSC', name: 'Technical', order: 1, active: true, color: '#10b981' }
-          ] 
+          ],
+          deliverables: []
         },
         cases: []
       };
 
-      await this.saveFileDirectly(handle, newWS);
+      await this.saveFileDirectly(handle, JSON.stringify(newWS, null, 2));
       currentFileHandle = handle;
       this.currentWorkspace = newWS;
       await this.persistHandle(handle);
