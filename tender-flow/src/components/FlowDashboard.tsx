@@ -1302,7 +1302,7 @@ export const FlowDashboard: React.FC = () => {
                             <div key={r.itemId} style={{ marginBottom: '1.5rem', paddingLeft: '0.75rem', borderLeft: '1px solid #00ff4133' }}>
                                {item.syncId && <div style={{ fontSize: '0.55rem', opacity: 0.5, marginBottom: '0.3rem', letterSpacing: '0.1em', fontWeight: 900 }}>MIRRORED_POINT::SYNCHRONIZED</div>}
                                <div style={{ fontSize: '0.75rem', color: '#00ff41', fontWeight: 950, letterSpacing: '0.02em', marginBottom: '0.3rem' }}>{item.content.toUpperCase()}</div>
-                               <div style={{ fontSize: '0.8rem', color: 'white', marginTop: '0.25rem', lineHeight: '1.4' }}>{String(r.value)}</div>
+                               <div style={{ fontSize: '0.8rem', color: 'white', marginTop: '0.25rem', lineHeight: '1.4', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{String(r.value)}</div>
                             </div>
                           );
                         })}
