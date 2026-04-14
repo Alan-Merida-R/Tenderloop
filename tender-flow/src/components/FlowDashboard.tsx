@@ -699,6 +699,12 @@ export const FlowDashboard: React.FC = () => {
     handleSaveStandard({ ...currentCase.snapshot, questions: updatedItems });
   }, [currentCase, handleSaveStandard]);
 
+  // Stable callback for DecisionMap mirror-filter so it doesn't force Effect A
+  // (structural rebuild) to re-run on every FlowDashboard render.
+  const handleMirrorFilter = useCallback((text: string) => {
+    setSearchQuery(prev => (prev === text ? '' : text));
+  }, []); // setSearchQuery is stable (setState), no deps needed
+
   // PERF FIX: Wrapped in useCallback so MemoizedBackboneItem components don't
   // re-render when unrelated state (selectedItemId, isEditMode, etc.) changes.
   // Previously, every state change in FlowDashboard created a new function reference
@@ -1139,11 +1145,11 @@ export const FlowDashboard: React.FC = () => {
                          const resp = currentCase.responses[item.id];
                          const { locked } = isItemLocked(item, currentCase.responses);
                          return (
-                            <MemoizedBackboneItem 
+                            <MemoizedBackboneItem
                               key={item.id}
-                              item={item} 
-                              resp={resp} 
-                              locked={locked} 
+                              item={item}
+                              resp={resp}
+                              locked={locked}
                               selectedItemId={selectedItemId}
                               setSelectedItemId={setSelectedItemId}
                               isMeetingMode={isMeetingMode}
@@ -1155,8 +1161,33 @@ export const FlowDashboard: React.FC = () => {
                     </div>
                  </div>
                )}
-               {viewMode === 'map' && <DecisionMap items={visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'))} allItems={activeBackboneItems} responses={currentCase.responses} stagesList={stagesList} onNodeClick={setSelectedItemId} isEditMode={isEditMode} isDarkMode={isDarkMode} onSaveStandard={handleSaveStandard} stagesData={activeBackboneStages} areas={activeBackboneAreas} onAddDependency={handleAddDependency} onUpdateDependency={handleUpdateDependency} onDeleteNode={handleDeleteStandardItem} onMirrorFilter={(text) => { if (searchQuery === text) setSearchQuery(''); else { setSearchQuery(text); } }} />}
-               {viewMode === 'executive_map' && <ExecutiveDecisionMap items={visibleItems} responses={currentCase.responses} stages={stagesList} areas={activeBackboneAreas} onNodeClick={setSelectedItemId} />}
+               {viewMode === 'map' && (
+                 // Absolute-fill wrapper guarantees ReactFlow gets explicit pixel dimensions.
+                 // Without this, height:100% on DecisionMap's root can resolve to 0 in some
+                 // flex+overflow layouts, producing a black/empty canvas.
+                 <div style={{ position: 'absolute', inset: 0 }}>
+                   <DecisionMap
+                     items={visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'))}
+                     allItems={activeBackboneItems}
+                     responses={currentCase.responses}
+                     stagesList={stagesList}
+                     onNodeClick={setSelectedItemId}
+                     isEditMode={isEditMode}
+                     onSaveStandard={handleSaveStandard}
+                     stagesData={activeBackboneStages}
+                     areas={activeBackboneAreas}
+                     onAddDependency={handleAddDependency}
+                     onUpdateDependency={handleUpdateDependency}
+                     onDeleteNode={handleDeleteStandardItem}
+                     onMirrorFilter={handleMirrorFilter}
+                   />
+                 </div>
+               )}
+               {viewMode === 'executive_map' && (
+                 <div style={{ position: 'absolute', inset: 0 }}>
+                   <ExecutiveDecisionMap items={visibleItems} responses={currentCase.responses} stages={stagesList} areas={activeBackboneAreas} onNodeClick={setSelectedItemId} />
+                 </div>
+               )}
 
                {isAuditLogOpen && (
                   <div className="te-glass" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '450px', background: 'var(--te-bg-card)', borderLeft: '1px solid var(--te-border)', zIndex: 110, display: 'flex', flexDirection: 'column', boxShadow: '-10px 0 30px rgba(0,0,0,0.5)' }}>

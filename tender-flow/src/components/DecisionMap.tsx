@@ -390,8 +390,10 @@ const MapContentInternal: React.FC<Props> = ({
   const saveTimeoutRef = React.useRef<any>(null);
   // Ref keeps latest responses available inside structure-rebuild effect without
   // including `responses` in that effect's dependency array.
+  // Updated in render body (not useEffect) so it's always current when Effect A's
+  // cleanup/re-run fires — same "always-latest ref" pattern used in OpportunityDetail.
   const responsesRef = useRef(responses);
-  useEffect(() => { responsesRef.current = responses; }, [responses]);
+  responsesRef.current = responses;
   // Debounce ref for the response-only node-data update (Effect B).
   const responseUpdateTimerRef = useRef<any>(null);
 
