@@ -34,7 +34,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { getFolderHandle, setFolderHandle, verifyPermission, clearFolderHandle, getRootPathDisplay, setRootPathDisplay } from '../../services/opportunityFolderLink';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openFileNative, searchFiles, copyEntryToDir, moveEntryToDir } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir } from './fileOps';
 import { getFileIcon } from './icons';
 import { FileItem } from './types';
 import { DocTypeSelector } from '../doc-links/DocTypeSelector';
@@ -441,6 +441,15 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   // Helpers
   const handleCopyPath = () => { if (!selectedItem) return; const t = `${rootPathDisplay}\\${selectedItem.relativePath.join('\\')}`; navigator.clipboard.writeText(t); setCopySuccess('full'); setTimeout(() => setCopySuccess(null), 2000); };
+
+  const handleOpenNative = async (item: FileItem) => {
+    try {
+      await openInNativeApp(rootPathDisplay, item.relativePath);
+    } catch (err: any) {
+      console.error('Open native failed', err);
+      alert(err?.message || 'No se pudo abrir el archivo.');
+    }
+  };
   const handleSaveRootPath = async () => { if (!rootPathInput.trim()) return; await setRootPathDisplay(opportunityId, rootPathInput.trim()); setRootPathDisplayVal(rootPathInput.trim()); };
   const updateMetaField = async (key: string, field: keyof DocMeta, value: any) => { await saveMeta(opportunityId, key, { [field]: value }); await loadMetas(items); };
 
@@ -470,10 +479,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 if (item.kind === 'directory') {
                   navigateTo(item.handle as FileSystemDirectoryHandle, item.relativePath);
                 } else {
-                  const t = `${rootPathDisplay}\\${item.relativePath.join('\\')}`;
-                  navigator.clipboard.writeText(t);
-                  setCopySuccess('full');
-                  setTimeout(() => setCopySuccess(null), 1500);
+                  handleOpenNative(item);
                 }
               }}
               className={`group hover:bg-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : ''}`}
@@ -779,9 +785,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 <LinkIcon className="w-3.5 h-3.5" />
                 Linked items
               </button>
-              <button onClick={() => openFileNative(selectedItem!.handle as FileSystemFileHandle)} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50">
+              <button onClick={() => handleOpenNative(selectedItem!)} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50">
                 <ExternalLink className="w-3.5 h-3.5" />
-                Download / Open
+                Abrir
               </button>
               <button onClick={() => { setShowPreview(false); setIsPreviewExpanded(false); }} className="p-2 hover:bg-gray-100 rounded-full ml-4"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
@@ -809,7 +815,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 <p className="text-sm text-gray-500 mb-8 max-w-sm">Preview not available for this file type in-app.</p>
                 <div className="flex gap-3 justify-center">
                   <button onClick={handleCopyPath} className="px-6 py-2.5 bg-gray-800 text-white text-xs font-bold rounded-xl hover:bg-gray-900 shadow-lg shadow-gray-200 transition-all">Copy full path</button>
-                  <button onClick={() => openFileNative(selectedItem!.handle as FileSystemFileHandle)} className="px-6 py-2.5 bg-[#3DCD58] text-white text-xs font-bold rounded-xl hover:bg-[#2db64a] shadow-lg shadow-emerald-200 transition-all">Download / Open</button>
+                  <button onClick={() => handleOpenNative(selectedItem!)} className="px-6 py-2.5 bg-[#3DCD58] text-white text-xs font-bold rounded-xl hover:bg-[#2db64a] shadow-lg shadow-emerald-200 transition-all">Abrir</button>
                 </div>
               </div>
             )}
@@ -833,11 +839,15 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <div className="w-px h-5 bg-gray-700 mx-1"></div>
             {selectedItem.kind === 'file' ? (
               <div className="flex items-center gap-2">
+                <button onClick={() => handleOpenNative(selectedItem)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg text-xs font-bold transition-all" title="Abrir en su aplicación"><ExternalLink className="w-3.5 h-3.5" /> Abrir</button>
                 <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy Path"><Copy className="w-3.5 h-3.5" /></button>
                 <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Manage Links"><LinkIcon className="w-3.5 h-3.5" /></button>
               </div>
             ) : (
-              <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all"><Copy className="w-3.5 h-3.5" /> Copy Path</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleOpenNative(selectedItem)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg text-xs font-bold transition-all" title="Abrir carpeta en el Explorador"><ExternalLink className="w-3.5 h-3.5" /> Abrir</button>
+                <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all"><Copy className="w-3.5 h-3.5" /> Copy Path</button>
+              </div>
             )}
           </div>
           <button onClick={() => setSelectedItem(null)} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>

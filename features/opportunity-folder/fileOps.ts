@@ -141,25 +141,39 @@ export const deleteEntry = async (
   await parentHandle.removeEntry(name, { recursive: true });
 };
 
-export const openFileNative = async (fileHandle: FileSystemFileHandle): Promise<void> => {
+const OPEN_HELPER_URL = 'http://127.0.0.1:3099';
+
+const buildAbsolutePath = (rootPathDisplay: string, relativePath: string[]): string => {
+  const root = (rootPathDisplay || '').trim().replace(/[\/\\]+$/, '');
+  if (!root) throw new Error('Base path is not set. Configure the "Base Path" in the sidebar first.');
+  const rel = relativePath.join('\\');
+  return `${root}\\${rel}`;
+};
+
+export const openInNativeApp = async (
+  rootPathDisplay: string,
+  relativePath: string[]
+): Promise<void> => {
+  const absolute = buildAbsolutePath(rootPathDisplay, relativePath);
+  const qs = new URLSearchParams({ path: absolute }).toString();
+
+  let resp: Response;
   try {
-    const file = await fileHandle.getFile();
-    const url = URL.createObjectURL(file);
-
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = file.name;
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      document.body.removeChild(anchor);
-    }, 10000);
+    resp = await fetch(`${OPEN_HELPER_URL}/open?${qs}`);
   } catch (err) {
-    console.error("Native open failed", err);
-    alert("Unable to open file. Please open it directly from your local folder.");
+    throw new Error(
+      'No se pudo conectar al asistente local (puerto 3099).\n' +
+      'Cierra TenderLoop y vuelve a abrirlo con LANZAR_TENDERLOOP para iniciar el asistente.'
+    );
+  }
+
+  if (!resp.ok) {
+    let msg = `Error ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body?.error) msg = body.error;
+    } catch { /* ignore */ }
+    throw new Error(`No se pudo abrir "${absolute}": ${msg}`);
   }
 };
 

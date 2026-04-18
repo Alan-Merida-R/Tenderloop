@@ -8,7 +8,8 @@
     "dev-flow": "vite --port 3003",
     "build": "vite build",
     "build-flow": "vite build --config vite.flow.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/openHelper.js"
   },
   "dependencies": {
     "@xyflow/react": "^12.10.2",
@@ -16,7 +17,7 @@
     "jspdf": "2.5.1",
     "jspdf-autotable": "3.8.1",
     "lucide-react": "^0.561.0",
-    "mammoth": "^1.11.0",
+    "mammoth": "^1.12.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "xlsx": "^0.18.5"

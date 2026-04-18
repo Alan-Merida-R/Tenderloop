@@ -19,7 +19,11 @@ if not exist node_modules (
 :: 4. Asegurar librerias de Excel/Word
 call npm install xlsx mammoth --quiet
 
-:: 5. Iniciar la aplicación FORZANDO el puerto 3000
+:: 5. Iniciar el helper local (puerto 3099) para abrir archivos en su app nativa.
+:: Se ejecuta en segundo plano, sin ventana visible.
+start "" /B node server\openHelper.js
+
+:: 6. Iniciar la aplicación FORZANDO el puerto 3000
 :: Primero intentamos abrir como App (Vivaldi, Edge o Chrome). Si fallan, abre el default.
 start vivaldi --app="http://localhost:3000" || start msedge --app="http://localhost:3000" || start chrome --app="http://localhost:3000" || start "" "http://localhost:3000"
 :: Luego ejecutamos Vite forzando el puerto y la carpeta actual
