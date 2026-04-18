@@ -262,7 +262,165 @@ Si el agente recibe un reporte de lag, busca aquí primero:
 - `QuestionDetailPanel` exportado como `React.memo(QuestionDetailPanel_)` — el nombre interno es `QuestionDetailPanel_`. NO quitar el memo.
 - Local state + debounce (250ms) en `QuestionDetailPanel` para `localTextValue`, `localNoteValue`, `localLinkLabel`, `localLinkUrl`. Refs always-latest: `localLinkLabelRef`, `localLinkUrlRef`. NO eliminar.
 - `allItemsMap = useMemo(() => new Map(...), [allItems])` en `QuestionDetailPanel` para O(1) lookup en reglas de dependencia. NO cambiar a `allItems.find()`.
-- `loopTaskMap` useMemo en `FlowDashboard.tsx` (después de `hasPendingActions`): Map plano de `loopDb` para sync O(N). syncWithLoop usa `loopTaskMap.get(rawId)` en lugar de loops anidados. NO revertir.
+
+---
+
+## 10. 🧠 Performance Audit — TenderLoop (Main App, 2026-04-14)
+
+Mapeo exhaustivo de cuellos de botella en la app Loop (~17 700 líneas).
+Orden: impacto real sobre la experiencia del usuario. Cuando alguien reporte lag, **empieza aquí**.
+
+### 10.1 Mapa de archivos pesados
+
+| Archivo                                         | Líneas | Rol                                              | Riesgo perf |
+|-------------------------------------------------|--------|--------------------------------------------------|-------------|
+| `components/OpportunityDetail.tsx`              | 5 878  | Full-view del expediente (Notes/Tasks/KPIs/etc)  | **CRÍTICO** |
+| `components/Dashboard.tsx`                      | 3 304  | Home: KPIs, listas, kanban, tarjetas             | **CRÍTICO** |
+| `App.tsx`                                       | 1 507  | Global state, autosave, BroadcastChannel         | **ALTO**    |
+| `features/tracking/TrackingView.tsx`            | 1 331  | Agregador global de tareas/notas/historia        | **ALTO**    |
+| `features/opportunity-folder/OpportunityFolderTab.tsx` | 858 | Explorador de archivos del expediente            | MEDIO       |
+| `components/SettingsModal.tsx`                  | 614    | Ajustes + links a opps                           | MEDIO       |
+| `components/CalendarView.tsx`                   | 248    | Calendario mensual                               | MEDIO       |
+| `contexts/TimerContext.tsx`                     | 232    | Cronómetro global con BroadcastChannel           | MEDIO       |
+| `services/opportunityExportImport.ts`           | 168    | Export/Import con IndexedDB                      | MEDIO       |
+
+### 10.2 Top 20 optimizaciones (ordenadas por impacto)
+
+#### TIER 1 — CRÍTICOS (≈70 % del lag)
+
+**#1 — `App.tsx` L247-262: BroadcastChannel clona DB entera cada 2 s**
+```tsx
+syncChannel.current.postMessage({ type: 'OPP_UPDATE', oppId, oppData: currentOpp });
+```
+`postMessage` hace `structuredClone` internamente. DBs de 10-50 MB = 200-500 ms de bloqueo cada 2 s.
+**Fix:** enviar delta `{ id, lastUpdated, dirtyFields }`. La otra pestaña relee del archivo.
+
+**#2 — `OpportunityDetail.tsx` L1703, 3300, 3320: `JSON.stringify` como comparador**
+```tsx
+if (JSON.stringify(currentOpp.kpis) !== JSON.stringify(baseKpis)) { ... }
+```
+Serializa objetos grandes en cada render. 20-50 serializaciones/s con teclado rápido.
+**Fix:** shallow-equal por campo o mantener un hash/version counter que solo cambia al guardar.
+
+**#3 — `TrackingView.tsx` L134-231: agregación O(N³) sin índices**
+`workItems` combina opps × tasks × history × notes × KPIs en un solo useMemo. 20 opps × 30 tasks × 50 history = 30 000 iteraciones por cambio de filtro.
+**Fix:** dividir en sub-memos por eje, pre-indexar por fecha/status, invalidar selectivamente.
+
+**#4 — `Dashboard.tsx` L1146-1157: KPIs 5×filter+reduce por periodo**
+Dentro del `.map(sortedKeys)` ejecuta 5 filtros y 5 reduces por cada periodo. 12 meses = 120 operaciones O(N) por render.
+**Fix:** un solo `reduce` que acumule todos los KPIs en un objeto agregado.
+
+**#5 — `Dashboard.tsx` L1418, 1428, 1439: 3 `.sort()` dentro de `forEach`**
+Re-ordenamiento triple por grupo en cada render. 10 grupos × 50 opps = 1 500 comparaciones innecesarias.
+**Fix:** `useMemo` con keys estables, mover sort afuera del forEach.
+
+**#6 — `OpportunityFolderTab.tsx` L461: tabla sin virtualizar**
+100+ archivos renderizan el DOM completo. Scroll lento + memoria alta.
+**Fix:** `react-window` o `@tanstack/virtual`.
+
+#### TIER 2 — ALTO IMPACTO
+
+**#7 — `OpportunityDetail.tsx` L1999-3033: cálculos encadenados repetidos**
+`executionUniqueDays`, `waitingOnOthersDays`, `suggestedEffortScore` recorren el mismo array 3 veces por keystroke.
+**Fix:** un solo `useMemo` iterando una vez y devolviendo las 3 métricas.
+
+**#8 — Callbacks inline en listas** (Dashboard L378, 489, 2502, 2592; OppDetail L321-330, 482, 788)
+`onClick={() => handler(x)}` dentro de `.map()` invalida `React.memo` en cada render.
+**Fix:** `useCallback` estable + `data-id` en el botón para recuperar x en el handler.
+
+**#9 — `Dashboard.tsx` L2275, 2329, 2460, 2494: `.slice(0, N)` tras filter+sort sobre array completo**
+Filtra/ordena 2 000 para mostrar 30.
+**Fix:** cortar antes (partial sort) o `.find()` si solo necesitas el primero.
+
+**#10 — `services/opportunityExportImport.ts` L27-41: IndexedDB cursor sin índice**
+Escanea todo el store para filtrar por `oppId||*`. Miles de docs = export de 2-5 s.
+**Fix:** índice compuesto `by_opp` → `store.index('by_opp').getAll(oppId)`.
+
+**#11 — `App.tsx` L984-1001: `rebalancePriorities` O(N²)**
+`group.find()` + `group.filter()` por status. 1 000 opps = drag & drop lento.
+**Fix:** `Map(group.map(o => [o.id, o]))` para lookup O(1).
+
+**#12 — `TimerContext.tsx` L82, 88-95: `localStorage.setItem` por tick + onmessage sin throttle**
+Timer puede escribir localStorage 60 Hz y re-renderiza todo el árbol consumidor.
+**Fix:** debounce 1 s al setItem + throttle 500 ms al `onmessage` del BroadcastChannel.
+
+#### TIER 3 — MEDIO / PULIDO
+
+**#13 — `CalendarView.tsx` L67, 108, 117, 210: `toLocaleString` + `new Date()` por celda**
+`Intl.DateTimeFormat` costoso. 42 celdas × 3 formateos = 126 llamadas por render.
+**Fix:** cachear `Intl.DateTimeFormat` en módulo + `useMemo(today, [])`.
+
+**#14 — `SettingsModal.tsx` L363-364: búsqueda sin debounce**
+`opportunities.filter(...).slice(0,5)` por keystroke sobre 1 000+ items.
+**Fix:** debounce 200 ms + `useDeferredValue`.
+
+**#15 — `LinkedItemsPanel.tsx` L96: `dangerouslySetInnerHTML` sin sanitizar**
+Además del riesgo XSS, re-parsea HTML en cada render.
+**Fix:** DOMPurify o render a Markdown controlado.
+
+**#16 — `TrackingView.tsx` L379: `JSON.parse(JSON.stringify(opp.tasks))`**
+Clone sync de arrays grandes.
+**Fix:** `structuredClone()` nativo, o evitar clone si es inmutable.
+
+**#17 — `StickyNotesWidget.tsx` L37-69: `renderContent` recrea JSX sin memo**
+**Fix:** `useCallback` + `useMemo` por línea.
+
+**#18 — `App.tsx` L243-247: debounce global en `window[...]`**
+Race conditions entre ventanas.
+**Fix:** `useRef` local al componente.
+
+**#19 — `QuickNavDock.tsx` L64-67: `findIndex + splice + splice` en `onDragOver` (60 Hz)**
+20+ tabs = jank al arrastrar.
+**Fix:** swap directo sin spread, o librería de DnD con diff.
+
+**#20 — `Dashboard.tsx` L751, 824, 843, 1258: `new Date().toISOString()` en render**
+**Fix:** `useMemo(() => ..., [])` por componente.
+
+### 10.3 Quick-Find por síntoma del usuario
+
+| Reporte del usuario                              | Archivo / línea                      | Causa raíz                        |
+|--------------------------------------------------|--------------------------------------|-----------------------------------|
+| Lag al editar oportunidades abiertas             | `App.tsx` L247, `OppDetail.tsx` L1703 | BroadcastChannel + JSON.stringify |
+| Dashboard tarda en cargar con muchas opps        | `Dashboard.tsx` L1146, L1418         | KPIs + sorts sin memoizar         |
+| Typing lento en detalle de oportunidad           | `OppDetail.tsx` L1999-3033           | Cálculos encadenados              |
+| TrackingView se congela al cambiar filtro        | `TrackingView.tsx` L134-231          | Agregación O(N³)                  |
+| Carpeta con muchos archivos scrollea mal         | `OppFolderTab.tsx` L461              | Sin virtualización                |
+| Drag & drop lento al reordenar prioridades       | `App.tsx` L984                       | O(N²) sin Map                     |
+| Export lento                                      | `opportunityExportImport.ts` L27    | IndexedDB cursor sin índice       |
+| Timer causa lag general                           | `TimerContext.tsx` L82              | setState global + localStorage sync |
+| Búsqueda en settings lenta                        | `SettingsModal.tsx` L363            | Sin debounce                       |
+| App lenta con 5+ pestañas abiertas                | `TimerContext.tsx` L88-95           | BroadcastChannel sin throttle     |
+| Jank al arrastrar tabs del dock                   | `QuickNavDock.tsx` L64              | splice en onDragOver 60 Hz        |
+
+### 10.4 Patrones a preservar en Loop (NO deshacer)
+
+- `NoteEditorWrapper` en `OpportunityDetail.tsx`: debounce del rich text editor. Mantener — sin esto cada tecla bloquea la UI en expedientes grandes.
+- `Tiered Autosave` en `App.tsx`: `setInterval` debounced ~10 s usando File System Access API. Mantener. NO cambiar a autosave por cada keystroke.
+- `services/save.worker.ts`: worker ya presente para escribir sin bloquear el main thread. Usar/extender, no remover.
+- Split actual entre `Dashboard.tsx` (lista) y `OpportunityDetail.tsx` (full view): no unificarlos, re-render cascade sería masivo.
+- `BroadcastChannel('tenderloop_db_sync')` en `App.tsx`: mecanismo multi-pestaña funcional. Solo reducir tamaño del payload (ver #1), no eliminar.
+
+### 10.5 Orden de ataque recomendado (ROI)
+
+**Sprint 1 — 80 % de la mejora (1-2 días):** bugs #1, #2, #3, #11.
+**Sprint 2 — (2-3 días):** bugs #4, #5, #7, #6, #12.
+**Sprint 3 — pulido:** resto.
+
+### 10.6 Optimizaciones pendientes (NO implementadas aún)
+
+| # | Archivo | Línea | Descripción |
+|---|---------|-------|-------------|
+| 1 | `App.tsx` | L247-262 | BroadcastChannel envía objeto completo — cambiar a delta |
+| 2 | `OpportunityDetail.tsx` | L1703, 3300, 3320 | JSON.stringify como comparador — usar hash/shallow |
+| 3 | `TrackingView.tsx` | L134-231 | workItems O(N³) — dividir en sub-memos indexados |
+| 4 | `Dashboard.tsx` | L1146-1157 | KPIs históricos — consolidar en un solo reduce |
+| 5 | `Dashboard.tsx` | L1418-1439 | 3 sorts dentro de forEach — memoizar |
+| 6 | `OpportunityFolderTab.tsx` | L461 | Tabla sin virtualizar — react-window |
+| 7 | `OpportunityDetail.tsx` | L1999-3033 | Cálculos de tasks encadenados — useMemo único |
+| 8 | Varios | — | Callbacks inline en listas — useCallback + data-id |
+| 9 | `opportunityExportImport.ts` | L27-41 | Cursor sin índice — índice by_opp |
+| 10 | `App.tsx` | L984-1001 | rebalancePriorities O(N²) — Map |
+| 11 | `TimerContext.tsx` | L82, L88-95 | localStorage cada tick + onmessage sin throttle |
 
 ---
 *Este documento te ahorrará una enorme cantidad de investigación (y por tanto tokens) en el futuro. Empieza por revisarlo cada vez que se te encomiende un nuevo bug fix o feature.*

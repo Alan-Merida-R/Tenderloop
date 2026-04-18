@@ -1,5 +1,15 @@
 import { DatabaseSchema, INITIAL_DB } from '../types';
 
+// File System Access API — not yet in lib.dom.d.ts for all TS versions.
+// Declare the two entry points we use so the rest of the module can call them
+// without @ts-ignore littering.
+declare global {
+  interface Window {
+    showOpenFilePicker?: (options?: any) => Promise<FileSystemFileHandle[]>;
+    showSaveFilePicker?: (options?: any) => Promise<FileSystemFileHandle>;
+  }
+}
+
 export interface FileHandlerResult {
   handle: FileSystemFileHandle | null;
   data: DatabaseSchema | null;

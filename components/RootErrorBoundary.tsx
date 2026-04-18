@@ -5,6 +5,12 @@ interface Props { children: React.ReactNode; }
 interface State { error: Error | null; }
 
 export class RootErrorBoundary extends React.Component<Props, State> {
+  // TS + React types interaction: `declare` keeps the compiler aware of the
+  // inherited props/state without emitting a runtime field that would shadow
+  // React.Component's own assignments (same workaround used in App.tsx's
+  // LocalErrorBoundary). Without this, TS misses the generics.
+  declare props: Props;
+  declare state: State;
   constructor(props: Props) {
     super(props);
     this.state = { error: null };

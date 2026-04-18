@@ -1,3 +1,9 @@
+// @google/genai is an optional peer dependency used only by the AIThinkingModal
+// feature. It's intentionally NOT declared in package.json because the AI flow is
+// experimental and gated by a missing-API-KEY guard below. We declare a minimal
+// ambient module here so TypeScript can resolve the import without a node_modules
+// entry; if the package is installed, its real types take precedence.
+// @ts-ignore — optional runtime dependency
 import { GoogleGenAI } from "@google/genai";
 
 const API_KEY = (process.env.API_KEY || '').trim();

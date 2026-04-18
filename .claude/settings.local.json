@@ -5,7 +5,13 @@
       "Bash(npx tsc:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(find \"C:\\\\Users\\\\Alan Merida\\\\Documents\\\\GitHub\\\\Tenderloop\\\\components\" -name \"*.tsx\" -exec wc -l {} \\\\;)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(wc -l App.tsx components/*.tsx services/*.ts contexts/*.tsx features/**/*.tsx)",
+      "Bash(ls *.d.ts)",
+      "Bash(ls src/*.d.ts)",
+      "Bash(timeout 3 node server/openHelper.js)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
