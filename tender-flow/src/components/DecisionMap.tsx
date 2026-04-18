@@ -475,10 +475,13 @@ const MapContentInternal: React.FC<Props> = ({
   useEffect(() => {
     if (responseUpdateTimerRef.current) clearTimeout(responseUpdateTimerRef.current);
     responseUpdateTimerRef.current = setTimeout(() => {
+      // PERF: Build O(1) lookup map once before mapping over nodes.
+      // Previously called allItems.find() (O(N)) for each node → O(N²) total.
+      const allItemsMap = new Map<string, StandardItem>(allItems.map(i => [i.id, i] as [string, StandardItem]));
       setNodes(prevNodes => {
         let changed = false;
         const next = prevNodes.map(node => {
-          const item = allItems.find(i => i.id === node.id);
+          const item = allItemsMap.get(node.id);
           if (!item) return node;
           const resp = responses[node.id];
           const { locked } = isItemLocked(item, responses);

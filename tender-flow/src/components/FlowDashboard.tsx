@@ -47,12 +47,10 @@ const MemoizedBackboneItem = React.memo(({
   setSelectedItemId,
   isMeetingMode,
   handleDetailUpdate,
-  activeBackboneAreas
+  areaColor,
 }: any) => {
   const currentStatus = evaluateStatus(resp);
   const isDone = currentStatus === 'answered' || currentStatus === 'confirmed';
-  const areaDef = activeBackboneAreas.find((a: any) => a.name === item.area);
-  const areaColor = areaDef?.color || 'var(--te-accent-500)';
 
   // LOCAL STATE for text inputs — UI updates instantly, parent notified after 250ms pause.
   // This prevents the heavy FlowDashboard re-render pipeline from running on every keystroke.
@@ -379,6 +377,19 @@ export const FlowDashboard: React.FC = () => {
   const activeBackboneAreas = useMemo(() => currentCase?.snapshot?.areas || areasData, [currentCase, areasData]);
   const activeBackboneDeliverables = useMemo(() => currentCase?.snapshot?.deliverables || deliverablesData, [currentCase, deliverablesData]);
 
+  // PERF: O(1) item lookup map — used by answeredResponses and render loop.
+  // Avoids O(N) Array.find() inside iterators.
+  const itemLookupMap = useMemo(
+    () => new Map(activeBackboneItems.map(i => [i.id, i])),
+    [activeBackboneItems]
+  );
+
+  // PERF: Pre-compute area color map — avoids repeated .find() inside MemoizedBackboneItem.
+  const areaColorMap = useMemo(
+    () => new Map(activeBackboneAreas.map((a: any) => [a.name, a.color || 'var(--te-accent-500)'])),
+    [activeBackboneAreas]
+  );
+
   // Compute logic-visible items once and share between visibleItems and hasPendingActions.
   // Previously getVisibleItems was called twice per render (once here, once in hasPendingActions),
   // doubling the full dependency-evaluation cost on every response change.
@@ -387,10 +398,23 @@ export const FlowDashboard: React.FC = () => {
     return getVisibleItems(activeBackboneItems, currentCase.responses);
   }, [activeBackboneItems, currentCase]);
 
+  // PERF: Pre-compute locked Set once — shared by visibleItems filter AND render loop.
+  // Previously isItemLocked() (which walks all dependencyRules) was called twice per item:
+  // once in visibleItems filter (hideLocked path) and once in the render IIFE.
+  // Now it runs at most once per item per response change.
+  const lockedItemIds = useMemo(() => {
+    if (!currentCase) return new Set<string>();
+    const set = new Set<string>();
+    activeBackboneItems.forEach(item => {
+      if (isItemLocked(item, currentCase.responses).locked) set.add(item.id);
+    });
+    return set;
+  }, [activeBackboneItems, currentCase]);
+
   const visibleItems = useMemo(() => {
     if (!currentCase) return [];
     const baseItems = isEditMode ? activeBackboneItems : logicVisibleItems;
-    
+
     // Performance: Consolidated single-pass filtering
     const q = debouncedSearch.toLowerCase();
     const hasAreas = selectedAreas.length > 0;
@@ -406,8 +430,8 @@ export const FlowDashboard: React.FC = () => {
 
       // 1. Search filter
       if (q) {
-        const match = i.content.toLowerCase().includes(q) || 
-                      i.area.toLowerCase().includes(q) || 
+        const match = i.content.toLowerCase().includes(q) ||
+                      i.area.toLowerCase().includes(q) ||
                       i.stage.toLowerCase().includes(q) ||
                       (i.tags && i.tags.some(t => t.toLowerCase().includes(q)));
         if (!match) return false;
@@ -417,14 +441,14 @@ export const FlowDashboard: React.FC = () => {
       if (hasAreas && !selectedAreas.includes(i.area)) return false;
       if (hasStages && !selectedStages.includes(i.stage)) return false;
       if (hasDelivs && (!i.deliverableTarget || !i.deliverableTarget.some(d => selectedDeliverables.includes(d)))) return false;
-      
+
       if (hideCommon && (i.stage.toLowerCase() === 'intake' || i.stage.toLowerCase() === 'common')) return false;
 
-      // 3. Status filters (Answered / Locked)
+      // 3. Status filters (Answered / Locked) — uses pre-computed lockedItemIds Set (O(1))
       const resp = currentCase.responses[i.id];
       const isAns = resp?.status === 'answered' || resp?.status === 'confirmed';
       if (hideAnswered && isAns) return false;
-      if (hideLocked && isItemLocked(i, currentCase.responses).locked) return false;
+      if (hideLocked && lockedItemIds.has(i.id)) return false;
 
       // 4. Roadmap Deduplication
       if (isRoadmap && i.syncId) {
@@ -434,7 +458,7 @@ export const FlowDashboard: React.FC = () => {
 
       return true;
     });
-  }, [logicVisibleItems, activeBackboneItems, currentCase, debouncedSearch, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, hideAnswered, hideLocked, selectedDeliverables]);
+  }, [logicVisibleItems, activeBackboneItems, currentCase, debouncedSearch, selectedAreas, selectedStages, hideCommon, isEditMode, viewMode, hideAnswered, hideLocked, selectedDeliverables, lockedItemIds]);
 
   const areaStatuses = useMemo(() => getAreaStatus(activeBackboneItems, currentCase?.responses || {}), [activeBackboneItems, currentCase]);
   const stagesList = useMemo(() => activeBackboneStages.filter(s => s.active !== false).sort((a,b) => a.order - b.order).map(s => s.name), [activeBackboneStages]);
@@ -443,7 +467,7 @@ export const FlowDashboard: React.FC = () => {
     if (!currentCase) return [];
     const visibleIds = new Set(visibleItems.map(i => i.id));
     const resps = Object.values(currentCase.responses) as ItemResponse[];
-    
+
     const seenSyncIds = new Set<string>();
     const uniqueResps: ItemResponse[] = [];
 
@@ -451,7 +475,8 @@ export const FlowDashboard: React.FC = () => {
       .filter(r => (r.status === 'answered' || r.status === 'confirmed') && visibleIds.has(r.itemId))
       .sort((a,b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .forEach(r => {
-        const item = activeBackboneItems.find(i => i.id === r.itemId);
+        // PERF: O(1) Map lookup instead of O(N) Array.find per response
+        const item = itemLookupMap.get(r.itemId);
         const sId = item?.syncId;
         if (sId) {
           if (!seenSyncIds.has(sId)) {
@@ -464,7 +489,7 @@ export const FlowDashboard: React.FC = () => {
       });
 
     return uniqueResps;
-  }, [currentCase, visibleItems, activeBackboneItems]);
+  }, [currentCase, visibleItems, itemLookupMap]);
 
   const hasPendingActions = useMemo(() => {
     if (!currentCase) return false;
@@ -476,6 +501,14 @@ export const FlowDashboard: React.FC = () => {
        currentCase.responses[i.id].status === 'pending')
     );
   }, [logicVisibleItems, currentCase]);
+
+  // PERF: Memoized secondary filter (action visibility toggle).
+  // Previously computed inline in JSX as an IIFE on every render — now only
+  // recalculates when visibleItems or showActions actually change.
+  const checklistItems = useMemo(
+    () => visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action')),
+    [visibleItems, showActions]
+  );
 
   const handleDeleteCase = useCallback((caseId: string) => {
     if (!workspace) return;
@@ -1076,39 +1109,35 @@ export const FlowDashboard: React.FC = () => {
                {viewMode === 'checklist' && (
                  <div style={{ height: '100%', overflowY: 'auto', padding: '2rem' }}>
                     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                       {(() => {
-                         const checklistItems = visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'));
-                         if (checklistItems.length === 0) {
-                           return (
-                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1rem', gap: '0.75rem', opacity: 0.55 }}>
-                               <CheckCircle2 size={32} color="var(--te-emerald-500)" />
-                               <div style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--te-text-main)' }}>
-                                 {hideAnswered ? 'No unanswered questions' : 'No questions match the current filters'}
-                               </div>
-                               <div style={{ fontSize: '0.75rem', color: 'var(--te-text-muted)' }}>
-                                 {hideAnswered ? 'All visible questions have been answered.' : 'Try adjusting or clearing your filters.'}
-                               </div>
-                             </div>
-                           );
-                         }
-                         return checklistItems.map(item => {
-                           const resp = currentCase.responses[item.id];
-                           const { locked } = isItemLocked(item, currentCase.responses);
-                           return (
-                              <MemoizedBackboneItem
-                                key={item.id}
-                                item={item}
-                                resp={resp}
-                                locked={locked}
-                                selectedItemId={selectedItemId}
-                                setSelectedItemId={setSelectedItemId}
-                                isMeetingMode={isMeetingMode}
-                                handleDetailUpdate={handleDetailUpdate}
-                                activeBackboneAreas={activeBackboneAreas}
-                              />
-                           );
-                         });
-                       })()}
+                       {checklistItems.length === 0 ? (
+                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1rem', gap: '0.75rem', opacity: 0.55 }}>
+                           <CheckCircle2 size={32} color="var(--te-emerald-500)" />
+                           <div style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--te-text-main)' }}>
+                             {hideAnswered ? 'No unanswered questions' : 'No questions match the current filters'}
+                           </div>
+                           <div style={{ fontSize: '0.75rem', color: 'var(--te-text-muted)' }}>
+                             {hideAnswered ? 'All visible questions have been answered.' : 'Try adjusting or clearing your filters.'}
+                           </div>
+                         </div>
+                       ) : checklistItems.map(item => {
+                         const resp = currentCase.responses[item.id];
+                         // PERF: O(1) Set lookup instead of calling isItemLocked() per item in render.
+                         // lockedItemIds is pre-computed by useMemo above on the same response change.
+                         const locked = lockedItemIds.has(item.id);
+                         return (
+                           <MemoizedBackboneItem
+                             key={item.id}
+                             item={item}
+                             resp={resp}
+                             locked={locked}
+                             selectedItemId={selectedItemId}
+                             setSelectedItemId={setSelectedItemId}
+                             isMeetingMode={isMeetingMode}
+                             handleDetailUpdate={handleDetailUpdate}
+                             areaColor={areaColorMap.get(item.area) || 'var(--te-accent-500)'}
+                           />
+                         );
+                       })}
                     </div>
                  </div>
                )}
@@ -1118,7 +1147,7 @@ export const FlowDashboard: React.FC = () => {
                  // flex+overflow layouts, producing a black/empty canvas.
                  <div style={{ position: 'absolute', inset: 0 }}>
                    <DecisionMap
-                     items={visibleItems.filter(it => showActions || (String(it.itemType || '').toLowerCase() !== 'action'))}
+                     items={checklistItems}
                      allItems={activeBackboneItems}
                      responses={currentCase.responses}
                      stagesList={stagesList}
@@ -1149,8 +1178,8 @@ export const FlowDashboard: React.FC = () => {
                         </button>
                      </div>
                      <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', background: '#090a10', color: '#00ff41', fontFamily: 'monospace' }}>
-                        {answeredResponses.map((r, idx) => {
-                          const item = activeBackboneItems.find(i => i.id === r.itemId); if (!item) return null;
+                        {answeredResponses.map((r) => {
+                          const item = itemLookupMap.get(r.itemId); if (!item) return null;
                           return (
                             <div key={r.itemId} style={{ marginBottom: '1.5rem', paddingLeft: '0.75rem', borderLeft: '1px solid #00ff4133' }}>
                                {item.syncId && <div style={{ fontSize: '0.55rem', opacity: 0.5, marginBottom: '0.3rem', letterSpacing: '0.1em', fontWeight: 900 }}>MIRRORED_POINT::SYNCHRONIZED</div>}

@@ -365,7 +365,9 @@ export const getStageStatus = (
 
     const unanswered = stageVisibleItems.filter(i => {
       const resp = responses[i.id];
-      return !resp || (evaluateStatus(resp) !== 'answered' && evaluateStatus(resp) !== 'confirmed');
+      if (!resp) return true;
+      const st = evaluateStatus(resp);
+      return st !== 'answered' && st !== 'confirmed';
     });
 
     const isFullyAnswered = unanswered.length === 0;
