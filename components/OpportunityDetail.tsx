@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
+import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
+import { openInNativeApp } from '../features/opportunity-folder/fileOps';
+import { getRootPathDisplay } from '../services/opportunityFolderLink';
 import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
@@ -1359,6 +1361,7 @@ const resetCommercialData = (): Commercial => ({
     agreementsLink: '',
     cfLink: '',
     discountsAndNotes: '',
+    quickRefs: [],
     cqaOfficialSellPrice: 0,
     cqaOfficialMargin: 0
 });
@@ -1644,6 +1647,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
 
+    // Commercial Quick References state
+    const [commercialRootPath, setCommercialRootPath] = useState<string>('');
+    const [showQuickRefFilePicker, setShowQuickRefFilePicker] = useState(false);
+    const [addLinkRefForm, setAddLinkRefForm] = useState<{ name: string; url: string } | null>(null);
+    const [editingQuickRefId, setEditingQuickRefId] = useState<string | null>(null);
+
     const [showNotePickerForTask, setShowNotePickerForTask] = useState<string | null>(null);
     const [noteSearch, setNoteSearch] = useState('');
     const [selectedNotesToLink, setSelectedNotesToLink] = useState<string[]>([]);
@@ -1890,6 +1899,67 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
     const totalMargin = commercialTotals.margin;
+
+    useEffect(() => {
+        let cancelled = false;
+        getRootPathDisplay(localOpp.id).then(p => { if (!cancelled) setCommercialRootPath(p || ''); }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [localOpp.id]);
+
+    const quickRefs = localOpp.commercial.quickRefs || [];
+
+    const persistQuickRefs = (next: CommercialQuickRef[]) => {
+        handleFieldChange('commercial', { ...localOpp.commercial, quickRefs: next });
+    };
+
+    const handleAddFileQuickRef = (fileKeys: string[]) => {
+        if (fileKeys.length === 0) { setShowQuickRefFilePicker(false); return; }
+        const newRefs: CommercialQuickRef[] = fileKeys.map(fk => {
+            const segs = fk.split('/');
+            const fileName = segs[segs.length - 1] || fk;
+            return { id: crypto.randomUUID(), name: fileName, type: 'file', fileKey: fk };
+        });
+        persistQuickRefs([...(localOpp.commercial.quickRefs || []), ...newRefs]);
+        setShowQuickRefFilePicker(false);
+    };
+
+    const handleSaveLinkQuickRef = () => {
+        if (!addLinkRefForm) return;
+        const name = addLinkRefForm.name.trim();
+        let url = addLinkRefForm.url.trim();
+        if (!name || !url) { alert('Name and URL are required.'); return; }
+        if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        const ref: CommercialQuickRef = { id: crypto.randomUUID(), name, type: 'link', url };
+        persistQuickRefs([...(localOpp.commercial.quickRefs || []), ref]);
+        setAddLinkRefForm(null);
+    };
+
+    const handleRemoveQuickRef = (id: string) => {
+        if (!window.confirm('Remove this reference?')) return;
+        persistQuickRefs((localOpp.commercial.quickRefs || []).filter(r => r.id !== id));
+    };
+
+    const handleRenameQuickRef = (id: string, name: string) => {
+        persistQuickRefs((localOpp.commercial.quickRefs || []).map(r => r.id === id ? { ...r, name } : r));
+    };
+
+    const handleOpenQuickRef = async (ref: CommercialQuickRef) => {
+        if (ref.type === 'link' && ref.url) {
+            window.open(ref.url, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        if (ref.type === 'file' && ref.fileKey) {
+            if (!commercialRootPath) {
+                alert('Set the opportunity folder base path in the Folder tab first.');
+                return;
+            }
+            try {
+                await openInNativeApp(commercialRootPath, ref.fileKey.split('/'));
+            } catch (err: any) {
+                alert(err?.message || 'Could not open the file.');
+            }
+        }
+    };
 
     const addNote = (templateTitle?: string, content?: string) => {
         const newNote: MeetingNote = {
@@ -4581,6 +4651,93 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                      </div>
                                 )}
 
+                                {/* Quick References — files & links for fast access */}
+                                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                            <LinkIcon className="w-4 h-4 text-emerald-500" /> Quick References
+                                        </h3>
+                                        {!isSnapshot && (
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => setShowQuickRefFilePicker(true)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-gray-800 transition-all shadow-sm"
+                                                    title="Pick a file from the opportunity folder"
+                                                >
+                                                    <FolderOpen className="w-3.5 h-3.5" /> Add File
+                                                </button>
+                                                <button
+                                                    onClick={() => setAddLinkRefForm({ name: '', url: '' })}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-[#2db64a] transition-all shadow-sm"
+                                                    title="Add a URL link"
+                                                >
+                                                    <LinkIcon className="w-3.5 h-3.5" /> Add Link
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {quickRefs.length === 0 ? (
+                                        <div className="text-center py-8 border-2 border-dashed border-gray-100 rounded-xl text-gray-400">
+                                            <LinkIcon className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                                            <p className="text-[11px] font-bold uppercase tracking-widest">No quick references yet</p>
+                                            <p className="text-[10px] mt-1">Add files or links for fast access</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {quickRefs.map(ref => {
+                                                const isEditing = editingQuickRefId === ref.id;
+                                                const Icon = ref.type === 'link' ? LinkIcon : FileText;
+                                                const accent = ref.type === 'link' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600';
+                                                return (
+                                                    <div key={ref.id} className="group flex items-center gap-3 p-3 bg-gray-50 hover:bg-white border border-gray-100 hover:border-[#3DCD58] rounded-xl transition-all">
+                                                        <button
+                                                            onClick={() => handleOpenQuickRef(ref)}
+                                                            className={`shrink-0 p-2 rounded-lg ${accent} hover:scale-105 transition-transform`}
+                                                            title={ref.type === 'link' ? 'Open link in new tab' : 'Open file'}
+                                                        >
+                                                            <Icon className="w-4 h-4" />
+                                                        </button>
+                                                        <div className="flex-1 min-w-0">
+                                                            {isEditing ? (
+                                                                <input
+                                                                    autoFocus
+                                                                    defaultValue={ref.name}
+                                                                    onBlur={(e) => { handleRenameQuickRef(ref.id, e.target.value.trim() || ref.name); setEditingQuickRefId(null); }}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') { handleRenameQuickRef(ref.id, (e.target as HTMLInputElement).value.trim() || ref.name); setEditingQuickRefId(null); }
+                                                                        if (e.key === 'Escape') setEditingQuickRefId(null);
+                                                                    }}
+                                                                    className="w-full text-sm font-bold bg-white border border-[#3DCD58] rounded px-2 py-1 focus:ring-1 focus:ring-[#3DCD58]"
+                                                                />
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleOpenQuickRef(ref)}
+                                                                    className="block w-full text-left text-sm font-bold text-gray-800 truncate hover:text-[#3DCD58] transition-colors"
+                                                                    title={ref.type === 'link' ? ref.url : ref.fileKey}
+                                                                >
+                                                                    {ref.name}
+                                                                </button>
+                                                            )}
+                                                            <p className="text-[10px] text-gray-400 truncate font-mono">
+                                                                {ref.type === 'link' ? ref.url : ref.fileKey}
+                                                            </p>
+                                                        </div>
+                                                        {!isSnapshot && (
+                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                                                <button onClick={() => setEditingQuickRefId(ref.id)} className="p-1.5 hover:bg-gray-200 rounded text-gray-500" title="Rename"><Edit3 className="w-3 h-3" /></button>
+                                                                {ref.type === 'link' && ref.url && (
+                                                                    <button onClick={() => window.open(ref.url!, '_blank', 'noopener,noreferrer')} className="p-1.5 hover:bg-gray-200 rounded text-gray-500" title="Open in new tab"><ExternalLink className="w-3 h-3" /></button>
+                                                                )}
+                                                                <button onClick={() => handleRemoveQuickRef(ref.id)} className="p-1.5 hover:bg-red-50 rounded text-red-400" title="Remove"><Trash2 className="w-3 h-3" /></button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                                     <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
                                         <DollarSign className="w-5 h-5 text-emerald-500" /> Commercial Breakdown
@@ -5665,6 +5822,61 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         onClose={() => setShowDocPicker(null)}
                         title={`Link documents to ${showDocPicker.type}`}
                     />
+                )
+            }
+
+            {
+                showQuickRefFilePicker && (
+                    <DocumentPickerModal
+                        opportunityId={opportunity.id}
+                        multi={true}
+                        onSelect={handleAddFileQuickRef}
+                        onClose={() => setShowQuickRefFilePicker(false)}
+                        title="Pick file(s) for Quick References"
+                    />
+                )
+            }
+
+            {
+                addLinkRefForm && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-slide-in-right">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <LinkIcon className="w-5 h-5 text-[#3DCD58]" /> Add Quick Link
+                            </h3>
+                            <div className="space-y-4 mb-6">
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Name</label>
+                                    <input
+                                        autoFocus
+                                        value={addLinkRefForm.name}
+                                        onChange={(e) => setAddLinkRefForm({ ...addLinkRefForm, name: e.target.value })}
+                                        placeholder="e.g. Cliente BFO"
+                                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">URL</label>
+                                    <input
+                                        value={addLinkRefForm.url}
+                                        onChange={(e) => setAddLinkRefForm({ ...addLinkRefForm, url: e.target.value })}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveLinkQuickRef(); }}
+                                        placeholder="https://..."
+                                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] font-mono"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-3 justify-end">
+                                <button onClick={() => setAddLinkRefForm(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium text-sm">Cancel</button>
+                                <button
+                                    onClick={handleSaveLinkQuickRef}
+                                    className="px-4 py-2 bg-[#3DCD58] text-white rounded-lg font-bold text-sm shadow-lg hover:bg-[#2db64a]"
+                                >
+                                    Save Link
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )
             }
 

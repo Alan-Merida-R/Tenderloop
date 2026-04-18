@@ -51,6 +51,14 @@ export interface Escalations {
   resale: number;
 }
 
+export interface CommercialQuickRef {
+  id: string;
+  name: string;
+  type: 'file' | 'link';
+  fileKey?: string;
+  url?: string;
+}
+
 /**
  * Commercial data for an opportunity, including dynamic cost/sell sections.
  */
@@ -67,6 +75,11 @@ export interface Commercial {
   cfLink: string;
 
   discountsAndNotes: string;
+
+  /**
+   * User-defined quick references to files in the opportunity folder or external URLs.
+   */
+  quickRefs?: CommercialQuickRef[];
 
   /**
    * Manual override for the total sell price used in KPI calculations.
