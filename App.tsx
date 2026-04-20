@@ -199,6 +199,17 @@ function App() {
   const isBroadcastingRef = useRef(false);
   const syncChannel = useRef<BroadcastChannel | null>(null);
 
+  // Latest-value refs keep callbacks that depend on db / settings / rebalance
+  // stable (useCallback with empty deps) without going stale — avoids cascading
+  // re-renders through Dashboard / OpportunityDetail when unrelated state changes.
+  const dbRef = useRef(db);
+  dbRef.current = db;
+  const appSettingsRef = useRef(appSettings);
+  appSettingsRef.current = appSettings;
+  const selectedOppIdRef = useRef(selectedOppId);
+  selectedOppIdRef.current = selectedOppId;
+  const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
+
   // Data Synchronization (Database only, not UI state/navigation)
   useEffect(() => {
     const initSync = () => {
@@ -381,7 +392,10 @@ function App() {
   };
 
   // --- Dock Helpers ---
-  const minimizeToDock = (tab: FloatingTab) => {
+  // Stable callbacks — without useCallback, each render creates a new function
+  // reference and invalidates React.memo on Dashboard / OpportunityDetail, causing
+  // them to re-render on every keystroke somewhere else in the app.
+  const minimizeToDock = useCallback((tab: FloatingTab) => {
     setFloatingTabs(prev => {
       // Unique check by ID - our callers will provide unique IDs for different views
       if (prev.find(t => t.id === tab.id)) return prev;
@@ -395,7 +409,7 @@ function App() {
       setActiveDeepLink(null);
       setSplitTab(null); // Ensure split tab is also closed
     }
-  };
+  }, []);
 
   const handleTimerTaskClick = (taskId: string, oppId: string) => {
     const opp = db.opportunities.find(o => o.id === oppId);
@@ -422,34 +436,36 @@ function App() {
     }
   };
 
-  const removeTab = (tabId: string) => {
+  const removeTab = useCallback((tabId: string) => {
     setFloatingTabs(prev => prev.filter(t => t.id !== tabId));
-    if (splitTab?.id === tabId) {
-      setSplitTab(null);
-    }
-  };
+    setSplitTab(prev => (prev?.id === tabId ? null : prev));
+  }, []);
 
-  const updateTabColor = (tabId: string, color: string) => {
+  const updateTabColor = useCallback((tabId: string, color: string) => {
     setFloatingTabs(prev => prev.map(t => t.id === tabId ? { ...t, color } : t));
-  };
+  }, []);
 
-  const updateTabTitle = (tabId: string, title: string) => {
+  const updateTabTitle = useCallback((tabId: string, title: string) => {
     setFloatingTabs(prev => prev.map(t => t.id === tabId ? { ...t, title } : t));
-  };
+  }, []);
 
-  const restoreFromDock = (tabId: string) => {
-    const tab = floatingTabs.find(t => t.id === tabId);
-    if (!tab) return;
+  // Refs track the latest state without requiring the callback to close over it.
+  // Keeps the function identity stable (useCallback([], ...)) so memoized children
+  // don't re-render every time floatingTabs / splitTab change.
+  const floatingTabsRef = useRef(floatingTabs);
+  floatingTabsRef.current = floatingTabs;
+  const splitTabRef = useRef(splitTab);
+  splitTabRef.current = splitTab;
 
-    // Toggle logic: If clicking the same tab that is already open in sub-view, minimize it
-    if (splitTab && splitTab.id === tabId) {
-      setSplitTab(null);
+  const restoreFromDock = useCallback((tabId: string) => {
+    if (splitTabRef.current && splitTabRef.current.id === tabId) {
+      setSplitTab(null); // Toggle off
       return;
     }
-
-    // Always open in sub-view (overlay right) as requested "sub vista"
+    const tab = floatingTabsRef.current.find(t => t.id === tabId);
+    if (!tab) return;
     setSplitTab({ ...tab, data: { ...tab.data, isSubView: true } });
-  };
+  }, []);
 
   const renderSplitTabContent = (tab: FloatingTab) => {
     const oppId = tab.data.oppId || (tab.type === 'opportunity' ? tab.id : null);
@@ -820,10 +836,12 @@ function App() {
   /**
    * Create New Opportunity with Configurable Defaults
    */
-  const createOpportunity = (stage: ProcessStage = '1. Intake') => {
+  const createOpportunity = useCallback((stage: ProcessStage = '1. Intake') => {
+    const currentOpps = dbRef.current.opportunities;
+    const settings = appSettingsRef.current;
     // 1. Generate Unique OP ID
     let maxNum = 1000;
-    db.opportunities.forEach(o => {
+    currentOpps.forEach(o => {
       const match = o.id.match(/\d+/);
       if (match) {
         const num = parseInt(match[0]);
@@ -836,8 +854,8 @@ function App() {
     let defaultTasks: Task[] = [];
 
     // --- CASE A: Task Standard Template (Opportunity Snapshot) ---
-    if (appSettings.taskStandardTemplate && appSettings.taskStandardTemplate.tasks.length > 0) {
-      const templateTasks = appSettings.taskStandardTemplate.tasks;
+    if (settings.taskStandardTemplate && settings.taskStandardTemplate.tasks.length > 0) {
+      const templateTasks = settings.taskStandardTemplate.tasks;
       const taskIdMap = new Map<string, string>();
 
       // 1. Generate new IDs for tasks to avoid collisions
@@ -865,11 +883,11 @@ function App() {
     // --- CASE B: Default Hardcoded Tasks ---
     else {
       const taskIdMap = new Map<string, string>();
-      appSettings.defaultTasks.forEach(tmpl => {
+      settings.defaultTasks.forEach(tmpl => {
         taskIdMap.set(tmpl.id, crypto.randomUUID());
       });
 
-      defaultTasks = appSettings.defaultTasks.map(tmpl => {
+      defaultTasks = settings.defaultTasks.map(tmpl => {
         const newTaskId = taskIdMap.get(tmpl.id)!;
         const mappedDependencies = tmpl.dependsOnTaskIds?.map(depId => taskIdMap.get(depId)).filter(Boolean) as string[] || [];
 
@@ -893,7 +911,7 @@ function App() {
       });
     }
 
-    const initialNotes = appSettings.noteTemplates
+    const initialNotes = settings.noteTemplates
       .filter(tmpl => tmpl.autoCreate)
       .map(tmpl => ({
         id: crypto.randomUUID(),
@@ -955,11 +973,13 @@ function App() {
       lastUpdated: new Date().toISOString()
     };
 
-    const initialOpps = [newOpp, ...db.opportunities];
-    const rebalanced = rebalancePriorities(initialOpps, newOpp.id, 1, true);
-    setDb(prev => ({ ...prev, opportunities: rebalanced }));
+    setDb(prev => {
+      const initialOpps = [newOpp, ...prev.opportunities];
+      const rebalanced = rebalancePrioritiesRef.current(initialOpps, newOpp.id, 1, true);
+      return { ...prev, opportunities: rebalanced };
+    });
     setSelectedOppId(newId);
-  };
+  }, []);
 
   const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
     // Optimization: If no priority or status change, return early (or just basic sort)
@@ -1026,6 +1046,7 @@ function App() {
 
     return resultOpps;
   }, []);
+  rebalancePrioritiesRef.current = rebalancePriorities;
 
   const updateOpportunity = useCallback((updatedOpp: Opportunity, id?: string) => {
     // Auto-assign any missing task orders before saving globally
@@ -1038,7 +1059,7 @@ function App() {
     if (updatedOpp.versions && updatedOpp.versions.length > 20) updatedOpp.versions = updatedOpp.versions.slice(-20);
 
     if (id && id !== updatedOpp.id) {
-      if (id === selectedOppId) setSelectedOppId(updatedOpp.id);
+      if (id === selectedOppIdRef.current) setSelectedOppId(updatedOpp.id);
     }
     // Use startTransition so React treats this as a non-blocking background update
     // This keeps the UI responsive (inputs, buttons) while the state is being processed
@@ -1076,7 +1097,7 @@ function App() {
         };
       });
     });
-  }, [selectedOppId, rebalancePriorities]);
+  }, []);
 
   const moveOpportunityStage = useCallback((id: string, newStage: ProcessStage) => {
     React.startTransition(() => {
@@ -1206,9 +1227,9 @@ function App() {
       });
     });
   };
-  // Stabilize opportunities reference so React.memo on Dashboard actually works.
-  // Without this, db.opportunities is always a new array, defeating the memo.
-  const stableOpportunities = useMemo(() => db.opportunities, [db.opportunities]);
+  // db.opportunities is already stable between renders when the array reference
+  // hasn't actually changed — no extra memo needed.
+  const stableOpportunities = db.opportunities;
 
   // HOTFIX PERFORMANCE: Persistent Cache for Light Opportunities (v5000)
   // Stripping thousands of 1MB HTML notes on every keystroke/drag kills the UI thread.
@@ -1216,8 +1237,10 @@ function App() {
   const lightCacheRef = useRef<Map<string, any>>(new Map());
   const lightOpportunities = useMemo(() => {
     if (!stableOpportunities) return [];
-    
-    return stableOpportunities.map(opp => {
+
+    const liveIds = new Set<string>();
+    const result = stableOpportunities.map(opp => {
+      liveIds.add(opp.id);
       const existing = lightCacheRef.current.get(opp.id);
       // If the reference to the full object hasn't changed, reuse the light reference.
       // This is extremely important for React.memo performance in Dashboard.OpportunityCard.
@@ -1240,7 +1263,27 @@ function App() {
       lightCacheRef.current.set(opp.id, light);
       return light;
     });
+
+    // Prevent the light cache from leaking memory when opportunities are deleted.
+    if (lightCacheRef.current.size > liveIds.size) {
+      const keys: string[] = [];
+      lightCacheRef.current.forEach((_v, k) => { keys.push(k); });
+      for (const id of keys) {
+        if (!liveIds.has(id)) lightCacheRef.current.delete(id);
+      }
+    }
+    return result;
   }, [stableOpportunities]);
+
+  // CRITICAL PERF: Freeze Dashboard inputs while a full-screen overlay is open.
+  // The detail overlay and split-view both cover the entire viewport with opaque/semi-opaque
+  // layers, so updating Dashboard's props while typing in the expediente burns CPU on
+  // invisible work (filteredOpps, kpiData, taskData, groupedOpps all recompute).
+  // We keep the last visible snapshot and swap back to live data when the overlay closes.
+  const frozenDashboardOppsRef = useRef(lightOpportunities);
+  const isOverlayOpen = !!selectedOppId || !!splitTab;
+  if (!isOverlayOpen) frozenDashboardOppsRef.current = lightOpportunities;
+  const dashboardOpportunities = isOverlayOpen ? frozenDashboardOppsRef.current : lightOpportunities;
 
   const selectedOppForDetail = useMemo(() => {
     if (!selectedOppId) return null;
@@ -1440,7 +1483,7 @@ function App() {
                 <Dashboard
                   key={fileHandle?.name || 'sandbox'}
                   mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
-                  opportunities={lightOpportunities}
+                  opportunities={dashboardOpportunities}
                   onSelect={handleSelectOpp}
                   onCreate={handleCreateOppAtRoot}
                   onStageChange={moveOpportunityStage}
