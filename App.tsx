@@ -12,6 +12,7 @@ import { TimerWidget } from './components/TimerWidget';
 import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
 import { assignMissingOrders } from './services/taskUtils';
+import { useScheduleNotifications } from './features/schedule/useScheduleNotifications';
 
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -1255,6 +1256,24 @@ function App() {
     createOpportunity(stage || '1. Intake');
   }, [createOpportunity]);
 
+  // Schedule notifications: fire 10 min before each block's start time.
+  // Click opens the opportunity and focuses the related task.
+  useScheduleNotifications(stableOpportunities, handleSelectOpp);
+
+  // Floating timer-only window mode: opened by TimerWidget.popOut() with ?window=timer.
+  // Shares the same BroadcastChannel + localStorage so the widget stays in sync with the main app.
+  const isTimerOnlyWindow = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('window') === 'timer';
+  if (isTimerOnlyWindow) {
+    return (
+      <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
+        <div className="h-screen flex items-center justify-center bg-gray-900 text-white p-4">
+          <TimerWidget />
+        </div>
+      </TimerProvider>
+    );
+  }
+
   return (
     <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
       <div className="h-screen flex flex-col bg-white text-gray-900 font-sans overflow-hidden relative">
@@ -1286,14 +1305,6 @@ function App() {
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <CheckSquare className="w-4 h-4" /> Tasks
-              </button>
-              <div className="w-px h-4 bg-gray-200 mx-1 self-center"></div>
-              <button
-                onClick={() => window.open(`${window.location.origin}/index_flow.html`, '_blank')}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-bold rounded-md transition-all text-blue-600 hover:bg-blue-50 border border-blue-100"
-                title="Open executive questions and decision map"
-              >
-                <ExternalLink className="w-4 h-4" /> Executive Flow
               </button>
             </div>
           </div>

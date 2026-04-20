@@ -18,6 +18,7 @@ import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
 import { getNextTask, compareTasksGlobal, reorderTaskStrict } from '../services/taskUtils';
 import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedInput';
+import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -3662,7 +3663,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
                                 <div className="flex-1 w-full md:w-auto min-w-[200px]">
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 w-full mt-0 leading-tight placeholder-gray-400" placeholder="Customer" />
+                                    <div className="flex items-center gap-2 w-full">
+                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
+                                        <span className="text-gray-300 text-sm">·</span>
+                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                    </div>
 
                                     {nextTask ? (
                                             <div
@@ -3933,6 +3938,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <OptimizedTextArea className="w-full text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58] resize-none" rows={5} value={selectedTaskForEdit.task.description} onChange={(val: string) => updateTaskInModal('description', val)} />
                                             </div>
                                         </div>
+
+                                        <ExecutionScheduleSection
+                                            task={selectedTaskForEdit.task}
+                                            onChange={(updated) => updateTaskInModal('executionBlocks', updated.executionBlocks || [])}
+                                        />
 
                                         <div className="space-y-4">
                                             <div className="flex justify-between items-center px-1">

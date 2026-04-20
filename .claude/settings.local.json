@@ -11,7 +11,9 @@
       "Bash(ls src/*.d.ts)",
       "Bash(timeout 3 node server/openHelper.js)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git stash *)"
     ]
   }
 }

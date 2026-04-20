@@ -125,6 +125,20 @@ export interface InlineTask {
   updatedAt?: string;
 }
 
+/**
+ * ExecutionBlock — a planned work-time slot for a task.
+ * Separate from dueDate: dueDate = when it must be delivered,
+ * executionBlocks = when the user actually plans to work on it.
+ * A single task can have multiple blocks across different days/hours.
+ */
+export interface ExecutionBlock {
+  id: string;
+  date: string;       // "YYYY-MM-DD" (local)
+  startTime: string;  // "HH:mm" 24h
+  endTime: string;    // "HH:mm" 24h
+  createdAt: string;  // ISO
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -148,6 +162,12 @@ export interface Task {
   // Timer & Tracking
   calendarized?: boolean; // New flag for specific calendar tracking
   timeLogs?: TimeLog[];
+
+  /**
+   * Planned work-time blocks (Execution Schedule). Optional — only tasks
+   * the user explicitly schedules will have blocks.
+   */
+  executionBlocks?: ExecutionBlock[];
 }
 
 export interface TimeLog {
@@ -262,6 +282,7 @@ export interface Opportunity {
   id: string;
   title: string;
   customer: string;
+  customerAddress?: string;
   qlk: string;
   revision: string;
   stage: ProcessStage;

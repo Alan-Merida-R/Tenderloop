@@ -233,9 +233,9 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
     const unorganizedItems = useMemo(() => {
         const items: TrackingWorkItem[] = [];
         opportunities.forEach(opp => {
-            // 1. Tasks without dates
+            // 1. Tasks without dates (exclude Done/Canceled — they're closed work)
             (opp.tasks || []).forEach(task => {
-                if (!task.dueDate) {
+                if (!task.dueDate && task.status !== 'Done' && task.status !== 'Canceled') {
                     items.push({
                         id: task.id,
                         type: 'task',

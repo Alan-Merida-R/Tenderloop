@@ -17,6 +17,8 @@ import { TaskSearchInput } from './TaskSearchInput';
 import { OptimizedInput, OptimizedTextArea } from './OptimizedInput';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector } from './TableComponents';
+import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
+import { ScheduleView } from '../features/schedule/ScheduleView';
 
 
 
@@ -241,7 +243,14 @@ const OpportunityCard = React.memo(({
                 <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
 
                 {!hideNextStepBadges && nextTask && (
-                    <div className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(opp.id, { tab: 'tasks', taskId: nextTask.id });
+                        }}
+                        className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
+                        title="Open this task in expediente"
+                    >
                         <div className="shrink-0 mt-0.5">
                             {isMissingInfoStale
                                 ? <span title="Blocked >48h">⚠️</span>
@@ -416,6 +425,12 @@ const TaskCard = React.memo(({
                             <span className="text-[9px] font-black uppercase">Active</span>
                         </div>
                     )}
+                    {(item.executionBlocks?.length ?? 0) > 0 && (
+                        <div className="flex items-center gap-0.5 text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1 py-0 ml-1" title={`${item.executionBlocks.length} scheduled block${item.executionBlocks.length === 1 ? '' : 's'}`}>
+                            <CalendarDays className="w-2.5 h-2.5" />
+                            <span className="text-[9px] font-black uppercase">Scheduled</span>
+                        </div>
+                    )}
                 </div>
                 <div className="flex gap-1 items-center">
                     {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400" />}
@@ -510,6 +525,11 @@ const TaskRow = React.memo(({
                         <span className="text-sm font-bold text-gray-900 truncate" title={item.title}>{item.title}</span>
                         {(item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
                         {item.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400 shrink-0" />}
+                        {(item.executionBlocks?.length ?? 0) > 0 && (
+                            <span className="flex items-center gap-0.5 text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 shrink-0" title={`${item.executionBlocks.length} scheduled block${item.executionBlocks.length === 1 ? '' : 's'}`}>
+                                <CalendarDays className="w-2.5 h-2.5" /> Scheduled
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
@@ -656,7 +676,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
-    const [tasksViewMode, setTasksViewMode] = useState<'board' | 'table' | 'calendar'>('board');
+    const [tasksViewMode, setTasksViewMode] = useState<'board' | 'table' | 'calendar' | 'schedule'>('board');
 
     // Derived current view mode based on component 'mode' prop
     const viewMode = mode === 'tasks' ? tasksViewMode : proposalsViewMode;
@@ -771,8 +791,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 if (parsed.opp) setTaskOppFilters(parsed.opp);
                 if (parsed.area) setTaskAreaFilters(parsed.area);
                 if (parsed.groupBy) setTaskGroupBy(parsed.groupBy);
-                if (parsed.tasksViewMode) setTasksViewMode(parsed.tasksViewMode);
-                if (parsed.proposalsViewMode) setProposalsViewMode(parsed.proposalsViewMode);
+                // Table view was removed — migrate any persisted 'table' preference to 'board'.
+                if (parsed.tasksViewMode) setTasksViewMode(parsed.tasksViewMode === 'table' ? 'board' : parsed.tasksViewMode);
+                if (parsed.proposalsViewMode) setProposalsViewMode(parsed.proposalsViewMode === 'table' ? 'board' : parsed.proposalsViewMode);
             } else {
                 // Default: All statuses + priorities selected
                 setTaskStatusFilters(Object.keys(TASK_STATUS_COLORS));
@@ -798,7 +819,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
 
     // Kanban Grouping State
-    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'stage' | 'detailed'>('detailed');
+    const [kanbanGroupBy, setKanbanGroupBy] = useState<'status' | 'detailed'>('detailed');
     // Editable column order for Process Kanban — persisted in localStorage
     const PROCESS_COLS_DEFAULT = ['Working on it', 'Review', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'];
     const [processColumnOrder, setProcessColumnOrder] = useState<string[]>(() => {
@@ -823,6 +844,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
     const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(new Date().toLocaleDateString('en-CA'));
     const [showCalendarSidebar, setShowCalendarSidebar] = useState(true);
+    const [calendarSidebarTab, setCalendarSidebarTab] = useState<'date' | 'unscheduled'>('date');
     const [isCalendarMaximized, setIsCalendarMaximized] = useState(false);
 
     // Bulk selection state for export
@@ -1416,7 +1438,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 else if (groups['In Progress']) groups['In Progress'].push(o); // Fallback for safety
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
-        } else if (kanbanGroupBy === 'detailed') {
+        } else {
             // Process view — No Status migrates to Review
             processColumnOrder.forEach(g => groups[g] = []);
             filteredOpps.forEach(o => {
@@ -1424,17 +1446,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 if (key === 'Waiting' || key === 'No Status') key = 'Review'; // Legacy migration
                 if (groups[key] !== undefined) groups[key].push(o);
                 else groups['Review'].push(o);
-            });
-            Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
-
-        } else {
-            Object.keys(STAGE_COLORS).forEach(stage => {
-                groups[stage] = [];
-            });
-            filteredOpps.forEach(o => {
-                const key = o.stage;
-                if (groups[key]) groups[key].push(o);
-                else if (groups['Lead']) groups['Lead'].push(o); // fallback
             });
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         }
@@ -1462,10 +1473,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 if (opp) {
                     if (kanbanGroupBy === 'status') {
                         onOppUpdate({ ...opp, statusLabel: target as OpportunityStatus });
-                    } else if (kanbanGroupBy === 'detailed') {
-                        onOppUpdate({ ...opp, detailedStatus: target as DetailedStatus });
                     } else {
-                        onStageChange(id, target as ProcessStage);
+                        onOppUpdate({ ...opp, detailedStatus: target as DetailedStatus });
                     }
                 }
             }
@@ -1928,12 +1937,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 >
                                     Process
                                 </button>
-                                <button
-                                    onClick={() => setKanbanGroupBy('stage')}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${kanbanGroupBy === 'stage' ? 'bg-[#3DCD58] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
-                                >
-                                    Stages
-                                </button>
                             </div>
                         </div>
                     )}
@@ -1942,8 +1945,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         <div className="flex items-center gap-2">
                             <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
                                 <button onClick={() => setViewMode('board')} className={`p-1.5 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
-                                <button onClick={() => setViewMode('table')} className={`p-1.5 rounded ${viewMode === 'table' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Table View"><TableIcon className="w-4 h-4" /></button>
                                 <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                                {mode === 'tasks' && (
+                                    <button onClick={() => setViewMode('schedule')} className={`p-1.5 rounded ${viewMode === 'schedule' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Schedule View"><CalendarDays className="w-4 h-4" /></button>
+                                )}
                             </div>
 
                             <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors mr-2">
@@ -2238,7 +2243,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     </div>
                                                 );
                                             })()
-                                        ) : kanbanGroupBy === 'detailed' ? (
+                                        ) : (
                                             <div
                                                 className={`flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all`}
                                                 draggable
@@ -2258,16 +2263,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     <h3 className="text-[10px] font-black uppercase tracking-tighter leading-none">{translateStatus(columnKey)}</h3>
                                                 </div>
                                                 <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px] font-black">{opps.length}</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center justify-between mb-4 bg-white/50 backdrop-blur-sm p-2 rounded-lg border border-gray-200/50">
-                                                <div className="flex flex-col">
-                                                    <h3 className="text-xs font-bold uppercase text-gray-600 tracking-wider truncate w-48" title={columnKey}>{translateProcessStage(columnKey)}</h3>
-                                                    <div className="h-1 w-24 bg-gray-200 rounded-full mt-1 overflow-hidden">
-                                                        <div className="h-full bg-[#3DCD58]" style={{ width: `${calculateProgress(columnKey as ProcessStage)}%` }}></div>
-                                                    </div>
-                                                </div>
-                                                <span className="bg-[#3DCD58]/10 text-[#2b9342] text-xs px-2 py-1 rounded-full font-bold shadow-sm">{opps.length}</span>
                                             </div>
                                         )}
 
@@ -2559,17 +2554,77 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         />
                                     </div>
 
-                                    {showCalendarSidebar && (
+                                    {showCalendarSidebar && (() => {
+                                        const unscheduledSidebarTasks = filteredTasks.filter(t => !t.dueDate && t.status !== 'Done' && t.status !== 'Canceled');
+                                        return (
                                         <div className="w-80 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-300">
                                             <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between shrink-0">
                                                 <div className="flex flex-col">
                                                     <h3 className="text-sm font-black text-gray-800 uppercase tracking-widest leading-none">Schedule</h3>
-                                                    {selectedCalendarDate && <span className="text-[10px] font-bold text-gray-400 mt-1">{new Date(selectedCalendarDate + 'T00:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</span>}
+                                                    {calendarSidebarTab === 'date' && selectedCalendarDate && <span className="text-[10px] font-bold text-gray-400 mt-1">{new Date(selectedCalendarDate + 'T00:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</span>}
+                                                    {calendarSidebarTab === 'unscheduled' && <span className="text-[10px] font-bold text-gray-400 mt-1">Tasks without a due date</span>}
                                                 </div>
                                                 <button onClick={() => setShowCalendarSidebar(false)} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 transition-colors">
                                                     <ChevronRight className="w-4 h-4" />
                                                 </button>
                                             </div>
+                                            <div className="flex border-b border-gray-100 shrink-0">
+                                                <button
+                                                    onClick={() => setCalendarSidebarTab('date')}
+                                                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest transition-colors border-b-2 ${calendarSidebarTab === 'date' ? 'text-gray-900 border-[#3DCD58]' : 'text-gray-400 border-transparent hover:text-gray-700'}`}
+                                                >
+                                                    Date
+                                                </button>
+                                                <button
+                                                    onClick={() => setCalendarSidebarTab('unscheduled')}
+                                                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest transition-colors border-b-2 ${calendarSidebarTab === 'unscheduled' ? 'text-gray-900 border-[#3DCD58]' : 'text-gray-400 border-transparent hover:text-gray-700'}`}
+                                                >
+                                                    Unscheduled{unscheduledSidebarTasks.length > 0 && ` (${unscheduledSidebarTasks.length})`}
+                                                </button>
+                                            </div>
+                                            {calendarSidebarTab === 'unscheduled' ? (
+                                                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/20">
+                                                    {unscheduledSidebarTasks.length === 0 ? (
+                                                        <div className="flex flex-col items-center justify-center h-40 text-gray-300 opacity-60">
+                                                            <Info className="w-8 h-8 mb-2" />
+                                                            <p className="text-[10px] font-black uppercase">All Scheduled</p>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <p className="text-[10px] text-gray-400 italic">Drag onto a day to set a due date.</p>
+                                                            {unscheduledSidebarTasks.map(t => (
+                                                                <div
+                                                                    key={`u-${t.id}`}
+                                                                    draggable
+                                                                    onDragStart={(e) => {
+                                                                        handleDragStart(e, t.id, 'task', t.opp.id);
+                                                                        e.dataTransfer.setData('application/json', JSON.stringify({ id: t.id, type: 'task', date: t.dueDate, opportunityId: t.opp.id }));
+                                                                    }}
+                                                                    onClick={() => setSelectedTask({ task: t, oppId: t.opp.id })}
+                                                                    className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
+                                                                >
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <div className={`w-1.5 h-1.5 rounded-full ${PRIORITY_COLORS[t.priority as TaskPriority] || 'bg-gray-300'}`}></div>
+                                                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.opp.id}</span>
+                                                                        {t.opp.alias && <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">{t.opp.alias}</span>}
+                                                                    </div>
+                                                                    <p className="text-xs font-bold text-gray-800 leading-snug">{t.title}</p>
+                                                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+                                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{t.status}</span>
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); startTimer(t.id, t.opp.id, t.title); }}
+                                                                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#3DCD58] transition-colors"
+                                                                            title="Start Timer"
+                                                                        >
+                                                                            <Play className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
                                             <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50/20">
                                                 {filteredTasks.filter(t => t.dueDate === selectedCalendarDate).length === 0 ? (
                                                     <div className="flex flex-col items-center justify-center h-40 text-gray-300 opacity-60">
@@ -2620,8 +2675,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                         ))
                                                 )}
                                             </div>
+                                            )}
                                         </div>
-                                    )}
+                                        );
+                                    })()}
 
                                     {!showCalendarSidebar && (
                                         <button
@@ -2633,6 +2690,16 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         </button>
                                     )}
                                 </div>
+                            </div>
+                        )}
+
+                        {viewMode === 'schedule' && mode === 'tasks' && (
+                            <div className="h-full overflow-hidden">
+                                <ScheduleView
+                                    opportunities={opportunities}
+                                    onSelectTask={(oppId, taskId) => onSelect(oppId, { tab: 'tasks', taskId })}
+                                    onOppUpdate={onOppUpdate}
+                                />
                             </div>
                         )}
                     </>
@@ -2923,6 +2990,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     </button>
                                 </div>
                             </div>
+
+                            <ExecutionScheduleSection
+                                task={selectedTask.task}
+                                onChange={(updated) => updateSelectedTask('executionBlocks', updated.executionBlocks || [])}
+                            />
                         </div>
                     </div>
 
