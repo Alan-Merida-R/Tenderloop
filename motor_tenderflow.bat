@@ -41,12 +41,20 @@ if not exist "node_modules\.bin\vite.cmd" (
     exit /b 1
 )
 
-:: 5. Abrir navegador en modo app (el primero que encuentre)
-start vivaldi --app="http://localhost:3003/index_flow.html" || start msedge --app="http://localhost:3003/index_flow.html" || start chrome --app="http://localhost:3003/index_flow.html" || start "" "http://localhost:3003/index_flow.html"
-
-echo [OK] Tender Flow iniciado en http://localhost:3003
+echo [OK] Servidor iniciando... El navegador se abrira automaticamente.
 echo     (deja esta ventana abierta mientras uses la app)
 echo.
+
+:: 5. Lanzar script que espera a que Vite este listo y LUEGO abre el navegador
+start "" /B cmd /c "
+  :ESPERAR
+  timeout /t 1 /nobreak >nul
+  curl -s http://localhost:3003/index_flow.html >nul 2>&1
+  if errorlevel 1 goto ESPERAR
+  start msedge --app="http://localhost:3003/index_flow.html" 2>nul
+  if errorlevel 1 start chrome --app="http://localhost:3003/index_flow.html" 2>nul
+  if errorlevel 1 start "" "http://localhost:3003/index_flow.html"
+"
 
 :: 6. Ejecutar vite. Si cae, pausar para ver el error
 call node_modules\.bin\vite.cmd --port 3003 --strictPort
