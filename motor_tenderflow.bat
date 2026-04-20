@@ -1,29 +1,58 @@
 @echo off
 setlocal
-:: Forzar que el script trabaje en la carpeta donde esta el archivo
 cd /d "%~dp0"
 
-:: 1. LIMPIEZA: Intentar liberar el puerto 3003 específicamente para no chocar con Loop (3000)
+title Tender Flow - Motor (puerto 3003)
+
+:: 1. Limpieza: liberar solo el puerto 3003 (no choca con Loop en 3000)
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3003') do taskkill /f /pid %%a >nul 2>&1
 
-:: 2. Verificar Node.js
+:: 2. Verificar Node.js (mensaje claro si falta)
 node -v >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [!] Node.js no esta instalado. Por favor instalo antes de continuar.
+    echo.
+    echo [ERROR] Node.js no esta instalado o no esta en el PATH.
+    echo         Descargalo en https://nodejs.org/ (version LTS) y reinicia la PC.
+    echo.
     pause
-    exit
+    exit /b 1
 )
 
-:: 3. Instalacion silenciosa de dependencias (solo si faltan)
+:: 3. Instalar dependencias si faltan (con verificacion de exito)
 if not exist node_modules (
-    echo [INFO] Instalando dependencias por primera vez...
-    call npm install --quiet
+    echo [INFO] Instalando dependencias por primera vez, puede tardar varios minutos...
+    call npm install --prefer-offline --no-audit --no-fund --maxsockets 1
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Fallo "npm install". Revisa tu conexion o proxy corporativo.
+        echo.
+        pause
+        exit /b 1
+    )
 )
 
-:: 4. Iniciar la aplicación en modo App (ventana sin barras de navegacion)
-:: Usamos index_flow.html especificamente
+:: 4. Verificar que vite quedo instalado
+if not exist "node_modules\.bin\vite.cmd" (
+    echo.
+    echo [ERROR] No se encontro vite en node_modules. La instalacion pudo fallar.
+    echo         Borra la carpeta node_modules y vuelve a ejecutar este archivo.
+    echo.
+    pause
+    exit /b 1
+)
+
+:: 5. Abrir navegador en modo app (el primero que encuentre)
 start vivaldi --app="http://localhost:3003/index_flow.html" || start msedge --app="http://localhost:3003/index_flow.html" || start chrome --app="http://localhost:3003/index_flow.html" || start "" "http://localhost:3003/index_flow.html"
 
-:: 5. Ejecutar el motor de Flow forzando el puerto 3003 y modo estricto
-echo [OK] Tender Flow iniciado en el puerto 3003.
-call npx vite --port 3003 --strictPort
+echo [OK] Tender Flow iniciado en http://localhost:3003
+echo     (deja esta ventana abierta mientras uses la app)
+echo.
+
+:: 6. Ejecutar vite. Si cae, pausar para ver el error
+call node_modules\.bin\vite.cmd --port 3003 --strictPort
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Vite termino con error. Revisa el log anterior.
+    echo.
+    pause
+)
