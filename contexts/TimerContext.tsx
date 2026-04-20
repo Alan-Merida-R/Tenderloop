@@ -124,11 +124,22 @@ const playPhaseAlert = (phase: PomodoroPhase) => {
     }
 };
 
-const fireBrowserNotification = (title: string, body: string) => {
+const fireBrowserNotification = (title: string, body: string, tag = 'pomodoro-phase') => {
     try {
         if (typeof Notification === 'undefined') return;
         if (Notification.permission === 'granted') {
-            new Notification(title, { body, tag: 'pomodoro-phase', requireInteraction: false });
+            // `tag` ensures the same topic (phase, start, stop) replaces its own previous
+            // notification instead of stacking in the tray.
+            new Notification(title, { body, tag, requireInteraction: false });
+        }
+    } catch { /* ignored */ }
+};
+
+const ensureNotificationPermission = () => {
+    try {
+        if (typeof Notification === 'undefined') return;
+        if (Notification.permission === 'default') {
+            Notification.requestPermission().catch(() => { /* ignore */ });
         }
     } catch { /* ignored */ }
 };
@@ -203,6 +214,7 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
     }, [broadcastConfig]);
 
     const startTimer = useCallback((taskId: string, oppId: string, taskTitle: string) => {
+        ensureNotificationPermission();
         setTimerState(prev => {
             const now = Date.now();
             const sameTask = prev.taskId === taskId;
@@ -218,6 +230,12 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
                 pomodoroPhaseStart: now,
                 pomodoroPhaseAccumulated: sameTask ? prev.pomodoroPhaseAccumulated : 0,
             };
+            const resumed = sameTask && prev.pomodoroPhaseAccumulated > 0;
+            fireBrowserNotification(
+                resumed ? 'Timer resumed' : 'Timer started',
+                taskTitle,
+                'timer-session'
+            );
             broadcastState(newState);
             return newState;
         });
@@ -252,6 +270,15 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
 
         if (state.taskId && state.oppId && (total > 0 || status)) {
             if (onLogTimeRef.current) onLogTimeRef.current(state.taskId, state.oppId, total, status);
+        }
+
+        if (state.taskTitle) {
+            const statusLabel = status ? ` — ${status}` : '';
+            fireBrowserNotification(
+                'Timer stopped',
+                `${state.taskTitle}${statusLabel}`,
+                'timer-session'
+            );
         }
 
         setTimerState(DEFAULT_STATE);

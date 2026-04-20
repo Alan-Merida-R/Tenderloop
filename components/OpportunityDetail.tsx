@@ -1459,7 +1459,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (immediate) {
             flush();
         } else {
-            updateTimeoutRef.current = window.setTimeout(flush, 500);
+            // Reduced from 500ms to 200ms so edits reach App state (and the cross-tab
+            // broadcast + disk autosave pipeline) faster. Callers that need heavier
+            // debouncing (handleFieldChange, updateOfficialSellPrice) already apply
+            // their own delay upstream.
+            updateTimeoutRef.current = window.setTimeout(flush, 200);
         }
     }, [parentOnUpdate]);
 
@@ -1623,9 +1627,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         if (selectedNoteId !== lastNoteId.current) {
-            // Flush previous if needed
-            if (flushNoteRef.current) flushNoteRef.current();
-            
+            // DATA-LOSS FIX: do NOT call flushNoteRef here. The [selectedNoteId, activeTab]
+            // effect cleanup already flushed the previous note; by the time we run, the
+            // flushNoteRef closure has been replaced with one bound to the NEW selectedNoteId,
+            // so calling it would save the old note's activeNoteHtml as the new note's
+            // content and wipe real data.
             const n = localOpp.notes.find(nn => nn.id === selectedNoteId);
             setActiveNoteHtml(n?.content || '');
             lastNoteId.current = selectedNoteId;
@@ -1776,10 +1782,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             syncToParentNow(updated);
         } else {
+            // 300ms keeps rapid typing debounced while still pushing changes to the parent
+            // within half a second — important for commercial/CQA fields that users expect
+            // to persist quickly after blur. The previous 1s delay combined with the inner
+            // 500ms onUpdate wrapper (1.5s total) made quick-click-away sometimes lose data.
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             saveToParentTimeoutRef.current = window.setTimeout(() => {
                 onUpdate(updated, opportunity.id);
-            }, 1000); 
+            }, 300);
         }
     };
 
@@ -1843,11 +1853,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onUpdate(updatedOpp, opportunity.id);
     };
 
-    const filteredNotes = useMemo(() => localOpp.notes.filter(n => {
-        const term = searchTerm.toLowerCase();
-        const plainContent = n.content.replace(/<[^>]*>/g, '').toLowerCase();
-        return n.title.toLowerCase().includes(term) || plainContent.includes(term);
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [localOpp.notes, searchTerm]);
+    const filteredNotes = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
+        // Skip the expensive HTML strip + content scan when there's no search term.
+        // On opportunities with 50+ heavy notes this was the dominant cost of the
+        // Notes tab render and made tab navigation feel sticky.
+        const filtered = term
+            ? localOpp.notes.filter(n => {
+                if (n.title.toLowerCase().includes(term)) return true;
+                const plainContent = n.content.replace(/<[^>]*>/g, '').toLowerCase();
+                return plainContent.includes(term);
+            })
+            : localOpp.notes;
+        return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [localOpp.notes, searchTerm]);
 
     const filteredTasks = useMemo(() => localOpp.tasks.filter(t => {
         const matchesText = t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||

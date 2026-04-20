@@ -273,10 +273,11 @@ function App() {
       }
     }, 2000); // 2s debounce for cross-tab sync
 
-    // CRITICAL PERFORMANCE: Tiered Autosave
-    // With 50MB+ databases, structured cloning to the worker blocks the main thread.
-    // 10s gives enough breathing room for typing/photos without frequent disk UI locks.
-    const delay = 10000; 
+    // Autosave debounce: 3s balances UI responsiveness against data-loss window.
+    // The earlier 10s setting meant a user who types in the commercial/notes tab and
+    // closes the window within 10s could lose the entire edit. Serialization runs in
+    // a web worker, so the main thread is not blocked even with large DBs.
+    const delay = 3000;
 
     console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms.`);
 
@@ -577,14 +578,21 @@ function App() {
             }
           }
 
+          // Preserve ALL existing commercial fields (including future/optional ones like
+          // quickRefs) by spreading the original first and only overriding legacy-known keys.
+          // The previous version whitelisted 7 fields and silently dropped anything else on
+          // every load, wiping the quick-references panel on the commercial tab.
+          const existingCommercial = (o.commercial as any) || {};
           const newCommercial: Commercial = {
-            currency: (o.commercial as any)?.currency || 'USD',
+            ...existingCommercial,
+            currency: existingCommercial.currency || 'USD',
             customSections: customSections,
-            agreementsLink: (o.commercial as any)?.agreementsLink || '',
-            cfLink: (o.commercial as any)?.cfLink || '',
-            discountsAndNotes: (o.commercial as any)?.discountsAndNotes || '',
-            cqaOfficialSellPrice: (o.commercial as any)?.cqaOfficialSellPrice || 0,
-            cqaOfficialMargin: (o.commercial as any)?.cqaOfficialMargin || 0
+            agreementsLink: existingCommercial.agreementsLink || '',
+            cfLink: existingCommercial.cfLink || '',
+            discountsAndNotes: existingCommercial.discountsAndNotes || '',
+            cqaOfficialSellPrice: existingCommercial.cqaOfficialSellPrice || 0,
+            cqaOfficialMargin: existingCommercial.cqaOfficialMargin || 0,
+            quickRefs: Array.isArray(existingCommercial.quickRefs) ? existingCommercial.quickRefs : []
           };
 
           // KPI Initialization
@@ -1310,8 +1318,8 @@ function App() {
   if (isTimerOnlyWindow) {
     return (
       <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
-        <div className="h-screen flex items-center justify-center bg-gray-900 text-white p-4">
-          <TimerWidget />
+        <div className="h-screen w-screen bg-black p-2 flex">
+          <TimerWidget floating />
         </div>
       </TimerProvider>
     );
