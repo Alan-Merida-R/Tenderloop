@@ -2,9 +2,15 @@ import { useEffect, useRef } from 'react';
 import { Opportunity, DeepLink } from '../../types';
 import { timeToMinutes } from './executionBlockUtils';
 
-const LEAD_MINUTES = 10;
-const CHECK_INTERVAL_MS = 60_000;
-const STORAGE_KEY = 'TenderLoop_NotifiedBlocks_V1';
+// Lead time shortened per user request: notify 5 minutes before the block starts.
+const LEAD_MINUTES = 5;
+// Poll every 30s so the 2-minute firing window can't be missed by a user whose
+// machine was briefly asleep at the top of the minute.
+const CHECK_INTERVAL_MS = 30_000;
+// Bumped to V2 because the previous seen-keys used 10-minute semantics; if a user
+// upgrades while a block is already within 5-10 min, we don't want stale keys to
+// suppress the new 5-min notification.
+const STORAGE_KEY = 'TenderLoop_NotifiedBlocks_V2';
 
 /** Stored notified-block keys: `${blockId}-YYYY-MM-DD`. Trimmed daily. */
 const loadSeen = (): Set<string> => {
@@ -69,16 +75,22 @@ export const useScheduleNotifications = (opportunities: Opportunity[], openTask:
                         const startMin = timeToMinutes(block.startTime);
                         if (isNaN(startMin)) continue;
                         const delta = startMin - nowMin;
-                        if (delta <= LEAD_MINUTES && delta > LEAD_MINUTES - 2) {
+                        // Fire once while delta is in [LEAD-2, LEAD]. With LEAD=5 that gives
+                        // a 3..5 min firing window, wide enough to catch any missed tick.
+                        if (delta <= LEAD_MINUTES && delta > LEAD_MINUTES - 3) {
                             const key = `${block.id}-${block.date}`;
                             if (seen.has(key)) continue;
                             seen.add(key);
                             try {
-                                const n = new Notification(`Starting in ${delta} min`, {
-                                    body: `${task.title}\n${opp.alias || opp.title} · ${block.startTime}–${block.endTime}`,
-                                    tag: key,
-                                    requireInteraction: false,
-                                });
+                                const oppLabel = opp.alias || opp.title;
+                                const n = new Notification(
+                                    `Starts in ${LEAD_MINUTES} min — ${task.title}`,
+                                    {
+                                        body: `${oppLabel}\n${block.startTime}–${block.endTime}`,
+                                        tag: key,
+                                        requireInteraction: true,
+                                    }
+                                );
                                 n.onclick = () => {
                                     try { window.focus(); } catch { /* ignored */ }
                                     openRef.current(opp.id, { tab: 'tasks', taskId: task.id, fullView: true });

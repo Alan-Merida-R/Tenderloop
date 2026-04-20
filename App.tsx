@@ -468,6 +468,30 @@ function App() {
     setSplitTab({ ...tab, data: { ...tab.data, isSubView: true } });
   }, []);
 
+  // Opens a task in the split sub-view (not full expediente). Used by the
+  // schedule grid's double-click so scheduled blocks open a focused side panel.
+  const openTaskSubView = useCallback((oppId: string, taskId: string) => {
+    const opp = dbRef.current.opportunities.find(o => o.id === oppId);
+    if (!opp) return;
+    const task = opp.tasks?.find(t => t.id === taskId);
+    if (!task) return;
+    const tabId = task.id;
+    const existing = floatingTabsRef.current.find(t => t.id === tabId);
+    if (existing) {
+      setSplitTab({ ...existing, data: { ...existing.data, isSubView: true } });
+      return;
+    }
+    const newTab: FloatingTab = {
+      id: tabId,
+      type: 'task',
+      title: `TSK: ${task.title.slice(0, 15)}`,
+      color: '#3B82F6',
+      data: { oppId, isSubView: true, deepLink: { tab: 'tasks', taskId: task.id } }
+    };
+    setFloatingTabs(prev => (prev.find(t => t.id === tabId) ? prev : [...prev, newTab]));
+    setSplitTab(newTab);
+  }, []);
+
   const renderSplitTabContent = (tab: FloatingTab) => {
     const oppId = tab.data.oppId || (tab.type === 'opportunity' ? tab.id : null);
     if (!oppId) return null;
@@ -1501,6 +1525,7 @@ function App() {
                   holidays={appSettings.holidays || []}
                   globalLabels={appSettings.globalLabels || []}
                   onMinimize={minimizeToDock}
+                  onOpenTaskSubView={openTaskSubView}
                 />
               </LocalErrorBoundary>
             </div>

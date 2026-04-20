@@ -31,6 +31,8 @@ interface Props {
     opportunities: Opportunity[];
     /** Open the task in the expediente (full view with focused task). */
     onSelectTask: (oppId: string, taskId: string) => void;
+    /** Open the task in the split sub-view (side panel, not full expediente). */
+    onOpenTaskSubView?: (oppId: string, taskId: string) => void;
     onOppUpdate: (updated: Opportunity) => void;
 }
 
@@ -40,7 +42,7 @@ interface Props {
  * Owns the right panel (Task Details / Unscheduled) and delegates block
  * mutations to the opportunities via onOppUpdate.
  */
-export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onOppUpdate }) => {
+export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onOpenTaskSubView, onOppUpdate }) => {
     const [tab, setTab] = useState<'week' | 'month'>('week');
     const [anchor, setAnchor] = useState<Date>(() => new Date());
     const [panelTab, setPanelTab] = useState<'details' | 'unscheduled'>('details');
@@ -195,7 +197,7 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
                             anchor={anchor}
                             onAnchorChange={setAnchor}
                             onSelectTask={handleSelect}
-                            onOpenTask={onSelectTask}
+                            onOpenTask={onOpenTaskSubView || onSelectTask}
                             onCreateBlock={handleCreateBlock}
                             onUpdateBlock={handleUpdateBlock}
                         />

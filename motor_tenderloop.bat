@@ -52,12 +52,20 @@ if not exist "node_modules\.bin\vite.cmd" (
 :: 5. Arrancar helper de apertura de archivos en segundo plano
 start "" /B node server\openHelper.js
 
-:: 6. Abrir navegador en modo app (el primero que encuentre)
-start vivaldi --app="http://localhost:3000" || start msedge --app="http://localhost:3000" || start chrome --app="http://localhost:3000" || start "" "http://localhost:3000"
-
-echo [OK] Tender Loop iniciado en http://localhost:3000
+echo [OK] Servidor iniciando... El navegador se abrira automaticamente.
 echo     (deja esta ventana abierta mientras uses la app)
 echo.
+
+:: 6. Lanzar script que espera a que Vite este listo y LUEGO abre el navegador
+start "" /B cmd /c "
+  :ESPERAR
+  timeout /t 1 /nobreak >nul
+  curl -s http://localhost:3000 >nul 2>&1
+  if errorlevel 1 goto ESPERAR
+  start msedge --app="http://localhost:3000" 2>nul
+  if errorlevel 1 start chrome --app="http://localhost:3000" 2>nul
+  if errorlevel 1 start "" "http://localhost:3000"
+"
 
 :: 7. Ejecutar vite. Si cae, pausar para ver el error
 call node_modules\.bin\vite.cmd --port 3000 --strictPort

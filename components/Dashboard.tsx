@@ -101,6 +101,7 @@ interface Props {
     holidays?: string[];
     globalLabels: OpportunityLabel[];
     onMinimize?: (tab: FloatingTab) => void;
+    onOpenTaskSubView?: (oppId: string, taskId: string) => void;
 }
 
 // Helper: Copy text to clipboard
@@ -672,7 +673,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize, onOpenTaskSubView }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -2698,6 +2699,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <ScheduleView
                                     opportunities={opportunities}
                                     onSelectTask={(oppId, taskId) => onSelect(oppId, { tab: 'tasks', taskId })}
+                                    onOpenTaskSubView={onOpenTaskSubView}
                                     onOppUpdate={onOppUpdate}
                                 />
                             </div>
