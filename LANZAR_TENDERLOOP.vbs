@@ -1,17 +1,15 @@
 Set WshShell = CreateObject("Wscript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-' Ubicar carpeta del script
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
-WshShell.CurrentDirectory = scriptDir
+batPath = scriptDir & "\motor_tenderloop.bat"
 
 If fso.FolderExists(scriptDir & "\node_modules") Then
-    ' Ejecucion normal: consola completamente oculta.
-    ' El navegador se abrira en modo --app (sin marcos) desde el .bat
-    WshShell.Run chr(34) & "motor_tenderloop.bat" & Chr(34) & " HIDDEN", 0
+    ' Ejecucion normal: consola oculta, solo se ve el navegador
+    WshShell.Run "cmd /c """ & batPath & """ HIDDEN", 0, False
 Else
-    ' Primera ejecucion: mostrar ventana para ver instalacion y errores
-    WshShell.Run chr(34) & "motor_tenderloop.bat" & Chr(34) & " VISIBLE", 1
+    ' Primera vez: mostrar ventana para que se vea la instalacion
+    WshShell.Run "cmd /c """ & batPath & """ VISIBLE", 1, False
 End If
 
 Set fso = Nothing
