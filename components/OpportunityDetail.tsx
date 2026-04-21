@@ -384,6 +384,40 @@ const NoteEditorWrapper = forwardRef<RichTextEditorHandle, any>(({ initialConten
     return <RichTextEditor {...rest} ref={ref} content={localValue} onChange={handleInnerChange} />;
 });
 
+/**
+ * PERF: Inline task text input. The previous implementation fired onChange on every
+ * keystroke, which chained into handleInlineTaskChange -> setLocalOpp + onUpdate and
+ * re-rendered the entire 6000-line OpportunityDetail per character. This variant keeps
+ * an isolated local value and only bubbles up on blur or Enter (same pattern as
+ * OptimizedInput), so typing inside an inline task no longer freezes the browser.
+ */
+const InlineTaskTextInput = React.memo(({ value, onCommit, disabled, className, placeholder }: {
+    value: string;
+    onCommit: (val: string) => void;
+    disabled?: boolean;
+    className?: string;
+    placeholder?: string;
+}) => {
+    const [localVal, setLocalVal] = useState(value || '');
+    useEffect(() => { setLocalVal(value || ''); }, [value]);
+
+    const sync = () => {
+        if (!disabled && localVal !== (value || '')) onCommit(localVal);
+    };
+
+    return (
+        <input
+            value={localVal}
+            disabled={disabled}
+            onChange={(e) => setLocalVal(e.target.value)}
+            onBlur={sync}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+            className={className}
+            placeholder={placeholder}
+        />
+    );
+});
+
 const MultiSelect = ({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
     const [isOpen, setIsOpen] = useState(false);
     return (
@@ -1783,12 +1817,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (viewingVersionId) return; // LOCK: No mutations in read-only snapshots
 
         const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
-        setLocalOpp(updated);
-        
         // Performance: Debounce typing but keep structural changes snappy.
         // We bypass debounce if 'immediate' is true OR if it's a critical field.
         const isCritical = field === 'statusLabel' || field === 'stage' || field === 'priority' || field === 'detailedStatus';
-        
+
+        // PERF: for non-critical edits, mark the expediente-wide re-render as a
+        // transition so that clicking/typing on unrelated controls (or the next
+        // keystroke on a raw input like note title / question text) isn't blocked
+        // waiting for the full OpportunityDetail tree to reconcile. Critical fields
+        // still update synchronously so status/stage chips update instantly.
+        if (isCritical || immediate) {
+            setLocalOpp(updated);
+        } else {
+            React.startTransition(() => setLocalOpp(updated));
+        }
+
         if (isCritical || immediate) {
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
             syncToParentNow(updated);
@@ -1864,22 +1907,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onUpdate(updatedOpp, opportunity.id);
     };
 
+    // PERF: Defer the heavy arrays so React treats list re-renders as low-priority,
+    // interruptible work. When the user is typing or clicking rapidly (modal fields,
+    // inline tasks, filter inputs), keystrokes get priority and the task/note list
+    // rebuild is scheduled in the idle slice after the input commit — avoiding the
+    // "browser freezes on every change" symptom on large opportunities.
+    const deferredTasks = React.useDeferredValue(localOpp.tasks);
+    const deferredNotes = React.useDeferredValue(localOpp.notes);
+
     const filteredNotes = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
         // Skip the expensive HTML strip + content scan when there's no search term.
         // On opportunities with 50+ heavy notes this was the dominant cost of the
         // Notes tab render and made tab navigation feel sticky.
         const filtered = term
-            ? localOpp.notes.filter(n => {
+            ? deferredNotes.filter(n => {
                 if (n.title.toLowerCase().includes(term)) return true;
                 const plainContent = n.content.replace(/<[^>]*>/g, '').toLowerCase();
                 return plainContent.includes(term);
             })
-            : localOpp.notes;
+            : deferredNotes;
         return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [localOpp.notes, searchTerm]);
+    }, [deferredNotes, searchTerm]);
 
-    const filteredTasks = useMemo(() => localOpp.tasks.filter(t => {
+    const filteredTasks = useMemo(() => deferredTasks.filter(t => {
         const matchesText = t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||
             t.description.toLowerCase().includes(taskFilter.toLowerCase()) ||
             (t.externalAreas && t.externalAreas.some(area => area.toLowerCase().includes(taskFilter.toLowerCase())));
@@ -1907,7 +1958,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             { task: a, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder },
             { task: b, oppStatus: localOpp.statusLabel, oppPriorityRank: localOpp.priorityOrder }
         );
-    }), [localOpp.tasks, localOpp.statusLabel, localOpp.priorityOrder, taskFilter, taskStatusFilters, taskSort]);
+    }), [deferredTasks, localOpp.statusLabel, localOpp.priorityOrder, taskFilter, taskStatusFilters, taskSort]);
 
     const displayValue = (val: number) => val === 0 ? '' : val;
     const commercialTotals = useMemo(() => {
@@ -2300,7 +2351,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             return;
         }
 
-        // Optimistically update selected task in modal
+        // Optimistically update selected task in modal — this is the ONLY update that
+        // needs to be synchronous (it drives the immediate visual feedback in the modal).
         const updatedTaskData = { ...selectedTaskForEdit.task, [field]: value };
         setSelectedTaskForEdit({ task: updatedTaskData });
 
@@ -2326,10 +2378,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             });
         }
 
-        // Batch update
+        // PERF: Mark the expediente-wide re-render as a transition so React can interrupt
+        // it for subsequent user input. The modal already shows the new value via the
+        // setSelectedTaskForEdit above; the task list + other tabs behind the modal can
+        // re-render at low priority without freezing the UI on rapid edits.
         const newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
-        setLocalOpp(newOpp);
-        onUpdate(newOpp);
+        React.startTransition(() => {
+            setLocalOpp(newOpp);
+            onUpdate(newOpp);
+        });
     };
 
     const deleteTaskInModal = () => {
@@ -2954,10 +3011,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
         }
 
-        // Batch Update
+        // PERF: inline-task edits fire frequently (checkbox toggles, text commits);
+        // mark the heavy setLocalOpp as a transition so React can interrupt the
+        // expediente-wide re-render when the user interacts with something else.
         const newOpp = { ...localOpp, notes: updatedNotes, tasks: updatedTasks, lastUpdated: new Date().toISOString() };
-        setLocalOpp(newOpp);
-        onUpdate(newOpp);
+        React.startTransition(() => {
+            setLocalOpp(newOpp);
+            onUpdate(newOpp);
+        });
     };
 
     const handleCreateLinkedTask = (noteId: string, inlineTask: InlineTask) => {
@@ -5178,9 +5239,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                         onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { isDone: e.target.checked })}
                                                                         className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
                                                                     />
-                                                                    <input
-                                                                        value={inlineTask.text}
-                                                                        onChange={(e) => handleInlineTaskChange(currentNote.id, inlineTask.id, { text: e.target.value })}
+                                                                    <InlineTaskTextInput
+                                                                        value={inlineTask.text || ''}
+                                                                        onCommit={(val) => handleInlineTaskChange(currentNote.id, inlineTask.id, { text: val })}
                                                                         className={`flex-1 text-sm bg-transparent border-none p-0 focus:ring-0 ${inlineTask.isDone ? 'text-gray-400 line-through' : 'text-gray-700'}`}
                                                                         placeholder="Task description..."
                                                                     />
