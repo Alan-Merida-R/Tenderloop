@@ -1592,6 +1592,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     lastUpdated: new Date().toISOString()
                 };
                 setLocalOpp(updated);
+                // DATA-LOSS FIX: keep the ref in sync synchronously. The unmount persistence
+                // guarantee (effect on [opportunity.id]) reads localOppRef.current, and since
+                // setLocalOpp is async and no re-render happens during unmount, without this
+                // line that cleanup would save the pre-flush notes and overwrite the content
+                // we just pushed via onUpdateRef.
+                localOppRef.current = updated;
                 // Cancel any in-flight debounced save so the immediate flush wins
                 if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
                 onUpdateRef.current(updated, updated.id, true); // IMMEDIATE SYNC
@@ -1608,12 +1614,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // Handle note content changes with local debouncing (UI only)
     const handleNoteContentChange = (val: string) => {
         setActiveNoteHtml(val);
+        // DATA-LOSS FIX: update the ref synchronously. The RichTextEditor's own unmount
+        // cleanup can fire a last onChange during OpportunityDetail unmount; setActiveNoteHtml
+        // is async and never causes a re-render in that case, so flushNoteRef (which reads
+        // activeNoteHtmlRef) would save the previous value and lose the most recent edits.
+        activeNoteHtmlRef.current = val;
         // We don't update setLocalOpp immediately to prevent UI lag.
         // But we set a timeout to eventually flush it if the user stops typing for a while.
         if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
         syncNoteTimeoutRef.current = window.setTimeout(() => {
             if (flushNoteRef.current) flushNoteRef.current();
-        }, 5000); // 5s idle auto-save
+        }, 1500); // idle auto-save — short enough that closing the app shortly after typing still persists
     };
 
     // Handle note selection (lazy load content to local editing state)
