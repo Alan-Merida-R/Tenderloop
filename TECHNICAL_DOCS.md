@@ -54,7 +54,16 @@ Instead of broadcasting the entire 50MB+ JSON file between tabs:
 
 ### C. Forced Persistence
 - **Unmount Protection:** All components (Modal, Tab, App) have `useEffect` cleanups that force a disk save if there's a pending change.
-- **Tiered Autosave:** Disk writes are throttled to every 10 seconds to avoid IO bottlenecks.
+- **Tiered Autosave:** Disk writes are debounced at **3 s** for normal edits. When a mutation is flagged `immediate` (note flush, critical-field blur, expediente close), the debounce collapses to **120 ms** so closing the app seconds after typing still lands the change on disk.
+- **Immediate Propagation:** `updateOpportunity(opp, id, immediate?)` accepts a third flag. When `true`, the setDb call skips `React.startTransition` (commits in the current tick) and sets `immediateFlushRef`, which the autosave effect consumes to shorten its next debounce.
+- **Concurrency Retry:** If the autosave timeout fires while a previous save is still in flight, it re-schedules itself after 250 ms instead of dropping the change.
+
+### D. Note Crash Recovery (localStorage Backup)
+Notes are the largest, most fragile payload. On every `flushNoteRef` commit, the latest content is mirrored synchronously to `localStorage` under `tl-note-backup-<oppId>-<noteId>`. If the window closes before `saveToDisk` lands the change:
+- On next boot, `loadDbFromHandle` / `handleOpenDB` calls `mergeNoteCrashBackups`, which walks `localStorage`, compares each backup against the freshly-loaded DB, and restores any newer content.
+- After every successful `saveToDisk`, all `tl-note-backup-*` keys are cleared — so the recovery layer only ever sees genuinely unsaved content.
+
+This gives note edits a **survivability guarantee** even across browser crashes or abrupt window closes.
 
 ---
 

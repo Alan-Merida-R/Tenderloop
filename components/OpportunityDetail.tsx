@@ -1632,6 +1632,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 // line that cleanup would save the pre-flush notes and overwrite the content
                 // we just pushed via onUpdateRef.
                 localOppRef.current = updated;
+                // DATA-LOSS FIX: write the crash-recovery backup FIRST — before
+                // any async hop — so an exception or window close in the next
+                // line can't skip it. Cleared after saveToDisk succeeds.
+                try {
+                    localStorage.setItem(
+                        `tl-note-backup-${updated.id}-${selectedNoteId}`,
+                        JSON.stringify({ content, ts: Date.now() })
+                    );
+                } catch {}
                 // Cancel any in-flight debounced save so the immediate flush wins
                 if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
                 onUpdateRef.current(updated, updated.id, true); // IMMEDIATE SYNC

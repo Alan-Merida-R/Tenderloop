@@ -98,6 +98,11 @@ function App() {
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
   const isSavingRef = useRef(false);
+  // DATA-LOSS FIX: when a critical mutation (e.g. a note content flush on
+  // expediente close) arrives, we want the autosave to fire almost immediately
+  // instead of waiting the normal 3-second debounce. Setting this ref to true
+  // is consumed by the next autosave effect tick.
+  const immediateFlushRef = useRef(false);
   // PERF FIX: Debounce refs for sessionStorage writes.
   // sessionStorage.setItem is synchronous and runs on the main thread.
   // On low-RAM machines it can spike for 5-15ms per call.
@@ -277,16 +282,35 @@ function App() {
     // The earlier 10s setting meant a user who types in the commercial/notes tab and
     // closes the window within 10s could lose the entire edit. Serialization runs in
     // a web worker, so the main thread is not blocked even with large DBs.
-    const delay = 3000;
+    // DATA-LOSS FIX: when immediateFlushRef is set (e.g. note flush on close),
+    // shrink the debounce to 120ms so closing the app right after a note edit
+    // still persists to disk.
+    const immediate = immediateFlushRef.current;
+    if (immediate) immediateFlushRef.current = false; // consume
+    const delay = immediate ? 120 : 3000;
 
-    console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms.`);
+    console.debug(`[Autosave] Change detected. Enqueueing save in ${delay}ms${immediate ? ' (immediate)' : ''}.`);
 
-    // @ts-ignore
-    saveTimeoutRef.current = window.setTimeout(async () => {
+    const runSave = async () => {
       if (isSavingRef.current) {
-        console.debug("[Autosave] Concurrency: Save already in progress, deferred.");
+        // DATA-LOSS FIX: don't just return — retry shortly. Before, deferring
+        // meant losing the change if no further setDb followed.
+        console.debug("[Autosave] Concurrency: save already running, retrying in 250ms.");
+        // @ts-ignore
+        saveTimeoutRef.current = window.setTimeout(runSave, 250);
         return;
       }
+
+      // DATA-LOSS FIX: snapshot backup keys BEFORE the async write begins.
+      // Anything written during the save must survive — those edits may not
+      // be included in the `db` snapshot we're about to persist.
+      const backupsAtSaveStart: string[] = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('tl-note-backup-')) backupsAtSaveStart.push(k);
+        }
+      } catch {}
 
       try {
         isSavingRef.current = true;
@@ -310,6 +334,12 @@ function App() {
         if (success) {
           console.debug("[Autosave] Save success.");
           setStatus('saved');
+          // DATA-LOSS FIX: only clear backups that already existed when we
+          // started this write — newer backups belong to edits that aren't
+          // in the `db` snapshot we just serialized.
+          try {
+            backupsAtSaveStart.forEach(k => localStorage.removeItem(k));
+          } catch {}
           if (errorMessage?.includes("read-only") || errorMessage?.includes("Failed to save changes")) {
             setErrorMessage(null);
           }
@@ -325,7 +355,10 @@ function App() {
       } finally {
         isSavingRef.current = false;
       }
-    }, delay);
+    };
+
+    // @ts-ignore
+    saveTimeoutRef.current = window.setTimeout(runSave, delay);
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -357,6 +390,38 @@ function App() {
     return hasOpps; // Only block if opportunities array is missing
   };
 
+  // DATA-LOSS FIX: Merge any crash-recovery note backups left in localStorage
+  // from a previous session where the app closed before autosave could land
+  // the latest note edit. Mutates migratedData in place.
+  const mergeNoteCrashBackups = (migratedData: any) => {
+    try {
+      const keysToClear: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith('tl-note-backup-')) continue;
+        const rest = k.slice('tl-note-backup-'.length);
+        const dash = rest.indexOf('-');
+        if (dash < 1) { keysToClear.push(k); continue; }
+        const oppId = rest.slice(0, dash);
+        const noteId = rest.slice(dash + 1);
+        let payload: any;
+        try { payload = JSON.parse(localStorage.getItem(k) || 'null'); } catch { payload = null; }
+        if (!payload || typeof payload.content !== 'string') { keysToClear.push(k); continue; }
+        const opp = migratedData.opportunities.find((o: any) => o.id === oppId);
+        const note = opp?.notes?.find((n: any) => n.id === noteId);
+        if (opp && note && note.content !== payload.content) {
+          note.content = payload.content;
+          opp.lastUpdated = new Date().toISOString();
+          console.warn(`[Note Recovery] Restored note ${noteId} of opp ${oppId} from crash backup.`);
+        }
+        keysToClear.push(k);
+      }
+      keysToClear.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn('[Note Recovery] Backup merge skipped:', e);
+    }
+  };
+
   // Shared DB Loader
   const loadDbFromHandle = async (handle: FileSystemFileHandle) => {
     console.debug("[App] Loading DB from handle:", handle.name);
@@ -371,6 +436,7 @@ function App() {
 
       console.debug("[App] Data read and verified. Starting migration...");
       const migratedData = migrateData(data);
+      mergeNoteCrashBackups(migratedData);
 
       setDb(migratedData);
       setFileHandle(handle);
@@ -762,6 +828,7 @@ function App() {
 
         console.debug("[App] Migrating and setting state...");
         const migratedData = migrateData(result.data);
+        mergeNoteCrashBackups(migratedData);
         setDb(migratedData);
         setIsDbLoaded(true);
         setRecentDbs(await getRecentDbs());
@@ -1080,7 +1147,7 @@ function App() {
   }, []);
   rebalancePrioritiesRef.current = rebalancePriorities;
 
-  const updateOpportunity = useCallback((updatedOpp: Opportunity, id?: string) => {
+  const updateOpportunity = useCallback((updatedOpp: Opportunity, id?: string, immediate?: boolean) => {
     // Auto-assign any missing task orders before saving globally
     if (updatedOpp.tasks) {
         updatedOpp.tasks = assignMissingOrders(updatedOpp.tasks);
@@ -1093,9 +1160,16 @@ function App() {
     if (id && id !== updatedOpp.id) {
       if (id === selectedOppIdRef.current) setSelectedOppId(updatedOpp.id);
     }
+    // DATA-LOSS FIX: note flushes and critical-field blurs pass immediate=true
+    // so the next autosave tick skips the 3s debounce. Otherwise, closing the
+    // app within 3s of an edit drops the change on the floor.
+    if (immediate) immediateFlushRef.current = true;
     // Use startTransition so React treats this as a non-blocking background update
     // This keeps the UI responsive (inputs, buttons) while the state is being processed
-    React.startTransition(() => {
+    // EXCEPTION: immediate=true bypasses startTransition too, so the setDb commits
+    // in the current tick and the autosave effect sees the new db before the
+    // window can close.
+    const apply = () => {
       setDb(prev => {
         const oldOpp = prev.opportunities.find(o => o.id === (id || updatedOpp.id));
         if (!oldOpp) return prev; // Should not happen
@@ -1128,7 +1202,12 @@ function App() {
           opportunities: rebalanced
         };
       });
-    });
+    };
+    if (immediate) {
+      apply();
+    } else {
+      React.startTransition(apply);
+    }
   }, []);
 
   const moveOpportunityStage = useCallback((id: string, newStage: ProcessStage) => {
