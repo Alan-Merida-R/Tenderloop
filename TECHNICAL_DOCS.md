@@ -38,6 +38,12 @@ In `OpportunityDetail.tsx`, typing in notes is isolated:
 - **`NoteEditorWrapper`:** Encapsulates the live HTML state. It prevents the 5,000-line `OpportunityDetail` component from re-rendering on every keystroke.
 - **Deferred Sync:** Live typing only updates a local state. Background synchronization to the main DB is debounced (5s) or triggered immediately on tab/note switch.
 
+### C. Stable Prop Identity (Anti-Freeze Navigation)
+Several settings fields (`holidays`, `globalLabels`, `trackedAreas`) are optional arrays. Inline fallbacks like `holidays={appSettings.holidays || []}` return a **new array** on every `App.tsx` render, which invalidates `React.memo` on Dashboard and OpportunityDetail and triggers cascading re-renders during navigation.
+- **`EMPTY_ARR`:** A module-level `Object.freeze([])` sentinel provides a stable identity for missing settings arrays.
+- **`stableHolidays` / `stableGlobalLabels` / `stableTrackedAreas`:** `useMemo` wrappers that return the settings array when present, or `EMPTY_ARR` otherwise. Consumed by Dashboard + both OpportunityDetail mounts (overlay + split tab).
+- **`handleTimerTaskClick`:** Stabilized via `useCallback` + `dbRef` / `floatingTabsRef`, so the Timer context does not bust its consumers every time opportunities change.
+
 ---
 
 ## 🔄 3. Data Sync & Persistence
@@ -64,6 +70,13 @@ Notes are the largest, most fragile payload. On every `flushNoteRef` commit, the
 - After every successful `saveToDisk`, all `tl-note-backup-*` keys are cleared — so the recovery layer only ever sees genuinely unsaved content.
 
 This gives note edits a **survivability guarantee** even across browser crashes or abrupt window closes.
+
+### E. Configurable Sound Layer (`services/soundService.ts`)
+Instead of shipping MP3 assets, alerts are synthesized on demand via **WebAudio**:
+- **Shared `AudioContext`:** A single lazily-created context is reused across every alert. Rebuilding contexts per play can starve device audio output on some browsers.
+- **`SoundType`:** `'beep' | 'chime' | 'bell' | 'alarm' | 'ding' | 'triad' | 'none'`. Each preset is a list of `ToneSpec` entries (frequency, duration, gain envelope, optional offset) which `scheduleTone` plays via oscillator + gain ramps to avoid click artifacts.
+- **Settings wiring:** `AppSettings.notificationSound` and `AppSettings.timerSound` default to `'beep'`. `SettingsModal.tsx` exposes both dropdowns with a Preview button.
+- **Ref-based consumption:** `TimerProvider` (pomodoro phase alerts + task-start notifications) and `useScheduleNotifications` (5-min pre-block push) hold the user's choice in `useRef`s. Mutating the setting does **not** re-run the timer/scheduler effects — the next tick reads the latest ref.
 
 ---
 
