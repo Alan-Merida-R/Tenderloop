@@ -62,6 +62,11 @@ class LocalErrorBoundary extends React.Component {
   }
 }
 
+// PERF: single shared empty array so every `x || EMPTY_ARR` fallback points at
+// the same reference — keeps React.memo equality stable when settings keys are
+// undefined.
+const EMPTY_ARR: any[] = Object.freeze([]) as any[];
+
 /**
  * Main Application component for TenderLoop.
  * Manages global state, database migrations, autosave, and cross-tab synchronization.
@@ -213,6 +218,14 @@ function App() {
   appSettingsRef.current = appSettings;
   const selectedOppIdRef = useRef(selectedOppId);
   selectedOppIdRef.current = selectedOppId;
+
+  // PERF: Stable references for settings-derived arrays. Expressions like
+  // `appSettings.holidays || []` allocate a new empty array on every App
+  // render, busting React.memo on Dashboard/OpportunityDetail and forcing
+  // their multi-thousand-line trees to reconcile each time App state moves.
+  const stableHolidays = useMemo(() => appSettings.holidays || EMPTY_ARR, [appSettings.holidays]);
+  const stableGlobalLabels = useMemo(() => appSettings.globalLabels || EMPTY_ARR, [appSettings.globalLabels]);
+  const stableTrackedAreas = useMemo(() => appSettings.trackedAreas || EMPTY_ARR, [appSettings.trackedAreas]);
   const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
 
   // Data Synchronization (Database only, not UI state/navigation)
@@ -478,15 +491,17 @@ function App() {
     }
   }, []);
 
-  const handleTimerTaskClick = (taskId: string, oppId: string) => {
-    const opp = db.opportunities.find(o => o.id === oppId);
+  // PERF: wrap in useCallback with refs so identity stays stable — TimerWidget
+  // is React.memo'd and was re-rendering on every App render because this
+  // prop had a new identity each time. dbRef is declared earlier in the file.
+  const handleTimerTaskClick = useCallback((taskId: string, oppId: string) => {
+    const opp = dbRef.current.opportunities.find(o => o.id === oppId);
     if (!opp) return;
     const task = opp.tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    // Create or show floating tab
     const tabId = task.id;
-    const existing = floatingTabs.find(t => t.id === tabId);
+    const existing = floatingTabsRef.current.find(t => t.id === tabId);
 
     if (existing) {
       setSplitTab({ ...existing, data: { ...existing.data, isSubView: true } });
@@ -501,7 +516,7 @@ function App() {
       setFloatingTabs(prev => [...prev, newTab]);
       setSplitTab(newTab);
     }
-  };
+  }, []);
 
   const removeTab = useCallback((tabId: string) => {
     setFloatingTabs(prev => prev.filter(t => t.id !== tabId));
@@ -581,9 +596,9 @@ function App() {
           }
         }}
         noteTemplates={appSettings.noteTemplates}
-        holidays={appSettings.holidays || []}
-        trackedAreas={appSettings.trackedAreas || []}
-        globalLabels={appSettings.globalLabels || []}
+        holidays={stableHolidays}
+        trackedAreas={stableTrackedAreas}
+        globalLabels={stableGlobalLabels}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
           if (payload) minimizeToDock(payload);
@@ -1412,7 +1427,7 @@ function App() {
 
   // Schedule notifications: fire 10 min before each block's start time.
   // Click opens the opportunity and focuses the related task.
-  useScheduleNotifications(stableOpportunities, handleSelectOpp);
+  useScheduleNotifications(stableOpportunities, handleSelectOpp, appSettings.notificationSound);
 
   // Floating timer-only window mode: opened by TimerWidget.popOut() with ?window=timer.
   // Shares the same BroadcastChannel + localStorage so the widget stays in sync with the main app.
@@ -1420,7 +1435,7 @@ function App() {
       && new URLSearchParams(window.location.search).get('window') === 'timer';
   if (isTimerOnlyWindow) {
     return (
-      <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
+      <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound}>
         <div className="h-screen w-screen bg-black p-2 flex">
           <TimerWidget floating />
         </div>
@@ -1429,7 +1444,7 @@ function App() {
   }
 
   return (
-    <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities}>
+    <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound}>
       <div className="h-screen flex flex-col bg-white text-gray-900 font-sans overflow-hidden relative">
         {/* Top Navigation */}
         <div className="bg-white border-b border-gray-200 h-14 px-4 flex justify-between items-center select-none sticky top-0 z-40 shadow-sm shrink-0">
@@ -1601,8 +1616,8 @@ function App() {
                   onDateChange={changeOpportunityDate}
                   onOppUpdate={updateOpportunity}
                   onTaskUpdate={updateTaskDetails}
-                  holidays={appSettings.holidays || []}
-                  globalLabels={appSettings.globalLabels || []}
+                  holidays={stableHolidays}
+                  globalLabels={stableGlobalLabels}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
                 />
@@ -1643,9 +1658,9 @@ function App() {
                     onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
                     onSelectOpp={handleSelectOpp}
                     noteTemplates={appSettings.noteTemplates}
-                    holidays={appSettings.holidays || []}
-                    trackedAreas={appSettings.trackedAreas || []}
-                    globalLabels={appSettings.globalLabels || []}
+                    holidays={stableHolidays}
+                    trackedAreas={stableTrackedAreas}
+                    globalLabels={stableGlobalLabels}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}
                   />

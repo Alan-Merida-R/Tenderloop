@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Opportunity, DeepLink } from '../../types';
 import { timeToMinutes } from './executionBlockUtils';
+import { playSound } from '../../services/soundService';
+import type { SoundType } from '../../components/SettingsModal';
 
 // Lead time shortened per user request: notify 5 minutes before the block starts.
 const LEAD_MINUTES = 5;
@@ -40,12 +42,18 @@ interface OpenTaskFn {
  * Notifications are deduped per (blockId, date) so they fire at most once.
  * Notifications are skipped silently if permission is denied.
  */
-export const useScheduleNotifications = (opportunities: Opportunity[], openTask: OpenTaskFn) => {
+export const useScheduleNotifications = (
+    opportunities: Opportunity[],
+    openTask: OpenTaskFn,
+    notificationSound?: SoundType,
+) => {
     const oppsRef = useRef(opportunities);
     const openRef = useRef(openTask);
+    const soundRef = useRef<SoundType | undefined>(notificationSound);
 
     useEffect(() => { oppsRef.current = opportunities; }, [opportunities]);
     useEffect(() => { openRef.current = openTask; }, [openTask]);
+    useEffect(() => { soundRef.current = notificationSound; }, [notificationSound]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof Notification === 'undefined') return;
@@ -96,6 +104,11 @@ export const useScheduleNotifications = (opportunities: Opportunity[], openTask:
                                     openRef.current(opp.id, { tab: 'tasks', taskId: task.id, fullView: true });
                                     n.close();
                                 };
+                                // Play the user-configured sound alongside the
+                                // system notification. The OS may suppress its
+                                // default sound, but we still want an audible
+                                // cue 5 min before a block starts.
+                                playSound(soundRef.current || 'ding');
                             } catch { /* notification constructor can throw on iOS Safari */ }
                         }
                     }

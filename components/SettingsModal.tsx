@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
+import { playSound } from '../services/soundService';
 
 export interface TaskTemplate {
   id: string;
@@ -28,6 +29,25 @@ export interface NoteTemplate {
   autoCreate: boolean;
 }
 
+export type SoundType =
+  | 'beep'
+  | 'chime'
+  | 'bell'
+  | 'alarm'
+  | 'ding'
+  | 'triad'
+  | 'none';
+
+export const SOUND_OPTIONS: { value: SoundType; label: string; hint: string }[] = [
+  { value: 'beep', label: 'Beep (default)', hint: 'Two-tone short beep' },
+  { value: 'chime', label: 'Soft chime', hint: 'Gentle C-E chord' },
+  { value: 'bell', label: 'Bell', hint: 'Bright bell-like tone' },
+  { value: 'alarm', label: 'Alarm', hint: 'Repeating high-pitch pulses' },
+  { value: 'ding', label: 'Ding', hint: 'Single crisp ding' },
+  { value: 'triad', label: 'Triad up', hint: 'C-E-G ascending' },
+  { value: 'none', label: 'Silent', hint: 'No sound — notifications only' },
+];
+
 export interface AppSettings {
   defaultTasks: TaskTemplate[];
   noteTemplates: NoteTemplate[];
@@ -35,6 +55,8 @@ export interface AppSettings {
   trackedAreas?: string[]; // New: Areas for KPIs
   taskStandardTemplate?: import('../types').TaskStandardTemplate | null;
   globalLabels?: OpportunityLabel[];
+  notificationSound?: SoundType;
+  timerSound?: SoundType;
 }
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
@@ -70,7 +92,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: '2', text: 'Strategic', color: '#8b5cf6' }, // Violet
     { id: '3', text: 'Low Hanging Fruit', color: '#10b981' }, // Emerald
     { id: '4', text: 'Complex', color: '#f59e0b' }, // Amber
-  ]
+  ],
+  notificationSound: 'beep',
+  timerSound: 'beep',
 };
 
 interface Props {
@@ -401,6 +425,70 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* SOUNDS */}
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2">
+                  <Bell className="w-4 h-4" /> Sounds
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Choose the audible cue used for browser notifications and for timer / pomodoro phase changes. Click <b>Preview</b> to hear each option.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Notification sound</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={settings.notificationSound || 'ding'}
+                        onChange={(e) => setSettings(prev => ({ ...prev, notificationSound: e.target.value as SoundType }))}
+                        className="flex-1 border border-gray-200 rounded-lg text-sm p-2 focus:border-[#3DCD58] focus:ring-0"
+                      >
+                        {SOUND_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => playSound(settings.notificationSound || 'ding')}
+                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 flex items-center gap-1"
+                        title="Preview"
+                      >
+                        <Play className="w-3 h-3" /> Preview
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      {SOUND_OPTIONS.find(o => o.value === (settings.notificationSound || 'ding'))?.hint}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Timer sound</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={settings.timerSound || 'beep'}
+                        onChange={(e) => setSettings(prev => ({ ...prev, timerSound: e.target.value as SoundType }))}
+                        className="flex-1 border border-gray-200 rounded-lg text-sm p-2 focus:border-[#3DCD58] focus:ring-0"
+                      >
+                        {SOUND_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => playSound(settings.timerSound || 'beep')}
+                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 flex items-center gap-1"
+                        title="Preview"
+                      >
+                        <Play className="w-3 h-3" /> Preview
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      {SOUND_OPTIONS.find(o => o.value === (settings.timerSound || 'beep'))?.hint}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

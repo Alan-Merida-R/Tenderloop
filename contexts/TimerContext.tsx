@@ -3,6 +3,8 @@ import { Opportunity } from '../types';
 import { StartTimerModal } from '../components/StartTimerModal';
 import { StopTimerModal } from '../components/StopTimerModal';
 import { TaskStatus } from '../types';
+import { playSound } from '../services/soundService';
+import type { SoundType } from '../components/SettingsModal';
 
 export type PomodoroPhase = 'work' | 'shortBreak' | 'longBreak';
 
@@ -92,36 +94,24 @@ interface TimerProviderProps {
     children: React.ReactNode;
     onLogTime?: (taskId: string, oppId: string, seconds: number, status?: TaskStatus) => void;
     opportunities: Opportunity[];
+    /** Sound played on phase transitions and timer events. Defaults to 'beep'. */
+    timerSound?: SoundType;
+    /** Sound played when a browser notification fires. Defaults to 'ding'. */
+    notificationSound?: SoundType;
 }
 
-/** Short beep via WebAudio; tolerates browsers that block autoplay. */
-const playBeep = (durationMs = 220, frequency = 880, volume = 0.15) => {
-    try {
-        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (!AC) return;
-        const ctx = new AC();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.value = frequency;
-        osc.type = 'sine';
-        gain.gain.value = volume;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        setTimeout(() => {
-            try { osc.stop(); ctx.close(); } catch { /* ignore */ }
-        }, durationMs);
-    } catch { /* ignored */ }
-};
-
-const playPhaseAlert = (phase: PomodoroPhase) => {
-    if (phase === 'work') {
-        playBeep(180, 660);
-        setTimeout(() => playBeep(180, 880), 220);
-    } else {
-        playBeep(260, 523);
-        setTimeout(() => playBeep(260, 659), 300);
+// Phase alerts reuse the shared soundService (configurable by the user in
+// Settings → Sounds). The timer context receives the current sound via a ref
+// so the callback identity stays stable across re-renders.
+const playPhaseAlert = (phase: PomodoroPhase, soundOverride?: SoundType) => {
+    // Breaks get a softer chime by default so the phase transition is still
+    // audibly distinct from work → break. If the user picked a custom sound
+    // (anything other than the default 'beep') we honor that for both phases.
+    if (soundOverride && soundOverride !== 'beep') {
+        playSound(soundOverride);
+        return;
     }
+    playSound(phase === 'work' ? 'beep' : 'chime');
 };
 
 const fireBrowserNotification = (title: string, body: string, tag = 'pomodoro-phase') => {
@@ -156,7 +146,15 @@ const phaseLabel = (phase: PomodoroPhase) => {
     return 'Long Break';
 };
 
-export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTime, opportunities }) => {
+export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTime, opportunities, timerSound, notificationSound }) => {
+    // Refs keep callback identities stable even when the user changes the
+    // sound in Settings. Without these, every sound-setting tweak would
+    // rebuild every memoized action (startTimer, pauseTimer, advancePhase…).
+    const timerSoundRef = useRef<SoundType>(timerSound || 'beep');
+    timerSoundRef.current = timerSound || 'beep';
+    const notificationSoundRef = useRef<SoundType>(notificationSound || 'ding');
+    notificationSoundRef.current = notificationSound || 'ding';
+
     const [timerState, setTimerState] = useState<TimerState>(() => {
         try {
             const saved = localStorage.getItem(STORAGE_KEY);
@@ -338,11 +336,15 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
                 elapsedSeconds: nextPhase === 'work' ? 0 : prev.elapsedSeconds,
             };
             if (!manualSkip) {
-                if (cfg.soundEnabled) playPhaseAlert(nextPhase);
+                if (cfg.soundEnabled) playPhaseAlert(nextPhase, timerSoundRef.current);
                 fireBrowserNotification(
                     nextPhase === 'work' ? 'Back to work' : 'Break time',
                     `${phaseLabel(nextPhase)} — ${phaseSeconds(nextPhase, cfg) / 60} min`
                 );
+                // Also play the notification sound so users working full-screen
+                // in another app still hear the phase change even if the OS
+                // suppresses the visual notification.
+                if (cfg.soundEnabled) playSound(notificationSoundRef.current);
             }
             broadcastState(newState);
             return newState;
