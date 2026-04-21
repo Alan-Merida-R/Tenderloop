@@ -5,13 +5,22 @@ timeout /t 1 /nobreak >nul
 curl.exe -s -o nul http://localhost:3000 >nul 2>&1
 if errorlevel 1 goto WAIT
 
-:: Intentar Edge en modo app (sin marcos, parece app nativa)
-start "" msedge --app="http://localhost:3000" 2>nul
-if not errorlevel 1 exit /b 0
+:: --- Buscar Vivaldi ---
+:: Ruta tipica: %LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe
+if exist "%LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe" (
+    start "" "%LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe" --app="http://localhost:3000"
+    exit /b 0
+)
+:: Ruta alternativa: Program Files
+if exist "%ProgramFiles%\Vivaldi\Application\vivaldi.exe" (
+    start "" "%ProgramFiles%\Vivaldi\Application\vivaldi.exe" --app="http://localhost:3000"
+    exit /b 0
+)
+:: Ruta alternativa: Program Files (x86)
+if exist "%ProgramFiles(x86)%\Vivaldi\Application\vivaldi.exe" (
+    start "" "%ProgramFiles(x86)%\Vivaldi\Application\vivaldi.exe" --app="http://localhost:3000"
+    exit /b 0
+)
 
-:: Intentar Chrome en modo app
-start "" chrome --app="http://localhost:3000" 2>nul
-if not errorlevel 1 exit /b 0
-
-:: Fallback: navegador por defecto
+:: --- Vivaldi no encontrado: abrir en navegador por defecto ---
 start "" "http://localhost:3000"
