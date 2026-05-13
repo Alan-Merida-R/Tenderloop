@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
@@ -151,7 +151,7 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels' | 'taskview'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
@@ -290,6 +290,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'labels' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <Tag className="w-4 h-4" /> Labels
+          </button>
+          <button
+            onClick={() => setActiveTab('taskview')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'taskview' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <LayoutList className="w-4 h-4" /> Task Quick View
           </button>
         </div>
 
@@ -682,6 +688,69 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               </div>
             </div>
           )}
+
+          {/* TASK QUICK VIEW TAB */}
+          {activeTab === 'taskview' && (() => {
+            const openStatuses = ['In Progress', 'Pending', 'On Hold', 'Review'];
+            const rows: { alias: string; task: string; status: string; missing: string[] }[] = [];
+            for (const opp of opportunities) {
+              if (!openStatuses.includes(opp.statusLabel)) continue;
+              const label = opp.alias || `OPP-${opp.id.slice(-4)}`;
+              for (const task of opp.tasks || []) {
+                if (task.status === 'Done' || task.status === 'Canceled') continue;
+                const missing: string[] = [];
+                if (!task.dueDate) missing.push('due date');
+                if (!task.owner) missing.push('owner');
+                if (!task.priority) missing.push('priority');
+                rows.push({ alias: label, task: task.title, status: task.status, missing });
+              }
+            }
+            const copyToClipboard = () => {
+              const lines = ['Opportunity | Task | Status | Missing Info'];
+              rows.forEach(r => lines.push(`${r.alias} | ${r.task} | ${r.status} | ${r.missing.length ? r.missing.join(', ') : '—'}`));
+              navigator.clipboard.writeText(lines.join('\n'));
+            };
+            return (
+              <div className="space-y-4">
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-700">
+                  <b>Task Quick View</b> — snapshot of all active tasks in open opportunities. No sensitive data (costs/clients hidden). Use "Copy for AI" to paste into an assistant for prioritization.
+                </div>
+                <div className="flex justify-end">
+                  <button onClick={copyToClipboard} className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
+                    <Copy className="w-3.5 h-3.5" /> Copy for AI
+                  </button>
+                </div>
+                {rows.length === 0 ? (
+                  <p className="text-center text-sm text-gray-400 py-8">No active tasks in open opportunities.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-gray-200">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Opportunity</th>
+                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Task</th>
+                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Status</th>
+                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Missing</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => (
+                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="px-3 py-2 font-bold text-[#3DCD58]">{r.alias}</td>
+                            <td className="px-3 py-2 text-gray-800">{r.task}</td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${TASK_STATUS_COLORS[r.status as TaskStatus] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
+                            </td>
+                            <td className="px-3 py-2 text-amber-600 font-bold">{r.missing.length ? r.missing.join(', ') : <span className="text-green-600">✓</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}

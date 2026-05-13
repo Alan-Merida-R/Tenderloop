@@ -380,7 +380,7 @@ export const ScheduleWeekGrid: React.FC<Props> = ({ items, anchor, onAnchorChang
                                                 const col = (e.currentTarget.parentElement as HTMLElement);
                                                 if (col) beginMove(e, it, col);
                                             }}
-                                            className="absolute rounded-md border shadow-sm text-left px-1.5 py-1 overflow-hidden hover:shadow-md transition-shadow z-10 cursor-grab active:cursor-grabbing select-none"
+                                            className={`absolute rounded-md border shadow-sm text-left px-1.5 py-1 overflow-hidden hover:shadow-md transition-shadow z-10 cursor-grab active:cursor-grabbing select-none${it.dimmed ? ' opacity-40' : ''}`}
                                             style={{
                                                 top,
                                                 height,

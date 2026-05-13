@@ -33,11 +33,15 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
     }, [timerState.isRunning, timerState.taskId, timerState.pomodoroPhase]);
 
     const displaySeconds = React.useMemo(() => {
-        if (!timerState.isRunning) return timerState.elapsedSeconds;
+        // During break phases, work time must not accumulate (guards against startTimer
+        // being called during a break which sets startTime on a non-work phase).
+        if (!timerState.isRunning || timerState.pomodoroPhase !== 'work' || !timerState.startTime) {
+            return timerState.elapsedSeconds;
+        }
         const now = Date.now();
-        const sessionSeconds = Math.floor((now - (timerState.startTime || now)) / 1000);
+        const sessionSeconds = Math.floor((now - timerState.startTime) / 1000);
         return timerState.elapsedSeconds + sessionSeconds;
-    }, [timerState.isRunning, timerState.elapsedSeconds, timerState.startTime, tick]);
+    }, [timerState.isRunning, timerState.elapsedSeconds, timerState.startTime, timerState.pomodoroPhase, tick]);
 
     // BUG FIX: phaseElapsedSeconds from context is captured at the last TimerProvider
     // render, which only happens when timerState/config changes. During a break/focus
@@ -89,7 +93,7 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
 
     const popOut = React.useCallback(() => {
         const url = `${window.location.pathname}?window=timer`;
-        window.open(url, 'tenderloop_timer', 'width=320,height=240,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
+        window.open(url, 'tenderloop_timer', 'width=380,height=300,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
     }, []);
 
     // Floating / popup layout: big Windows-Clock-style digital readout.
@@ -138,9 +142,9 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
         );
     }
 
-    // Softer red for breaks — the previous rose-700 was too aggressive per user feedback.
+    // Dark red for breaks — visible but not alarming.
     const bgClass = isBreak
-        ? 'bg-rose-400/85 border-rose-200'
+        ? 'bg-rose-900/85 border-rose-800'
         : 'bg-gray-900/90 border-gray-700';
 
     return (
@@ -243,7 +247,7 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
     const hasSession = timerState.isRunning || !!timerState.taskId || timerState.elapsedSeconds > 0;
 
     const bg = isBreak
-        ? 'bg-gradient-to-br from-rose-500/85 to-rose-400/80 text-white'
+        ? 'bg-gradient-to-br from-rose-950/90 to-rose-900/85 text-white'
         : 'bg-gradient-to-br from-slate-900 to-slate-800 text-gray-100';
 
     return (

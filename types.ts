@@ -25,6 +25,8 @@ export interface DeepLink {
   path?: string;
   focusDate?: string;
   fullView?: boolean;
+  /** Monotonically-increasing counter so repeated clicks to the same target always re-fire the navigation effect. */
+  _nonce?: number;
 }
 
 export type FloatingTabType = 'task' | 'note' | 'opportunity' | 'tracking';

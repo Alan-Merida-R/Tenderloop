@@ -4,15 +4,15 @@ import { timeToMinutes } from './executionBlockUtils';
 import { playSound } from '../../services/soundService';
 import type { SoundType } from '../../components/SettingsModal';
 
-// Lead time shortened per user request: notify 5 minutes before the block starts.
-const LEAD_MINUTES = 5;
+// Notify 15 minutes before the block starts.
+const LEAD_MINUTES = 15;
 // Poll every 30s so the 2-minute firing window can't be missed by a user whose
 // machine was briefly asleep at the top of the minute.
 const CHECK_INTERVAL_MS = 30_000;
 // Bumped to V2 because the previous seen-keys used 10-minute semantics; if a user
 // upgrades while a block is already within 5-10 min, we don't want stale keys to
 // suppress the new 5-min notification.
-const STORAGE_KEY = 'TenderLoop_NotifiedBlocks_V2';
+const STORAGE_KEY = 'TenderLoop_NotifiedBlocks_V3';
 
 /** Stored notified-block keys: `${blockId}-YYYY-MM-DD`. Trimmed daily. */
 const loadSeen = (): Set<string> => {
@@ -83,8 +83,7 @@ export const useScheduleNotifications = (
                         const startMin = timeToMinutes(block.startTime);
                         if (isNaN(startMin)) continue;
                         const delta = startMin - nowMin;
-                        // Fire once while delta is in [LEAD-2, LEAD]. With LEAD=5 that gives
-                        // a 3..5 min firing window, wide enough to catch any missed tick.
+                        // Fire once while delta is in [LEAD-2, LEAD] (3-min window to survive missed ticks).
                         if (delta <= LEAD_MINUTES && delta > LEAD_MINUTES - 3) {
                             const key = `${block.id}-${block.date}`;
                             if (seen.has(key)) continue;
@@ -104,12 +103,30 @@ export const useScheduleNotifications = (
                                     openRef.current(opp.id, { tab: 'tasks', taskId: task.id, fullView: true });
                                     n.close();
                                 };
-                                // Play the user-configured sound alongside the
-                                // system notification. The OS may suppress its
-                                // default sound, but we still want an audible
-                                // cue 5 min before a block starts.
                                 playSound(soundRef.current || 'ding');
                             } catch { /* notification constructor can throw on iOS Safari */ }
+                        }
+                        // At-start notification: fire when block begins (delta in [-1, 1] min).
+                        const startKey = `${block.id}-${block.date}-start`;
+                        if (delta >= -1 && delta <= 1 && !seen.has(startKey)) {
+                            seen.add(startKey);
+                            try {
+                                const oppLabel = opp.alias || opp.title;
+                                const n = new Notification(
+                                    `Starting now — ${task.title}`,
+                                    {
+                                        body: `${oppLabel} · ${block.startTime}`,
+                                        tag: startKey,
+                                        requireInteraction: false,
+                                    }
+                                );
+                                n.onclick = () => {
+                                    try { window.focus(); } catch { /* ignored */ }
+                                    openRef.current(opp.id, { tab: 'tasks', taskId: task.id, fullView: true });
+                                    n.close();
+                                };
+                                playSound(soundRef.current || 'ding');
+                            } catch { /* notification constructor can throw */ }
                         }
                     }
                 }

@@ -25,6 +25,8 @@ export interface ScheduledItem {
     oppAlias?: string;
     oppColor: string;
     oppName: string;
+    /** True when active filters are set and this item doesn't match — shown dimmed in calendar */
+    dimmed?: boolean;
 }
 
 interface Props {
@@ -77,9 +79,14 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
 
     const items: ScheduledItem[] = useMemo(() => {
         const out: ScheduledItem[] = [];
-        for (const { task, opp } of filteredTasks) {
+        const hasActiveFilters =
+            filters.oppIds.length + filters.statuses.length +
+            filters.priorities.length + filters.owners.length > 0;
+        // Calendar always shows ALL scheduled tasks; non-matching ones are dimmed.
+        for (const { task, opp } of activeTasks) {
             const blocks = task.executionBlocks || [];
             const oppColor = colorByOpp.get(opp.id) || '#3DCD58';
+            const matchesFilter = !hasActiveFilters || taskMatchesFilters(task, opp.id, filters);
             for (const block of blocks) {
                 out.push({
                     block,
@@ -88,11 +95,12 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
                     oppAlias: opp.alias,
                     oppColor,
                     oppName: opp.title,
+                    dimmed: !matchesFilter,
                 });
             }
         }
         return out;
-    }, [filteredTasks, colorByOpp]);
+    }, [activeTasks, filters, colorByOpp]);
 
     const unscheduledTasks = useMemo(
         () => filteredTasks.filter(({ task }) => !isTaskScheduled(task)),

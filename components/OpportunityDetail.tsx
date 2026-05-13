@@ -150,6 +150,40 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         const handleKeyDown = (e: React.KeyboardEvent) => {
+            // Markdown shortcuts: * or - + Space → bullet list, 1. + Space → numbered list
+            if (e.key === ' ') {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
+                    if (textBefore === '*' || textBefore === '-') {
+                        e.preventDefault();
+                        const del = range.cloneRange();
+                        del.setStart(range.startContainer, 0);
+                        del.deleteContents();
+                        document.execCommand('insertUnorderedList');
+                        return;
+                    }
+                    if (/^\d+\.$/.test(textBefore)) {
+                        e.preventDefault();
+                        const del = range.cloneRange();
+                        del.setStart(range.startContainer, 0);
+                        del.deleteContents();
+                        document.execCommand('insertOrderedList');
+                        return;
+                    }
+                }
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                document.execCommand('bold');
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+                e.preventDefault();
+                document.execCommand('italic');
+                return;
+            }
             if (e.key === 'Tab') {
                 e.preventDefault();
                 insertHtml('&nbsp;&nbsp;&nbsp;&nbsp;');
@@ -1782,7 +1816,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     useEffect(() => {
         if (deepLink) {
-            const deepLinkKey = `${deepLink.tab}-${deepLink.taskId || ''}-${deepLink.noteId || ''}-${deepLink.eventId || ''}`;
+            const deepLinkKey = `${deepLink.tab}-${deepLink.taskId || ''}-${deepLink.noteId || ''}-${deepLink.eventId || ''}-${deepLink._nonce ?? ''}`;
             if (lastProcessedDeepLink.current === deepLinkKey) return;
             lastProcessedDeepLink.current = deepLinkKey;
 
@@ -1862,8 +1896,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (saveToParentTimeoutRef.current) {
                 window.clearTimeout(saveToParentTimeoutRef.current);
             }
-            // PERSISTENCE GUARANTEE: Force save the absolute latest local state on unmount
-            onUpdate(localOppRef.current, opportunity.id);
+            // PERSISTENCE GUARANTEE: Force save on unmount, but NOT when viewing a snapshot
+            // — saving snapshot content would overwrite the current live version.
+            if (!viewingVersionIdRef.current) {
+                onUpdate(localOppRef.current, opportunity.id);
+            }
         };
     }, [opportunity.id]);
 
@@ -2362,7 +2399,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
         // Optimistically update selected task in modal — this is the ONLY update that
         // needs to be synchronous (it drives the immediate visual feedback in the modal).
-        const updatedTaskData = { ...selectedTaskForEdit.task, [field]: value };
+        const updatedTaskData: Task = {
+            ...selectedTaskForEdit.task,
+            [field]: value,
+            // Auto-assign today as dueDate when marking Done without a date
+            ...(field === 'status' && value === 'Done' && !selectedTaskForEdit.task.dueDate
+                ? { dueDate: new Date().toISOString().split('T')[0] }
+                : {}),
+        };
         setSelectedTaskForEdit({ task: updatedTaskData });
 
         let updatedTasks = localOpp.tasks.map(t => t.id === selectedTaskForEdit.task.id ? updatedTaskData : t);
@@ -4303,6 +4347,47 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                                    {/* Pinned links: SRLink, BFO, CQA always visible with fixed labels */}
+                                    {!isSnapshot && (() => {
+                                        const linksArr: QuickLinkItem[] = Array.isArray(localOpp.links)
+                                            ? localOpp.links
+                                            : Object.entries(localOpp.links || {}).map(([k, v]) => ({ id: k, type: 'link', label: String(k), url: typeof v === 'string' ? v : '' } as QuickLinkItem));
+                                        const getPinned = (label: string) => linksArr.find(l => l.label.toLowerCase() === label.toLowerCase())?.url || '';
+                                        const setPinned = (label: string, url: string) => {
+                                            const normalized = label;
+                                            const exists = linksArr.find(l => l.label.toLowerCase() === label.toLowerCase());
+                                            let newLinks: QuickLinkItem[];
+                                            if (exists) {
+                                                newLinks = linksArr.map(l => l.label.toLowerCase() === label.toLowerCase() ? { ...l, url } : l);
+                                            } else {
+                                                newLinks = [{ id: crypto.randomUUID(), type: 'link', label: normalized, url }, ...linksArr];
+                                            }
+                                            handleFieldChange('links', newLinks);
+                                        };
+                                        return (
+                                            <div className="mb-3 p-3 bg-[#3DCD58]/5 rounded-xl border border-[#3DCD58]/20 space-y-2">
+                                                <div className="text-[9px] font-black text-[#3DCD58] uppercase tracking-widest mb-1">Key Links</div>
+                                                {[{ key: 'SRLink', placeholder: 'SR / Support Request URL' }, { key: 'BFO', placeholder: 'BFO / CRM URL' }, { key: 'CQA', placeholder: 'CQA 2.0 URL' }].map(({ key, placeholder }) => (
+                                                    <div key={key} className="flex items-center gap-2">
+                                                        <span className="text-[10px] font-black text-gray-500 w-12 shrink-0">{key}</span>
+                                                        <input
+                                                            type="url"
+                                                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] truncate"
+                                                            defaultValue={getPinned(key)}
+                                                            placeholder={placeholder}
+                                                            onBlur={(e) => { if (e.target.value !== getPinned(key)) setPinned(key, e.target.value); }}
+                                                            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+                                                        />
+                                                        {getPinned(key) && (
+                                                            <a href={getPinned(key)} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0">
+                                                                <ExternalLink className="w-3.5 h-3.5" />
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
                                     <div className="flex justify-between items-center mb-2">
                                         <h3 className="text-sm font-semibold">Quick Links</h3>
                                         <div className="flex gap-1">

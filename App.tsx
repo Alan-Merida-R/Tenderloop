@@ -81,6 +81,7 @@ function App() {
   const [recentDbs, setRecentDbs] = useState<RecentDbEntry[]>([]);
   const [showRecents, setShowRecents] = useState(false);
   const [startupHint, setStartupHint] = useState<string | null>(null);
+  const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [fallbackFileName, setFallbackFileName] = useState<string | null>(null);
 
@@ -103,6 +104,12 @@ function App() {
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
   const isSavingRef = useRef(false);
+  // E1 FIX: Track whether a mousedown started inside the detail overlay so that
+  // text-selection drags that leave the inner container don't trigger the backdrop click.
+  const detailMouseDownInsideRef = useRef(false);
+  // TA2 FIX: Monotonically increasing counter added to each deepLink so repeated
+  // navigations to the same task always re-fire the scroll/highlight effect.
+  const deepLinkNonceRef = useRef(0);
   // DATA-LOSS FIX: when a critical mutation (e.g. a note content flush on
   // expediente close) arrives, we want the autosave to fire almost immediately
   // instead of waiting the normal 3-second debounce. Setting this ref to true
@@ -194,11 +201,15 @@ function App() {
         if (perm === 'granted') {
           setStatus('loading');
           await loadDbFromHandle(lastHandle);
+        } else if (perm === 'prompt') {
+          // Handle found but permission expired — show a one-click reopen button
+          setPendingHandle(lastHandle);
+          setStartupHint('__reopen__');
         } else {
-          setStartupHint("Please open a database file.");
+          setStartupHint("Open or create a database file to get started.");
         }
       } else {
-        setStartupHint("Please open a database file.");
+        setStartupHint("Open or create a database file to get started.");
       }
     };
     init();
@@ -1418,7 +1429,7 @@ function App() {
 
   const handleSelectOpp = useCallback((id: string, dl?: DeepLink) => {
     setSelectedOppId(id);
-    setActiveDeepLink(dl || null);
+    setActiveDeepLink(dl ? { ...dl, _nonce: ++deepLinkNonceRef.current } : null);
   }, []);
 
   const handleCreateOppAtRoot = useCallback((stage?: ProcessStage) => {
@@ -1533,7 +1544,29 @@ function App() {
                 <button onClick={handleCreateDB} className="flex items-center gap-2 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
                   <PlusCircle className="w-4 h-4" /> New DB
                 </button>
-                {startupHint && <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>}
+                {startupHint === '__reopen__' && pendingHandle ? (
+                  <button
+                    onClick={async () => {
+                      try {
+                        // @ts-ignore
+                        const perm = await pendingHandle.requestPermission({ mode: 'readwrite' });
+                        if (perm === 'granted') {
+                          setStatus('loading');
+                          const h = pendingHandle;
+                          setPendingHandle(null);
+                          setStartupHint(null);
+                          await loadDbFromHandle(h);
+                        }
+                      } catch (e) { console.error('Permission request failed', e); }
+                    }}
+                    className="flex items-center gap-1 text-xs text-[#3DCD58] font-bold hover:underline animate-pulse"
+                  >
+                    <FolderOpen className="w-3 h-3" />
+                    Reopen: {(pendingHandle as any).name || 'last database'}
+                  </button>
+                ) : startupHint && startupHint !== '__reopen__' ? (
+                  <span className="text-xs text-gray-400 animate-pulse">{startupHint}</span>
+                ) : null}
               </div>
             ) : (
               <div className="flex items-center gap-3 animate-fade-in">
@@ -1647,8 +1680,8 @@ function App() {
 
           {/* Opportunity Detail Overlay */}
           {selectedOppForDetail && (
-            <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); }}>
-              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { if (!detailMouseDownInsideRef.current) { setSelectedOppId(null); setActiveDeepLink(null); } detailMouseDownInsideRef.current = false; }}>
+              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onMouseDown={() => { detailMouseDownInsideRef.current = true; }} onClick={(e) => e.stopPropagation()}>
                 <LocalErrorBoundary fallbackLabel="Opportunity Detail">
                   <OpportunityDetail
                     opportunity={selectedOppForDetail}

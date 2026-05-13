@@ -315,8 +315,8 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
                 nextPhase = 'work';
             }
 
-            // If we completed a work phase (non-manual), log accumulated work seconds.
-            if (!manualSkip && prev.pomodoroPhase === 'work' && prev.taskId && prev.oppId) {
+            // Log accumulated work seconds when leaving a work phase (manual skip or auto-complete).
+            if (prev.pomodoroPhase === 'work' && prev.taskId && prev.oppId) {
                 const workElapsed = prev.pomodoroPhaseAccumulated + (prev.pomodoroPhaseStart && running ? Math.floor((now - prev.pomodoroPhaseStart) / 1000) : 0);
                 if (workElapsed > 0 && onLogTimeRef.current) {
                     onLogTimeRef.current(prev.taskId, prev.oppId, workElapsed);

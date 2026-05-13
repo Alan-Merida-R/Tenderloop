@@ -201,16 +201,26 @@ const DetailsTab: React.FC<{
     );
 };
 
-/** Unscheduled tab: flat list of active tasks without blocks, draggable. */
+/** Unscheduled tab: split into "Ready to Schedule" (has dueDate) and "Needs Info" (no dueDate). */
 const UnscheduledTab: React.FC<{ items: UnscheduledItem[] }> = ({ items }) => {
     const [q, setQ] = useState('');
-    const filtered = items.filter(it => {
-        if (!q) return true;
+    const [showNeedsInfo, setShowNeedsInfo] = useState(true);
+
+    const ready = items.filter(it => !!it.task.dueDate);
+    const needsInfo = items.filter(it => !it.task.dueDate);
+
+    const applySearch = (list: UnscheduledItem[]) => {
+        if (!q) return list;
         const s = q.toLowerCase();
-        return it.task.title.toLowerCase().includes(s)
+        return list.filter(it =>
+            it.task.title.toLowerCase().includes(s)
             || (it.opp.alias || '').toLowerCase().includes(s)
-            || it.opp.title.toLowerCase().includes(s);
-    });
+            || it.opp.title.toLowerCase().includes(s)
+        );
+    };
+
+    const filteredReady = applySearch(ready);
+    const filteredNeeds = applySearch(needsInfo);
 
     if (items.length === 0) {
         return (
@@ -219,6 +229,36 @@ const UnscheduledTab: React.FC<{ items: UnscheduledItem[] }> = ({ items }) => {
             </div>
         );
     }
+
+    const renderTaskCard = ({ task, opp, color }: UnscheduledItem, draggable = true) => {
+        const style = getPastelBlockStyle(color);
+        return (
+            <li
+                key={`${opp.id}-${task.id}`}
+                draggable={draggable}
+                onDragStart={draggable ? (e) => {
+                    e.dataTransfer.setData('application/x-tenderloop-task', JSON.stringify({ oppId: opp.id, taskId: task.id }));
+                    e.dataTransfer.effectAllowed = 'copy';
+                } : undefined}
+                className={`flex items-start gap-2 p-2 rounded-lg border hover:shadow-sm transition-all ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default opacity-70'}`}
+                style={{ backgroundColor: style.bg, borderColor: style.border }}
+            >
+                <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-tight truncate" style={{ color: style.text }}>
+                        {opp.alias || opp.id}
+                    </div>
+                    <div className="text-[11px] font-bold text-gray-800 break-words">{task.title}</div>
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <span className={`text-[9px] font-bold px-1.5 py-0 rounded ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</span>
+                        {task.dueDate
+                            ? <span className="text-[9px] text-gray-500">Due {task.dueDate}</span>
+                            : <span className="text-[9px] text-amber-600 font-bold flex items-center gap-0.5"><AlertTriangle className="w-2.5 h-2.5" /> No due date</span>
+                        }
+                    </div>
+                </div>
+            </li>
+        );
+    };
 
     return (
         <div className="p-3 space-y-2">
@@ -231,38 +271,43 @@ const UnscheduledTab: React.FC<{ items: UnscheduledItem[] }> = ({ items }) => {
                     className="w-full pl-7 pr-2 py-1.5 text-xs bg-white border border-gray-200 rounded-lg focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58]"
                 />
             </div>
-            <div className="text-[10px] text-gray-400 italic px-1">Drag a task onto the calendar to schedule it.</div>
-            <ul className="space-y-1.5">
-                {filtered.map(({ task, opp, color }) => {
-                    const style = getPastelBlockStyle(color);
-                    return (
-                        <li
-                            key={`${opp.id}-${task.id}`}
-                            draggable
-                            onDragStart={(e) => {
-                                e.dataTransfer.setData('application/x-tenderloop-task', JSON.stringify({ oppId: opp.id, taskId: task.id }));
-                                e.dataTransfer.effectAllowed = 'copy';
-                            }}
-                            className="flex items-start gap-2 p-2 rounded-lg border cursor-grab active:cursor-grabbing hover:shadow-sm transition-all"
-                            style={{ backgroundColor: style.bg, borderColor: style.border }}
-                        >
-                            <div className="flex-1 min-w-0">
-                                <div className="text-[10px] font-bold uppercase tracking-tight truncate" style={{ color: style.text }}>
-                                    {opp.alias || opp.id}
-                                </div>
-                                <div className="text-[11px] font-bold text-gray-800 break-words">{task.title}</div>
-                                <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                    <span className={`text-[9px] font-bold px-1.5 py-0 rounded ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</span>
-                                    {task.dueDate && <span className="text-[9px] text-gray-500">Due {task.dueDate}</span>}
-                                </div>
-                            </div>
-                        </li>
-                    );
-                })}
-                {filtered.length === 0 && (
-                    <li className="text-[11px] text-gray-400 italic text-center py-3">No matches.</li>
-                )}
-            </ul>
+
+            {/* Ready to schedule */}
+            {filteredReady.length > 0 && (
+                <>
+                    <div className="text-[10px] text-gray-400 italic px-1">Drag a task onto the calendar to schedule it.</div>
+                    <ul className="space-y-1.5">
+                        {filteredReady.map(it => renderTaskCard(it, true))}
+                    </ul>
+                </>
+            )}
+            {filteredReady.length === 0 && q && (
+                <p className="text-[11px] text-gray-400 italic text-center py-2">No matches.</p>
+            )}
+
+            {/* Needs Info section */}
+            {needsInfo.length > 0 && (
+                <div className="pt-2 border-t border-gray-100">
+                    <button
+                        onClick={() => setShowNeedsInfo(v => !v)}
+                        className="flex items-center gap-1.5 w-full text-left mb-1.5"
+                    >
+                        <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                        <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest flex-1">
+                            Needs Info ({needsInfo.length})
+                        </span>
+                        <span className="text-[9px] text-gray-400">{showNeedsInfo ? '▲' : '▼'}</span>
+                    </button>
+                    {showNeedsInfo && (
+                        <>
+                            <p className="text-[9px] text-gray-400 italic px-1 mb-1.5">These tasks are missing a due date — set one in the Expediente to enable scheduling.</p>
+                            <ul className="space-y-1.5">
+                                {filteredNeeds.map(it => renderTaskCard(it, false))}
+                            </ul>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
