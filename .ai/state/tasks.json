@@ -1796,7 +1796,7 @@
     "name": "Alarmas configurables en Settings",
     "category": "Configuración/BD",
     "description": "Permitir configurar alarmas (color y días) en SettingsModal, y aplicarlas dinámicamente en getBadgeInfo dentro de Dashboard.",
-    "status": "needs_testing",
+    "status": "done",
     "priority": "alta",
     "files_allowed": [
       "types.ts",

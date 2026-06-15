@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity, Eye, EyeOff } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -276,7 +276,7 @@ const OpportunityCard = React.memo(({
                             <span className="text-[9px] font-mono text-gray-500 bg-gray-50 px-1 rounded truncate py-0.5">OP: {opp.id}</span>
                         )}
                         {isCardFieldVisible('alias') && opp.alias && (() => {
-                            const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled', alarms);
+                            const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled', alarms);
                             return (
                                 <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-tight ${imp.className}`} style={imp.style}>
                                     {opp.alias}
@@ -787,6 +787,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'notes', label: 'Notes' }
     ];
     const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(c => c.key));
+    const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
 
     // KPI Filter State
     const [kpiSoldFilter, setKpiSoldFilter] = useState<'all' | 'sold' | 'not-sold'>('all');
@@ -1039,9 +1040,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setTaskSearchText('');
         setSelectedOppChips([]);
         setStatusFilters([]);
+        setDetailedStatusFilters([]);
         setLabelFilters([]);
         setDateFilterStart('');
         setDateFilterEnd('');
+        setRankFilter('');
+        
         // Task specific
         setTaskStatusFilters([]);
         setTaskPriorityFilters([]);
@@ -1049,6 +1053,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setTaskAreaFilters([]);
         setTaskOppStatusFilters([]);
         setTaskCalendarizedFilter('all');
+        setShowNextSteps(false);
     };
 
 
@@ -2312,7 +2317,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 {Object.entries(groupedOpps).map(([columnKey, opps]: [string, Opportunity[]], index, arr) => (
                                     <div
                                         key={columnKey}
-                                        className={`${kanbanGroupBy === 'detailed' ? 'w-60' : 'w-80'} flex flex-col h-full relative group select-none`}
+                                        className={`${collapsedColumns.includes(columnKey) ? 'w-16 min-w-[4rem]' : (kanbanGroupBy === 'detailed' ? 'w-60 min-w-[15rem]' : 'w-80 min-w-[20rem]')} flex flex-col h-full relative group select-none transition-all duration-300`}
                                         onDragOver={handleDragOver}
                                         onDrop={(e) => handleDrop(e, columnKey, 'column')}
                                     >
@@ -2326,40 +2331,69 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     'Lost': 'border-red-400',
                                                     'Canceled': 'border-gray-400',
                                                 };
+                                                const isCollapsed = collapsedColumns.includes(columnKey);
                                                 return (
-                                                    <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm ${STATUS_COLORS[columnKey as OpportunityStatus]} ${topBorderColor[columnKey] ?? ''}`}>
-                                                        <div className="flex flex-col">
-                                                            <h3 className="text-sm font-bold uppercase tracking-wider">{translateStatus(columnKey)}</h3>
+                                                    <div className={`flex items-center justify-between mb-4 p-3 rounded-lg border-t-4 shadow-sm ${STATUS_COLORS[columnKey as OpportunityStatus]} ${topBorderColor[columnKey] ?? ''} ${isCollapsed ? 'flex-col gap-3 py-4' : ''}`}>
+                                                        <div className="flex flex-col items-center">
+                                                            {!isCollapsed && <h3 className="text-sm font-bold uppercase tracking-wider">{translateStatus(columnKey)}</h3>}
+                                                            {isCollapsed && <span className="text-[10px] font-black uppercase tracking-widest [writing-mode:vertical-lr] rotate-180 opacity-70">{translateStatus(columnKey)}</span>}
                                                         </div>
-                                                        <span className="bg-white/50 px-2 py-0.5 rounded-full text-xs font-bold">{opps.length}</span>
+                                                        <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'gap-2'}`}>
+                                                            <span className="bg-white/50 px-2 py-0.5 rounded-full text-xs font-bold shrink-0">{opps.length}</span>
+                                                            <button onClick={() => setCollapsedColumns(prev => prev.includes(columnKey) ? prev.filter(k => k !== columnKey) : [...prev, columnKey])} className="p-1 hover:bg-black/10 rounded transition-colors opacity-0 group-hover:opacity-100" title={isCollapsed ? "Expand column" : "Collapse column"}>
+                                                                {isCollapsed ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 );
                                             })()
                                         ) : (
+                                            (() => {
+                                                const isCollapsed = collapsedColumns.includes(columnKey);
+                                                return (
                                             <div
-                                                className={`flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all`}
+                                                className={`flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all ${isCollapsed ? 'flex-col gap-3 py-4' : ''}`}
                                                 draggable
                                                 onDragStart={(e) => { e.stopPropagation(); setDraggingCol(columnKey); e.dataTransfer.setData('colKey', columnKey); }}
                                                 onDragEnd={() => setDraggingCol(null)}
-                                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                onDragOver={(e) => { e.preventDefault(); }}
                                                 onDrop={(e) => {
-                                                    e.stopPropagation();
                                                     const from = e.dataTransfer.getData('colKey');
-                                                    if (from && from !== columnKey) moveProcessColumn(from, columnKey);
-                                                    setDraggingCol(null);
+                                                    if (from) {
+                                                        e.stopPropagation();
+                                                        if (from !== columnKey) moveProcessColumn(from, columnKey);
+                                                        setDraggingCol(null);
+                                                    }
                                                 }}
                                                 title="Drag to reorder column"
                                             >
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-white/60 text-[8px] mr-0.5">⠿</span>
-                                                    <h3 className="text-[10px] font-black uppercase tracking-tighter leading-none">{translateStatus(columnKey)}</h3>
+                                                <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'gap-1'}`}>
+                                                    <span className={`text-white/60 text-[8px] ${isCollapsed ? '' : 'mr-0.5'}`}>⠿</span>
+                                                    {!isCollapsed && <h3 className="text-[10px] font-black uppercase tracking-tighter leading-none">{translateStatus(columnKey)}</h3>}
+                                                    {isCollapsed && <span className="text-[10px] font-black uppercase tracking-widest [writing-mode:vertical-lr] rotate-180 opacity-70">{translateStatus(columnKey)}</span>}
                                                 </div>
-                                                <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px] font-black">{opps.length}</span>
+                                                <div className={`flex items-center ${isCollapsed ? 'flex-col gap-2' : 'gap-1'}`}>
+                                                    <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px] font-black shrink-0">{opps.length}</span>
+                                                    <button onClick={() => setCollapsedColumns(prev => prev.includes(columnKey) ? prev.filter(k => k !== columnKey) : [...prev, columnKey])} className="p-1 hover:bg-black/10 rounded transition-colors opacity-0 group-hover:opacity-100" title={isCollapsed ? "Expand column" : "Collapse column"}>
+                                                        {isCollapsed ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                                    </button>
+                                                </div>
                                             </div>
+                                                );
+                                            })()
                                         )}
 
-                                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default custom-scrollbar">
-                                            {opps.slice(0, 30).map(opp => (
+                                        {collapsedColumns.includes(columnKey) && (
+                                            <div 
+                                                className="flex-1 border-2 border-dashed border-gray-200/50 rounded-lg mx-2 mb-4 opacity-30 transition-all group-hover:opacity-100 group-hover:border-gray-300"
+                                                onDragOver={handleDragOver}
+                                                onDrop={(e) => handleDrop(e, columnKey, 'column')}
+                                            ></div>
+                                        )}
+
+                                        {!collapsedColumns.includes(columnKey) && (
+                                            <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default custom-scrollbar">
+                                                {opps.slice(0, 30).map(opp => (
                                                 <OpportunityCard
                                                     key={opp.id}
                                                     opp={opp}
@@ -2386,6 +2420,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 </div>
                                             )}
                                         </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -2503,7 +2538,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     >
                                         <div className="flex items-center gap-2">
                                             {o.alias && (() => {
-                                                const imp = getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled', alarms);
+                                                const imp = getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled' || o.detailedStatus === 'Completed' || o.detailedStatus === 'Canceled', alarms);
                                                 return (
                                                     <span className={`${imp.className} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shrink-0 shadow-sm`} style={imp.style}>
                                                         {o.alias}
