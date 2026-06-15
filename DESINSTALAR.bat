@@ -88,10 +88,7 @@ if exist .vite (
     echo   [OK] cache .vite eliminado.
 )
 
-if exist package-lock.json (
-    del /f /q package-lock.json >nul 2>&1
-    echo   [OK] package-lock.json eliminado.
-)
+:: package-lock.json se conserva para que npm install sea más rápido y fiable al reinstalar
 
 echo.
 echo ==========================================

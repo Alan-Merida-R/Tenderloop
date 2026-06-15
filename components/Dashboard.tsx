@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
+import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
 import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -9,7 +9,6 @@ import { getNextTask, compareTasksGlobal, getOppStatusWeight, getTaskPriorityWei
 import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
-import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { TrackingView } from '../features/tracking/TrackingView';
 import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
@@ -100,6 +99,7 @@ interface Props {
     onTaskUpdate: (oppId: string, taskId: string, updates: Partial<Task>) => void;
     holidays?: string[];
     globalLabels: OpportunityLabel[];
+    alarms?: import('../types').AlarmConfig[];
     onMinimize?: (tab: FloatingTab) => void;
     onOpenTaskSubView?: (oppId: string, taskId: string) => void;
 }
@@ -115,6 +115,61 @@ const copyToClipboard = (text: string) => {
         textArea.select();
         document.execCommand("copy");
         document.body.removeChild(textArea);
+    }
+};
+
+const PROPOSAL_CARD_FIELD_OPTIONS = [
+    { key: 'opId', label: 'OP', required: true },
+    { key: 'alias', label: 'Alias', required: true },
+    { key: 'detailedStatus', label: 'Detailed Status' },
+    { key: 'rank', label: 'Rank' },
+    { key: 'title', label: 'Title' },
+    { key: 'customer', label: 'Customer' },
+    { key: 'nextStep', label: 'Next Step' },
+    { key: 'labels', label: 'Labels' },
+    { key: 'quickNote', label: 'Quick Note' },
+    { key: 'processStatus', label: 'Process Status' },
+    { key: 'priority', label: 'Priority' },
+    { key: 'expectedDate', label: 'Expected Date' },
+    { key: 'taskProgress', label: 'Task Progress' },
+] as const;
+
+type ProposalCardFieldKey = typeof PROPOSAL_CARD_FIELD_OPTIONS[number]['key'];
+
+const PROPOSAL_CARD_FIELD_STORAGE_KEY = 'tl.proposalCard.visibleFields.v1';
+const PROPOSAL_CARD_QUICK_HIDE_STORAGE_KEY = 'tl.proposalCard.quickHideFields.v1';
+const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['opId', 'alias']);
+const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS.map(option => option.key);
+const PROPOSAL_CARD_DEFAULT_QUICK_HIDE_FIELDS: ProposalCardFieldKey[] = ['nextStep', 'quickNote'];
+
+const orderProposalCardFields = (fields: Iterable<ProposalCardFieldKey>, includeRequired = true) => {
+    const selected = new Set(fields);
+    if (includeRequired) {
+        REQUIRED_PROPOSAL_CARD_FIELDS.forEach(field => selected.add(field));
+    }
+    return PROPOSAL_CARD_FIELD_OPTIONS
+        .map(option => option.key)
+        .filter(field => selected.has(field));
+};
+
+const normalizeProposalCardFields = (value: unknown, fallback: ProposalCardFieldKey[], includeRequired = true) => {
+    const validKeys = new Set<ProposalCardFieldKey>(PROPOSAL_CARD_FIELD_OPTIONS.map(option => option.key));
+    if (!Array.isArray(value)) return orderProposalCardFields(fallback, includeRequired);
+    return orderProposalCardFields(
+        value.filter((field): field is ProposalCardFieldKey =>
+            typeof field === 'string' && validKeys.has(field as ProposalCardFieldKey)
+        ),
+        includeRequired
+    );
+};
+
+const readProposalCardFields = (storageKey: string, fallback: ProposalCardFieldKey[], includeRequired = true) => {
+    try {
+        const saved = localStorage.getItem(storageKey);
+        if (!saved) return orderProposalCardFields(fallback, includeRequired);
+        return normalizeProposalCardFields(JSON.parse(saved), fallback, includeRequired);
+    } catch {
+        return orderProposalCardFields(fallback, includeRequired);
     }
 };
 
@@ -190,12 +245,12 @@ const OpportunityCard = React.memo(({
     handleInlineEdit,
     kanbanMiniNote,
     onNoteChange,
-    hideNextStepBadges,
-    getBadgeInfo,
+    cardFieldVisibility,
     translateStatus,
-    translateProcessStage
+    alarms
 }: any) => {
     const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
+    const isCardFieldVisible = useCallback((field: ProposalCardFieldKey) => cardFieldVisibility?.[field] !== false, [cardFieldVisibility]);
     const isMissingInfoStale = useMemo(() => {
         if (nextTask?.status === 'Missing Info' && nextTask?.dueDate) {
             const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
@@ -204,7 +259,8 @@ const OpportunityCard = React.memo(({
         return false;
     }, [nextTask]);
 
-    const badge = getBadgeInfo(opp);
+    const showFooter = isCardFieldVisible('expectedDate') || isCardFieldVisible('taskProgress');
+
     return (
         <div
             onClick={(e) => { e.stopPropagation(); onSelect(opp.id); }}
@@ -216,34 +272,39 @@ const OpportunityCard = React.memo(({
             <div className="flex flex-col gap-1 mt-2">
                 <div className="flex items-start justify-between gap-2 overflow-hidden mb-1">
                     <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                        <span className="text-[9px] font-mono text-gray-400 bg-gray-50 px-1 rounded truncate py-0.5">ID: {opp.id}</span>
-                        {opp.detailedStatus && (
+                        {isCardFieldVisible('opId') && (
+                            <span className="text-[9px] font-mono text-gray-500 bg-gray-50 px-1 rounded truncate py-0.5">OP: {opp.id}</span>
+                        )}
+                        {isCardFieldVisible('alias') && opp.alias && (() => {
+                            const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled', alarms);
+                            return (
+                                <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-tight ${imp.className}`} style={imp.style}>
+                                    {opp.alias}
+                                </span>
+                            );
+                        })()}
+                        {isCardFieldVisible('detailedStatus') && opp.detailedStatus && (
                             <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-tight ${DETAILED_STATUS_COLORS[opp.detailedStatus]} whitespace-nowrap`}>
                                 {translateStatus(opp.detailedStatus)}
                             </span>
                         )}
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                        {badge && (
-                            <div
-                                className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm tracking-tight uppercase ${badge.color} max-w-[90px] text-center truncate`}
-                                style={badge.style}
-                                title={badge.tooltip}
-                            >
-                                {badge.text}
-                            </div>
-                        )}
-                        {opp.priorityOrder && (
+                        {isCardFieldVisible('rank') && opp.priorityOrder && (
                             <span className="text-[9px] font-bold text-[#3DCD58] bg-[#3DCD58]/10 px-1.5 py-0.5 rounded whitespace-nowrap border border-[#3DCD58]/20">
                                 Rank #{opp.priorityOrder}
                             </span>
                         )}
                     </div>
                 </div>
-                <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
-                <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
+                {isCardFieldVisible('title') && (
+                    <p className="text-xs text-gray-900 font-bold leading-tight line-clamp-2" title={opp.title}>{opp.title}</p>
+                )}
+                {isCardFieldVisible('customer') && (
+                    <p className="text-[10px] text-gray-500 truncate">{opp.customer}</p>
+                )}
 
-                {!hideNextStepBadges && nextTask && (
+                {isCardFieldVisible('nextStep') && nextTask && (
                     <div
                         onClick={(e) => {
                             e.stopPropagation();
@@ -265,15 +326,17 @@ const OpportunityCard = React.memo(({
                     </div>
                 )}
 
-                <div className="flex flex-wrap gap-1 mt-1">
-                    {(opp.labels || []).map((l: any) => (
-                        <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
-                            {l.text}
-                        </div>
-                    ))}
-                </div>
+                {isCardFieldVisible('labels') && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                        {(opp.labels || []).map((l: any) => (
+                            <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
+                                {l.text}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
-                {!hideNextStepBadges && (
+                {isCardFieldVisible('quickNote') && (
                     <div className="mt-2" onClick={e => e.stopPropagation()}>
                         <OptimizedTextArea
                             placeholder="Quick note..."
@@ -285,66 +348,83 @@ const OpportunityCard = React.memo(({
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <div
-                        className={`text-[10px] px-2 py-0.5 rounded-full border border-transparent font-medium truncate max-w-[120px] ${STAGE_COLORS[opp.stage as ProcessStage]}`}
-                        title="Technical Stage"
-                    >
-                        {translateProcessStage(opp.stage)}
-                    </div>
-                    <div className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${STATUS_COLORS[opp.statusLabel as OpportunityStatus]}`}>
-                        {translateStatus(opp.statusLabel)}
-                    </div>
-                    {opp.priority && (
+                    {isCardFieldVisible('processStatus') && (
+                        <div className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${STATUS_COLORS[opp.statusLabel as OpportunityStatus]}`}>
+                            {translateStatus(opp.statusLabel)}
+                        </div>
+                    )}
+                    {isCardFieldVisible('priority') && opp.priority && (
                         <div className={`text-[9px] w-2 h-2 rounded-full ${(PRIORITY_COLORS[opp.priority as TaskPriority] || '').split(' ')[1] || ''}`} title={`Priority: ${opp.priority}`}></div>
                     )}
                 </div>
             </div>
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-dashed border-gray-100">
-                <div className="flex items-center gap-1 text-[10px] text-gray-400">
-                    <Clock className="w-3 h-3" />
-                    <input
-                        type="date"
-                        value={opp.dates?.expected}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)}
-                        className="bg-transparent border-none p-0 text-[10px] text-gray-500 focus:ring-0 w-20"
-                    />
-                </div>
-                <div className="flex gap-1">
-                    {(opp.tasks || []).length > 0 && (
-                        <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
-                            <CheckSquare className="w-3 h-3" />
-                            {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
+            {showFooter && (
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-dashed border-gray-100">
+                    {isCardFieldVisible('expectedDate') ? (
+                        <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <Clock className="w-3 h-3" />
+                            <input
+                                type="date"
+                                value={opp.dates?.expected}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)}
+                                className="bg-transparent border-none p-0 text-[10px] text-gray-500 focus:ring-0 w-20"
+                            />
+                        </div>
+                    ) : <div />}
+                    {isCardFieldVisible('taskProgress') && (
+                        <div className="flex gap-1">
+                            {(opp.tasks || []).length > 0 && (
+                                <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
+                                    <CheckSquare className="w-3 h-3" />
+                                    {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
-            </div>
+            )}
         </div>
     );
 }, (prev, next) => {
     // FIX: prop is kanbanMiniNote (singular), not kanbanMiniNotes (plural)
     return prev.opp === next.opp
         && prev.kanbanMiniNote === next.kanbanMiniNote
-        && prev.hideNextStepBadges === next.hideNextStepBadges;
+        && prev.cardFieldVisibilityKey === next.cardFieldVisibilityKey
+        && prev.alarms === next.alarms;
 });
 
-const translateProcessStage = (stage: string) => {
-    if (!stage) return '';
-    const parts = stage.split('. ');
-    if (parts.length < 2) return stage;
-    const name = parts[1];
-    const mapping: Record<string, string> = {
-        'Recepción': 'Reception',
-        'Análisis Técnico': 'Technical Analysis',
-        'Arquitectura': 'Architecture',
-        'Basket/BOM': 'Basket / BOM',
-        'Costeo': 'Costing',
-        'Propuesta': 'Proposal',
-        'Validación': 'Review',
-        'Entrega/Soporte': 'Delivery',
-        'Won/Lost': 'Won / Lost'
-    };
-    return `${parts[0]}. ${mapping[name] || name}`;
+
+const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false, alarms?: import('../types').AlarmConfig[]): { className: string, style?: React.CSSProperties } => {
+    if (isCompleted) return { className: "bg-gray-100 text-gray-400 line-through" };
+    if (!dateStr) return { className: "bg-white/90 text-gray-700 border border-gray-200 shadow-sm" };
+    const daysLeft = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+    
+    if (alarms && alarms.length > 0) {
+        // Find the first alarm where daysLeft <= alarm.daysThreshold
+        // Assuming alarms are sorted by daysThreshold
+        const sortedAlarms = [...alarms].sort((a, b) => a.daysThreshold - b.daysThreshold);
+        for (const alarm of sortedAlarms) {
+            if (daysLeft <= alarm.daysThreshold) {
+                if (alarm.backgroundColor) {
+                    return { 
+                        className: "shadow-sm border border-gray-200/50", 
+                        style: { backgroundColor: alarm.backgroundColor, color: alarm.textColor || '#ffffff' } 
+                    };
+                }
+                return { className: alarm.color };
+            }
+        }
+        return { className: "bg-[#3DCD58] text-white shadow-sm" }; // fallback if no alarm matches
+    }
+
+    // Default legacy behavior (if no alarms in DB)
+    if (daysLeft < -10) return { className: "bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]" };
+    if (daysLeft <= -6) return { className: "bg-purple-600 text-white shadow-md shadow-purple-200" };
+    if (daysLeft < 0)  return { className: "bg-red-500 text-white shadow-sm" };
+    if (daysLeft <= 2) return { className: "bg-orange-500 text-white shadow-sm" };
+    if (daysLeft <= 5) return { className: "bg-yellow-400 text-gray-900 shadow-sm" };
+    return { className: "bg-[#3DCD58] text-white shadow-sm" };
 };
 
 const translateStatus = (status: string) => {
@@ -513,7 +593,7 @@ const TaskRow = React.memo(({
                         className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
                     />
                 </div>
-                <div className={`w-1 h-10 rounded-full shrink-0 ${STAGE_COLORS[item.stageContext] || 'bg-gray-300'}`} title={`Stage: ${item.stageContext}`}></div>
+                <div className="w-1 h-10 rounded-full shrink-0 bg-gray-200"></div>
                 <div className="flex flex-col min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                         <span className={`text-[10px] font-mono px-1.5 rounded bg-gray-100 text-gray-500`}>{item.opp.id}</span>
@@ -673,7 +753,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, holidays = [], globalLabels = [], onMinimize, onOpenTaskSubView }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], onMinimize, onOpenTaskSubView }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -698,13 +778,13 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'id', label: 'ID' },
         { key: 'title', label: 'Title' },
         { key: 'customer', label: 'Customer' },
-        { key: 'status', label: 'Status' },
-        { key: 'stage', label: 'Stage' },
+        { key: 'status', label: 'Process Status' },
         { key: 'assigned', label: 'Assigned' },
         { key: 'expected', label: 'Expected Date' },
         { key: 'amount', label: 'Amount' },
         { key: 'nextStep', label: 'Next Step' },
-        { key: 'waiting', label: 'Waiting On' }
+        { key: 'waiting', label: 'Waiting On' },
+        { key: 'notes', label: 'Notes' }
     ];
     const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(c => c.key));
 
@@ -732,6 +812,13 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // Next Steps Toggle
     const [showNextSteps, setShowNextSteps] = useState(false);
     const [hideNextStepBadges, setHideNextStepBadges] = useState(false);
+    const [showProposalCardFieldsMenu, setShowProposalCardFieldsMenu] = useState(false);
+    const [proposalCardVisibleFields, setProposalCardVisibleFields] = useState<ProposalCardFieldKey[]>(
+        () => readProposalCardFields(PROPOSAL_CARD_FIELD_STORAGE_KEY, PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS)
+    );
+    const [proposalQuickHideFields, setProposalQuickHideFields] = useState<ProposalCardFieldKey[]>(
+        () => readProposalCardFields(PROPOSAL_CARD_QUICK_HIDE_STORAGE_KEY, PROPOSAL_CARD_DEFAULT_QUICK_HIDE_FIELDS, false)
+    );
     const [showTracking, setShowTracking] = useState(false);
 
     // Add Task Modal State
@@ -774,6 +861,51 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     };
     const deleteStickyNote = (id: string) => setStickyNotes(prev => prev.filter(n => n.id !== id));
     const updateStickyNote = (id: string, content: string) => setStickyNotes(prev => prev.map(n => n.id === id ? { ...n, content } : n));
+
+    useEffect(() => {
+        localStorage.setItem(PROPOSAL_CARD_FIELD_STORAGE_KEY, JSON.stringify(proposalCardVisibleFields));
+    }, [proposalCardVisibleFields]);
+
+    useEffect(() => {
+        localStorage.setItem(PROPOSAL_CARD_QUICK_HIDE_STORAGE_KEY, JSON.stringify(proposalQuickHideFields));
+    }, [proposalQuickHideFields]);
+
+    const toggleProposalCardField = useCallback((field: ProposalCardFieldKey) => {
+        if (REQUIRED_PROPOSAL_CARD_FIELDS.has(field)) return;
+        setProposalCardVisibleFields(prev => {
+            const selected = new Set(normalizeProposalCardFields(prev, PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS));
+            if (selected.has(field)) selected.delete(field);
+            else selected.add(field);
+            return orderProposalCardFields(selected);
+        });
+    }, []);
+
+    const toggleProposalQuickHideField = useCallback((field: ProposalCardFieldKey) => {
+        if (REQUIRED_PROPOSAL_CARD_FIELDS.has(field)) return;
+        setProposalQuickHideFields(prev => {
+            const selected = new Set(normalizeProposalCardFields(prev, PROPOSAL_CARD_DEFAULT_QUICK_HIDE_FIELDS, false));
+            if (selected.has(field)) selected.delete(field);
+            else selected.add(field);
+            return orderProposalCardFields(selected, false);
+        });
+    }, []);
+
+    const proposalCardFieldVisibility = useMemo(() => {
+        const visible = new Set(normalizeProposalCardFields(proposalCardVisibleFields, PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS));
+        const quickHidden = hideNextStepBadges ? new Set(proposalQuickHideFields) : new Set<ProposalCardFieldKey>();
+
+        return PROPOSAL_CARD_FIELD_OPTIONS.reduce((acc, option) => {
+            acc[option.key] = REQUIRED_PROPOSAL_CARD_FIELDS.has(option.key)
+                || (visible.has(option.key) && !quickHidden.has(option.key));
+            return acc;
+        }, {} as Record<ProposalCardFieldKey, boolean>);
+    }, [proposalCardVisibleFields, proposalQuickHideFields, hideNextStepBadges]);
+
+    const proposalCardFieldVisibilityKey = useMemo(() => (
+        PROPOSAL_CARD_FIELD_OPTIONS
+            .map(option => `${option.key}:${proposalCardFieldVisibility[option.key] ? '1' : '0'}`)
+            .join('|')
+    ), [proposalCardFieldVisibility]);
 
     // Kanban mini-notes are now integrated into the Opportunity object (kanbanNote field) 
     // to ensure portability and unified database management. No longer using localStorage.
@@ -854,64 +986,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
 
     // --- Calculations ---
-    const getBadgeInfo = useCallback((opp: Opportunity) => {
-        const status = opp.statusLabel;
-
-        // A) Active states: Check Due Date (Expected Date)
-        if (status === 'In Progress' || status === 'On Hold') {
-            if (!opp.dates.expected) {
-                return { text: opp.alias || opp.id, color: 'bg-gray-100 text-gray-500' };
-            }
-
-            const todayStr = new Date().toLocaleDateString('en-CA');
-            const diffDays = countBusinessDays(todayStr, opp.dates.expected, holidays);
-
-            let colorClass = '';
-            let style: React.CSSProperties = {};
-
-            if (diffDays < -10) {
-                // Extreme Alert: White with red diagonals
-                style = {
-                    background: 'repeating-linear-gradient(45deg, #ffffff, #ffffff 10px, #fecaca 10px, #fecaca 20px)',
-                    color: '#991b1b',
-                    border: '1px solid #f87171'
-                };
-            } else if (diffDays <= -6) {
-                // Overdue > 5 days: Purple
-                colorClass = 'bg-purple-600 text-white shadow-md shadow-purple-200';
-            } else if (diffDays < 0) {
-                colorClass = 'bg-red-500 text-white';
-            } else if (diffDays <= 2) {
-                colorClass = 'bg-orange-500 text-white';
-            } else if (diffDays <= 5) {
-                colorClass = 'bg-yellow-400 text-gray-900';
-            } else {
-                colorClass = 'bg-[#3DCD58] text-white';
-            }
-
-            return {
-                text: opp.alias || opp.id,
-                color: colorClass,
-                style: style,
-                tooltip: diffDays < 0 ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Due today' : `${diffDays}d left`
-            };
-        }
-
-        // B) Delivered states
-        if (['Submitted', 'Won', 'Lost'].includes(status)) {
-            const received = opp.kpis?.timeline?.receivedAt;
-            const delivered = opp.kpis?.timeline?.deliveredAt;
-
-            if (received && delivered) {
-                const days = countCalendarDays(received, delivered);
-                const displayDays = Math.max(0, days);
-                return { text: opp.alias || opp.id, color: 'bg-blue-50 text-blue-600', tooltip: `${displayDays}d to deliver` };
-            }
-        }
-
-        return { text: opp.alias || opp.id, color: 'bg-gray-100 text-gray-400' };
-    }, [holidays]);
-
     const getCalendarItemStyles = (item: any, type: 'task' | 'opp') => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -957,7 +1031,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             return `${distColors[index]} font-bold mb-0.5 shadow-sm active:scale-95 transition-all`;
         }
 
-        return `${STAGE_COLORS[item.stage as ProcessStage] || 'bg-gray-100'} border-transparent font-bold mb-0.5`;
+        return 'bg-gray-100 border-transparent font-bold mb-0.5';
     };
 
     const handleResetFilters = () => {
@@ -977,16 +1051,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setTaskCalendarizedFilter('all');
     };
 
-    const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false) => {
-        if (isCompleted) return "bg-gray-100 text-gray-500";
-        return "bg-white/90 text-gray-800 border border-black/10 shadow-sm backdrop-blur-[2px]";
-    };
 
-    const calculateProgress = (stage: ProcessStage) => {
-        if (!stage) return 0;
-        const stageNum = parseInt(stage.split('.')[0]) || 1;
-        return Math.round((stageNum / 9) * 100);
-    };
 
     const getSellPrice = (opp: Opportunity) => {
         if (!opp.commercial) return opp.kpis?.proposalAmountUSD || 0;
@@ -1021,14 +1086,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             // 2. Chip Filter (Fast Exit)
             if (selectedOppChips.length > 0 && !selectedOppChips.includes(opp.id)) continue;
 
-            // 3. Status/Stage Filter
+            // 3. Status Filter
             if (statusFilters.length > 0) {
-                const isStageFilter = Object.keys(STAGE_COLORS).some(s => statusFilters.includes(s));
-                if (isStageFilter) {
-                    if (!statusFilters.includes(opp.stage)) continue;
-                } else {
-                    if (!statusFilters.includes(opp.statusLabel)) continue;
-                }
+                if (!statusFilters.includes(opp.statusLabel)) continue;
             }
 
             // 4. Date Filter
@@ -1725,7 +1785,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     return (
         <div className="flex flex-col h-full bg-[#f1f3f4] p-6 gap-6 relative">
             {/* Top Bar */}
-            <div className="flex justify-between items-center flex-wrap gap-4">
+            <div className="flex flex-wrap items-center gap-4">
                 {/* ... (Existing top bar code unchanged) ... */}
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{mode === 'proposals' ? 'Proposals Dashboard' : mode === 'tasks' ? 'Tasks Overview' : 'General Overview'}</h1>
@@ -1752,7 +1812,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         </div>
                     )}
 
-                    {mode === 'proposals' && viewMode === 'table' && (
+                    {((mode === 'proposals' && viewMode === 'table') || mode === 'general') && (
                         <div className="mr-2">
                             <ColumnSelector
                                 columns={allColumns}
@@ -1814,14 +1874,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
                     {(mode === 'proposals' || mode === 'general') && (
                         <div className="flex gap-2">
-                            <MultiSelectDropdown
-                                label="Filter Stage"
-                                options={Object.keys(STAGE_COLORS)}
-                                selected={statusFilters}
-                                onChange={setStatusFilters}
-                                isOpen={openDropdown === 'status'}
-                                onToggle={() => toggleDropdown('status')}
-                            />
                             <MultiSelectDropdown
                                 label="Process Status"
                                 options={Object.keys(DETAILED_STATUS_COLORS)}
@@ -2052,6 +2104,68 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
                     {mode === 'proposals' && (
                         <div className="flex items-center gap-2">
+                            <div className="relative">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowProposalCardFieldsMenu(prev => !prev);
+                                    }}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-sm border ${showProposalCardFieldsMenu ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                                    title="Configure proposal card fields"
+                                >
+                                    <Edit2 className="w-4 h-4" />
+                                    Edit Cards
+                                </button>
+                                {showProposalCardFieldsMenu && (
+                                    <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="absolute right-0 mt-2 w-80 bg-white rounded-lg border border-gray-200 shadow-xl z-50 overflow-hidden"
+                                    >
+                                        <div className="px-3 py-2 border-b border-gray-100">
+                                            <div className="text-xs font-black uppercase tracking-wide text-gray-600">Card Fields</div>
+                                            <div className="grid grid-cols-[1fr_56px_70px] gap-2 mt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                                <span>Field</span>
+                                                <span className="text-center">Card</span>
+                                                <span className="text-center">Hide Btn</span>
+                                            </div>
+                                        </div>
+                                        <div className="max-h-80 overflow-y-auto">
+                                            {PROPOSAL_CARD_FIELD_OPTIONS.map(option => {
+                                                const required = REQUIRED_PROPOSAL_CARD_FIELDS.has(option.key);
+                                                const visible = required || proposalCardVisibleFields.includes(option.key);
+                                                const quickHidden = !required && proposalQuickHideFields.includes(option.key);
+
+                                                return (
+                                                    <div key={option.key} className="grid grid-cols-[1fr_56px_70px] gap-2 items-center px-3 py-2 text-xs hover:bg-gray-50">
+                                                        <div className="min-w-0">
+                                                            <span className="font-medium text-gray-700 truncate block">{option.label}</span>
+                                                            {required && <span className="text-[10px] text-gray-400">Required</span>}
+                                                        </div>
+                                                        <label className="flex justify-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={visible}
+                                                                disabled={required}
+                                                                onChange={() => toggleProposalCardField(option.key)}
+                                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                            />
+                                                        </label>
+                                                        <label className="flex justify-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={quickHidden}
+                                                                disabled={required}
+                                                                onChange={() => toggleProposalQuickHideField(option.key)}
+                                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                        </label>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                             <button
                                 onClick={() => setHideNextStepBadges(!hideNextStepBadges)}
                                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-sm border ${hideNextStepBadges ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100'}`}
@@ -2079,77 +2193,33 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                     <div className="flex flex-col gap-6 h-full overflow-y-auto pr-2 pb-4">
                         {/* KPI Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                 <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Filtered Amount</p>
-                                    <p className="text-2xl font-bold text-gray-900 mt-1">${kpiTotalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    <p className="text-xl font-bold text-gray-900 mt-1">${kpiTotalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                 </div>
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><DollarSign className="w-6 h-6" /></div>
+                                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><DollarSign className="w-5 h-5" /></div>
                             </div>
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                 <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Won Amount (Filtered)</p>
-                                    <p className="text-2xl font-bold text-gray-900 mt-1">${kpiWonAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    <p className="text-xl font-bold text-gray-900 mt-1">${kpiWonAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                                 </div>
-                                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg"><Trophy className="w-6 h-6" /></div>
+                                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Trophy className="w-5 h-5" /></div>
                             </div>
-                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                 <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Active Count</p>
-                                    <p className="text-2xl font-bold text-gray-900 mt-1">{filteredOpps.filter(o => o.statusLabel === 'In Progress').length}</p>
+                                    <p className="text-xl font-bold text-gray-900 mt-1">{filteredOpps.filter(o => o.statusLabel === 'In Progress').length}</p>
                                 </div>
-                                <div className="p-3 bg-purple-50 text-purple-600 rounded-lg"><Briefcase className="w-6 h-6" /></div>
+                                <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Briefcase className="w-5 h-5" /></div>
                             </div>
                         </div>
 
-                        {/* NEW KPI SECTION */}
-                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm shrink-0">
-                            <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
-                                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><BarChart3 className="w-5 h-5 text-[#3DCD58]" /> Performance KPIs</h3>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setKpiSoldFilter('all')} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${kpiSoldFilter === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>All</button>
-                                    <button onClick={() => setKpiSoldFilter('sold')} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${kpiSoldFilter === 'sold' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-white text-gray-600 border-gray-200'}`}>Sold Only</button>
-                                    <button onClick={() => setKpiSoldFilter('not-sold')} className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${kpiSoldFilter === 'not-sold' ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white text-gray-600 border-gray-200'}`}>Not Sold</button>
-                                </div>
-                            </div>
-                            {kpiData ? (
-                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Win Rate</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.winRate}%</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Language</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.avgLang}%</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Tech</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.avgTech}%</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Deal Prob</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.avgDeal}%</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Amount</p>
-                                        <p className="text-lg font-black text-gray-800">${kpiData.avgAmount}</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg Delivery</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.avgDeliveryDays} d</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center" title="Represents the combined effort invested by me and all involved areas.">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Effort Contrib.</p>
-                                        <p className="text-lg font-black text-gray-800">{(kpiData as any).avgEffort}%</p>
-                                    </div>
-                                    <div className="p-3 bg-gray-50 rounded-lg text-center">
-                                        <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Avg My Work</p>
-                                        <p className="text-lg font-black text-gray-800">{kpiData.avgWorkDays} d</p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-gray-400 italic text-sm">No KPI data available for current filters.</div>
-                            )}
+                        {/* TOTAL DE OPs SECTION */}
+                        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm shrink-0 flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Briefcase className="w-5 h-5 text-[#3DCD58]" /> Total de OPs</h3>
+                            <div className="text-2xl font-black text-gray-800">{filteredOpps.length}</div>
                         </div>
 
 
@@ -2160,49 +2230,70 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 sticky top-0 bg-gray-50 z-10">
                                         <tr>
-                                            <th className="px-6 py-3 w-32">ID</th>
-                                            <th className="px-6 py-3">Title</th>
-                                            <th className="px-6 py-3">Customer</th>
-                                            <th className="px-6 py-3">Status</th>
-                                            <th className="px-6 py-3">Stage</th>
-                                            <th className="px-6 py-3">Expected Date</th>
-                                            <th className="px-6 py-3 text-right">Amount</th>
-                                            <th className="px-6 py-3">Waiting On</th>
+                                            {visibleColumns.includes('id') && <th className="px-6 py-3 w-32">ID</th>}
+                                            {visibleColumns.includes('title') && <th className="px-6 py-3">Title</th>}
+                                            {visibleColumns.includes('customer') && <th className="px-6 py-3">Customer</th>}
+                                            {visibleColumns.includes('status') && <th className="px-6 py-3">Process Status</th>}
+                                            {visibleColumns.includes('expected') && <th className="px-6 py-3">Expected Date</th>}
+                                            {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right">Amount</th>}
+                                            {visibleColumns.includes('nextStep') && <th className="px-6 py-3">Next Step</th>}
+                                            {visibleColumns.includes('waiting') && <th className="px-6 py-3">Waiting On</th>}
+                                            {visibleColumns.includes('notes') && <th className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>}
+                                            {visibleColumns.length < allColumns.length && <th className="px-6 py-3 text-gray-400 italic">Ocultas ({allColumns.length - visibleColumns.length})</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {filteredOpps.map(opp => {
                                             const waitingOn = getWaitingOnAreas(opp);
                                             const amount = getSellPrice(opp);
+                                            const nextTask = getNextTask(opp.tasks || []);
+                                            const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Waiting');
                                             return (
                                                 <tr key={opp.id} className="hover:bg-gray-50 transition-colors">
-                                                    <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>
-                                                    <td className="px-6 py-3 font-medium text-gray-900">{opp.title}</td>
-                                                    <td className="px-6 py-3 text-gray-600">{opp.customer}</td>
-                                                    <td className="px-6 py-3">
-                                                        <select
-                                                            value={opp.statusLabel}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onChange={(e) => handleInlineEdit(opp, 'statusLabel', e.target.value)}
-                                                            className={`px-2 py-1 rounded text-[10px] font-bold uppercase border cursor-pointer ${STATUS_COLORS[opp.statusLabel]}`}
-                                                        >
-                                                            {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-6 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[opp.stage as ProcessStage]}`}>{translateProcessStage(opp.stage)}</span></td>
-                                                    <td className="px-6 py-3 text-xs text-gray-600 font-mono">
-                                                        <input
-                                                            type="date"
-                                                            value={opp.dates?.expected}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            onChange={(e) => handleInlineEdit(opp, 'dates.expected', e.target.value)}
-                                                            className="bg-transparent border-none p-0 text-xs text-gray-600 focus:ring-0"
+                                                    {visibleColumns.includes('id') && <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>}
+                                                    {visibleColumns.includes('title') && <td className="px-6 py-3 font-medium text-gray-900"><EditableCell value={opp.title} onChange={(val) => handleInlineEdit(opp, 'title', val)} /></td>}
+                                                    {visibleColumns.includes('customer') && <td className="px-6 py-3 text-gray-600"><EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} /></td>}
+                                                    {visibleColumns.includes('status') && <td className="px-6 py-3">
+                                                        <EditableCell
+                                                            type="select"
+                                                            value={opp.detailedStatus || 'Working on it'}
+                                                            options={Object.keys(DETAILED_STATUS_COLORS)}
+                                                            onChange={(val) => handleInlineEdit(opp, 'detailedStatus', val)}
+                                                            displayValue={<span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${DETAILED_STATUS_COLORS[opp.detailedStatus || 'Working on it']}`}>{translateStatus(opp.detailedStatus || 'Working on it')}</span>}
                                                         />
-                                                    </td>
-                                                    <td className="px-6 py-3 text-right font-mono font-medium">${amount.toLocaleString()}</td>
-                                                    <td className="px-6 py-3">
-                                                        {waitingOn ? <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded border border-orange-100">{waitingOn}</span> : <span className="text-xs text-gray-400">-</span>}
-                                                    </td>
+                                                    </td>}
+                                                    {visibleColumns.includes('expected') && <td className="px-6 py-3 text-xs text-gray-600 font-mono">
+                                                        <EditableCell
+                                                            type="date"
+                                                            value={opp.dates?.expected || ''}
+                                                            onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)}
+                                                        />
+                                                    </td>}
+                                                    {visibleColumns.includes('amount') && <td className="px-6 py-3 text-right font-mono font-medium"><EditableCell type="number" value={amount} onChange={(val) => handleInlineEdit(opp, 'sellPrice', val)} displayValue={`$${amount.toLocaleString()}`} /></td>}
+                                                    {visibleColumns.includes('nextStep') && <td className="px-6 py-3 text-xs text-gray-600">
+                                                        {nextTask ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                <EditableCell value={nextTask.title} onChange={(val) => onTaskUpdate(opp.id, nextTask.id, { title: val })} />
+                                                                <select value={nextTask.status} onChange={(e) => onTaskUpdate(opp.id, nextTask.id, { status: e.target.value as any })} className={`text-[9px] border-none p-0 bg-transparent font-medium cursor-pointer uppercase ${TASK_STATUS_COLORS[nextTask.status as any]}`}>
+                                                                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}
+                                                                </select>
+                                                            </div>
+                                                        ) : <span className="text-gray-300 italic">No tasks</span>}
+                                                    </td>}
+                                                    {visibleColumns.includes('waiting') && <td className="px-6 py-3">
+                                                        {waitingTasks.length > 0 ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                {waitingTasks.map(t => (
+                                                                    <div key={t.id} className="text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded border border-orange-100 flex flex-col" title={t.title}>
+                                                                        <span className="font-bold truncate max-w-[150px]">{t.title}</span>
+                                                                        {(t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ) : <span className="text-xs text-gray-400">-</span>}
+                                                    </td>}
+                                                    {visibleColumns.includes('notes') && <td className="px-6 py-3 text-xs text-gray-600"><EditableCell value={opp.kanbanNote || ''} onChange={(val) => handleInlineEdit(opp, 'kanbanNote', val)} /></td>}
+                                                    {visibleColumns.length < allColumns.length && <td className="px-6 py-3"></td>}
                                                 </tr>
                                             );
                                         })}
@@ -2277,10 +2368,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     handleInlineEdit={handleInlineEdit}
                                                     kanbanMiniNote={opp.kanbanNote || ''}
                                                     onNoteChange={handleKanbanNoteChange}
-                                                    hideNextStepBadges={hideNextStepBadges}
-                                                    getBadgeInfo={getBadgeInfo}
+                                                    cardFieldVisibility={proposalCardFieldVisibility}
+                                                    cardFieldVisibilityKey={proposalCardFieldVisibilityKey}
                                                     translateStatus={translateStatus}
-                                                    translateProcessStage={translateProcessStage}
+                                                    alarms={alarms}
                                                 />
                                             ))}
 
@@ -2314,7 +2405,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 {visibleColumns.includes('title') && <th className="px-6 py-3">Title</th>}
                                                 {visibleColumns.includes('customer') && <th className="px-6 py-3">Customer</th>}
                                                 {visibleColumns.includes('status') && <th className="px-6 py-3">Status</th>}
-                                                {visibleColumns.includes('stage') && <th className="px-6 py-3">Stage</th>}
                                                 {visibleColumns.includes('assigned') && <th className="px-6 py-3">Assigned</th>}
                                                 {visibleColumns.includes('expected') && <th className="px-6 py-3">Expected Date</th>}
                                                 {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right">Amount</th>}
@@ -2353,9 +2443,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                     displayValue={<span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${STATUS_COLORS[opp.statusLabel]}`}>{opp.statusLabel}</span>}
                                                                 />
                                                             </td>
-                                                        )}
-                                                        {visibleColumns.includes('stage') && (
-                                                            <td className="px-6 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${STAGE_COLORS[opp.stage as ProcessStage]}`}>{translateProcessStage(opp.stage)}</span></td>
                                                         )}
                                                         {visibleColumns.includes('assigned') && (
                                                             <td className="px-6 py-3 text-xs text-gray-600">{opp.dates.assigned}</td>
@@ -2415,11 +2502,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         title={o.title}
                                     >
                                         <div className="flex items-center gap-2">
-                                            {o.alias && (
-                                                <span className={`${getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled')} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shrink-0 shadow-sm`}>
-                                                    {o.alias}
-                                                </span>
-                                            )}
+                                            {o.alias && (() => {
+                                                const imp = getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled', alarms);
+                                                return (
+                                                    <span className={`${imp.className} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shrink-0 shadow-sm`} style={imp.style}>
+                                                        {o.alias}
+                                                    </span>
+                                                );
+                                            })()}
                                             <span className="truncate">{o.id}</span>
                                         </div>
                                     </div>
@@ -2534,12 +2624,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     className={`text-[10px] p-1.5 rounded-lg border flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all mb-0.5 group ${getCalendarItemStyles(t, 'task')}`}
                                                     title={`${t.opp.id}: ${t.title}`}
                                                 >
-                                                    {t.opp.alias && (
-                                                        <span className={`${getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled')} px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0`}>
-                                                            {t.opp.alias}
-                                                        </span>
-                                                    )}
-                                                    <span className="truncate flex-1">{t.title}</span>
+                                                    <div className="flex items-center gap-1 min-w-0 mt-0.5">
+                                                        {t.opp.alias && (() => {
+                                                            const imp = getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled', alarms);
+                                                            return (
+                                                                <span className={`${imp.className} px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0`} style={imp.style}>
+                                                                    {t.opp.alias}
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                        <span className="truncate flex-1">{t.title}</span>
+                                                    </div>
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -2652,7 +2747,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                         <div className={`w-1.5 h-1.5 rounded-full ${PRIORITY_COLORS[t.priority as TaskPriority] || 'bg-gray-300'}`}></div>
                                                                         <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.opp.id}</span>
                                                                         {t.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200">#{t.order}</span>}
-                                                                        {t.opp.alias && <span className={`${getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled')} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight`}>{t.opp.alias}</span>}
+                                                                        {t.opp.alias && (() => {
+                                                                            const imp = getImportanceColor(t.opp.priorityOrder, t.dueDate, t.status === 'Done' || t.status === 'Canceled', alarms);
+                                                                            return <span className={`${imp.className} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight`} style={imp.style}>{t.opp.alias}</span>;
+                                                                        })()}
+                                                                        <span className="text-gray-900 font-medium truncate">{t.title}</span>
                                                                     </div>
                                                                     <p className="text-xs font-bold text-gray-800 leading-snug">{t.title}</p>
                                                                     <div className="flex items-center justify-between mt-1 pt-2 border-t border-gray-50">

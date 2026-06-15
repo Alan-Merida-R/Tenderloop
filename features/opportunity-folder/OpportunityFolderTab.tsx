@@ -70,6 +70,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   // UI State
   const [isLoading, setIsLoading] = useState(false);
   const [isApiSupported, setIsApiSupported] = useState(true);
+  const [pendingPermHandle, setPendingPermHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [rootPathInput, setRootPathInput] = useState('');
   const [rootPathDisplay, setRootPathDisplayVal] = useState('');
   const [isEditingPath, setIsEditingPath] = useState(false);
@@ -138,12 +139,20 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       const handle = await getFolderHandle(opportunityId);
       const rp = await getRootPathDisplay(opportunityId);
       setRootPathDisplayVal(rp);
-      if (handle && await verifyPermission(handle, true)) {
+      setPendingPermHandle(null);
+      if (!handle) return;
+      // Only use queryPermission here — requestPermission requires a user gesture
+      // and cannot be called from a useEffect without one.
+      // @ts-ignore
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
         setRootHandle(handle);
         setCurrentHandle(handle);
         setPath([]);
         setHistory([{ handle, path: [] }]);
         setHistoryIdx(0);
+      } else {
+        setPendingPermHandle(handle);
       }
     };
     init();
@@ -232,6 +241,20 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   // --- Handlers ---
 
+  const handleGrantPermission = async () => {
+    if (!pendingPermHandle) return;
+    try {
+      if (await verifyPermission(pendingPermHandle, true)) {
+        setRootHandle(pendingPermHandle);
+        setCurrentHandle(pendingPermHandle);
+        setPath([]);
+        setHistory([{ handle: pendingPermHandle, path: [] }]);
+        setHistoryIdx(0);
+        setPendingPermHandle(null);
+      }
+    } catch (e) { }
+  };
+
   const handleChangeRoot = async () => {
     try {
       // @ts-ignore
@@ -244,10 +267,51 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setRootPathDisplayVal(suggestedPath.trim());
       }
 
+      onUpdate({ ...opportunity, folderLinked: true });
       setRootHandle(handle);
       navigateTo(handle, [], true);
       alert("Root folder linked successfully.");
     } catch (e) { }
+  };
+
+  const handleCreateFromTemplate = async () => {
+    try {
+      // @ts-ignore
+      const parentHandle = await window.showDirectoryPicker();
+      const folderName = `${opportunityId} - ${opportunity.title.replace(/[\/\\?%*:|"<>]/g, '')}`;
+      // @ts-ignore
+      const newFolderHandle = await parentHandle.getDirectoryHandle(folderName, { create: true });
+      
+      const subfolders = [
+        '01_Reception',
+        '02_Technical_Analysis',
+        '03_Architecture',
+        '04_Costing',
+        '05_Proposal',
+        '06_Delivery'
+      ];
+      
+      for (const sf of subfolders) {
+        // @ts-ignore
+        await newFolderHandle.getDirectoryHandle(sf, { create: true });
+      }
+
+      const suggestedPath = prompt("Enter the absolute base path for the parent folder (e.g. C:\\Projects):", rootPathDisplay);
+      
+      await setFolderHandle(opportunityId, newFolderHandle);
+      if (suggestedPath !== null) {
+        const fullPath = suggestedPath.trim() + '\\' + folderName;
+        await setRootPathDisplay(opportunityId, fullPath);
+        setRootPathDisplayVal(fullPath);
+      }
+
+      onUpdate({ ...opportunity, folderLinked: true });
+      setRootHandle(newFolderHandle);
+      navigateTo(newFolderHandle, [], true);
+      alert("Project folder created from template successfully.");
+    } catch (e) {
+      console.error("Template creation failed", e);
+    }
   };
 
   const handleGoToPath = async () => {
@@ -537,9 +601,34 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     return (
       <div className="flex flex-col items-center justify-center h-full p-10 text-center">
         <FolderOpen className="w-16 h-16 text-gray-200 mb-4" />
-        <h3 className="text-xl font-bold">Link Opportunity Folder</h3>
-        <p className="text-gray-500 mb-6 max-w-sm">Select a local directory to manage files.</p>
-        <button onClick={handleChangeRoot} className="bg-[#3DCD58] text-white px-6 py-2 rounded-lg font-bold">Select Folder</button>
+        {pendingPermHandle ? (
+          <>
+            <h3 className="text-xl font-bold">Folder Access Required</h3>
+            <p className="text-gray-500 mb-6 max-w-sm">A folder was previously linked. Click below to restore access.</p>
+            <button onClick={handleGrantPermission} className="bg-[#3DCD58] text-white px-6 py-2 rounded-lg font-bold mb-3">Grant Folder Access</button>
+            <button onClick={handleChangeRoot} className="text-sm text-gray-400 hover:text-gray-600 underline">Select a different folder</button>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <FolderOpen className="w-8 h-8 text-gray-400" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Project Folder Not Linked</h2>
+          <p className="text-sm text-gray-500 max-w-md mb-8">
+            Link a local folder to sync documents directly from your operating system without uploading them.
+          </p>
+          <div className="flex gap-4 flex-wrap justify-center">
+            <button onClick={handleChangeRoot} className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-6 py-2 rounded-lg font-bold shadow-sm transition-colors">
+              Link Existing Folder
+            </button>
+            <button onClick={handleCreateFromTemplate} className="bg-[#3DCD58] hover:bg-[#2db64a] text-white px-6 py-2 rounded-lg font-bold shadow-sm transition-colors">
+              Create from Template
+            </button>
+          </div>
+          
+          <div className="mt-8 text-left bg-blue-50 p-4 rounded-xl border border-blue-100 max-w-md">  </div>
+        </div>
+        )}
       </div>
     );
   }

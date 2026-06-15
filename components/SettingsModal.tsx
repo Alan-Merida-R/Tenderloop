@@ -57,6 +57,7 @@ export interface AppSettings {
   globalLabels?: OpportunityLabel[];
   notificationSound?: SoundType;
   timerSound?: SoundType;
+  alarms?: import('../types').AlarmConfig[];
 }
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
@@ -95,6 +96,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   notificationSound: 'beep',
   timerSound: 'beep',
+  alarms: [
+    { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
+    { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
+    { id: 'a3', daysThreshold: -1, color: 'bg-red-500 text-white shadow-sm' },
+    { id: 'a4', daysThreshold: 2, color: 'bg-orange-500 text-white shadow-sm' },
+    { id: 'a5', daysThreshold: 5, color: 'bg-yellow-400 text-gray-900 shadow-sm' },
+    { id: 'a6', daysThreshold: 9999, color: 'bg-[#3DCD58] text-white shadow-sm' }
+  ],
 };
 
 interface Props {
@@ -151,7 +160,7 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels' | 'taskview'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels' | 'taskview' | 'alarms'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
@@ -297,6 +306,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           >
             <LayoutList className="w-4 h-4" /> Task Quick View
           </button>
+          <button
+            onClick={() => setActiveTab('alarms')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'alarms' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Bell className="w-4 h-4" /> Alarms
+          </button>
         </div>
 
         {/* Content */}
@@ -441,6 +456,21 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 <p className="text-xs text-gray-500">
                   Choose the audible cue used for browser notifications and for timer / pomodoro phase changes. Click <b>Preview</b> to hear each option.
                 </p>
+                {typeof Notification !== 'undefined' && Notification.permission === 'denied' && (
+                  <div className="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                    <span className="font-bold">⚠ Browser notifications are BLOCKED.</span>
+                    <span>Go to your browser settings → Site permissions → Notifications → allow this site.</span>
+                  </div>
+                )}
+                {typeof Notification !== 'undefined' && Notification.permission === 'default' && (
+                  <button
+                    type="button"
+                    onClick={() => Notification.requestPermission()}
+                    className="w-full py-1.5 bg-[#3DCD58]/10 border border-[#3DCD58]/30 text-[#3DCD58] text-xs font-bold rounded-lg hover:bg-[#3DCD58]/20 transition-colors"
+                  >
+                    Enable browser notifications for schedule alerts
+                  </button>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -751,6 +781,114 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               </div>
             );
           })()}
+
+          {/* ALARMS TAB */}
+          {activeTab === 'alarms' && (
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Expected Date Alarms</h3>
+                    <p className="text-xs text-gray-500">Configure the threshold days and colors for opportunity expected dates. Ordered automatically by threshold.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {(() => {
+                    const activeAlarms = settings.alarms && settings.alarms.length > 0 ? settings.alarms : DEFAULT_SETTINGS.alarms;
+                    return ([...activeAlarms].sort((a, b) => a.daysThreshold - b.daysThreshold)).map((alarm) => (
+                    <div key={alarm.id} className="flex items-center gap-3 p-2 border border-gray-100 rounded-lg hover:bg-gray-50">
+                      <div className="flex flex-col w-32">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Days Left</label>
+                        <input
+                          type="number"
+                          value={alarm.daysThreshold}
+                          onChange={(e) => {
+                            const newAlarms = activeAlarms.map(a => 
+                              a.id === alarm.id ? { ...a, daysThreshold: parseInt(e.target.value) || 0 } : a
+                            );
+                            setSettings({ ...settings, alarms: newAlarms });
+                          }}
+                          className="w-full text-sm font-bold text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
+                          title="If days left is less than or equal to this value, this alarm applies."
+                        />
+                      </div>
+                      <div className="flex-1 flex flex-col min-w-[200px]">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">CSS Classes (Legacy)</label>
+                        <input
+                          type="text"
+                          value={alarm.color}
+                          onChange={(e) => {
+                            const newAlarms = activeAlarms.map(a => 
+                              a.id === alarm.id ? { ...a, color: e.target.value } : a
+                            );
+                            setSettings({ ...settings, alarms: newAlarms });
+                          }}
+                          className="w-full text-sm font-medium text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
+                          placeholder="bg-red-500 text-white"
+                        />
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Bg Color</label>
+                        <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-200 mt-1 cursor-pointer">
+                          <input
+                            type="color"
+                            value={alarm.backgroundColor || '#ffffff'}
+                            onChange={(e) => {
+                              const newAlarms = activeAlarms.map(a => 
+                                a.id === alarm.id ? { ...a, backgroundColor: e.target.value } : a
+                              );
+                              setSettings({ ...settings, alarms: newAlarms });
+                            }}
+                            className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Text Color</label>
+                        <div className="relative w-8 h-8 rounded-full overflow-hidden border border-gray-200 mt-1 cursor-pointer">
+                          <input
+                            type="color"
+                            value={alarm.textColor || '#ffffff'}
+                            onChange={(e) => {
+                              const newAlarms = activeAlarms.map(a => 
+                                a.id === alarm.id ? { ...a, textColor: e.target.value } : a
+                              );
+                              setSettings({ ...settings, alarms: newAlarms });
+                            }}
+                            className="absolute -top-2 -left-2 w-16 h-16 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center justify-end h-full pt-4">
+                        <button
+                          onClick={() => {
+                            const newAlarms = activeAlarms.filter(a => a.id !== alarm.id);
+                            setSettings({ ...settings, alarms: newAlarms });
+                          }}
+                          className="p-2 text-gray-300 hover:text-red-500 rounded hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ));
+                  })()}
+                </div>
+
+                <button
+                  onClick={() => {
+                    const activeAlarms = settings.alarms && settings.alarms.length > 0 ? settings.alarms : DEFAULT_SETTINGS.alarms;
+                    const newAlarm = { id: crypto.randomUUID(), daysThreshold: 0, color: 'bg-gray-100 text-gray-800' };
+                    setSettings({ ...settings, alarms: [...activeAlarms, newAlarm] });
+                  }}
+                  className="w-full mt-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Alarm
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

@@ -21,10 +21,13 @@ if %errorlevel% neq 0 (
 :: 3. Instalar dependencias si faltan (con verificacion de exito)
 if not exist node_modules (
     echo [INFO] Instalando dependencias por primera vez, puede tardar varios minutos...
-    call npm install --prefer-offline --no-audit --no-fund --maxsockets 1
+    call npm install --no-audit --no-fund
     if errorlevel 1 (
         echo.
-        echo [ERROR] Fallo "npm install". Revisa tu conexion o proxy corporativo.
+        echo [ERROR] Fallo "npm install". Posibles causas:
+        echo   - Sin conexion a internet
+        echo   - Proxy corporativo bloqueando npm
+        echo   - Node.js desactualizado
         echo.
         pause
         exit /b 1

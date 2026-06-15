@@ -1,0 +1,55 @@
+{
+  "orchestrator": {
+    "status": "active",
+    "current_task": "Sincronización post-ronda 1 — generando claude-status-for-codex.md",
+    "progress": "Todos los archivos de estado sincronizados con tasks.json",
+    "blocked_by": null,
+    "last_action": "2026-06-15 — Creó claude-status-for-codex.md y sincronizó tasks/locks/project-status"
+  },
+  "task_manager": {
+    "status": "active",
+    "current_task": "Gestión de locks ronda 1",
+    "progress": "3 locks activos (TASK-004, TASK-018, TASK-057) — todos en needs_testing",
+    "blocked_by": null,
+    "locks_active": ["TASK-004 → TimerWidget.tsx", "TASK-018 → Dashboard.tsx", "TASK-057 → App.tsx"]
+  },
+  "programmer_editor": {
+    "status": "idle",
+    "current_task": null,
+    "progress": "Ronda 1 completa. Esperando confirmación de testing para activar ronda 2.",
+    "blocked_by": "Tester 1 debe reportar resultado",
+    "files_modified_last_round": [
+      "components/TimerWidget.tsx (TASK-004)",
+      "components/Dashboard.tsx (TASK-018)",
+      "App.tsx (TASK-057)"
+    ],
+    "next_tasks_queued": ["TASK-023", "TASK-044"]
+  },
+  "reviewer_global": {
+    "status": "idle",
+    "current_task": null,
+    "progress": "ChatGPT — handoff manual. Bloqueado hasta aprobación de ambos testers.",
+    "blocked_by": "tester_1 y tester_2 deben aprobar primero",
+    "handoff_file": ".ai/handoff/to-chatgpt.md"
+  },
+  "tester_1": {
+    "status": "ready",
+    "current_task": "TASK-004, TASK-018, TASK-057",
+    "progress": "Handoff disponible en .ai/handoff/to-gemini-tester-1.md. Esperando que usuario copie en Gemini.",
+    "blocked_by": null,
+    "handoff_file": ".ai/handoff/to-gemini-tester-1.md",
+    "response_file": ".ai/handoff/responses.md"
+  },
+  "tester_2": {
+    "status": "idle",
+    "current_task": null,
+    "progress": "Esperando resultado de Tester 1",
+    "blocked_by": "tester_1 debe reportar primero"
+  },
+  "documenter": {
+    "status": "idle",
+    "current_task": null,
+    "progress": "Esperando tareas aprobadas por revisor global",
+    "blocked_by": "reviewer_global debe aprobar"
+  }
+}

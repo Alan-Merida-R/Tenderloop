@@ -10,7 +10,7 @@ export type ProcessStage =
   | '8. Delivery/Support'
   | '9. Won/Lost';
 
-export type TaskStatus = 'Pending' | 'In Progress' | 'Done' | 'On Hold' | 'Missing Info' | 'Canceled';
+export type TaskStatus = 'Pending' | 'In Progress' | 'Done' | 'On Hold' | 'Approval' | 'Missing Info' | 'Canceled';
 export type TaskOwner = 'Me' | 'External Area';
 export type ExternalArea = 'Delivery' | 'SCM' | 'Sales' | 'Legal' | 'Finance' | 'TSC' | 'Other' | string;
 export type TaskPriority = 'High' | 'Medium' | 'Low';
@@ -60,6 +60,15 @@ export interface CommercialQuickRef {
   fileKey?: string;
   url?: string;
 }
+
+export interface AlarmConfig {
+  id: string;
+  daysThreshold: number; // Days remaining
+  color: string; // Tailwind class (legacy / complex default)
+  backgroundColor?: string; // Hex color for color picker
+  textColor?: string; // Hex color for text
+}
+
 
 /**
  * Commercial data for an opportunity, including dynamic cost/sell sections.
@@ -180,6 +189,11 @@ export interface TimeLog {
   note?: string;
 }
 
+export interface NoteFolder {
+  id: string;
+  name: string;
+}
+
 export interface MeetingNote {
   id: string;
   title: string;
@@ -188,6 +202,8 @@ export interface MeetingNote {
   content: string; // HTML
   attendees: string;
   inlineTasks?: InlineTask[];
+  parentId?: string;  // sub-note: id of the parent note
+  folderId?: string;  // folder this note belongs to
 }
 
 export interface Question {
@@ -313,6 +329,7 @@ export interface Opportunity {
 
   // Lists
   notes: MeetingNote[];
+  notesFolders?: NoteFolder[];
   tasks: Task[];
   questions: Question[]; 
   history: HistoryEntry[];
@@ -421,6 +438,7 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   'In Progress': 'bg-blue-50 text-blue-600 font-bold',
   'Done': 'bg-emerald-100 text-emerald-700 font-black',
   'On Hold': 'bg-amber-100 text-amber-700',
+  'Approval': 'bg-purple-100 text-purple-700 font-bold',
   'Missing Info': 'bg-rose-100 text-rose-700',
   'Canceled': 'bg-gray-100 text-gray-400 line-through',
 };

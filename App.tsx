@@ -1212,6 +1212,20 @@ function App() {
           };
         }
 
+        // IMMUTABLE SNAPSHOTS: When versions are updated, protect existing snapshot content.
+        // A stale localOpp sent via race condition could carry outdated snapshot data that
+        // would silently overwrite a version the user just created.
+        if (!updatedOpp._isLight && cleanedUpdate.versions && oldOpp.versions?.length) {
+          const existingById = new Map(oldOpp.versions.map(v => [v.id, v]));
+          cleanedUpdate = {
+            ...cleanedUpdate,
+            versions: cleanedUpdate.versions.map(v => {
+              const existing = existingById.get(v.id);
+              return existing ? { ...v, snapshot: existing.snapshot } : v;
+            })
+          };
+        }
+
         const orderChanged = oldOpp.priorityOrder !== updatedOpp.priorityOrder;
         const statusChanged = oldOpp.statusLabel !== updatedOpp.statusLabel;
 
@@ -1275,6 +1289,7 @@ function App() {
   const handleTimerLog = (taskId: string, oppId: string, seconds: number, status?: TaskStatus) => {
     React.startTransition(() => {
       setDb(prev => {
+        let updatedOpp: Opportunity | undefined;
         const newOpps = prev.opportunities.map(o => {
           if (o.id !== oppId) return o;
 
@@ -1352,13 +1367,29 @@ function App() {
           area.calendar = calendar;
           updatedAreas[areaIndex] = area;
 
-          return {
+          const result = {
             ...o,
             tasks: updatedTasks,
             kpis: { ...o.kpis, areasInvolved: updatedAreas },
             lastUpdated: new Date().toISOString()
           };
+          updatedOpp = result;
+          return result;
         });
+
+        // Broadcast immediately so the floating timer window propagates status/log
+        // changes to the main window (the auto-save debounce uses selectedOppId which
+        // is null in the floating window, so it never broadcasts otherwise).
+        if (updatedOpp) {
+          setTimeout(() => {
+            syncChannel.current?.postMessage({
+              type: 'OPP_UPDATE',
+              oppId,
+              oppData: updatedOpp,
+              originTabId: tabId,
+            });
+          }, 0);
+        }
 
         return { ...prev, opportunities: newOpps };
       });
@@ -1446,7 +1477,7 @@ function App() {
       && new URLSearchParams(window.location.search).get('window') === 'timer';
   if (isTimerOnlyWindow) {
     return (
-      <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound}>
+      <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound} primary={false}>
         <div className="h-screen w-screen bg-black p-2 flex">
           <TimerWidget floating />
         </div>
@@ -1634,6 +1665,62 @@ function App() {
         )}
 
         <div className="flex-1 overflow-hidden relative flex min-h-0">
+          {/* Startup Screen Overlay — shown when no DB is loaded */}
+          {!isDbLoaded && (
+            <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center gap-6 p-8">
+              <HardDrive className="w-14 h-14 text-[#3DCD58]" />
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-gray-900">Tender Loop</h2>
+                <p className="text-gray-500 text-sm mt-1">
+                  {pendingHandle
+                    ? `Tu base de datos "${(pendingHandle as any).name}" necesita permiso para reabrirse.`
+                    : 'Abre o crea una base de datos para comenzar.'}
+                </p>
+              </div>
+              {pendingHandle && startupHint === '__reopen__' ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      const perm = await (pendingHandle as any).requestPermission({ mode: 'readwrite' });
+                      if (perm === 'granted') {
+                        setStatus('loading');
+                        const h = pendingHandle;
+                        setPendingHandle(null);
+                        setStartupHint(null);
+                        await loadDbFromHandle(h);
+                      }
+                    } catch (e) { console.error('Permission request failed', e); }
+                  }}
+                  className="flex items-center gap-3 px-8 py-4 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-2xl text-lg font-bold shadow-lg transition-all hover:scale-105 active:scale-95"
+                >
+                  <FolderOpen className="w-6 h-6" />
+                  Reabrir: {(pendingHandle as any).name}
+                </button>
+              ) : (
+                <div className="flex gap-4 flex-wrap justify-center">
+                  <button onClick={handleOpenDB} className="flex items-center gap-2 px-6 py-3 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-xl font-bold shadow-md transition-all">
+                    <FolderOpen className="w-5 h-5" /> Abrir Base de Datos
+                  </button>
+                  <button onClick={handleCreateDB} className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition-all">
+                    <PlusCircle className="w-5 h-5" /> Nueva Base de Datos
+                  </button>
+                </div>
+              )}
+              {recentDbs.length > 0 && (
+                <div className="w-full max-w-sm">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 text-center">Bases de Datos Recientes</p>
+                  <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
+                    {recentDbs.slice(0, 5).map(entry => (
+                      <button key={entry.id} onClick={() => handleRecentClick(entry)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-100 text-left border-b last:border-b-0 border-gray-200 transition-colors">
+                        <History className="w-4 h-4 text-gray-400 shrink-0" />
+                        <span className="text-sm font-medium text-gray-700 truncate">{entry.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* Main Content Area */}
           <div className={`flex-1 flex min-h-0 overflow-hidden transition-all duration-300`}>
             {/* Dashboard / Primary Content */}
@@ -1651,6 +1738,7 @@ function App() {
                   onTaskUpdate={updateTaskDetails}
                   holidays={stableHolidays}
                   globalLabels={stableGlobalLabels}
+                  alarms={appSettings.alarms}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
                 />

@@ -1,0 +1,124 @@
+[
+  {
+    "task_id": "TASK-018",
+    "agent": "subagent-vista-general",
+    "category": "vista-general",
+    "locked_files": [
+      "components/Dashboard.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. Liberar cuando pase testing.",
+    "created_at": "2026-06-14",
+    "implemented_at": "2026-06-14",
+    "change_summary": "Dashboard.tsx ~1728: justify-between eliminado del top bar container."
+  },
+  {
+    "task_id": "TASK-057",
+    "agent": "subagent-configuracion-db",
+    "category": "configuracion-db",
+    "locked_files": [
+      "App.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. App.tsx también modificada por TASK-003 (TimerProvider primary={false}). Ambas se testean juntas.",
+    "created_at": "2026-06-14",
+    "implemented_at": "2026-06-14",
+    "change_summary": "App.tsx: startup screen overlay cuando !isDbLoaded con botón Reabrir prominente. + TimerProvider primary={false} para ventana flotante."
+  },
+  {
+    "task_id": "TASK-004",
+    "agent": "subagent-timer",
+    "category": "timer",
+    "locked_files": [
+      "components/TimerWidget.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing.",
+    "created_at": "2026-06-14",
+    "implemented_at": "2026-06-14",
+    "change_summary": "TimerWidget.tsx: color break rose-* → red-* en widget flotante y full timer."
+  },
+  {
+    "task_id": "TASK-003",
+    "agent": "subagent-timer",
+    "category": "timer",
+    "locked_files": [
+      "contexts/TimerContext.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing.",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "TimerContext.tsx: prop 'primary' agregada. Auto-phase watcher deshabilitado en ventana flotante. App.tsx: TimerProvider flotante tiene primary={false}."
+  },
+  {
+    "task_id": "TASK-023",
+    "agent": "subagent-tareas-schedule",
+    "category": "tareas-schedule",
+    "locked_files": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. Compartido con TASK-037 y TASK-044.",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityDetail.tsx line ~3086: inline-task→linked-task sync ahora agrega dueDate=today cuando el status pasa a Done sin fecha."
+  },
+  {
+    "task_id": "TASK-037",
+    "agent": "subagent-notas",
+    "category": "notas-plantillas",
+    "locked_files": [],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. Mismo archivo que TASK-023 y TASK-044 (OpportunityDetail.tsx).",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityDetail.tsx RichTextEditor: debounce 500ms→150ms, cleanup en unmount incondicional para prevenir pérdida de contenido de nota."
+  },
+  {
+    "task_id": "TASK-044",
+    "agent": "subagent-kpis-versiones",
+    "category": "kpis-versiones",
+    "locked_files": [],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. Mismo archivo que TASK-023 y TASK-037 (OpportunityDetail.tsx).",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityDetail.tsx handleFieldChange: cuando stage→'9. Won/Lost', auto-asigna statusLabel='Won' si no está ya en estado terminal."
+  },
+  {
+    "task_id": "TASK-045",
+    "agent": "subagent-kpis-versiones",
+    "category": "kpis-versiones",
+    "locked_files": [
+      "features/opportunity-folder/OpportunityFolderTab.tsx"
+    ],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing.",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityFolderTab: (1) handleChangeRoot ahora llama onUpdate({folderLinked:true}). (2) init useEffect usa queryPermission en vez de requestPermission (no requiere gesto de usuario). (3) Si permiso no está concedido, muestra botón Grant Folder Access con requestPermission al click."
+  },
+  {
+    "task_id": "TASK-034",
+    "agent": "subagent-notas",
+    "category": "notas-plantillas",
+    "locked_files": [],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing. Mismo archivo que otras tasks de notas.",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityDetail.tsx handleNoteContentChange: removido setActiveNoteHtml(val) del ciclo de escritura. Ahora solo actualiza activeNoteHtmlRef.current + schedula flush. Elimina re-render de OpportunityDetail en cada debounce de escritura."
+  },
+  {
+    "task_id": "TASK-042",
+    "agent": "subagent-kpis-versiones",
+    "category": "kpis-versiones",
+    "locked_files": [],
+    "status": "needs_testing",
+    "reason": "Implementada — en testing.",
+    "created_at": "2026-06-15",
+    "implemented_at": "2026-06-15",
+    "change_summary": "OpportunityDetail.tsx handleFieldChange: cuando statusLabel cambia a Submitted, kpis.timeline.deliveredAt = hoy. Si se cambia DESDE Submitted, deliveredAt = null."
+  }
+]

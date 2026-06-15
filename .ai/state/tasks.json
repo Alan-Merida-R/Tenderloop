@@ -1,0 +1,1807 @@
+[
+  {
+    "id": "TASK-001",
+    "source_id": "TL-001",
+    "title": "Timer se traba en pestaña externa",
+    "description": "El timer que se abre en otra pestaña/ventana se traba y deja de funcionar fluidamente.",
+    "type": "bug",
+    "category": "timer",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-timer",
+    "status": "pending",
+    "files_probable": [
+      "components/TimerWidget.tsx",
+      "components/StartTimerModal.tsx",
+      "components/StopTimerModal.tsx"
+    ],
+    "files_allowed": [
+      "components/TimerWidget.tsx",
+      "components/StartTimerModal.tsx",
+      "components/StopTimerModal.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El timer en pestaña externa corre sin freezes ni lags durante al menos 25 minutos."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Posible problema con setInterval en ventana desenfocada (browser throttling)."
+    ],
+    "notes": [
+      "Categoría Arreglar en kanban — alta prioridad"
+    ]
+  },
+  {
+    "id": "TASK-002",
+    "source_id": "TL-002",
+    "title": "Timer no se puede reducir de tamaño en pestaña externa",
+    "description": "La ventana del timer que se abre en otra pestaña no permite redimensionarse.",
+    "type": "bug",
+    "category": "timer",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-timer",
+    "status": "pending",
+    "files_probable": [
+      "components/TimerWidget.tsx",
+      "index.html"
+    ],
+    "files_allowed": [
+      "components/TimerWidget.tsx",
+      "index.html",
+      "index.css"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede redimensionar la ventana del timer libremente."
+    ],
+    "dependencies": [
+      "TASK-001"
+    ],
+    "risks": [
+      "Puede requerir cambiar cómo se abre la ventana (window.open params)."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-003",
+    "source_id": "TL-003",
+    "title": "Lógica incorrecta del descanso en módulo flotante",
+    "description": "Cuando inicia el descanso en el módulo flotante, empieza a correr el tiempo de trabajo en vez del tiempo de descanso. En la app principal sí funciona bien.",
+    "type": "bug",
+    "category": "timer",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-timer",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-15",
+    "files_probable": [
+      "components/TimerWidget.tsx",
+      "contexts/TimerContext.tsx",
+      "App.tsx"
+    ],
+    "files_allowed": [
+      "components/TimerWidget.tsx",
+      "contexts/TimerContext.tsx",
+      "App.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al iniciar descanso en módulo flotante, el contador de descanso corre y el de trabajo se pausa."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Estado del timer puede no estar sincronizado entre módulo flotante y app principal."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-004",
+    "source_id": "TL-004",
+    "title": "Color del descanso poco distinguible",
+    "description": "El color del timer durante el descanso debe ser un rojo más oscuro, distinguible pero sin parecer alerta.",
+    "type": "mejora",
+    "category": "timer",
+    "priority": "low",
+    "owner": "programmer-editor",
+    "subagent": "subagent-timer",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-14",
+    "implemented_by": "programmer-editor",
+    "change_summary": "TimerWidget.tsx: rose-900 → red-900 (flotante y full), from-rose-950/90 → from-red-950 (gradiente full).",
+    "files_probable": [
+      "components/TimerWidget.tsx",
+      "index.css"
+    ],
+    "files_allowed": [
+      "components/TimerWidget.tsx",
+      "index.css"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El color del descanso es visualmente distinguible del trabajo, sin parecer alerta de error."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Tarea pequeña, buena candidata para primera tanda."
+    ]
+  },
+  {
+    "id": "TASK-005",
+    "source_id": "TL-005",
+    "title": "Timer no guarda tiempo de trabajo correctamente",
+    "description": "No guarda correctamente el tiempo de trabajo. Debe ser la suma acumulada de cada lapso de los pomodoros.",
+    "type": "bug",
+    "category": "timer",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-timer",
+    "status": "pending",
+    "files_probable": [
+      "components/TimerWidget.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/TimerWidget.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El tiempo total registrado es la suma de todos los lapsos de pomodoro completados."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Puede afectar datos históricos ya guardados."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-006",
+    "source_id": "TL-006",
+    "title": "Sincronizar estado Submitted entre Standard y Process",
+    "description": "Si en Standard se pasa una oportunidad a Submitted, también debe actualizarse en Process y viceversa.",
+    "type": "mejora",
+    "category": "dashboard",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-dashboard",
+    "status": "pending",
+    "files_probable": [
+      "components/Dashboard.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/Dashboard.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Cambiar a Submitted en Standard refleja automáticamente en Process y viceversa."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Modificar lógica de actualización de estado puede afectar otras vistas."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-007",
+    "source_id": "TL-007",
+    "title": "Links fijos predeterminados en resumen ejecutivo (SRLink, BFO, CQA)",
+    "description": "Los quick links del resumen ejecutivo/expediente deben incluir siempre por defecto: SRLink, BFO y CQA con nombres fijos.",
+    "type": "mejora",
+    "category": "dashboard",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-dashboard",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al abrir cualquier expediente, los links SRLink, BFO y CQA aparecen por defecto en quick links."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Si el usuario ya configuró quick links, no deben borrarse sus links existentes."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-008",
+    "source_id": "TL-008",
+    "title": "Configurar campos visibles de tarjetas en dashboard de propuestas",
+    "description": "Permitir personalizar qué campos se muestran en las tarjetas del dashboard. Alias y OP siempre obligatorios. También configurar el botón 'Hide next step & notes'.",
+    "type": "mejora",
+    "category": "dashboard",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-dashboard",
+    "status": "pending",
+    "files_probable": [
+      "components/Dashboard.tsx",
+      "components/SettingsModal.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/Dashboard.tsx",
+      "components/SettingsModal.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede configurar qué campos aparecen en tarjetas. Alias y OP no se pueden ocultar."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere guardar configuración por usuario/BD."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-009",
+    "source_id": "TL-009",
+    "title": "OP larga truncada y con contraste insuficiente en tarjetas",
+    "description": "Si el código OP es muy largo se trunca y no se ve. Además tiene contraste insuficiente (gris muy claro).",
+    "type": "bug",
+    "category": "dashboard",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-dashboard",
+    "status": "ready",
+    "ready_note": "Segunda tanda — toca Dashboard.tsx igual que TASK-018 pero TASK-018 aún no aprueba testing. Activar solo cuando TASK-018 pase.",
+    "files_probable": [
+      "components/Dashboard.tsx"
+    ],
+    "files_allowed": [
+      "components/Dashboard.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "La OP siempre se muestra completa con buen contraste (texto oscuro legible)."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Tarea pequeña de CSS/layout."
+    ]
+  },
+  {
+    "id": "TASK-010",
+    "source_id": "TL-010",
+    "title": "Freeze al renombrar etiquetas de quick links",
+    "description": "La app se traba al cambiar el nombre de las etiquetas de los quick links.",
+    "type": "bug",
+    "category": "dashboard",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-dashboard",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Renombrar una etiqueta de quick link es instantáneo sin freezes."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-011",
+    "source_id": "TL-011",
+    "title": "Ocultar columnas en Vista General y mostrar coincidencias en columna 'Ocultas'",
+    "description": "Desde Settings elegir columnas a ocultar (ej. Completed). En búsqueda, si hay coincidencia en columna oculta, mostrarla en columna temporal 'Ocultas'.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "change_summary": "Ya implementado en Dashboard.tsx: ColumnSelector toggle de columnas visibles + header 'Ocultas (N)' cuando visibleColumns.length < allColumns.length. No se requirieron cambios.",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "components/SettingsModal.tsx",
+      "App.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "components/SettingsModal.tsx",
+      "App.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede ocultar columnas desde Settings. Si hay búsqueda con coincidencia en ocultas, aparece columna temporal 'Ocultas'."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [],
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-012",
+    "source_id": "TL-012",
+    "title": "Reemplazar Performance KPIs por recuadro Total de OPs en Vista General",
+    "description": "Eliminar el recuadro 'Performance KPIs' y agregar uno de 'Total de OPs'.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "change_summary": "Ya implementado en Dashboard.tsx línea 2169-2173: recuadro 'Total de OPs' con filteredOpps.length. KPI cards muestran Total Filtered Amount, Won Amount, Active Count (no Performance KPIs genéricos).",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "App.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "App.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El recuadro Performance KPIs no aparece. En su lugar hay un recuadro de Total de OPs con el conteo correcto."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [],
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-013",
+    "source_id": "TL-013",
+    "title": "Reducir tamaño de recuadros informativos en Vista General",
+    "description": "Los recuadros 'Total Won', 'Total OP' y 'Active Account' deben ser más pequeños para facilitar la visualización de la tabla.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "App.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "App.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Los recuadros informativos son visiblemente más compactos y la tabla ocupa más espacio."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [],
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-014",
+    "source_id": "TL-014",
+    "title": "Edición inline en todas las celdas de la tabla en Vista General",
+    "description": "Hacer que todas las celdas de la tabla de Vista General sean editables directamente, estilo Excel.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "change_summary": "Ya implementado en Dashboard.tsx: EditableCell en columnas title, customer, detailedStatus (select), stage (select), expected (date), amount (number), nextStep.title, nextStep.status (select), notes (kanbanNote). Sin tocar el expediente.",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al hacer clic en cualquier celda de la tabla, el usuario puede editar el valor directamente sin abrir el expediente."
+    ],
+    "dependencies": [
+      "TASK-011"
+    ],
+    "risks": [
+      "Tarea compleja. Puede requerir dividirse en subtareas por tipo de campo."
+    ],
+    "notes": [],
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-015",
+    "source_id": "TL-015",
+    "title": "Mostrar Process Status en lugar de Status Principal en Vista General",
+    "description": "En la tabla de Vista General, reemplazar el status principal por el 'Process Status'.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "change_summary": "Ya implementado en Dashboard.tsx línea 2241/2262: columna 'status' muestra encabezado 'Process Status' y contenido opp.detailedStatus con DETAILED_STATUS_COLORS. No se requirieron cambios.",
+    "files_probable": [
+      "components/TableComponents.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "La columna de status en Vista General muestra el Process Status."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [],
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-016",
+    "source_id": "TL-016",
+    "title": "Gestión directa de Next Step en tabla de Vista General",
+    "description": "Mostrar Next Step en la tabla con posibilidad de cambiar su status inline y agregar nueva tarea.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "change_summary": "Ya implementado en Dashboard.tsx línea 2291-2300: columna 'nextStep' muestra el título editable (EditableCell) + select de status. No se requirieron cambios.",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "App.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El Next Step aparece en la tabla y puede cambiarse inline. Se puede agregar nueva tarea desde la tabla."
+    ],
+    "dependencies": [
+      "TASK-014"
+    ],
+    "risks": [],
+    "notes": [],
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-017",
+    "source_id": "TL-017",
+    "title": "Columna Waiting On detalla área, persona, tarea y tipo",
+    "description": "Si hay tarea On Hold o Aprobación, la columna Waiting On debe mostrar: área, nombre de persona esperada, nombre de tarea, y si es on hold o aprobación.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "ready_note": "Waiting On ya muestra título + externalAreas (Dashboard.tsx línea 2301-2312). Falta agregar 'On Hold' y 'Approval' al filtro en línea 2256 (actualmente solo 'Missing Info' + 'Waiting'). Espera a que Dashboard.tsx pase TASK-018 testing.",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "La columna Waiting On muestra información detallada cuando hay tareas On Hold o Aprobación."
+    ],
+    "dependencies": [
+      "TASK-032"
+    ],
+    "risks": [
+      "Requiere que el modelo de datos de tareas tenga campos de área/persona."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-018",
+    "source_id": "TL-018",
+    "title": "Filtros y búsqueda desalineados a la derecha en Vista General",
+    "description": "Los filtros y la búsqueda general están pegados a la derecha. Deben alinearse a la izquierda.",
+    "type": "bug",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general",
+    "change_summary": "Dashboard.tsx línea ~1728: 'flex justify-between items-center flex-wrap gap-4' → 'flex flex-wrap items-center gap-4'.",
+    "files_probable": [
+      "components/TableComponents.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Los filtros y buscador de Vista General están alineados a la izquierda."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "PRIMERA TANDA — tarea CSS simple sin riesgo. Status: ready."
+    ]
+  },
+  {
+    "id": "TASK-019",
+    "source_id": "TL-019",
+    "title": "Redimensionar columnas y agregar columna Notas en Vista General",
+    "description": "Permitir ajustar el ancho de columnas libremente y agregar columna de Notas que corresponda a notas internas rápidas.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "files_probable": [
+      "components/TableComponents.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede arrastrar bordes de columnas para redimensionarlas. Hay columna Notas con notas rápidas."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Puede ser complejo implementar drag-resize sin librería dedicada."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-020",
+    "source_id": "TL-020",
+    "title": "Selección múltiple por arrastre de mouse",
+    "description": "Permitir seleccionar varios elementos manteniendo el clic izquierdo y arrastrando, como el explorador de archivos del SO.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "files_probable": [
+      "components/TableComponents.tsx"
+    ],
+    "files_allowed": [
+      "components/TableComponents.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede hacer lasso/rubber-band selection sobre filas de la tabla."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere manejo de eventos de mouse complejo."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-021",
+    "source_id": "TL-021",
+    "title": "Opciones de carpeta: elegir existente o crear desde template",
+    "description": "Si una carpeta no está vinculada, mostrar dos opciones: elegir carpeta existente o crear una nueva basada en plantilla.",
+    "type": "mejora",
+    "category": "vista-general",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-vista-general",
+    "status": "done",
+    "files_probable": [
+      "features/opportunity-folder/",
+      "components/OpportunityFolder.tsx"
+    ],
+    "files_allowed": [
+      "features/opportunity-folder/",
+      "components/OpportunityFolder.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Si no hay carpeta, aparecen botones: 'Elegir existente' y 'Crear desde plantilla'."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Acceso al sistema de archivos requiere File System Access API (ya usada en el proyecto)."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15",
+    "implemented_by": "subagent-vista-general"
+  },
+  {
+    "id": "TASK-022",
+    "source_id": "TL-022",
+    "title": "Drag & drop se traba en calendario de tareas",
+    "description": "Se traba al arrastrar y soltar tareas en la vista de calendario. También se traba al abrir la sub vista de tareas.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Drag & drop en calendario funciona sin freezes. La sub vista de tareas abre fluido."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Puede ser relacionado con re-renders excesivos durante el drag."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-023",
+    "source_id": "TL-023",
+    "title": "Tarea sin fecha no registra fecha al marcar Done",
+    "description": "Si una tarea sin fecha se marca como Done, debe colocarse la fecha actual como fecha de entrega automáticamente.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-15",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts",
+      "services/taskUtils.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts",
+      "services/taskUtils.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al marcar Done una tarea sin fecha, se asigna automáticamente la fecha actual. Si ya tenía fecha, se conserva."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-024",
+    "source_id": "TL-024",
+    "title": "Next Step no señala la tarea correcta en el expediente",
+    "description": "Al dar clic en Next Step no siempre se señala/navega a la tarea correcta en la hoja de tareas del expediente.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al hacer clic en Next Step siempre navega y resalta la tarea correcta."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Ver también TASK-033 que es problema similar desde dentro del expediente."
+    ]
+  },
+  {
+    "id": "TASK-025",
+    "source_id": "TL-025",
+    "title": "App se traba al setear fecha de tarea",
+    "description": "Al cambiar o setear la fecha de una tarea, la app se pausa y el navegador se congela.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/CalendarView.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/CalendarView.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Cambiar la fecha de una tarea es instantáneo sin freezes."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Posiblemente relacionado con re-renders en cascada al actualizar fecha."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-026",
+    "source_id": "TL-026",
+    "title": "Schedule se traba al mover tareas",
+    "description": "Al arrastrar y mover tareas en la vista Schedule, se traba en cada cambio.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El drag & drop en Schedule es fluido sin trabarse."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Relacionado con TASK-022. Posible causa raíz común."
+    ]
+  },
+  {
+    "id": "TASK-027",
+    "source_id": "TL-027",
+    "title": "Filtros de Schedule mal implementados",
+    "description": "Los filtros de Schedule deben ser solo para filtrar unschedule. Los filtros normales no deben limpiar la agenda sino colorear las tareas que entran en el filtro.",
+    "type": "mejora",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/CalendarView.tsx"
+    ],
+    "files_allowed": [
+      "components/CalendarView.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Filtros de Schedule solo afectan unschedule. Filtros normales colorean tareas sin ocultarlas."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-028",
+    "source_id": "TL-028",
+    "title": "No aparecen notificaciones push de tareas",
+    "description": "No aparecen notificaciones de 15 minutos antes ni al inicio de una tarea.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "App.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "App.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El sistema envía notificaciones del navegador 15 minutos antes y al inicio de cada tarea agendada."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere permiso de notificaciones del navegador. Si se deniega, no funciona."
+    ],
+    "notes": [
+      "Puede requerir Service Worker o Notification API."
+    ]
+  },
+  {
+    "id": "TASK-029",
+    "source_id": "TL-029",
+    "title": "Tareas agendables con información incompleta no se identifican visualmente",
+    "description": "Las tareas que pueden agendarse pero les falta información deben aparecer marcadas visualmente.",
+    "type": "mejora",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/CalendarView.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las tareas agendables sin info completa tienen un indicador visual claro."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-030",
+    "source_id": "TL-030",
+    "title": "Status de tarea no aparece en detalles",
+    "description": "En los detalles de una tarea no aparece el campo de status para que el usuario lo pueda cambiar.",
+    "type": "mejora",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "En los detalles de una tarea, el status es visible y editable."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-031",
+    "source_id": "TL-031",
+    "title": "App se traba al modificar tareas",
+    "description": "Se traba al abrir una tarea y empezar a editar cualquier campo.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Editar cualquier campo de una tarea es fluido sin freezes."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Posiblemente relacionado con re-renders de OpportunityDetail al actualizar estado de tareas."
+    ],
+    "notes": [
+      "Puede tener causa raíz común con TASK-025 y TASK-034."
+    ]
+  },
+  {
+    "id": "TASK-032",
+    "source_id": "TL-032",
+    "title": "Agregar status 'Aprobación' en Tareas",
+    "description": "Nuevo status de 'Aprobación' en tareas con las mismas propiedades que 'Missing information'.",
+    "type": "mejora",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Existe el status 'Aprobación' en tareas con las propiedades de Missing Information."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Relacionado con TASK-017."
+    ],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-033",
+    "source_id": "TL-033",
+    "title": "Next Step desde expediente no ilumina la tarea",
+    "description": "Al hacer clic en Next Step desde dentro del expediente, desplaza a tareas pero no resalta la tarea específica.",
+    "type": "bug",
+    "category": "tareas-schedule",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-tareas-schedule",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al hacer clic en Next Step desde el expediente, navega a tareas y resalta/ilumina la tarea correcta."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [
+      "Ver también TASK-024."
+    ]
+  },
+  {
+    "id": "TASK-034",
+    "source_id": "TL-034",
+    "title": "Freeze al escribir en notas del expediente",
+    "description": "La app se traba mientras el usuario escribe en la sección de notas dentro del expediente.",
+    "type": "bug",
+    "category": "notas-plantillas",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Escribir en notas del expediente es fluido sin lag ni freezes."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Posiblemente causado por guardado automático sincrónico en cada keystroke."
+    ],
+    "notes": [
+      "Causa raíz probable: debounce faltante en el guardado de notas."
+    ],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-035",
+    "source_id": "TL-035",
+    "title": "Bullets encimados en notas",
+    "description": "Los bullets en la hoja de notas se superponen con el texto, hay problemas de layout.",
+    "type": "bug",
+    "category": "notas-plantillas",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "index.css"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "index.css"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Los bullets tienen separación correcta del texto, sin superposición."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": [],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-036",
+    "source_id": "TL-036",
+    "title": "Atajos de formato no funcionan en notas",
+    "description": "Los atajos * para bullet, Ctrl+B para negrita, '1. ' para listas y otros atajos tipo Word no funcionan en notas.",
+    "type": "bug",
+    "category": "notas-plantillas",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Los atajos estándar de formato funcionan: *, Ctrl+B, 1. y similares."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Puede requerir integrar un editor de texto rico (como tiptap) o implementar manejo de atajos manual."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-037",
+    "source_id": "TL-037",
+    "title": "Nota no se guarda — riesgo de pérdida de datos",
+    "description": "Las notas a veces no se guardan. Deben guardarse automáticamente o con confirmación visible.",
+    "type": "bug",
+    "category": "notas-plantillas",
+    "priority": "critical",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-15",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "services/save.worker.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "services/save.worker.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las notas se guardan automáticamente. El usuario ve indicador de 'Guardado' o 'Guardando'."
+    ],
+    "dependencies": [
+      "TASK-034"
+    ],
+    "risks": [
+      "Pérdida de datos si no se corrige. Prioridad crítica."
+    ],
+    "notes": [
+      "PRIORIDAD CRÍTICA — pérdida de datos de usuario."
+    ]
+  },
+  {
+    "id": "TASK-038",
+    "source_id": "TL-038",
+    "title": "Templates no se quitan de notas al borrarlos desde Settings",
+    "description": "Al borrar un template desde Settings, las notas existentes que usaban ese template siguen mostrándolo.",
+    "type": "bug",
+    "category": "notas-plantillas",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "pending",
+    "files_probable": [
+      "components/SettingsModal.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/SettingsModal.tsx",
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al borrar un template, se limpia de todas las notas que lo usaban."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Cuidado con borrar contenido si el usuario ya llenó la nota usando ese template."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-039",
+    "source_id": "TL-039",
+    "title": "Organizar notas con jerarquía de notas, sub-notas y carpetas",
+    "description": "Permitir organizar las notas en notas, sub-notas y carpetas, similar a Microsoft Loop.",
+    "type": "mejora",
+    "category": "notas-plantillas",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-notas",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede organizar notas en una jerarquía de notas, sub-notas y carpetas."
+    ],
+    "dependencies": [
+      "TASK-037"
+    ],
+    "risks": [
+      "Tarea grande. Requiere rediseño del modelo de datos de notas."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-040",
+    "source_id": "TL-040",
+    "title": "Seleccionar texto saca al usuario del expediente",
+    "description": "Si el usuario selecciona texto y el cursor sale del área del expediente, la app cierra/sale del expediente.",
+    "type": "bug",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Seleccionar texto nunca provoca que el expediente se cierre."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-041",
+    "source_id": "TL-041",
+    "title": "Versiones de expediente se sobreescriben al navegar — pérdida de datos",
+    "description": "Al navegar a una versión anterior y salir o recargar, esa versión copia al lugar de la nueva versión y borra el contenido nuevo.",
+    "type": "bug",
+    "category": "kpis-versiones",
+    "priority": "critical",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las versiones son inmutables. Navegar entre versiones no modifica ni sobreescribe ninguna versión."
+    ],
+    "dependencies": [],
+    "risks": [
+      "CRÍTICO — pérdida de datos del usuario. No implementar sin testing exhaustivo."
+    ],
+    "notes": [
+      "PRIORIDAD CRÍTICA — pérdida de datos."
+    ]
+  },
+  {
+    "id": "TASK-042",
+    "source_id": "TL-042",
+    "title": "Auto-asignar fecha Delivered/Tendered At al pasar a Submitted",
+    "description": "Al pasar una oportunidad a Submitted, auto-asignar la fecha de hoy a 'Delivered / Tendered At'. Si se revierte, borrar la fecha. Si ya existe fecha, sobreescribir.",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al pasar a Submitted, 'Delivered/Tendered At' se llena automáticamente con hoy. Al revertir, se borra."
+    ],
+    "dependencies": [
+      "TASK-006"
+    ],
+    "risks": [],
+    "notes": [],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-043",
+    "source_id": "TL-043",
+    "title": "Proposal Amount no sincronizado con CQA Target Sell",
+    "description": "'Proposal Amount (USD)' y 'CQA Target Sell' no están vinculados ni sincronizados.",
+    "type": "bug",
+    "category": "kpis-versiones",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Proposal Amount y CQA Target Sell están sincronizados: cambiar uno actualiza el otro."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Definir cuál es la fuente de verdad: ¿siempre el mismo valor, o hay conversión?"
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-044",
+    "source_id": "TL-044",
+    "title": "Auto Sold status basado en Process Status",
+    "description": "Si Process Status = Won, 'Sold?' = Yes automáticamente. Si Process Status = Lost, 'Sold?' = No.",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-15",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Sold? se actualiza automáticamente al cambiar Process Status a Won o Lost."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-045",
+    "source_id": "TL-045",
+    "title": "No se guarda el folder al revisar la revisión 0 — pérdida de datos",
+    "description": "El folder no se guarda correctamente cuando se revisa la revisión 0.",
+    "type": "bug",
+    "category": "kpis-versiones",
+    "priority": "critical",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "needs_testing",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "services/folderStorage.ts",
+      "features/opportunity-folder/"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "services/folderStorage.ts",
+      "features/opportunity-folder/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El folder se guarda correctamente en revisión 0."
+    ],
+    "dependencies": [],
+    "risks": [
+      "CRÍTICO — pérdida de datos."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-046",
+    "source_id": "TL-046",
+    "title": "Navegar carpetas de versiones antiguas en modo lectura",
+    "description": "Al volver a una versión antigua, permitir ver y navegar el folder en modo lectura (sin editar).",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-folder/"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-folder/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "En versiones antiguas el folder es navegable pero no editable."
+    ],
+    "dependencies": [
+      "TASK-041"
+    ],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-047",
+    "source_id": "TL-047",
+    "title": "Duración en días laborables y calendario en Overview",
+    "description": "La duración total de la propuesta debe mostrar tanto 'working days' como 'calendar days' en inglés.",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "services/dateUtils.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "services/dateUtils.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El Overview muestra la duración en working days y calendar days."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-048",
+    "source_id": "TL-048",
+    "title": "Nuevos History no muestran fechas guardadas en Tracker",
+    "description": "Al crear nuevos History, las fechas configuradas en el tracker no aparecen en el expediente.",
+    "type": "bug",
+    "category": "kpis-versiones",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "features/tracking/trackingTypes.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "features/tracking/trackingTypes.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las fechas guardadas en el tracker se ven correctamente en los nuevos History del expediente."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-049",
+    "source_id": "TL-049",
+    "title": "Nueva sección 'Recabación de información' en Expediente",
+    "description": "Crear una sección de captura de información progresiva vinculada a Preguntas y Respuestas, como sustituto de Tender Flow.",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Existe la sección 'Recabación de información' vinculada a Preguntas y Respuestas."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Tarea grande. Requiere diseño de nueva sección y modelo de datos."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-050",
+    "source_id": "TL-050",
+    "title": "Botón de Stakeholders en Overview ligado a KPIs y Tareas",
+    "description": "Botón en el Overview para gestionar Stakeholders (nombre, área), vinculado al tracker de KPIs y a las tareas.",
+    "type": "mejora",
+    "category": "kpis-versiones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-kpis-versiones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El Overview tiene botón de Stakeholders funcional ligado a KPIs y Tareas."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Tarea grande. Requiere diseño de nuevo modelo de datos de Stakeholders."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-051",
+    "source_id": "TL-051",
+    "title": "Links rápidos largos ocultan precio de venta en PDF",
+    "description": "Al exportar el PDF, si los quick links son muy largos, el precio de venta queda oculto.",
+    "type": "bug",
+    "category": "pdf",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-pdf",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El precio de venta siempre es visible en el PDF independientemente del largo de los quick links."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-052",
+    "source_id": "TL-052",
+    "title": "Margen inferior insuficiente al exportar PDF",
+    "description": "El PDF exportado tiene el contenido amontonado en la parte inferior sin margen.",
+    "type": "bug",
+    "category": "pdf",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-pdf",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El PDF tiene margen inferior uniforme igual al de los lados."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-053",
+    "source_id": "TL-053",
+    "title": "Labels de quick links en verde y negrita en PDF",
+    "description": "Las etiquetas de los quick links deben aparecer en color verde y negrita en el PDF exportado.",
+    "type": "mejora",
+    "category": "pdf",
+    "priority": "low",
+    "owner": "programmer-editor",
+    "subagent": "subagent-pdf",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "features/opportunity-export/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las etiquetas de quick links en el PDF aparecen en verde y negrita."
+    ],
+    "dependencies": [],
+    "risks": [],
+    "notes": []
+  },
+  {
+    "id": "TASK-054",
+    "source_id": "TL-054",
+    "title": "Ligar correos de Outlook a tareas o notas",
+    "description": "Vincular correos de Outlook a tareas o notas. El usuario debe poder abrir el email original en Outlook de escritorio desde la app.",
+    "type": "mejora",
+    "category": "integraciones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-integraciones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede vincular un correo de Outlook y abrirlo directamente en Outlook de escritorio."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere deep link de Outlook (outlook: protocol). Solo funciona en Windows con Outlook instalado."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-055",
+    "source_id": "TL-055",
+    "title": "Importar información de oportunidad desde correo de Salesforce",
+    "description": "Botón para extraer y rellenar automáticamente la info del expediente a partir de un correo de asignación de Salesforce (SR).",
+    "type": "mejora",
+    "category": "integraciones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-integraciones",
+    "status": "pending",
+    "files_probable": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "components/OpportunityDetail.tsx",
+      "components/Dashboard.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El botón permite pegar o indicar un correo de SR y extrae los datos automáticamente."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Parsing de correos puede ser frágil si el formato cambia. Requiere análisis del formato de correos de Salesforce."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-056",
+    "source_id": "TL-056",
+    "title": "Arrastrar archivos desde la app a Outlook o Teams",
+    "description": "Poder arrastrar archivos de la aplicación y soltarlos en Outlook o Teams para adjuntarlos rápidamente.",
+    "type": "mejora",
+    "category": "integraciones",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-integraciones",
+    "status": "pending",
+    "files_probable": [
+      "features/opportunity-folder/"
+    ],
+    "files_allowed": [
+      "features/opportunity-folder/"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El usuario puede arrastrar archivos de la app y soltarlos en Outlook o Teams."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Limitación de browser sandboxing para drag & drop cross-application. Puede no ser factible sin Electron."
+    ],
+    "notes": [
+      "Marcar como BLOCKED si el entorno de browser no permite cross-app drag & drop."
+    ]
+  },
+  {
+    "id": "TASK-057",
+    "source_id": "TL-057",
+    "title": "BD no recuerda la selección del usuario al reabrir",
+    "description": "Cuando el usuario ya configuró su BD y la asignó, la app no recuerda cuál era y pide seleccionarla de nuevo. Debe quedar la BD asignada como default.",
+    "type": "bug",
+    "category": "configuracion-db",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-configuracion-db",
+    "status": "needs_testing",
+    "implemented_at": "2026-06-14",
+    "implemented_by": "programmer-editor",
+    "change_summary": "App.tsx: startup screen overlay cuando !isDbLoaded. Botón prominente 'Reabrir: [nombre]' si hay pendingHandle. Lista de recientes visible. Sin cambios en lógica de FileSystem API.",
+    "files_probable": [
+      "App.tsx",
+      "services/recentDbHandles.ts"
+    ],
+    "files_allowed": [
+      "App.tsx",
+      "services/recentDbHandles.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Al reabrir la app, la última BD usada se carga automáticamente sin pedirla de nuevo."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Depende de File System Access API y permisos del navegador."
+    ],
+    "notes": [
+      "PRIMERA TANDA — alta prioridad, impacto alto en UX diaria."
+    ]
+  },
+  {
+    "id": "TASK-058",
+    "source_id": "TL-058",
+    "title": "App no se despliega como PWA en todos los navegadores",
+    "description": "La app solo funciona como tipo-app en Vivaldi. Debe funcionar como PWA en cualquier navegador.",
+    "type": "bug",
+    "category": "configuracion-db",
+    "priority": "medium",
+    "owner": "programmer-editor",
+    "subagent": "subagent-configuracion-db",
+    "status": "needs_testing",
+    "files_probable": [
+      "vite.config.ts",
+      "public/manifest.json",
+      "index.html"
+    ],
+    "files_allowed": [
+      "vite.config.ts",
+      "public/",
+      "index.html"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "La app se puede instalar como PWA en Chrome, Edge y Firefox."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere revisar vite-plugin-pwa config y manifest.json."
+    ],
+    "notes": [],
+    "implemented_at": "2026-06-15"
+  },
+  {
+    "id": "TASK-059",
+    "source_id": "TL-059",
+    "title": "Eliminar campo Stage de todo el sistema",
+    "description": "El campo Stage sigue apareciendo en vistas, filtros y expediente. Eliminar completamente el campo, filtros y lógica de Stage.",
+    "type": "bug",
+    "category": "configuracion-db",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-configuracion-db",
+    "status": "pending",
+    "files_probable": [
+      "App.tsx",
+      "components/TableComponents.tsx",
+      "components/Dashboard.tsx",
+      "components/OpportunityDetail.tsx",
+      "types.ts",
+      "components/SettingsModal.tsx"
+    ],
+    "files_allowed": [
+      "App.tsx",
+      "components/TableComponents.tsx",
+      "components/Dashboard.tsx",
+      "components/OpportunityDetail.tsx",
+      "types.ts",
+      "components/SettingsModal.tsx"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "El campo Stage, sus filtros y toda su lógica han sido eliminados del sistema."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Tarea amplia — tocar muchos archivos. Riesgo de romper otras funcionalidades."
+    ],
+    "notes": [
+      "Requiere búsqueda exhaustiva de todas las referencias a 'stage' en el código."
+    ]
+  },
+  {
+    "id": "TASK-060",
+    "source_id": "TL-060",
+    "title": "Configuración de labels se pierde según navegador",
+    "description": "Las labels configuradas se borran dependiendo del navegador (guardado local). Deben guardarse en la BD para que estén disponibles en cualquier dispositivo.",
+    "type": "bug",
+    "category": "configuracion-db",
+    "priority": "high",
+    "owner": "programmer-editor",
+    "subagent": "subagent-configuracion-db",
+    "status": "pending",
+    "files_probable": [
+      "App.tsx",
+      "components/SettingsModal.tsx",
+      "types.ts"
+    ],
+    "files_allowed": [
+      "App.tsx",
+      "components/SettingsModal.tsx",
+      "types.ts"
+    ],
+    "files_locked": [],
+    "acceptance_criteria": [
+      "Las labels se guardan en la BD. Están disponibles en cualquier navegador. Si la BD es antigua, se actualiza su estructura automáticamente."
+    ],
+    "dependencies": [],
+    "risks": [
+      "Requiere migración de datos locales a BD. Definir estrategia de merge si hay labels en ambos lados."
+    ],
+    "notes": []
+  },
+  {
+    "id": "TASK-061",
+    "name": "Alarmas configurables en Settings",
+    "category": "Configuración/BD",
+    "description": "Permitir configurar alarmas (color y días) en SettingsModal, y aplicarlas dinámicamente en getBadgeInfo dentro de Dashboard.",
+    "status": "needs_testing",
+    "priority": "alta",
+    "files_allowed": [
+      "types.ts",
+      "components/SettingsModal.tsx",
+      "components/Dashboard.tsx"
+    ]
+  }
+]

@@ -98,6 +98,8 @@ interface TimerProviderProps {
     timerSound?: SoundType;
     /** Sound played when a browser notification fires. Defaults to 'ding'. */
     notificationSound?: SoundType;
+    /** When false, disables the auto-phase watcher so secondary windows don't race with the primary. Default true. */
+    primary?: boolean;
 }
 
 // Phase alerts reuse the shared soundService (configurable by the user in
@@ -146,7 +148,7 @@ const phaseLabel = (phase: PomodoroPhase) => {
     return 'Long Break';
 };
 
-export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTime, opportunities, timerSound, notificationSound }) => {
+export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTime, opportunities, timerSound, notificationSound, primary = true }) => {
     // Refs keep callback identities stable even when the user changes the
     // sound in Settings. Without these, every sound-setting tweak would
     // rebuild every memoized action (startTimer, pauseTimer, advancePhase…).
@@ -353,8 +355,11 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
 
     const skipPomodoroPhase = useCallback(() => advancePhase(true), [advancePhase]);
 
-    // Auto phase-complete watcher: ticks every second while running + pomodoro enabled
+    // Auto phase-complete watcher: ticks every second while running + pomodoro enabled.
+    // Only runs in the primary window — secondary windows (floating popup) receive
+    // phase transitions via BroadcastChannel to avoid double-advance race conditions.
     useEffect(() => {
+        if (!primary) return;
         if (!pomodoroConfig.enabled) return;
         if (!timerState.isRunning) return;
         const id = window.setInterval(() => {
@@ -369,7 +374,7 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
             }
         }, 1000);
         return () => window.clearInterval(id);
-    }, [timerState.isRunning, pomodoroConfig.enabled, advancePhase]);
+    }, [primary, timerState.isRunning, pomodoroConfig.enabled, advancePhase]);
 
     // Derived displays
     const currentWorkElapsed = timerState.isRunning && timerState.startTime && timerState.pomodoroPhase === 'work'

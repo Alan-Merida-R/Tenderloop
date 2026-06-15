@@ -16,15 +16,19 @@ export default defineConfig(({ mode }) => {
         tailwindcss(),
         VitePWA({
           registerType: 'autoUpdate',
-          manifest: false, // we use our own public/manifest.json
+          // Use public/manifest.json instead of auto-generating one
+          manifest: false,
+          // Include the manifest in the service worker precache list
+          includeAssets: ['icon.svg', 'manifest.json'],
           workbox: {
-            // Cache everything for offline use — TenderLoop is local-first
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-            // Don't precache large chunks — let the browser decide
             maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+            // Ensure the SW serves the app shell for all navigation requests
+            navigateFallback: '/index.html',
+            navigateFallbackDenylist: [/^\/api\//],
           },
           devOptions: {
-            enabled: false, // disable SW in dev to avoid stale cache during development
+            enabled: false,
           },
         }),
       ],

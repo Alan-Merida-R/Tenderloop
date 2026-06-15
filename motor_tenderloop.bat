@@ -22,16 +22,20 @@ if %errorlevel% neq 0 (
 
 :: --- Instalar dependencias si faltan ---
 if not exist node_modules (
-    echo [INFO] Instalando dependencias por primera vez...
-    call npm install --prefer-offline --no-audit --no-fund --maxsockets 1
+    echo [INFO] Instalando dependencias por primera vez, puede tardar varios minutos...
+    call npm install --no-audit --no-fund
     if errorlevel 1 (
         if "%MODE%"=="VISIBLE" (
-            echo [ERROR] npm install fallo.
+            echo.
+            echo [ERROR] npm install fallo. Posibles causas:
+            echo   - Sin conexion a internet
+            echo   - Proxy corporativo bloqueando npm
+            echo   - Node.js desactualizado
+            echo.
             pause
         )
         exit /b 1
     )
-    call npm install xlsx mammoth --prefer-offline --no-audit --no-fund --maxsockets 1
 )
 
 :: --- Verificar vite ---

@@ -19,29 +19,60 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
     } = useTimer();
     const [tick, setTick] = React.useState(0);
 
-    // Per-second tick drives live re-computation of remaining time. Even when the
-    // TimerProvider doesn't re-render (its state doesn't change while a phase is
-    // running), this local tick keeps the display counting down.
+    // A short local pulse drives live re-computation from absolute timestamps.
+    // The main widget and popup mount at different moments, so a 1s interval can
+    // make them visibly disagree by almost a full second.
     React.useEffect(() => {
         let interval: any;
         if (timerState.isRunning) {
-            interval = setInterval(() => setTick(t => t + 1), 1000);
+            interval = setInterval(() => setTick(t => t + 1), 250);
         } else {
             setTick(0);
         }
         return () => clearInterval(interval);
     }, [timerState.isRunning, timerState.taskId, timerState.pomodoroPhase]);
 
+    const workElapsedAnchorRef = React.useRef({
+        key: '',
+        baseElapsedSeconds: 0,
+    });
+
     const displaySeconds = React.useMemo(() => {
-        // During break phases, work time must not accumulate (guards against startTimer
-        // being called during a break which sets startTime on a non-work phase).
+        // Anchor the visible work timer to the shared absolute startTime. The
+        // provider elapsed value is already live-at-render, so subtracting the
+        // current run seconds gives both windows the same accumulated base.
         if (!timerState.isRunning || timerState.pomodoroPhase !== 'work' || !timerState.startTime) {
             return timerState.elapsedSeconds;
         }
+
         const now = Date.now();
-        const sessionSeconds = Math.floor((now - timerState.startTime) / 1000);
-        return timerState.elapsedSeconds + sessionSeconds;
-    }, [timerState.isRunning, timerState.elapsedSeconds, timerState.startTime, timerState.pomodoroPhase, tick]);
+        const sessionSecondsAtRender = Math.floor((now - timerState.startTime) / 1000);
+        const syncKey = [
+            timerState.taskId || '',
+            timerState.oppId || '',
+            timerState.startTime,
+            timerState.pomodoroPhase,
+            timerState.elapsedSeconds,
+        ].join('|');
+
+        if (workElapsedAnchorRef.current.key !== syncKey) {
+            workElapsedAnchorRef.current = {
+                key: syncKey,
+                baseElapsedSeconds: Math.max(0, timerState.elapsedSeconds - sessionSecondsAtRender),
+            };
+        }
+
+        return workElapsedAnchorRef.current.baseElapsedSeconds
+            + Math.floor((Date.now() - timerState.startTime) / 1000);
+    }, [
+        timerState.isRunning,
+        timerState.elapsedSeconds,
+        timerState.startTime,
+        timerState.pomodoroPhase,
+        timerState.taskId,
+        timerState.oppId,
+        tick,
+    ]);
 
     // BUG FIX: phaseElapsedSeconds from context is captured at the last TimerProvider
     // render, which only happens when timerState/config changes. During a break/focus
@@ -142,9 +173,9 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
         );
     }
 
-    // Dark red for breaks — visible but not alarming.
+    // Darker, clearer red for breaks — distinguishable without being alarming.
     const bgClass = isBreak
-        ? 'bg-rose-900/85 border-rose-800'
+        ? 'bg-red-900/92 border-red-800'
         : 'bg-gray-900/90 border-gray-700';
 
     return (
@@ -247,7 +278,7 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
     const hasSession = timerState.isRunning || !!timerState.taskId || timerState.elapsedSeconds > 0;
 
     const bg = isBreak
-        ? 'bg-gradient-to-br from-rose-950/90 to-rose-900/85 text-white'
+        ? 'bg-gradient-to-br from-red-950 to-red-900 text-white'
         : 'bg-gradient-to-br from-slate-900 to-slate-800 text-gray-100';
 
     return (

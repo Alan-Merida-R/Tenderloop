@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, STAGE_COLORS, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet } from 'lucide-react';
+import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
@@ -224,17 +224,18 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             const newHtml = e.currentTarget.innerHTML;
             if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
             debounceTimeoutRef.current = window.setTimeout(() => {
+                debounceTimeoutRef.current = null;
                 onChange(newHtml);
-            }, 500);
+            }, 150);
         };
 
         useEffect(() => {
             return () => {
                 if (debounceTimeoutRef.current) {
                     window.clearTimeout(debounceTimeoutRef.current);
-                    // CRITICAL: Flush pending changes on unmount (e.g. tab switch)
-                    // We check if it was an internal update that hasn't synced yet
-                    if (isInternalUpdate.current && editorRef.current) {
+                    debounceTimeoutRef.current = null;
+                    // Flush unconditionally on unmount — guards downstream already check for actual content change
+                    if (editorRef.current) {
                         onChange(editorRef.current.innerHTML);
                     }
                 }
@@ -376,11 +377,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     onClick={handleClick}
                     onKeyDown={handleKeyDown}
                     suppressContentEditableWarning={true}
-                    style={{ listStylePosition: 'inside' }}
                 />
                 <style>{`
-                    .editor-content ul { list-style-type: disc; margin-left: 1.5em; }
-                    .editor-content ol { list-style-type: decimal; margin-left: 1.5em; }
+                    .editor-content ul { list-style-type: disc; padding-left: 1.5em; }
+                    .editor-content ol { list-style-type: decimal; padding-left: 1.5em; }
+                    .editor-content li { padding-left: 0.25em; }
                     .editor-content a { color: #3b82f6; text-decoration: underline; cursor: pointer; }
                     .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61, 205, 88, 0.1); cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
                     .question-highlight:hover { background-color: rgba(61, 205, 88, 0.4); }
@@ -1612,6 +1613,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const noteEditorRef = useRef<RichTextEditorHandle>(null);
     const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
     const [activeNoteHtml, setActiveNoteHtml] = useState<string>('');
+    const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+    const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
     const flushNoteRef = useRef<(() => void) | null>(null);
     const syncNoteTimeoutRef = useRef<number | null>(null);
 
@@ -1690,18 +1693,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     // Handle note content changes with local debouncing (UI only)
     const handleNoteContentChange = (val: string) => {
-        setActiveNoteHtml(val);
-        // DATA-LOSS FIX: update the ref synchronously. The RichTextEditor's own unmount
-        // cleanup can fire a last onChange during OpportunityDetail unmount; setActiveNoteHtml
-        // is async and never causes a re-render in that case, so flushNoteRef (which reads
-        // activeNoteHtmlRef) would save the previous value and lose the most recent edits.
+        // Do NOT call setActiveNoteHtml here — that state is only needed when switching notes
+        // to initialize NoteEditorWrapper. Calling it during typing triggers a full re-render
+        // of the 6000-line OpportunityDetail component on every debounce cycle (TASK-034 fix).
         activeNoteHtmlRef.current = val;
-        // We don't update setLocalOpp immediately to prevent UI lag.
-        // But we set a timeout to eventually flush it if the user stops typing for a while.
         if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
         syncNoteTimeoutRef.current = window.setTimeout(() => {
             if (flushNoteRef.current) flushNoteRef.current();
-        }, 1500); // idle auto-save — short enough that closing the app shortly after typing still persists
+        }, 1500);
     };
 
     // Handle note selection (lazy load content to local editing state)
@@ -1762,6 +1761,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
         // This prevents overwriting local state while typing Title/ID due to parent re-renders.
         // OR if lastUpdated changed (syncing from other tabs or background timer)
+        // LOCK: never replace localOpp while viewing a snapshot — it would discard snapshot data
+        if (viewingVersionId) return;
         if (opportunity.id !== localOpp.id || (opportunity.versions?.length !== localOpp.versions?.length)) {
             setLocalOpp(opportunity);
             if (scrollContainerRef.current) scrollContainerRef.current.scrollTo(0, 0);
@@ -1769,7 +1770,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             // Keep state in sync without scrolling to top
             setLocalOpp(opportunity);
         }
-    }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated]);
+    }, [opportunity.id, opportunity.versions?.length, opportunity.lastUpdated, viewingVersionId]);
 
     // Guard ref to prevent KPI init from causing infinite loop:
     // kpi init -> onUpdate -> lastUpdated change -> sync effect -> kpi init again
@@ -1859,16 +1860,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const handleFieldChange = (field: keyof Opportunity, value: any, immediate = false) => {
         if (viewingVersionId) return; // LOCK: No mutations in read-only snapshots
 
-        const updated = { ...localOpp, [field]: value, lastUpdated: new Date().toISOString() };
+        const autoFields: Partial<Opportunity> = {};
+        if (field === 'statusLabel') {
+            const today = new Date().toISOString().split('T')[0];
+            const currentKpis = localOpp.kpis || {};
+            const currentTimeline = (currentKpis as any).timeline || {};
+            if (value === 'Submitted') {
+                autoFields.kpis = { ...currentKpis, timeline: { ...currentTimeline, deliveredAt: today } } as any;
+            } else if (localOpp.statusLabel === 'Submitted') {
+                autoFields.kpis = { ...currentKpis, timeline: { ...currentTimeline, deliveredAt: null } } as any;
+            }
+        }
+
+        const updated = { ...localOpp, [field]: value, ...autoFields, lastUpdated: new Date().toISOString() };
         // Performance: Debounce typing but keep structural changes snappy.
         // We bypass debounce if 'immediate' is true OR if it's a critical field.
-        const isCritical = field === 'statusLabel' || field === 'stage' || field === 'priority' || field === 'detailedStatus';
+        const isCritical = field === 'statusLabel' || field === 'priority' || field === 'detailedStatus';
 
         // PERF: for non-critical edits, mark the expediente-wide re-render as a
         // transition so that clicking/typing on unrelated controls (or the next
         // keystroke on a raw input like note title / question text) isn't blocked
         // waiting for the full OpportunityDetail tree to reconcile. Critical fields
-        // still update synchronously so status/stage chips update instantly.
+        // still update synchronously so status chips update instantly.
         if (isCritical || immediate) {
             setLocalOpp(updated);
         } else {
@@ -2089,27 +2102,56 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     };
 
-    const addNote = (templateTitle?: string, content?: string) => {
+    const addNote = (templateTitle?: string, content?: string, parentId?: string, folderId?: string) => {
         const newNote: MeetingNote = {
             id: crypto.randomUUID(),
-            title: templateTitle ? `New ${templateTitle}` : 'New Note',
+            title: templateTitle ? `New ${templateTitle}` : (parentId ? 'Sub-note' : 'New Note'),
             date: getTodayStr(),
             type: 'General',
             attendees: '',
             content: content || '',
-            inlineTasks: []
+            inlineTasks: [],
+            ...(parentId ? { parentId } : {}),
+            ...(folderId ? { folderId } : {}),
         };
         const updated = { ...localOpp, notes: [newNote, ...localOpp.notes], lastUpdated: new Date().toISOString() };
-        setLocalOpp(updated); 
-        handleFieldChange('notes', updated.notes); // Already debounces onUpdate
+        setLocalOpp(updated);
+        handleFieldChange('notes', updated.notes);
         setSelectedNoteId(newNote.id);
     };
 
     const deleteNote = (noteId: string) => {
-        if (!window.confirm("Are you sure you want to delete this note?")) return;
-        const updatedNotes = localOpp.notes.filter(n => n.id !== noteId);
+        if (!window.confirm("Are you sure you want to delete this note and all its sub-notes?")) return;
+        const idsToDelete = new Set<string>([noteId]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            localOpp.notes.forEach(n => { if (n.parentId && idsToDelete.has(n.parentId) && !idsToDelete.has(n.id)) { idsToDelete.add(n.id); changed = true; } });
+        }
+        const updatedNotes = localOpp.notes.filter(n => !idsToDelete.has(n.id));
         handleFieldChange('notes', updatedNotes);
-        if (selectedNoteId === noteId) setSelectedNoteId(null);
+        if (selectedNoteId && idsToDelete.has(selectedNoteId)) setSelectedNoteId(null);
+    };
+
+    const addFolder = () => {
+        const name = prompt('Folder name:');
+        if (!name?.trim()) return;
+        const folder: NoteFolder = { id: crypto.randomUUID(), name: name.trim() };
+        const folders = [...(localOpp.notesFolders || []), folder];
+        handleFieldChange('notesFolders', folders);
+    };
+
+    const deleteFolder = (folderId: string) => {
+        if (!window.confirm("Delete this folder? Notes inside will move to the root.")) return;
+        const folders = (localOpp.notesFolders || []).filter(f => f.id !== folderId);
+        const notes = localOpp.notes.map(n => n.folderId === folderId ? { ...n, folderId: undefined } : n);
+        handleFieldChange('notesFolders', folders);
+        handleFieldChange('notes', notes);
+    };
+
+    const renameFolder = (folderId: string, newName: string) => {
+        const folders = (localOpp.notesFolders || []).map(f => f.id === folderId ? { ...f, name: newName } : f);
+        handleFieldChange('notesFolders', folders);
     };
     const updateSelectedNote = (field: keyof MeetingNote, value: string) => {
         if (!selectedNoteId) return;
@@ -2678,7 +2720,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 ['Requested', s.dates.requested || '-'],
                 ['Expected', s.dates.expected || '-'],
                 ['Assigned', s.dates.assigned || '-'],
-                ['Stage', s.stage],
                 ['Status', s.statusLabel]
             ],
             theme: 'striped',
@@ -3051,7 +3092,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                 if (changes.hasOwnProperty('isDone')) {
                     const newStatus = updatedTask.isDone ? 'Done' : (linkedTask.status === 'Done' ? 'Pending' : linkedTask.status);
-                    if (newStatus !== linkedTask.status) taskUpdates.status = newStatus;
+                    if (newStatus !== linkedTask.status) {
+                        taskUpdates.status = newStatus;
+                        if (newStatus === 'Done' && !linkedTask.dueDate) {
+                            taskUpdates.dueDate = new Date().toISOString().split('T')[0];
+                        }
+                    }
                 }
                 if (changes.hasOwnProperty('text')) {
                     if (updatedTask.text !== linkedTask.title) taskUpdates.title = updatedTask.text || 'Note Task';
@@ -3608,7 +3654,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const handleUpdateSnapshotMeta = (vId: string, updates: Partial<OpportunityVersion>) => {
-        const updatedVersions = (localOpp.versions || []).map(v => v.id === vId ? { ...v, ...updates } : v);
+        // Exclude snapshot from meta updates — snapshots are immutable once created
+        const { snapshot: _ignored, ...safeMeta } = updates as any;
+        const updatedVersions = (localOpp.versions || []).map(v => v.id === vId ? { ...v, ...safeMeta } : v);
         handleFieldChange('versions', updatedVersions, true);
     };
 
@@ -3634,7 +3682,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <button
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            // Ignore click if the user just finished a text selection drag
+                                            if (window.getSelection()?.toString()) {
+                                                window.getSelection()?.removeAllRanges();
+                                                return;
+                                            }
                                             if (isSubView && onCloseTab) onCloseTab();
                                             else onBack();
                                         }}
@@ -3817,7 +3870,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div
                                                 className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
                                                 onClick={() => {
-                                                    if (onSelectOpp) onSelectOpp(opportunity.id, { tab: 'tasks', taskId: nextTask.id });
+                                                    // Navigate directly within the same expediente (avoids parent re-render race)
+                                                    setActiveTab('tasks');
+                                                    setTimeout(() => {
+                                                        const el = document.getElementById(`task-${nextTask.id}`);
+                                                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                    }, 80);
                                                 }}
                                             >
                                                 <div className="bg-white p-1 rounded-lg shadow-sm border border-blue-100 animate-pulse-subtle">
@@ -4347,58 +4405,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
-                                    {/* Pinned links: SRLink, BFO, CQA always visible with fixed labels */}
-                                    {!isSnapshot && (() => {
-                                        const linksArr: QuickLinkItem[] = Array.isArray(localOpp.links)
-                                            ? localOpp.links
-                                            : Object.entries(localOpp.links || {}).map(([k, v]) => ({ id: k, type: 'link', label: String(k), url: typeof v === 'string' ? v : '' } as QuickLinkItem));
-                                        const getPinned = (label: string) => linksArr.find(l => l.label.toLowerCase() === label.toLowerCase())?.url || '';
-                                        const setPinned = (label: string, url: string) => {
-                                            const normalized = label;
-                                            const exists = linksArr.find(l => l.label.toLowerCase() === label.toLowerCase());
-                                            let newLinks: QuickLinkItem[];
-                                            if (exists) {
-                                                newLinks = linksArr.map(l => l.label.toLowerCase() === label.toLowerCase() ? { ...l, url } : l);
-                                            } else {
-                                                newLinks = [{ id: crypto.randomUUID(), type: 'link', label: normalized, url }, ...linksArr];
-                                            }
-                                            handleFieldChange('links', newLinks);
-                                        };
-                                        return (
-                                            <div className="mb-3 p-3 bg-[#3DCD58]/5 rounded-xl border border-[#3DCD58]/20 space-y-2">
-                                                <div className="text-[9px] font-black text-[#3DCD58] uppercase tracking-widest mb-1">Key Links</div>
-                                                {[{ key: 'SRLink', placeholder: 'SR / Support Request URL' }, { key: 'BFO', placeholder: 'BFO / CRM URL' }, { key: 'CQA', placeholder: 'CQA 2.0 URL' }].map(({ key, placeholder }) => (
-                                                    <div key={key} className="flex items-center gap-2">
-                                                        <span className="text-[10px] font-black text-gray-500 w-12 shrink-0">{key}</span>
-                                                        <input
-                                                            type="url"
-                                                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] truncate"
-                                                            defaultValue={getPinned(key)}
-                                                            placeholder={placeholder}
-                                                            onBlur={(e) => { if (e.target.value !== getPinned(key)) setPinned(key, e.target.value); }}
-                                                            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
-                                                        />
-                                                        {getPinned(key) && (
-                                                            <a href={getPinned(key)} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0">
-                                                                <ExternalLink className="w-3.5 h-3.5" />
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        );
-                                    })()}
-                                    <div className="flex justify-between items-center mb-2">
+                                    {/* Title + action buttons always at top */}
+                                    <div className="flex justify-between items-center">
                                         <h3 className="text-sm font-semibold">Quick Links</h3>
+                                        {!isSnapshot && (
                                         <div className="flex gap-1">
                                             <button
                                                 onClick={() => {
                                                     const label = prompt("Heading Text:");
                                                     if (label) {
                                                         const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k,
-                                                            type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            id: k, type: 'link',
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
                                                             url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                         } as QuickLinkItem));
                                                         handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'heading', label }]);
@@ -4411,9 +4429,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <button
                                                 onClick={() => {
                                                     const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                        id: k,
-                                                        type: 'link',
-                                                        label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                        id: k, type: 'link',
+                                                        label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
                                                         url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                     } as QuickLinkItem));
                                                     handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'separator', label: '---' }]);
@@ -4428,9 +4445,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     const view = prompt(`Enter view name (${views.join(', ')}):`);
                                                     if (view && views.includes(view.toLowerCase())) {
                                                         const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k,
-                                                            type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            id: k, type: 'link',
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
                                                             url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                         } as QuickLinkItem));
                                                         handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'view', label: `View: ${view.toUpperCase()}`, url: view.toLowerCase() }]);
@@ -4446,9 +4462,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     if (label) {
                                                         const url = prompt("URL:", "https://");
                                                         const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k,
-                                                            type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
+                                                            id: k, type: 'link',
+                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
                                                             url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                                         } as QuickLinkItem));
                                                         handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'link', label, url: url || '' }]);
@@ -4459,13 +4474,55 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <Plus className="w-4 h-4" />
                                             </button>
                                         </div>
+                                        )}
                                     </div>
 
-                                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                                        {/* Fixed key links: SRLink, BFO, CQA with lock icon — always at top */}
+                                        {!isSnapshot && (() => {
+                                            const linksArr: QuickLinkItem[] = Array.isArray(localOpp.links)
+                                                ? localOpp.links
+                                                : Object.entries(localOpp.links || {}).map(([k, v]) => ({ id: k, type: 'link', label: String(k), url: typeof v === 'string' ? v : '' } as QuickLinkItem));
+                                            const getPinned = (label: string) => linksArr.find(l => l.label.toLowerCase() === label.toLowerCase())?.url || '';
+                                            const setPinned = (label: string, url: string) => {
+                                                const exists = linksArr.find(l => l.label.toLowerCase() === label.toLowerCase());
+                                                const newLinks: QuickLinkItem[] = exists
+                                                    ? linksArr.map(l => l.label.toLowerCase() === label.toLowerCase() ? { ...l, url } : l)
+                                                    : [{ id: crypto.randomUUID(), type: 'link', label, url }, ...linksArr];
+                                                handleFieldChange('links', newLinks);
+                                            };
+                                            return (
+                                                <>
+                                                    {[{ key: 'SRLink', placeholder: 'SR / Support Request URL' }, { key: 'BFO', placeholder: 'BFO / CRM URL' }, { key: 'CQA', placeholder: 'CQA 2.0 URL' }].map(({ key, placeholder }) => (
+                                                        <div key={key} className="flex items-center gap-2 bg-gray-50 p-1.5 rounded border border-gray-100">
+                                                            <Lock className="w-3 h-3 text-gray-300 shrink-0" title="Fixed — always in this expediente" />
+                                                            <span className="text-[10px] font-black text-gray-500 w-12 shrink-0">{key}</span>
+                                                            <input
+                                                                type="url"
+                                                                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] truncate"
+                                                                defaultValue={getPinned(key)}
+                                                                placeholder={placeholder}
+                                                                onBlur={(e) => { if (e.target.value !== getPinned(key)) setPinned(key, e.target.value); }}
+                                                                onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+                                                            />
+                                                            {getPinned(key) && (
+                                                                <a href={getPinned(key)} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0">
+                                                                    <ExternalLink className="w-3.5 h-3.5" />
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {/* Visual divider only if there are custom links */}
+                                                    {(Array.isArray(localOpp.links) ? localOpp.links : Object.keys(localOpp.links || {})).length > 0 && (
+                                                        <div className="h-px bg-gray-100 my-1" />
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                        {/* Custom links list */}
                                         {(Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
                                             id: k,
                                             type: 'link',
-                                            // Robust label/url extraction to avoid [object Object]
                                             label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
                                             url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
                                         } as QuickLinkItem))).map((item, idx, arr) => (
@@ -5081,7 +5138,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             disabled={isSnapshot}
                                                             type="number"
                                                             value={localOpp.commercial.cqaOfficialSellPrice}
-                                                            onChange={(e) => handleFieldChange('commercial', { ...localOpp.commercial, cqaOfficialSellPrice: parseFloat(e.target.value) || 0 })}
+                                                            onChange={(e) => updateOfficialSellPrice(parseFloat(e.target.value) || 0)}
                                                             className="w-full bg-transparent border-none p-0 text-xl font-black text-gray-800 focus:ring-0"
                                                         />
                                                     </div>
@@ -5214,37 +5271,113 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-2 mb-2">
-                                            {/* Dynamic Note Template Buttons */}
-                                            {noteTemplates.length > 0 ? (
-                                                noteTemplates.map(tmpl => (
-                                                    <button
-                                                        key={tmpl.id}
-                                                        onClick={() => addNote(tmpl.title, tmpl.content)}
-                                                        className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all"
-                                                    >
-                                                        <Plus className="w-3 h-3" /> {tmpl.title}
-                                                    </button>
-                                                ))
-                                            ) : (
-                                                // Fallback if settings fail or empty
-                                                ['Kick-off', 'Scope', 'General'].map(t => (
-                                                    <button key={t} onClick={() => addNote(t)} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all">
-                                                        <Plus className="w-3 h-3" /> {t}
-                                                    </button>
-                                                ))
-                                            )}
+                                            {noteTemplates.map(tmpl => (
+                                                <button
+                                                    key={tmpl.id}
+                                                    onClick={() => addNote(tmpl.title, tmpl.content)}
+                                                    className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold capitalize flex items-center justify-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Plus className="w-3 h-3" /> {tmpl.title}
+                                                </button>
+                                            ))}
                                             <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
+                                            <button onClick={addFolder} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
                                         {filteredNotes.length === 0 && searchTerm && (
                                             <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                         )}
-                                        {filteredNotes.map(note => (
-                                            <div key={note.id} id={`note-item-${note.id}`} className={`p-3 rounded-lg border cursor-pointer relative group transition-all ${selectedNoteId === note.id ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`} onClick={() => setSelectedNoteId(note.id)}>
-                                                <div className="font-bold text-sm text-gray-900 truncate pr-6">{note.title}</div>
-                                                <div className="text-[10px] font-mono text-gray-400 mt-1 uppercase">{note.date}</div>
-                                                <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"><Trash2 className="w-3.5 h-3.5" /></button>
-                                            </div>
-                                        ))}
+                                        {/* Notes tree: search = flat list, no search = folder/sub-note tree */}
+                                        {(() => {
+                                            const isSearching = !!searchTerm.trim();
+                                            const allFolders = localOpp.notesFolders || [];
+
+                                            // Called as a plain function to avoid JSX key-prop TypeScript issues
+                                            const renderNote = (note: MeetingNote, indent: number): React.ReactNode => {
+                                                const children = isSearching ? [] : localOpp.notes.filter(n => n.parentId === note.id);
+                                                const hasChildren = children.length > 0;
+                                                const isCollapsed = collapsedFolders.has(note.id);
+                                                const isSelected = selectedNoteId === note.id;
+                                                return (
+                                                    <React.Fragment key={note.id}>
+                                                        <div
+                                                            id={`note-item-${note.id}`}
+                                                            style={{ marginLeft: indent * 14 }}
+                                                            className={`p-2.5 rounded-lg border cursor-pointer relative group transition-all ${isSelected ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                                                            onClick={() => setSelectedNoteId(note.id)}
+                                                        >
+                                                            <div className="flex items-center gap-1 pr-14">
+                                                                {hasChildren ? (
+                                                                    <button onClick={(e) => { e.stopPropagation(); setCollapsedFolders(prev => { const s = new Set(prev); s.has(note.id) ? s.delete(note.id) : s.add(note.id); return s; }); }} className="text-gray-400 hover:text-gray-600 shrink-0">
+                                                                        {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                                    </button>
+                                                                ) : indent > 0 ? (
+                                                                    <span className="w-3 shrink-0 text-gray-300 text-[8px] leading-none mt-0.5">└</span>
+                                                                ) : null}
+                                                                <span className="font-bold text-xs text-gray-900 truncate">{note.title}</span>
+                                                            </div>
+                                                            <div className="text-[10px] font-mono text-gray-400 mt-0.5 pl-4 uppercase">{note.date}</div>
+                                                            <div className="absolute top-1.5 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                                                                <button onClick={(e) => { e.stopPropagation(); addNote(undefined, undefined, note.id, note.folderId); }} className="p-1 text-gray-300 hover:text-[#3DCD58]" title="Add sub-note"><Plus className="w-3 h-3" /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="p-1 text-gray-300 hover:text-red-500" title="Delete"><Trash2 className="w-3 h-3" /></button>
+                                                            </div>
+                                                        </div>
+                                                        {!isCollapsed && children.map(child => renderNote(child, indent + 1))}
+                                                    </React.Fragment>
+                                                );
+                                            };
+
+                                            if (isSearching) {
+                                                return filteredNotes.map(note => renderNote(note, 0));
+                                            }
+
+                                            const rootNotes = [...localOpp.notes]
+                                                .filter(n => !n.folderId && !n.parentId)
+                                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                                            return (
+                                                <>
+                                                    {allFolders.map(folder => {
+                                                        const folderNotes = [...localOpp.notes]
+                                                            .filter(n => n.folderId === folder.id && !n.parentId)
+                                                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                                                        const isFolderCollapsed = collapsedFolders.has(folder.id);
+                                                        return (
+                                                            <React.Fragment key={folder.id}>
+                                                                <div className="flex items-center gap-1.5 group/folder px-1 py-1.5 rounded-lg hover:bg-amber-50/60 transition-colors">
+                                                                    <button onClick={() => setCollapsedFolders(prev => { const s = new Set(prev); s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id); return s; })} className="text-gray-400 hover:text-gray-600 shrink-0">
+                                                                        {isFolderCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                                    </button>
+                                                                    {isFolderCollapsed
+                                                                        ? <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                                                        : <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                                                                    {renamingFolderId === folder.id ? (
+                                                                        <input
+                                                                            autoFocus
+                                                                            defaultValue={folder.name}
+                                                                            className="flex-1 text-xs font-bold text-gray-700 bg-transparent border-b border-[#3DCD58] focus:outline-none min-w-0"
+                                                                            onBlur={(e) => { renameFolder(folder.id, e.target.value || folder.name); setRenamingFolderId(null); }}
+                                                                            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingFolderId(null); }}
+                                                                        />
+                                                                    ) : (
+                                                                        <span onDoubleClick={() => setRenamingFolderId(folder.id)} className="flex-1 text-xs font-bold text-gray-700 truncate cursor-default select-none min-w-0" title="Double-click to rename">{folder.name}</span>
+                                                                    )}
+                                                                    <span className="text-[10px] text-gray-400 shrink-0">{folderNotes.length}</span>
+                                                                    <div className="flex gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity shrink-0">
+                                                                        <button onClick={() => addNote(undefined, undefined, undefined, folder.id)} className="p-0.5 text-gray-400 hover:text-[#3DCD58]" title="New note in folder"><Plus className="w-3 h-3" /></button>
+                                                                        <button onClick={() => deleteFolder(folder.id)} className="p-0.5 text-gray-400 hover:text-red-500" title="Delete folder"><Trash2 className="w-3 h-3" /></button>
+                                                                    </div>
+                                                                </div>
+                                                                {!isFolderCollapsed && folderNotes.map(note => renderNote(note, 1))}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
+                                                    {rootNotes.map(note => renderNote(note, 0))}
+                                                    {localOpp.notes.length === 0 && (
+                                                        <div className="text-center text-gray-300 text-xs py-6 italic">No notes yet. Create one above.</div>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                 )}
                                 <div className="flex-1 flex gap-4 min-h-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col shadow-sm">
