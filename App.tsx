@@ -1219,9 +1219,9 @@ function App() {
           const existingById = new Map(oldOpp.versions.map(v => [v.id, v]));
           cleanedUpdate = {
             ...cleanedUpdate,
-            versions: cleanedUpdate.versions.map(v => {
+            versions: cleanedUpdate.versions.map((v: any) => {
               const existing = existingById.get(v.id);
-              return existing ? { ...v, snapshot: existing.snapshot } : v;
+              return existing ? { ...v, snapshot: (existing as any).snapshot } : v;
             })
           };
         }

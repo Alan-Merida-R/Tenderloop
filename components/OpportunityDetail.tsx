@@ -13,6 +13,7 @@ import { CalendarView } from './CalendarView';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
 import { NoteTemplate, SimpleMultiSelect } from './SettingsModal';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
+import { moveAndReorderNote, moveAndReorderFolder, isFolderDescendantOf, sortWithOrderFallback } from '../services/noteUtils';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
@@ -113,6 +114,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 const currentHTML = editorRef.current.innerHTML;
                 if (content !== currentHTML && !isInternalUpdate.current) {
                     editorRef.current.innerHTML = content || '';
+                    latestHtmlRef.current = content || '';
                 }
             }
             // Reset the internal update flag AFTER the prop sync attempt.
@@ -149,8 +151,32 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             }
         };
 
+        const insertDividerFromText = (range: Range) => {
+            const del = range.cloneRange();
+            del.setStart(range.startContainer, 0);
+            del.deleteContents();
+            document.execCommand('insertHTML', false, '<hr><p><br></p>');
+            if (editorRef.current) {
+                isInternalUpdate.current = true;
+                onChange(editorRef.current.innerHTML);
+            }
+        };
+
         const handleKeyDown = (e: React.KeyboardEvent) => {
-            // Markdown shortcuts: * or - + Space → bullet list, 1. + Space → numbered list
+            // Markdown shortcuts: * or - + Space → bullet list, 1. + Space → numbered list,
+            // --- + Space/Enter → horizontal divider line
+            if (e.key === ' ' || e.key === 'Enter') {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    const textBefore = range.startContainer.textContent?.slice(0, range.startOffset) || '';
+                    if (textBefore === '---') {
+                        e.preventDefault();
+                        insertDividerFromText(range);
+                        return;
+                    }
+                }
+            }
             if (e.key === ' ') {
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0) {
@@ -217,11 +243,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         const debounceTimeoutRef = useRef<number | null>(null);
+        // DATA-LOSS FIX: mirrors the DOM's innerHTML synchronously on every keystroke.
+        // The unmount cleanup below cannot read editorRef.current — React detaches DOM
+        // refs (sets them to null) synchronously during commit, BEFORE useEffect cleanup
+        // functions run for unmounting components. Switching notes/tabs remounts this
+        // editor (key={currentNote.id}), so any keystroke within the 150ms debounce
+        // window was silently dropped: the old "if (editorRef.current)" guard was always
+        // false by the time the cleanup ran, so onChange never fired with the final text.
+        const latestHtmlRef = useRef(content);
 
         const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
             if (disabled) return;
             isInternalUpdate.current = true;
             const newHtml = e.currentTarget.innerHTML;
+            latestHtmlRef.current = newHtml;
             if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
             debounceTimeoutRef.current = window.setTimeout(() => {
                 debounceTimeoutRef.current = null;
@@ -234,10 +269,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 if (debounceTimeoutRef.current) {
                     window.clearTimeout(debounceTimeoutRef.current);
                     debounceTimeoutRef.current = null;
-                    // Flush unconditionally on unmount — guards downstream already check for actual content change
-                    if (editorRef.current) {
-                        onChange(editorRef.current.innerHTML);
-                    }
+                    // Flush unconditionally on unmount, from the ref (not the DOM node).
+                    onChange(latestHtmlRef.current);
                 }
             };
         }, []);
@@ -350,6 +383,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                             const tableHtml = `<table style="width:100%; border-collapse: collapse; border: 1px solid #ccc;" border="1"><tbody><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr><tr><td style="border: 1px solid #ccc; padding: 8px;"></td><td style="border: 1px solid #ccc; padding: 8px;"></td></tr></tbody></table><p><br></p>`;
                             insertHtml(tableHtml);
                         }} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Table"><Table className="w-4 h-4" /></button>
+                        <button onClick={() => insertHtml('<hr><p><br></p>')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Insert Divider Line (or type --- )"><Minus className="w-4 h-4" /></button>
 
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
                         <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
@@ -388,6 +422,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     .editor-content table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
                     .editor-content td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
                     .editor-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.25em; }
+                    .editor-content hr { border: none; border-top: 2px solid #e5e7eb; margin: 1.25em 0; }
                 `}</style>
             </div>
         );
@@ -1436,6 +1471,95 @@ const resetCommercialData = (): Commercial => ({
     cqaOfficialMargin: 0
 });
 
+const DEFAULT_QUICK_LINKS = [
+    { id: 'srLink', label: 'SRLink', locked: true, placeholder: 'SR / Support Request URL', aliases: ['srlink', 'sr link', 'sr', 'support request', 'support request link'] },
+    { id: 'bfo', label: 'BFO', locked: true, placeholder: 'BFO / CRM URL', aliases: ['bfo', 'bfo link'] },
+    { id: 'cqaLink', label: 'CQA', locked: true, placeholder: 'CQA 2.0 URL', aliases: ['cqa', 'cqa link', 'cqa 2.0', 'cqa 2.0 link'] },
+    { id: 'folder', label: 'Folder', locked: false, placeholder: 'Folder URL', aliases: ['folder', 'internalfolder', 'internal folder', 'officialfolder', 'official folder'] },
+    { id: 'ba', label: 'BA', locked: false, placeholder: 'Basket / BA URL', aliases: ['ba', 'ba link', 'basket', 'basket link'] },
+    { id: 'geet', label: 'GEET', locked: false, placeholder: 'GEET URL', aliases: ['geet', 'geet link'] },
+] as const;
+
+type DefaultQuickLinkId = typeof DEFAULT_QUICK_LINKS[number]['id'];
+type NormalizedQuickLinks = {
+    defaultUrls: Record<DefaultQuickLinkId, string>;
+    customLinks: QuickLinkItem[];
+};
+
+const normalizeQuickLinkKey = (value: string | undefined) => (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const findDefaultQuickLink = (value: string | undefined) => {
+    const key = normalizeQuickLinkKey(value);
+    if (!key) return undefined;
+    return DEFAULT_QUICK_LINKS.find(link =>
+        normalizeQuickLinkKey(link.id) === key
+        || normalizeQuickLinkKey(link.label) === key
+        || link.aliases.some(alias => normalizeQuickLinkKey(alias) === key)
+    );
+};
+
+const coerceQuickLinkItems = (links: Opportunity['links']): QuickLinkItem[] => {
+    if (Array.isArray(links)) {
+        return links.map((item, index) => ({
+            id: item.id || crypto.randomUUID(),
+            type: item.type || 'link',
+            label: item.label || `Link ${index + 1}`,
+            url: item.url || '',
+            order: item.order
+        }));
+    }
+
+    return Object.entries(links || {}).map(([key, value]) => {
+        const valueObj = typeof value === 'object' && value !== null ? value as any : null;
+        return {
+            id: key,
+            type: 'link',
+            label: valueObj?.label || valueObj?.title || key,
+            url: valueObj?.url || (typeof value === 'string' ? value : '')
+        } as QuickLinkItem;
+    });
+};
+
+const normalizeQuickLinks = (links: Opportunity['links']): NormalizedQuickLinks => {
+    const defaultUrls = DEFAULT_QUICK_LINKS.reduce((acc, link) => {
+        acc[link.id] = '';
+        return acc;
+    }, {} as Record<DefaultQuickLinkId, string>);
+    const customLinks: QuickLinkItem[] = [];
+    const seenCustomIds = new Set<string>();
+
+    coerceQuickLinkItems(links).forEach(item => {
+        const defaultLink = item.type === 'link'
+            ? (findDefaultQuickLink(item.id) || findDefaultQuickLink(item.label))
+            : undefined;
+
+        if (defaultLink) {
+            const url = item.url || '';
+            if (url && (!defaultUrls[defaultLink.id] || item.id === 'officialFolder')) {
+                defaultUrls[defaultLink.id] = url;
+            }
+            return;
+        }
+
+        const id = item.id || crypto.randomUUID();
+        if (seenCustomIds.has(id)) return;
+        seenCustomIds.add(id);
+        customLinks.push({ ...item, id });
+    });
+
+    return { defaultUrls, customLinks };
+};
+
+const composeQuickLinks = (defaultUrls: Record<DefaultQuickLinkId, string>, customLinks: QuickLinkItem[]) => ([
+    ...DEFAULT_QUICK_LINKS.map(link => ({
+        id: link.id,
+        type: 'link' as const,
+        label: link.label,
+        url: defaultUrls[link.id] || ''
+    })),
+    ...customLinks
+]);
+
 const resetPresentationData = (): PrdPresentation => ({
     executiveSummary: '',
     issues: '',
@@ -1624,8 +1748,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const localOppRef = useRef(localOpp);
     localOppRef.current = localOpp;
 
+    // DATA-LOSS FIX: activeNoteHtmlRef must NOT mirror activeNoteHtml unconditionally
+    // in the render body. handleNoteContentChange intentionally updates only this ref
+    // while the user types (to avoid re-rendering this 6000-line component per
+    // keystroke) and never calls setActiveNoteHtml. But this component re-renders for
+    // countless unrelated reasons (any tab, any field, any timer). Mirroring on every
+    // render — including the render triggered by clicking a different note — overwrote
+    // the freshly-typed content with the stale activeNoteHtml state milliseconds before
+    // the note-switch flush read it, so the flush saw "no change" and silently dropped
+    // the edit. Only resync when activeNoteHtml itself legitimately changes (i.e. when
+    // a note is freshly loaded by the lazy-load effect below).
     const activeNoteHtmlRef = useRef(activeNoteHtml);
-    activeNoteHtmlRef.current = activeNoteHtml;
+    useEffect(() => {
+        activeNoteHtmlRef.current = activeNoteHtml;
+    }, [activeNoteHtml]);
 
     // Stable ref to onUpdate so flushNoteRef can call it without capturing a stale closure.
     // onUpdate itself is a useCallback, but its identity changes when parentOnUpdate changes;
@@ -1923,6 +2059,66 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onUpdate(updated, opportunity.id, true); // true = immediate
     };
 
+    const normalizedQuickLinks = useMemo(() => normalizeQuickLinks(localOpp.links), [localOpp.links]);
+
+    // Locked default quick links (SRLink, BFO, CQA) always render first, in their fixed
+    // order — they're never reorderable. Unlocked ones (Folder, BA, GEET, ...) render
+    // after, in the manual order stored in quickLinksOrder; any unlocked link not yet
+    // present there (e.g. newly added to DEFAULT_QUICK_LINKS) is appended at the end.
+    const lockedDefaultLinks = useMemo(() => DEFAULT_QUICK_LINKS.filter(l => l.locked), []);
+    const unlockedDefaultLinkIds = useMemo(() => DEFAULT_QUICK_LINKS.filter(l => !l.locked).map(l => l.id), []);
+    const orderedUnlockedDefaultLinks = useMemo(() => {
+        const storedOrder = localOpp.quickLinksOrder || [];
+        const ids = [
+            ...storedOrder.filter(id => (unlockedDefaultLinkIds as readonly string[]).includes(id)),
+            ...unlockedDefaultLinkIds.filter(id => !storedOrder.includes(id))
+        ];
+        return ids.map(id => DEFAULT_QUICK_LINKS.find(l => l.id === id)!).filter(Boolean);
+    }, [localOpp.quickLinksOrder, unlockedDefaultLinkIds]);
+    const orderedDefaultLinks = useMemo(() => [...lockedDefaultLinks, ...orderedUnlockedDefaultLinks], [lockedDefaultLinks, orderedUnlockedDefaultLinks]);
+
+    const moveDefaultQuickLink = (id: string, direction: -1 | 1) => {
+        const currentOrder = orderedUnlockedDefaultLinks.map(l => l.id);
+        const idx = currentOrder.indexOf(id);
+        const newIdx = idx + direction;
+        if (idx === -1 || newIdx < 0 || newIdx >= currentOrder.length) return;
+        const reordered = [...currentOrder];
+        [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+        handleFieldChange('quickLinksOrder', reordered, true);
+    };
+
+    const updateQuickLinks = (defaultUrls: Record<DefaultQuickLinkId, string>, customLinks: QuickLinkItem[]) => {
+        if (viewingVersionId) return;
+        const updated = {
+            ...localOpp,
+            links: composeQuickLinks(defaultUrls, customLinks),
+            lastUpdated: new Date().toISOString()
+        };
+        setLocalOpp(updated);
+
+        if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
+        saveToParentTimeoutRef.current = window.setTimeout(() => {
+            onUpdate(updated, opportunity.id);
+        }, 300);
+    };
+
+    const setDefaultQuickLinkUrl = (id: DefaultQuickLinkId, url: string) => {
+        updateQuickLinks({ ...normalizedQuickLinks.defaultUrls, [id]: url }, normalizedQuickLinks.customLinks);
+    };
+
+    const addQuickLinkItem = (item: QuickLinkItem) => {
+        updateQuickLinks(normalizedQuickLinks.defaultUrls, [...normalizedQuickLinks.customLinks, item]);
+    };
+
+    const upsertQuickLinkFromPrompt = (label: string, url: string) => {
+        const defaultLink = findDefaultQuickLink(label);
+        if (defaultLink) {
+            setDefaultQuickLinkUrl(defaultLink.id, url);
+            return;
+        }
+        addQuickLinkItem({ id: crypto.randomUUID(), type: 'link', label, url });
+    };
+
     const updateOfficialSellPrice = (value: number) => {
         const newCommercial = { ...localOpp.commercial, cqaOfficialSellPrice: value };
         const newKpis = { ...localOpp.kpis, proposalAmountUSD: value };
@@ -2114,9 +2310,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             ...(parentId ? { parentId } : {}),
             ...(folderId ? { folderId } : {}),
         };
-        const updated = { ...localOpp, notes: [newNote, ...localOpp.notes], lastUpdated: new Date().toISOString() };
-        setLocalOpp(updated);
-        handleFieldChange('notes', updated.notes);
+        // DATA-LOSS FIX: immediate=true skips handleFieldChange's startTransition.
+        // Without it, setSelectedNoteId (synchronous) could commit and select the new
+        // note's id in a render where the transitioned localOpp.notes update hasn't
+        // landed yet — the lazy-load effect would then read the note as missing,
+        // latch activeNoteHtml to '', and never re-sync once the transition resolves,
+        // permanently dropping any template content the note was created with.
+        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
         setSelectedNoteId(newNote.id);
     };
 
@@ -2129,29 +2329,70 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             localOpp.notes.forEach(n => { if (n.parentId && idsToDelete.has(n.parentId) && !idsToDelete.has(n.id)) { idsToDelete.add(n.id); changed = true; } });
         }
         const updatedNotes = localOpp.notes.filter(n => !idsToDelete.has(n.id));
-        handleFieldChange('notes', updatedNotes);
+        handleFieldChange('notes', updatedNotes, true);
         if (selectedNoteId && idsToDelete.has(selectedNoteId)) setSelectedNoteId(null);
     };
 
-    const addFolder = () => {
-        const name = prompt('Folder name:');
+    const addFolder = (parentFolderId?: string) => {
+        const name = prompt(parentFolderId ? 'Subfolder name:' : 'Folder name:');
         if (!name?.trim()) return;
-        const folder: NoteFolder = { id: crypto.randomUUID(), name: name.trim() };
+        const folder: NoteFolder = { id: crypto.randomUUID(), name: name.trim(), ...(parentFolderId ? { parentFolderId } : {}) };
         const folders = [...(localOpp.notesFolders || []), folder];
-        handleFieldChange('notesFolders', folders);
+        handleFieldChange('notesFolders', folders, true);
     };
 
     const deleteFolder = (folderId: string) => {
-        if (!window.confirm("Delete this folder? Notes inside will move to the root.")) return;
-        const folders = (localOpp.notesFolders || []).filter(f => f.id !== folderId);
-        const notes = localOpp.notes.map(n => n.folderId === folderId ? { ...n, folderId: undefined } : n);
-        handleFieldChange('notesFolders', folders);
-        handleFieldChange('notes', notes);
+        if (!window.confirm("Delete this folder and its subfolders? Notes inside will move to the root.")) return;
+        // Cascade: gather this folder + all nested descendant folders
+        const allFolders = localOpp.notesFolders || [];
+        const idsToDelete = new Set<string>([folderId]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            allFolders.forEach(f => { if (f.parentFolderId && idsToDelete.has(f.parentFolderId) && !idsToDelete.has(f.id)) { idsToDelete.add(f.id); changed = true; } });
+        }
+        const folders = allFolders.filter(f => !idsToDelete.has(f.id));
+        const notes = localOpp.notes.map(n => n.folderId && idsToDelete.has(n.folderId) ? { ...n, folderId: undefined } : n);
+        handleFieldChange('notesFolders', folders, true);
+        handleFieldChange('notes', notes, true);
     };
 
     const renameFolder = (folderId: string, newName: string) => {
         const folders = (localOpp.notesFolders || []).map(f => f.id === folderId ? { ...f, name: newName } : f);
-        handleFieldChange('notesFolders', folders);
+        handleFieldChange('notesFolders', folders, true);
+    };
+
+    // --- Drag & drop: move notes into folders/root and reorder notes & folders ---
+    const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
+    const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+    const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+    const handleDropNoteOnNote = (targetNote: MeetingNote) => {
+        if (!draggedNoteId || draggedNoteId === targetNote.id) return;
+        const siblings = localOpp.notes.filter(n => n.folderId === targetNote.folderId && n.parentId === targetNote.parentId && n.id !== draggedNoteId);
+        const sortedSiblings = sortWithOrderFallback(siblings, (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const targetIndex = sortedSiblings.findIndex(n => n.id === targetNote.id);
+        const updated = moveAndReorderNote(localOpp.notes, draggedNoteId, targetNote.folderId, targetNote.parentId, Math.max(0, targetIndex));
+        handleFieldChange('notes', updated, true);
+    };
+
+    const handleDropNoteOnFolder = (folderId: string | undefined) => {
+        if (!draggedNoteId) return;
+        const note = localOpp.notes.find(n => n.id === draggedNoteId);
+        if (!note) return;
+        const destCount = localOpp.notes.filter(n => n.folderId === folderId && !n.parentId).length;
+        const updated = moveAndReorderNote(localOpp.notes, draggedNoteId, folderId, undefined, destCount);
+        handleFieldChange('notes', updated, true);
+    };
+
+    const handleDropFolderOnFolder = (targetFolderId: string | undefined) => {
+        if (!draggedFolderId) return;
+        if (targetFolderId === draggedFolderId) return;
+        // Guard: cannot nest a folder inside itself or one of its own descendants
+        if (targetFolderId && isFolderDescendantOf(localOpp.notesFolders || [], targetFolderId, draggedFolderId)) return;
+        const destCount = (localOpp.notesFolders || []).filter(f => f.parentFolderId === targetFolderId).length;
+        const updated = moveAndReorderFolder(localOpp.notesFolders || [], draggedFolderId, targetFolderId, destCount);
+        handleFieldChange('notesFolders', updated, true);
     };
     const updateSelectedNote = (field: keyof MeetingNote, value: string) => {
         if (!selectedNoteId) return;
@@ -3860,10 +4101,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
                                 <div className="flex-1 w-full md:w-auto min-w-[200px]">
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <div className="flex items-center gap-2 w-full">
+                                    <div className="flex items-center gap-2 w-full mt-1">
                                         <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
                                         <span className="text-gray-300 text-sm">·</span>
                                         <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                    </div>
+                                    <div className="flex items-center gap-2 w-full mt-1">
+                                        <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
                                     </div>
 
                                     {nextTask ? (
@@ -4404,9 +4648,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
                                 </div>
-                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 h-[420px] overflow-hidden">
                                     {/* Title + action buttons always at top */}
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-center shrink-0">
                                         <h3 className="text-sm font-semibold">Quick Links</h3>
                                         {!isSnapshot && (
                                         <div className="flex gap-1">
@@ -4414,12 +4658,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 onClick={() => {
                                                     const label = prompt("Heading Text:");
                                                     if (label) {
-                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k, type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
-                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
-                                                        } as QuickLinkItem));
-                                                        handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'heading', label }]);
+                                                        addQuickLinkItem({ id: crypto.randomUUID(), type: 'heading', label });
                                                     }
                                                 }}
                                                 className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Heading"
@@ -4428,12 +4667,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </button>
                                             <button
                                                 onClick={() => {
-                                                    const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                        id: k, type: 'link',
-                                                        label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
-                                                        url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
-                                                    } as QuickLinkItem));
-                                                    handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'separator', label: '---' }]);
+                                                    addQuickLinkItem({ id: crypto.randomUUID(), type: 'separator', label: '---' });
                                                 }}
                                                 className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Separator"
                                             >
@@ -4444,12 +4678,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     const views = ['overview', 'kpi', 'presentation', 'history', 'tasks', 'commercial', 'notes', 'folder', 'questions'];
                                                     const view = prompt(`Enter view name (${views.join(', ')}):`);
                                                     if (view && views.includes(view.toLowerCase())) {
-                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k, type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
-                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
-                                                        } as QuickLinkItem));
-                                                        handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'view', label: `View: ${view.toUpperCase()}`, url: view.toLowerCase() }]);
+                                                        addQuickLinkItem({ id: crypto.randomUUID(), type: 'view', label: `View: ${view.toUpperCase()}`, url: view.toLowerCase() });
                                                     }
                                                 }}
                                                 className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add View Link"
@@ -4461,12 +4690,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     const label = prompt("Link Label:");
                                                     if (label) {
                                                         const url = prompt("URL:", "https://");
-                                                        const current = Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                                            id: k, type: 'link',
-                                                            label: typeof v === 'object' && v !== null ? (v as any).label || String(k) : String(k),
-                                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
-                                                        } as QuickLinkItem));
-                                                        handleFieldChange('links', [...current, { id: crypto.randomUUID(), type: 'link', label, url: url || '' }]);
+                                                        upsertQuickLinkFromPrompt(label, url || '');
                                                     }
                                                 }}
                                                 className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Link"
@@ -4477,68 +4701,56 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         )}
                                     </div>
 
-                                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-                                        {/* Fixed key links: SRLink, BFO, CQA with lock icon — always at top */}
-                                        {!isSnapshot && (() => {
-                                            const linksArr: QuickLinkItem[] = Array.isArray(localOpp.links)
-                                                ? localOpp.links
-                                                : Object.entries(localOpp.links || {}).map(([k, v]) => ({ id: k, type: 'link', label: String(k), url: typeof v === 'string' ? v : '' } as QuickLinkItem));
-                                            const getPinned = (label: string) => linksArr.find(l => l.label.toLowerCase() === label.toLowerCase())?.url || '';
-                                            const setPinned = (label: string, url: string) => {
-                                                const exists = linksArr.find(l => l.label.toLowerCase() === label.toLowerCase());
-                                                const newLinks: QuickLinkItem[] = exists
-                                                    ? linksArr.map(l => l.label.toLowerCase() === label.toLowerCase() ? { ...l, url } : l)
-                                                    : [{ id: crypto.randomUUID(), type: 'link', label, url }, ...linksArr];
-                                                handleFieldChange('links', newLinks);
-                                            };
+                                    <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+                                        {orderedDefaultLinks.map((link) => {
+                                            const url = normalizedQuickLinks.defaultUrls[link.id] || '';
+                                            const Icon = link.locked ? Lock : link.id === 'folder' ? FolderOpen : LinkIcon;
+                                            const unlockedIdx = orderedUnlockedDefaultLinks.findIndex(l => l.id === link.id);
                                             return (
-                                                <>
-                                                    {[{ key: 'SRLink', placeholder: 'SR / Support Request URL' }, { key: 'BFO', placeholder: 'BFO / CRM URL' }, { key: 'CQA', placeholder: 'CQA 2.0 URL' }].map(({ key, placeholder }) => (
-                                                        <div key={key} className="flex items-center gap-2 bg-gray-50 p-1.5 rounded border border-gray-100">
-                                                            <Lock className="w-3 h-3 text-gray-300 shrink-0" title="Fixed — always in this expediente" />
-                                                            <span className="text-[10px] font-black text-gray-500 w-12 shrink-0">{key}</span>
-                                                            <input
-                                                                type="url"
-                                                                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] truncate"
-                                                                defaultValue={getPinned(key)}
-                                                                placeholder={placeholder}
-                                                                onBlur={(e) => { if (e.target.value !== getPinned(key)) setPinned(key, e.target.value); }}
-                                                                onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
-                                                            />
-                                                            {getPinned(key) && (
-                                                                <a href={getPinned(key)} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0">
-                                                                    <ExternalLink className="w-3.5 h-3.5" />
-                                                                </a>
-                                                            )}
+                                                <div key={link.id} className="flex items-center gap-2 bg-gray-50 p-1.5 rounded border border-gray-100 min-w-0">
+                                                    {!link.locked && (
+                                                        <div className="flex flex-col shrink-0">
+                                                            <button onClick={() => moveDefaultQuickLink(link.id, -1)} disabled={unlockedIdx === 0} className="hover:text-blue-500 disabled:opacity-30" title="Move up"><ChevronUp className="w-3 h-3" /></button>
+                                                            <button onClick={() => moveDefaultQuickLink(link.id, 1)} disabled={unlockedIdx === orderedUnlockedDefaultLinks.length - 1} className="hover:text-blue-500 disabled:opacity-30" title="Move down"><ChevronDown className="w-3 h-3" /></button>
                                                         </div>
-                                                    ))}
-                                                    {/* Visual divider only if there are custom links */}
-                                                    {(Array.isArray(localOpp.links) ? localOpp.links : Object.keys(localOpp.links || {})).length > 0 && (
-                                                        <div className="h-px bg-gray-100 my-1" />
                                                     )}
-                                                </>
+                                                    <Icon className={`w-3.5 h-3.5 shrink-0 ${link.locked ? 'text-gray-300' : 'text-gray-400'}`} title={link.locked ? 'Locked quick link' : 'Default quick link'} />
+                                                    <span className="text-[10px] font-black text-gray-500 w-16 shrink-0 uppercase">{link.label}</span>
+                                                    <input
+                                                        disabled={isSnapshot}
+                                                        type="url"
+                                                        value={url}
+                                                        className="min-w-0 flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-1 focus:ring-[#3DCD58] focus:border-[#3DCD58] disabled:bg-gray-50 disabled:text-gray-400"
+                                                        placeholder={link.placeholder}
+                                                        onChange={(e) => setDefaultQuickLinkUrl(link.id, e.target.value)}
+                                                    />
+                                                    {url && (
+                                                        <a href={url} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0 p-1 bg-white rounded border border-gray-200 shadow-sm">
+                                                            <ExternalLink className="w-3.5 h-3.5" />
+                                                        </a>
+                                                    )}
+                                                </div>
                                             );
-                                        })()}
+                                        })}
+
+                                        {normalizedQuickLinks.customLinks.length > 0 && (
+                                            <div className="h-px bg-gray-100 my-1" />
+                                        )}
                                         {/* Custom links list */}
-                                        {(Array.isArray(localOpp.links) ? localOpp.links : Object.entries(localOpp.links || {}).map(([k, v]) => ({
-                                            id: k,
-                                            type: 'link',
-                                            label: typeof v === 'object' && v !== null ? (v as any).label || (v as any).title || String(k) : String(k),
-                                            url: typeof v === 'object' && v !== null ? (v as any).url || '' : (typeof v === 'string' ? v : '')
-                                        } as QuickLinkItem))).map((item, idx, arr) => (
-                                            <div key={item.id} className="flex gap-2 items-center group bg-gray-50 p-1.5 rounded hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 transition-all">
+                                        {normalizedQuickLinks.customLinks.map((item, idx, arr) => (
+                                            <div key={item.id} className="flex gap-2 items-center group bg-gray-50 p-1.5 rounded hover:bg-white hover:shadow-sm border border-transparent hover:border-gray-200 transition-all min-w-0">
                                                 <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button onClick={() => {
                                                         if (idx === 0) return;
                                                         const newLinks = [...arr];
                                                         [newLinks[idx], newLinks[idx - 1]] = [newLinks[idx - 1], newLinks[idx]];
-                                                        handleFieldChange('links', newLinks);
+                                                        updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                     }} disabled={idx === 0} className="hover:text-blue-500 disabled:opacity-30"><ChevronUp className="w-3 h-3" /></button>
                                                     <button onClick={() => {
                                                         if (idx === arr.length - 1) return;
                                                         const newLinks = [...arr];
                                                         [newLinks[idx], newLinks[idx + 1]] = [newLinks[idx + 1], newLinks[idx]];
-                                                        handleFieldChange('links', newLinks);
+                                                        updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                     }} disabled={idx === arr.length - 1} className="hover:text-blue-500 disabled:opacity-30"><ChevronDown className="w-3 h-3" /></button>
                                                 </div>
 
@@ -4548,7 +4760,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         onChange={(e) => {
                                                             const newLinks = [...arr];
                                                             newLinks[idx] = { ...item, label: e.target.value };
-                                                            handleFieldChange('links', newLinks);
+                                                            updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                         }}
                                                         className="flex-1 text-xs font-bold uppercase text-gray-500 bg-transparent border-none focus:ring-0 p-0"
                                                         placeholder="HEADING"
@@ -4564,23 +4776,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <OptimizedInput
                                                             value={item.label}
                                                             onChange={(val: string) => {
+                                                                const defaultLink = findDefaultQuickLink(val);
+                                                                if (defaultLink) {
+                                                                    const newDefaultUrls = { ...normalizedQuickLinks.defaultUrls, [defaultLink.id]: item.url || '' };
+                                                                    const newLinks = arr.filter(i => i.id !== item.id);
+                                                                    updateQuickLinks(newDefaultUrls, newLinks);
+                                                                    return;
+                                                                }
                                                                 const newLinks = [...arr];
                                                                 newLinks[idx] = { ...item, label: val };
-                                                                handleFieldChange('links', newLinks);
+                                                                updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                             }}
-                                                            className="w-24 text-[10px] text-gray-400 font-bold uppercase truncate bg-transparent border-none focus:ring-0 p-0"
+                                                            className="w-24 shrink-0 text-[10px] text-gray-400 font-bold uppercase truncate bg-transparent border-none focus:ring-0 p-0"
                                                         />
                                                         <OptimizedInput
                                                             value={item.url}
                                                             onChange={(val: string) => {
                                                                 const newLinks = [...arr];
                                                                 newLinks[idx] = { ...item, url: val };
-                                                                handleFieldChange('links', newLinks);
+                                                                updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                             }}
-                                                            className="flex-1 text-sm border-gray-200 rounded p-1 h-7"
+                                                            className="min-w-0 flex-1 text-sm border-gray-200 rounded p-1 h-7"
                                                             placeholder="https://..."
                                                         />
-                                                        {item.url && <a href={item.url} target="_blank" className="p-1 bg-white rounded shadow-sm hover:text-blue-500 border border-gray-200"><ExternalLink className="w-3 h-3" /></a>}
+                                                        {item.url && <a href={item.url} target="_blank" rel="noreferrer" className="p-1 bg-white rounded shadow-sm hover:text-blue-500 border border-gray-200 shrink-0"><ExternalLink className="w-3 h-3" /></a>}
                                                     </>
                                                 )}
 
@@ -4615,7 +4834,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     onClick={() => {
                                                         if (confirm("Delete item?")) {
                                                             const newLinks = arr.filter(i => i.id !== item.id);
-                                                            handleFieldChange('links', newLinks);
+                                                            updateQuickLinks(normalizedQuickLinks.defaultUrls, newLinks);
                                                         }
                                                     }}
                                                     className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -4624,9 +4843,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </button>
                                             </div>
                                         ))}
-                                        {(Array.isArray(localOpp.links) ? localOpp.links : Object.keys(localOpp.links)).length === 0 && (
-                                            <div className="text-center py-4 text-gray-300 text-xs italic">No quick links yet.</div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -5281,28 +5497,41 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </button>
                                             ))}
                                             <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
-                                            <button onClick={addFolder} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
+                                            <button onClick={() => addFolder()} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
                                         {filteredNotes.length === 0 && searchTerm && (
                                             <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                         )}
-                                        {/* Notes tree: search = flat list, no search = folder/sub-note tree */}
+                                        {/* Notes tree: search = flat list, no search = folder/sub-note tree.
+                                            Drag & drop: notes/folders are draggable; dropping a note onto another
+                                            note/folder moves+reorders it (moveAndReorderNote), dropping a folder
+                                            onto another folder nests it (moveAndReorderFolder, guarded against
+                                            nesting into its own descendant). Dropping on the empty area below
+                                            everything sends the dragged item back to the root. */}
                                         {(() => {
                                             const isSearching = !!searchTerm.trim();
                                             const allFolders = localOpp.notesFolders || [];
+                                            const dateDesc = (a: MeetingNote, b: MeetingNote) => new Date(b.date).getTime() - new Date(a.date).getTime();
+                                            const folderNameAsc = (a: NoteFolder, b: NoteFolder) => a.name.localeCompare(b.name);
 
                                             // Called as a plain function to avoid JSX key-prop TypeScript issues
                                             const renderNote = (note: MeetingNote, indent: number): React.ReactNode => {
-                                                const children = isSearching ? [] : localOpp.notes.filter(n => n.parentId === note.id);
+                                                const children = isSearching ? [] : sortWithOrderFallback(localOpp.notes.filter(n => n.parentId === note.id), dateDesc);
                                                 const hasChildren = children.length > 0;
                                                 const isCollapsed = collapsedFolders.has(note.id);
                                                 const isSelected = selectedNoteId === note.id;
+                                                const isDropTarget = !isSearching && dropTargetId === note.id;
                                                 return (
                                                     <React.Fragment key={note.id}>
                                                         <div
                                                             id={`note-item-${note.id}`}
+                                                            draggable={!isSearching}
+                                                            onDragStart={(e) => { e.stopPropagation(); setDraggedNoteId(note.id); setDraggedFolderId(null); }}
+                                                            onDragEnd={() => { setDraggedNoteId(null); setDropTargetId(null); }}
+                                                            onDragOver={(e) => { if (!draggedNoteId) return; e.preventDefault(); e.stopPropagation(); setDropTargetId(note.id); }}
+                                                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDropNoteOnNote(note); setDraggedNoteId(null); setDropTargetId(null); }}
                                                             style={{ marginLeft: indent * 14 }}
-                                                            className={`p-2.5 rounded-lg border cursor-pointer relative group transition-all ${isSelected ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                                                            className={`p-2.5 rounded-lg border relative group transition-all ${isSearching ? 'cursor-pointer' : 'cursor-grab'} ${isSelected ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : isDropTarget ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
                                                             onClick={() => setSelectedNoteId(note.id)}
                                                         >
                                                             <div className="flex items-center gap-1 pr-14">
@@ -5330,52 +5559,82 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 return filteredNotes.map(note => renderNote(note, 0));
                                             }
 
-                                            const rootNotes = [...localOpp.notes]
-                                                .filter(n => !n.folderId && !n.parentId)
-                                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                                            const renderFolder = (folder: NoteFolder, indent: number): React.ReactNode => {
+                                                const folderNotes = sortWithOrderFallback(localOpp.notes.filter(n => n.folderId === folder.id && !n.parentId), dateDesc);
+                                                const childFolders = sortWithOrderFallback(allFolders.filter(f => f.parentFolderId === folder.id), folderNameAsc);
+                                                const isFolderCollapsed = collapsedFolders.has(folder.id);
+                                                const isDropTarget = dropTargetId === folder.id;
+                                                return (
+                                                    <React.Fragment key={folder.id}>
+                                                        <div
+                                                            draggable
+                                                            onDragStart={(e) => { e.stopPropagation(); setDraggedFolderId(folder.id); setDraggedNoteId(null); }}
+                                                            onDragEnd={() => { setDraggedFolderId(null); setDropTargetId(null); }}
+                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTargetId(folder.id); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault(); e.stopPropagation();
+                                                                if (draggedNoteId) handleDropNoteOnFolder(folder.id);
+                                                                else if (draggedFolderId) handleDropFolderOnFolder(folder.id);
+                                                                setDraggedNoteId(null); setDraggedFolderId(null); setDropTargetId(null);
+                                                            }}
+                                                            style={{ marginLeft: indent * 14 }}
+                                                            className={`flex items-center gap-1.5 group/folder px-1 py-1.5 rounded-lg transition-colors cursor-grab ${isDropTarget ? 'bg-amber-100 ring-1 ring-amber-300' : 'hover:bg-amber-50/60'}`}
+                                                        >
+                                                            <button onClick={() => setCollapsedFolders(prev => { const s = new Set(prev); s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id); return s; })} className="text-gray-400 hover:text-gray-600 shrink-0">
+                                                                {isFolderCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                            </button>
+                                                            {isFolderCollapsed
+                                                                ? <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                                                : <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                                                            {renamingFolderId === folder.id ? (
+                                                                <input
+                                                                    autoFocus
+                                                                    defaultValue={folder.name}
+                                                                    className="flex-1 text-xs font-bold text-gray-700 bg-transparent border-b border-[#3DCD58] focus:outline-none min-w-0"
+                                                                    onBlur={(e) => { renameFolder(folder.id, e.target.value || folder.name); setRenamingFolderId(null); }}
+                                                                    onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingFolderId(null); }}
+                                                                />
+                                                            ) : (
+                                                                <span onDoubleClick={() => setRenamingFolderId(folder.id)} className="flex-1 text-xs font-bold text-gray-700 truncate cursor-default select-none min-w-0" title="Double-click to rename">{folder.name}</span>
+                                                            )}
+                                                            <span className="text-[10px] text-gray-400 shrink-0">{folderNotes.length}</span>
+                                                            <div className="flex gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity shrink-0">
+                                                                <button onClick={() => addFolder(folder.id)} className="p-0.5 text-gray-400 hover:text-amber-500" title="New subfolder"><FolderPlus className="w-3 h-3" /></button>
+                                                                <button onClick={() => addNote(undefined, undefined, undefined, folder.id)} className="p-0.5 text-gray-400 hover:text-[#3DCD58]" title="New note in folder"><Plus className="w-3 h-3" /></button>
+                                                                <button onClick={() => deleteFolder(folder.id)} className="p-0.5 text-gray-400 hover:text-red-500" title="Delete folder"><Trash2 className="w-3 h-3" /></button>
+                                                            </div>
+                                                        </div>
+                                                        {!isFolderCollapsed && childFolders.map(cf => renderFolder(cf, indent + 1))}
+                                                        {!isFolderCollapsed && folderNotes.map(note => renderNote(note, indent + 1))}
+                                                    </React.Fragment>
+                                                );
+                                            };
+
+                                            const rootFolders = sortWithOrderFallback(allFolders.filter(f => !f.parentFolderId), folderNameAsc);
+                                            const rootNotes = sortWithOrderFallback(localOpp.notes.filter(n => !n.folderId && !n.parentId), dateDesc);
 
                                             return (
-                                                <>
-                                                    {allFolders.map(folder => {
-                                                        const folderNotes = [...localOpp.notes]
-                                                            .filter(n => n.folderId === folder.id && !n.parentId)
-                                                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                                                        const isFolderCollapsed = collapsedFolders.has(folder.id);
-                                                        return (
-                                                            <React.Fragment key={folder.id}>
-                                                                <div className="flex items-center gap-1.5 group/folder px-1 py-1.5 rounded-lg hover:bg-amber-50/60 transition-colors">
-                                                                    <button onClick={() => setCollapsedFolders(prev => { const s = new Set(prev); s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id); return s; })} className="text-gray-400 hover:text-gray-600 shrink-0">
-                                                                        {isFolderCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                                                                    </button>
-                                                                    {isFolderCollapsed
-                                                                        ? <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                                                        : <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                                                                    {renamingFolderId === folder.id ? (
-                                                                        <input
-                                                                            autoFocus
-                                                                            defaultValue={folder.name}
-                                                                            className="flex-1 text-xs font-bold text-gray-700 bg-transparent border-b border-[#3DCD58] focus:outline-none min-w-0"
-                                                                            onBlur={(e) => { renameFolder(folder.id, e.target.value || folder.name); setRenamingFolderId(null); }}
-                                                                            onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); if (e.key === 'Escape') setRenamingFolderId(null); }}
-                                                                        />
-                                                                    ) : (
-                                                                        <span onDoubleClick={() => setRenamingFolderId(folder.id)} className="flex-1 text-xs font-bold text-gray-700 truncate cursor-default select-none min-w-0" title="Double-click to rename">{folder.name}</span>
-                                                                    )}
-                                                                    <span className="text-[10px] text-gray-400 shrink-0">{folderNotes.length}</span>
-                                                                    <div className="flex gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity shrink-0">
-                                                                        <button onClick={() => addNote(undefined, undefined, undefined, folder.id)} className="p-0.5 text-gray-400 hover:text-[#3DCD58]" title="New note in folder"><Plus className="w-3 h-3" /></button>
-                                                                        <button onClick={() => deleteFolder(folder.id)} className="p-0.5 text-gray-400 hover:text-red-500" title="Delete folder"><Trash2 className="w-3 h-3" /></button>
-                                                                    </div>
-                                                                </div>
-                                                                {!isFolderCollapsed && folderNotes.map(note => renderNote(note, 1))}
-                                                            </React.Fragment>
-                                                        );
-                                                    })}
+                                                <div
+                                                    className="flex flex-col gap-1.5 min-h-[40px]"
+                                                    onDragOver={(e) => { if (draggedNoteId || draggedFolderId) { e.preventDefault(); setDropTargetId('__root__'); } }}
+                                                    onDrop={(e) => {
+                                                        e.preventDefault();
+                                                        if (draggedNoteId) handleDropNoteOnFolder(undefined);
+                                                        else if (draggedFolderId) handleDropFolderOnFolder(undefined);
+                                                        setDraggedNoteId(null); setDraggedFolderId(null); setDropTargetId(null);
+                                                    }}
+                                                >
+                                                    {rootFolders.map(folder => renderFolder(folder, 0))}
                                                     {rootNotes.map(note => renderNote(note, 0))}
                                                     {localOpp.notes.length === 0 && (
                                                         <div className="text-center text-gray-300 text-xs py-6 italic">No notes yet. Create one above.</div>
                                                     )}
-                                                </>
+                                                    {(draggedNoteId || draggedFolderId) && (
+                                                        <div className={`text-center text-[10px] py-2 rounded-lg border border-dashed transition-colors ${dropTargetId === '__root__' ? 'border-[#3DCD58] text-[#3DCD58] bg-[#3DCD58]/5' : 'border-gray-200 text-gray-300'}`}>
+                                                            Drop here to move to root
+                                                        </div>
+                                                    )}
+                                                </div>
                                             );
                                         })()}
                                     </div>

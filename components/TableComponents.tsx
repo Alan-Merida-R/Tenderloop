@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Columns, Check, X } from 'lucide-react';
+import { Columns, Check, X, Filter } from 'lucide-react';
 
 interface EditableCellProps {
     value: string | number;
@@ -139,6 +139,79 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
                             </button>
                         ))}
                     </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export interface ColumnFilterProps {
+    options: string[];
+    selected: string[];
+    onChange: (val: string[]) => void;
+}
+
+export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (ref.current && !ref.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const visibleOptions = options.filter(opt => (opt || '').toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 50);
+
+    return (
+        <div className="relative inline-block ml-1" ref={ref}>
+            <button
+                onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+                className={`p-0.5 rounded hover:bg-gray-200 ${selected.length > 0 ? 'text-[#3DCD58]' : 'text-gray-400'}`}
+                title="Filter column"
+            >
+                <Filter className="w-3 h-3" />
+            </button>
+            {isOpen && (
+                <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded shadow-xl z-50 p-2 font-normal text-gray-700 cursor-default">
+                    <input
+                        autoFocus
+                        placeholder="Search..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="w-full text-xs p-1 mb-2 border border-gray-200 rounded outline-none focus:border-[#3DCD58]"
+                        onClick={e => e.stopPropagation()}
+                    />
+                    <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
+                        {visibleOptions.map(opt => (
+                            <label key={opt} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                <input
+                                    type="checkbox"
+                                    checked={selected.includes(opt)}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
+                                        else onChange([...selected, opt]);
+                                    }}
+                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                />
+                                <span className="truncate" title={opt}>{opt || '(Empty)'}</span>
+                            </label>
+                        ))}
+                    </div>
+                    {selected.length > 0 && (
+                        <button
+                            onClick={() => { onChange([]); setIsOpen(false); }}
+                            className="w-full text-center text-xs text-red-500 hover:text-red-700 mt-2 pt-1 border-t border-gray-100"
+                        >
+                            Clear Filter
+                        </button>
+                    )}
                 </div>
             )}
         </div>

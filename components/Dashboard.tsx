@@ -15,7 +15,7 @@ import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchIn
 import { TaskSearchInput } from './TaskSearchInput';
 import { OptimizedInput, OptimizedTextArea } from './OptimizedInput';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
-import { EditableCell, ColumnSelector } from './TableComponents';
+import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { ScheduleView } from '../features/schedule/ScheduleView';
 
@@ -778,6 +778,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'id', label: 'ID' },
         { key: 'title', label: 'Title' },
         { key: 'customer', label: 'Customer' },
+        { key: 'seller', label: 'Seller' },
         { key: 'status', label: 'Process Status' },
         { key: 'assigned', label: 'Assigned' },
         { key: 'expected', label: 'Expected Date' },
@@ -787,7 +788,28 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'notes', label: 'Notes' }
     ];
     const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(c => c.key));
-    const [collapsedColumns, setCollapsedColumns] = useState<string[]>([]);
+    const [collapsedColumns, setCollapsedColumns] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('tenderloop_collapsed_proposal_columns');
+            if (saved) return JSON.parse(saved);
+        } catch(e) {}
+        return [];
+    });
+
+    useEffect(() => {
+        localStorage.setItem('tenderloop_collapsed_proposal_columns', JSON.stringify(collapsedColumns));
+    }, [collapsedColumns]);
+    
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const customerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.customer).filter(Boolean))) as string[], [opportunities]);
+    const sellerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.seller).filter(Boolean))) as string[], [opportunities]);
+    const assignedOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.assigned).filter(Boolean))) as string[], [opportunities]);
+    const idOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.id).filter(Boolean))) as string[], [opportunities]);
+    const titleOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.title).filter(Boolean))) as string[], [opportunities]);
+    const statusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.statusLabel).filter(Boolean))) as string[], [opportunities]);
+    const expectedOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.dates?.expected).filter(Boolean))) as string[], [opportunities]);
+    const amountOptions = useMemo(() => Array.from(new Set(opportunities.map(o => (o.kpis?.proposalAmountUSD || 0).toString()).filter(Boolean))) as string[], [opportunities]);
+    const waitingOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.waitingOn).filter(Boolean))) as string[], [opportunities]);
 
     // KPI Filter State
     const [kpiSoldFilter, setKpiSoldFilter] = useState<'all' | 'sold' | 'not-sold'>('all');
@@ -1109,6 +1131,15 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             if (labelFilters.length > 0 && !(opp.labels || []).some(l => labelFilters.includes(l.id))) continue;
             if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) continue;
             if (detailedStatusFilters.length > 0 && (!opp.detailedStatus || !detailedStatusFilters.includes(opp.detailedStatus))) continue;
+            if (columnFilters.customer?.length > 0 && (!opp.customer || !columnFilters.customer.includes(opp.customer))) continue;
+            if (columnFilters.seller?.length > 0 && (!opp.seller || !columnFilters.seller.includes(opp.seller))) continue;
+            if (columnFilters.assigned?.length > 0 && (!opp.assigned || !columnFilters.assigned.includes(opp.assigned))) continue;
+            if (columnFilters.id?.length > 0 && (!opp.id || !columnFilters.id.includes(opp.id))) continue;
+            if (columnFilters.title?.length > 0 && (!opp.title || !columnFilters.title.includes(opp.title))) continue;
+            if (columnFilters.status?.length > 0 && (!opp.statusLabel || !columnFilters.status.includes(opp.statusLabel))) continue;
+            if (columnFilters.expected?.length > 0 && (!opp.dates?.expected || !columnFilters.expected.includes(opp.dates.expected))) continue;
+            if (columnFilters.amount?.length > 0 && (!columnFilters.amount.includes((opp.kpis?.proposalAmountUSD || 0).toString()))) continue;
+            if (columnFilters.waiting?.length > 0 && (!opp.waitingOn || !columnFilters.waiting.includes(opp.waitingOn))) continue;
 
             // 6. Multi-term Search (Ultra Optimized v5000)
             if (booleanMatcher) {
@@ -1119,7 +1150,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             results.push(opp);
         }
         return results;
-    }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters]);
+    }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters, columnFilters]);
 
     // --- KPI Aggregation Logic ---
     const kpiData = useMemo(() => {
@@ -2124,7 +2155,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 {showProposalCardFieldsMenu && (
                                     <div
                                         onClick={(e) => e.stopPropagation()}
-                                        className="absolute right-0 mt-2 w-80 bg-white rounded-lg border border-gray-200 shadow-xl z-50 overflow-hidden"
+                                        className="absolute left-0 mt-2 w-80 bg-white rounded-lg border border-gray-200 shadow-xl z-[9999] overflow-hidden origin-top-left"
                                     >
                                         <div className="px-3 py-2 border-b border-gray-100">
                                             <div className="text-xs font-black uppercase tracking-wide text-gray-600">Card Fields</div>
@@ -2152,7 +2183,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                 checked={visible}
                                                                 disabled={required}
                                                                 onChange={() => toggleProposalCardField(option.key)}
-                                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] accent-[#3DCD58]"
                                                             />
                                                         </label>
                                                         <label className="flex justify-center">
@@ -2161,7 +2192,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                 checked={quickHidden}
                                                                 disabled={required}
                                                                 onChange={() => toggleProposalQuickHideField(option.key)}
-                                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] accent-[#3DCD58]"
                                                             />
                                                         </label>
                                                     </div>
@@ -2186,6 +2217,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                             </button>
                         </div>
                     )}
+
+                    {mode === 'general' && (
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => onCreate()}
+                                className="flex items-center gap-2 bg-[#3DCD58] hover:bg-[#2db64a] text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors"
+                            >
+                                <Plus className="w-4 h-4" /> New
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -2197,7 +2239,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                     /* ... existing General View ... */
                     <div className="flex flex-col gap-6 h-full overflow-y-auto pr-2 pb-4">
                         {/* KPI Cards */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 shrink-0">
                             <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                 <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Filtered Amount</p>
@@ -2214,17 +2256,18 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                             </div>
                             <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
                                 <div>
+                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total OPs</p>
+                                    <p className="text-xl font-bold text-gray-900 mt-1">{filteredOpps.length}</p>
+                                </div>
+                                <div className="p-2 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg"><Briefcase className="w-5 h-5" /></div>
+                            </div>
+                            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
+                                <div>
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Active Count</p>
                                     <p className="text-xl font-bold text-gray-900 mt-1">{filteredOpps.filter(o => o.statusLabel === 'In Progress').length}</p>
                                 </div>
                                 <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Briefcase className="w-5 h-5" /></div>
                             </div>
-                        </div>
-
-                        {/* TOTAL DE OPs SECTION */}
-                        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm shrink-0 flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Briefcase className="w-5 h-5 text-[#3DCD58]" /> Total de OPs</h3>
-                            <div className="text-2xl font-black text-gray-800">{filteredOpps.length}</div>
                         </div>
 
 
@@ -2235,14 +2278,15 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 sticky top-0 bg-gray-50 z-10">
                                         <tr>
-                                            {visibleColumns.includes('id') && <th className="px-6 py-3 w-32">ID</th>}
-                                            {visibleColumns.includes('title') && <th className="px-6 py-3">Title</th>}
-                                            {visibleColumns.includes('customer') && <th className="px-6 py-3">Customer</th>}
-                                            {visibleColumns.includes('status') && <th className="px-6 py-3">Process Status</th>}
-                                            {visibleColumns.includes('expected') && <th className="px-6 py-3">Expected Date</th>}
-                                            {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right">Amount</th>}
+                                            {visibleColumns.includes('id') && <th className="px-6 py-3 w-32"><div className="flex items-center">ID<ColumnFilter options={idOptions} selected={columnFilters.id || []} onChange={v => setColumnFilters(p => ({...p, id: v}))} /></div></th>}
+                                            {visibleColumns.includes('title') && <th className="px-6 py-3"><div className="flex items-center">Title<ColumnFilter options={titleOptions} selected={columnFilters.title || []} onChange={v => setColumnFilters(p => ({...p, title: v}))} /></div></th>}
+                                            {visibleColumns.includes('customer') && <th className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>}
+                                            {visibleColumns.includes('seller') && <th className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>}
+                                            {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Process Status<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>}
+                                            {visibleColumns.includes('expected') && <th className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>}
+                                            {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>}
                                             {visibleColumns.includes('nextStep') && <th className="px-6 py-3">Next Step</th>}
-                                            {visibleColumns.includes('waiting') && <th className="px-6 py-3">Waiting On</th>}
+                                            {visibleColumns.includes('waiting') && <th className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>}
                                             {visibleColumns.includes('notes') && <th className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>}
                                             {visibleColumns.length < allColumns.length && <th className="px-6 py-3 text-gray-400 italic">Ocultas ({allColumns.length - visibleColumns.length})</th>}
                                         </tr>
@@ -2258,6 +2302,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     {visibleColumns.includes('id') && <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>}
                                                     {visibleColumns.includes('title') && <td className="px-6 py-3 font-medium text-gray-900"><EditableCell value={opp.title} onChange={(val) => handleInlineEdit(opp, 'title', val)} /></td>}
                                                     {visibleColumns.includes('customer') && <td className="px-6 py-3 text-gray-600"><EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} /></td>}
+                                                    {visibleColumns.includes('seller') && <td className="px-6 py-3 text-gray-600"><EditableCell value={opp.seller || ''} onChange={(val) => handleInlineEdit(opp, 'seller', val)} /></td>}
                                                     {visibleColumns.includes('status') && <td className="px-6 py-3">
                                                         <EditableCell
                                                             type="select"
@@ -2436,14 +2481,15 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 <th className="px-4 py-3 w-10">
                                                     <input type="checkbox" onChange={(e) => e.target.checked ? setSelectedForExport(filteredOpps.map(o => o.id)) : setSelectedForExport([])} checked={filteredOpps.length > 0 && selectedForExport.length === filteredOpps.length} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300" />
                                                 </th>
-                                                {visibleColumns.includes('id') && <th className="px-6 py-3 w-32">ID</th>}
-                                                {visibleColumns.includes('title') && <th className="px-6 py-3">Title</th>}
-                                                {visibleColumns.includes('customer') && <th className="px-6 py-3">Customer</th>}
-                                                {visibleColumns.includes('status') && <th className="px-6 py-3">Status</th>}
-                                                {visibleColumns.includes('assigned') && <th className="px-6 py-3">Assigned</th>}
-                                                {visibleColumns.includes('expected') && <th className="px-6 py-3">Expected Date</th>}
-                                                {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right">Amount</th>}
-                                                {visibleColumns.includes('waiting') && <th className="px-6 py-3">Waiting On</th>}
+                                                {visibleColumns.includes('id') && <th className="px-6 py-3 w-32"><div className="flex items-center">ID<ColumnFilter options={idOptions} selected={columnFilters.id || []} onChange={v => setColumnFilters(p => ({...p, id: v}))} /></div></th>}
+                                                {visibleColumns.includes('title') && <th className="px-6 py-3"><div className="flex items-center">Title<ColumnFilter options={titleOptions} selected={columnFilters.title || []} onChange={v => setColumnFilters(p => ({...p, title: v}))} /></div></th>}
+                                                {visibleColumns.includes('customer') && <th className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>}
+                                                {visibleColumns.includes('seller') && <th className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>}
+                                                {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Status<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>}
+                                                {visibleColumns.includes('assigned') && <th className="px-6 py-3"><div className="flex items-center">Assigned<ColumnFilter options={assignedOptions} selected={columnFilters.assigned || []} onChange={v => setColumnFilters(p => ({...p, assigned: v}))} /></div></th>}
+                                                {visibleColumns.includes('expected') && <th className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>}
+                                                {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>}
+                                                {visibleColumns.includes('waiting') && <th className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -2466,6 +2512,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                         {visibleColumns.includes('customer') && (
                                                             <td className="px-6 py-3">
                                                                 <EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} className="text-gray-600" />
+                                                            </td>
+                                                        )}
+                                                        {visibleColumns.includes('seller') && (
+                                                            <td className="px-6 py-3">
+                                                                <EditableCell value={opp.seller || ''} onChange={(val) => handleInlineEdit(opp, 'seller', val)} className="text-gray-600" />
                                                             </td>
                                                         )}
                                                         {visibleColumns.includes('status') && (

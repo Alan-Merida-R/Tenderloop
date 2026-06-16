@@ -33,7 +33,12 @@
       "Bash(grep -v \"//\\\\|import\")",
       "Bash(node -e ' *)",
       "Bash(grep -v \"//\\\\|translateStatus\\\\|TASK_STATUS_COLORS\\\\|option\\\\|import\")",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(findstr /i note)",
+      "Bash(dir \"C:\\\\Users\\\\Alan Merida\\\\Documents\\\\GitHub\\\\Tenderloop\\\\features\" /s)",
+      "Bash(findstr /i \"\\\\.tsx\\\\|\\\\.ts\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")"
     ]
   }
 }

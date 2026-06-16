@@ -192,6 +192,8 @@ export interface TimeLog {
 export interface NoteFolder {
   id: string;
   name: string;
+  parentFolderId?: string; // nested folder: id of the parent folder
+  order?: number;
 }
 
 export interface MeetingNote {
@@ -204,6 +206,7 @@ export interface MeetingNote {
   inlineTasks?: InlineTask[];
   parentId?: string;  // sub-note: id of the parent note
   folderId?: string;  // folder this note belongs to
+  order?: number; // manual sort position within its list (folder/root)
 }
 
 export interface Question {
@@ -301,6 +304,7 @@ export interface Opportunity {
   title: string;
   customer: string;
   customerAddress?: string;
+  seller?: string;
   qlk: string;
   revision: string;
   stage: ProcessStage;
@@ -326,6 +330,8 @@ export interface Opportunity {
   description: string;
   commercial: Commercial;
   links: QuickLinks | QuickLinkItem[]; // Supported legacy object or new array
+  /** Manual display order (list of ids) for the unlocked default quick links (e.g. Folder, BA, GEET). Locked ones (SRLink, BFO, CQA) are never reorderable. */
+  quickLinksOrder?: string[];
 
   // Lists
   notes: MeetingNote[];

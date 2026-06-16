@@ -1,6 +1,6 @@
 # Progreso de Tender Loop — Reporte Local
 
-Última actualización: 2026-06-15
+Última actualización: 2026-06-16
 
 ## Resumen general
 
@@ -24,6 +24,13 @@ Tareas bloqueadas: 0
 | TASK-018 | Filtros desalineados Vista General | components/Dashboard.tsx | justificado a la derecha | done |
 | TASK-057 | BD no recuerda selección | App.tsx | Startup screen overlay | needs_testing |
 | TASK-011 a TASK-021 | Mejoras Vista General (Tabla Excel, Ocultas, Notes, Next Step, KPIs) | Dashboard.tsx, OpportunityFolderTab.tsx | Múltiples mejoras UI | done |
+
+## Cambios directos recientes
+
+| Fecha | Área | Archivo | Cambio | Estado |
+|---|---|---|---|---|
+| 2026-06-16 | Proposals Dashboard | components/Dashboard.tsx | Las columnas contraídas se guardan en localStorage y se restauran al recargar hasta que el usuario las expanda | needs_testing manual |
+| 2026-06-16 | Expediente / Quick Links | components/OpportunityDetail.tsx | Defaults sin duplicados: SRLink, BFO, CQA, Folder, BA y GEET; icono de abrir inmediato al capturar URL; contenedor usa todo el espacio disponible | needs_testing manual |
 
 ## Tareas listas (segunda tanda — no activar aún)
 
