@@ -251,8 +251,8 @@ const OpportunityCard = React.memo(({
 }: any) => {
     const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
     const isCardFieldVisible = useCallback((field: ProposalCardFieldKey) => cardFieldVisibility?.[field] !== false, [cardFieldVisibility]);
-    const isMissingInfoStale = useMemo(() => {
-        if (nextTask?.status === 'Missing Info' && nextTask?.dueDate) {
+    const isBlockedStale = useMemo(() => {
+        if ((nextTask?.status === 'Missing Info' || nextTask?.status === 'Approval') && nextTask?.dueDate) {
             const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
             return hrs > 48;
         }
@@ -310,18 +310,27 @@ const OpportunityCard = React.memo(({
                             e.stopPropagation();
                             onSelect(opp.id, { tab: 'tasks', taskId: nextTask.id });
                         }}
-                        className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isMissingInfoStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
+                        className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isBlockedStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
                         title="Open this task in expediente"
                     >
                         <div className="shrink-0 mt-0.5">
-                            {isMissingInfoStale
+                            {isBlockedStale
                                 ? <span title="Blocked >48h">⚠️</span>
                                 : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
                         </div>
                         <div className="flex flex-col gap-0.5">
                             <span className="text-[9px] font-black uppercase opacity-60 tracking-wider">Next Step</span>
                             <span className="text-[11px] font-bold leading-tight line-clamp-2">{nextTask.title}</span>
-                            {nextTask.status === 'Missing Info' && <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">⚠ Missing Info</span>}
+                            {nextTask.status === 'Missing Info' && (
+                                <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">
+                                    ⚠ Missing Info{nextTask.responsible ? ` · ${nextTask.responsible}` : ''}
+                                </span>
+                            )}
+                            {nextTask.status === 'Approval' && (
+                                <span className="text-[9px] font-black text-purple-600 bg-purple-100 px-1 rounded">
+                                    ⚠ Approval{nextTask.responsible ? ` · ${nextTask.responsible}` : ''}
+                                </span>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1387,7 +1396,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         // Define groups
         if (mode === 'tasks') {
             if (taskGroupBy === 'status') {
-                ['Pending', 'In Progress', 'On Hold', 'Missing Info', 'Done', 'Canceled'].forEach(k => result.grouped[k] = []);
+                ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info', 'Done', 'Canceled'].forEach(k => result.grouped[k] = []);
             } else if (taskGroupBy === 'priority') {
                 ['High', 'Medium', 'Low'].forEach(k => result.grouped[k] = []);
             }
@@ -1443,7 +1452,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 if (mode === 'tasks') {
                     let key = 'Other';
                     if (taskGroupBy === 'status') {
-                        key = ['Pending', 'In Progress', 'On Hold', 'Missing Info', 'Done', 'Canceled'].includes(t.status) ? t.status : 'Pending';
+                        key = ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info', 'Done', 'Canceled'].includes(t.status) ? t.status : 'Pending';
                     }
                     else if (taskGroupBy === 'priority') key = t.priority;
                     else if (taskGroupBy === 'area') {
@@ -2094,7 +2103,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 onClick={() => {
                                     if (confirm("Copy tasks summary?\nOK = Pending Only (Pending, In Progress, On Hold)\nCancel = All Tasks")) {
                                         // Pending Only
-                                        const pendingTasks = filteredTasks.filter(t => ['Pending', 'In Progress', 'On Hold', 'Missing Info'].includes(t.status));
+                                        const pendingTasks = filteredTasks.filter(t => ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info'].includes(t.status));
                                         const text = pendingTasks.map(t => `[${t.status}] ${t.title} - ${t.opp.customer}`).join('\n');
                                         copyToClipboard(text);
                                         // alert(`Copied ${pendingTasks.length} pending tasks to clipboard.`);
@@ -2296,7 +2305,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                             const waitingOn = getWaitingOnAreas(opp);
                                             const amount = getSellPrice(opp);
                                             const nextTask = getNextTask(opp.tasks || []);
-                                            const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Waiting');
+                                            const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Approval' || t.status === 'Waiting');
                                             return (
                                                 <tr key={opp.id} className="hover:bg-gray-50 transition-colors">
                                                     {visibleColumns.includes('id') && <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>}
@@ -2334,9 +2343,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                         {waitingTasks.length > 0 ? (
                                                             <div className="flex flex-col gap-1">
                                                                 {waitingTasks.map(t => (
-                                                                    <div key={t.id} className="text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded border border-orange-100 flex flex-col" title={t.title}>
-                                                                        <span className="font-bold truncate max-w-[150px]">{t.title}</span>
+                                                                    <div key={t.id} className={`text-[10px] px-1.5 py-0.5 rounded border flex flex-col ${t.status === 'Approval' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`} title={t.title}>
+                                                                        <span className="font-bold truncate max-w-[150px]">{t.status === 'Approval' ? '⚠ Approval: ' : ''}{t.title}</span>
                                                                         {(t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
+                                                                        {t.responsible && <span className="text-[9px] opacity-80 italic">{t.status === 'Approval' ? 'Approver' : 'Owes info'}: {t.responsible}</span>}
                                                                     </div>
                                                                 ))}
                                                             </div>

@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet } from 'lucide-react';
+import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
-import { getRootPathDisplay } from '../services/opportunityFolderLink';
+import { getRootPathDisplay, copyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
@@ -22,6 +22,17 @@ import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedIn
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
+
+const normalizeHistoryDate = (value?: string | null) => {
+    if (!value) return getTodayStr();
+    const raw = value.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? getTodayStr() : parsed.toLocaleDateString('en-CA');
+};
+
+const sortHistoryEntries = (history: HistoryEntry[]) =>
+    [...history].sort((a, b) => normalizeHistoryDate(b.date).localeCompare(normalizeHistoryDate(a.date)));
 
 // PERF FIX: jsPDF + autoTable are large libraries (~400KB combined).
 // Loading them statically caused ~200-400ms of parse/execution on every
@@ -58,6 +69,7 @@ interface Props {
     onMinimize?: (tab: FloatingTab) => void;
     onCloseTab?: () => void;
     isSubView?: boolean;
+    emailIntegrationEnabled?: boolean;
 }
 
 export interface RichTextEditorHandle {
@@ -536,7 +548,7 @@ const HistoryEventsModal = ({
     const [isEditing, setIsEditing] = useState<string | null>(null); // Entry ID or 'new'
     const [editContent, setEditContent] = useState('');
 
-    const dayEntries = history.filter(h => h.date.split('T')[0] === date);
+    const dayEntries = sortHistoryEntries(history).filter(h => normalizeHistoryDate(h.date) === normalizeHistoryDate(date));
 
     const handleSave = () => {
         if (!editContent.trim()) return;
@@ -831,7 +843,7 @@ const KpiCalendarModal = ({
                             const isHoliday = holidays.includes(date);
                             const dayOfWeek = new Date(date).getUTCDay();
                             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                            const dayHistory = history.filter(h => h.date.split('T')[0] === date);
+                            const dayHistory = history.filter(h => normalizeHistoryDate(h.date) === normalizeHistoryDate(date));
 
                             return (
                                 <div
@@ -1151,7 +1163,7 @@ const FullCalendarModal = ({
                                     <HistoryIcon className="w-4 h-4" /> Events & Milestones
                                 </div>
                                 {days.map(d => {
-                                    const dayHistory = history.filter(h => h.date.split('T')[0] === d);
+                                    const dayHistory = history.filter(h => normalizeHistoryDate(h.date) === normalizeHistoryDate(d));
                                     const isReceived = timeline.receivedAt === d;
                                     const isDelivered = timeline.deliveredAt === d;
 
@@ -1575,6 +1587,13 @@ const resetPresentationData = (): PrdPresentation => ({
     }
 });
 
+const createEmptyEmailsData = (): OpportunityEmailsData => ({
+    folders: [],
+    labels: [],
+    conversations: [],
+    selectedOutlookFolderIds: []
+});
+
 const resetKPIData = (current: KPIs): KPIs => ({
     ...current,
     languageSkill: null,
@@ -1616,10 +1635,19 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
     );
 });
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView }) => {
+type OpportunityDetailTab = 'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'folder' | 'kpi' | 'emails';
+
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false }) => {
     const { getTimerState, confirmStop } = useTimerActions();
-    const [activeTab, setActiveTab] = useState<'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'folder' | 'kpi'>(deepLink?.tab as any || 'overview');
+    const requestedTab = deepLink?.tab === 'emails' && !emailIntegrationEnabled ? 'overview' : (deepLink?.tab as OpportunityDetailTab | undefined);
+    const [activeTab, setActiveTab] = useState<OpportunityDetailTab>(requestedTab || 'overview');
     const [isDeferring, setIsDeferring] = useState(false);
+
+    useEffect(() => {
+        if (!emailIntegrationEnabled && activeTab === 'emails') {
+            setActiveTab('overview');
+        }
+    }, [emailIntegrationEnabled, activeTab]);
 
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -1676,23 +1704,39 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     }, [deepLink?.tab]);
 
     const lastScrolledTaskId = useRef<string | null>(null);
+    const focusTaskInTasksList = useCallback((taskId: string) => {
+        setActiveTab('tasks');
+        setTaskViewMode('list');
+        setTaskFilter('');
+        setTaskStatusFilters(Object.keys(TASK_STATUS_COLORS));
+        setHighlightTaskId(taskId);
+
+        const scrollToTask = (attempt = 0) => {
+            const el = document.getElementById(`task-${taskId}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
+            if (attempt < 10) {
+                window.setTimeout(() => scrollToTask(attempt + 1), 100);
+            }
+        };
+
+        window.setTimeout(() => scrollToTask(), 80);
+        window.setTimeout(() => {
+            setHighlightTaskId(current => current === taskId ? null : current);
+        }, 3500);
+    }, []);
+
     useEffect(() => {
         // Reset last scrolled when deepLink officially changes from parent
         if (!deepLink) lastScrolledTaskId.current = null;
         
         if (deepLink?.taskId && lastScrolledTaskId.current !== deepLink.taskId) {
             lastScrolledTaskId.current = deepLink.taskId;
-            setHighlightTaskId(deepLink.taskId);
-            // Scroll to task if in list or board view
-            setTimeout(() => {
-                const el = document.getElementById(`task-${deepLink.taskId}`);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 500);
-
-            // Clear highlight after 3 seconds
-            setTimeout(() => setHighlightTaskId(null), 3000);
+            focusTaskInTasksList(deepLink.taskId);
         }
-    }, [deepLink?.taskId, activeTab]);
+    }, [deepLink?.taskId, focusTaskInTasksList]);
     const [showVersionMenu, setShowVersionMenu] = useState(false);
     const [showMoreActionsMenu, setShowMoreActionsMenu] = useState(false);
     const [showCreateVersionModal, setShowCreateVersionModal] = useState(false);
@@ -1827,6 +1871,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         };
     }, [selectedNoteId, activeTab]); // Added activeTab to ensure we save when leaving 'notes' view
 
+    // DATA-LOSS FIX: the typing debounce above (handleNoteContentChange) waits up to 1.5s
+    // before flushing to localOpp/localStorage. The note-switch/tab-switch cleanup covers
+    // most cases, but it never runs if the user closes the tab/window or backgrounds the app
+    // while still inside that 1.5s window — the keystroke is lost with no backup written.
+    // These listeners force the same flush on tab hide/close so it always lands first.
+    useEffect(() => {
+        const flushNow = () => { if (flushNoteRef.current) flushNoteRef.current(); };
+        const handleVisibilityChange = () => { if (document.hidden) flushNow(); };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('pagehide', flushNow);
+        window.addEventListener('beforeunload', flushNow);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('pagehide', flushNow);
+            window.removeEventListener('beforeunload', flushNow);
+        };
+    }, []);
+
     // Handle note content changes with local debouncing (UI only)
     const handleNoteContentChange = (val: string) => {
         // Do NOT call setActiveNoteHtml here — that state is only needed when switching notes
@@ -1876,6 +1938,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [highlightedQuestionId, setHighlightedQuestionId] = useState<string | null>(null);
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [selectedEmailFolderId, setSelectedEmailFolderId] = useState<string>('all');
+    const [selectedEmailConversationId, setSelectedEmailConversationId] = useState<string | null>(null);
+    const [showEmailLinkPicker, setShowEmailLinkPicker] = useState<
+        | { mode: 'target'; targetType: 'task' | 'note'; targetId: string }
+        | { mode: 'conversation'; targetType: 'task' | 'note'; conversationId: string }
+        | null
+    >(null);
+    const [showOutlookSelector, setShowOutlookSelector] = useState(false);
 
     // Commercial Quick References state
     const [commercialRootPath, setCommercialRootPath] = useState<string>('');
@@ -1998,13 +2068,44 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
         const autoFields: Partial<Opportunity> = {};
         if (field === 'statusLabel') {
+            if (value === 'Canceled') {
+                autoFields.detailedStatus = 'Canceled';
+            } else if (['Submitted', 'Won', 'Lost'].includes(value)) {
+                autoFields.detailedStatus = 'Completed';
+            } else if (value === 'On Hold') {
+                autoFields.detailedStatus = 'Paused';
+            } else {
+                autoFields.detailedStatus = 'Review';
+            }
+        }
+        if (field === 'detailedStatus') {
+            if (value === 'Canceled') {
+                autoFields.statusLabel = 'Canceled';
+            } else if (value === 'Completed') {
+                autoFields.statusLabel = 'Submitted';
+            } else if (value === 'Paused') {
+                autoFields.statusLabel = 'On Hold';
+            } else {
+                autoFields.statusLabel = 'In Progress';
+            }
+        }
+
+        const nextStatusLabel = (field === 'statusLabel' ? value : autoFields.statusLabel || localOpp.statusLabel) as OpportunityStatus;
+        if (localOpp.statusLabel !== nextStatusLabel) {
             const today = new Date().toISOString().split('T')[0];
             const currentKpis = localOpp.kpis || {};
             const currentTimeline = (currentKpis as any).timeline || {};
-            if (value === 'Submitted') {
-                autoFields.kpis = { ...currentKpis, timeline: { ...currentTimeline, deliveredAt: today } } as any;
-            } else if (localOpp.statusLabel === 'Submitted') {
-                autoFields.kpis = { ...currentKpis, timeline: { ...currentTimeline, deliveredAt: null } } as any;
+            const soldUpdate = nextStatusLabel === 'Won'
+                ? { sold: true }
+                : nextStatusLabel === 'Lost'
+                    ? { sold: false }
+                    : { sold: null };
+            if (['Submitted', 'Won', 'Lost'].includes(nextStatusLabel)) {
+                autoFields.kpis = { ...currentKpis, ...soldUpdate, timeline: { ...currentTimeline, deliveredAt: currentTimeline.deliveredAt || today } } as any;
+            } else if (['Submitted', 'Won', 'Lost'].includes(localOpp.statusLabel)) {
+                autoFields.kpis = { ...currentKpis, ...soldUpdate, timeline: { ...currentTimeline, deliveredAt: null } } as any;
+            } else {
+                autoFields.kpis = { ...currentKpis, ...soldUpdate } as any;
             }
         }
 
@@ -2119,6 +2220,204 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         addQuickLinkItem({ id: crypto.randomUUID(), type: 'link', label, url });
     };
 
+    const emailsData: OpportunityEmailsData = useMemo(() => ({
+        ...createEmptyEmailsData(),
+        ...(localOpp.emails || {}),
+        folders: localOpp.emails?.folders || [],
+        labels: localOpp.emails?.labels || [],
+        conversations: localOpp.emails?.conversations || [],
+        selectedOutlookFolderIds: localOpp.emails?.selectedOutlookFolderIds || []
+    }), [localOpp.emails]);
+
+    const emailConversations = useMemo(() => {
+        const list = [...emailsData.conversations];
+        return list.sort((a, b) => {
+            const orderA = a.order ?? 999999;
+            const orderB = b.order ?? 999999;
+            if (orderA !== orderB) return orderA - orderB;
+            return (b.lastReceivedAt || b.updatedAt || '').localeCompare(a.lastReceivedAt || a.updatedAt || '');
+        });
+    }, [emailsData.conversations]);
+
+    const selectedEmailConversation = useMemo(
+        () => emailConversations.find(c => c.id === selectedEmailConversationId) || emailConversations[0] || null,
+        [emailConversations, selectedEmailConversationId]
+    );
+
+    const updateEmailsData = (next: OpportunityEmailsData) => {
+        handleFieldChange('emails', next, true);
+    };
+
+    const addEmailGhostFolder = () => {
+        const name = prompt('Email folder name:');
+        if (!name?.trim()) return;
+        const folder: EmailGhostFolder = {
+            id: crypto.randomUUID(),
+            name: name.trim(),
+            order: emailsData.folders.length + 1
+        };
+        updateEmailsData({ ...emailsData, folders: [...emailsData.folders, folder] });
+    };
+
+    const addEmailLabel = () => {
+        const text = prompt('Email label name:');
+        if (!text?.trim()) return;
+        const color = prompt('Label color hex:', '#3DCD58') || '#3DCD58';
+        const label: EmailLabel = { id: crypto.randomUUID(), text: text.trim(), color };
+        updateEmailsData({ ...emailsData, labels: [...emailsData.labels, label] });
+    };
+
+    const addLocalEmailConversation = () => {
+        const subject = prompt('Conversation subject:');
+        if (!subject?.trim()) return;
+        const summary = prompt('Summary:', '') || '';
+        const now = new Date().toISOString();
+        const conversation: EmailConversation = {
+            id: crypto.randomUUID(),
+            subject: subject.trim(),
+            participants: [],
+            summary,
+            folderId: selectedEmailFolderId !== 'all' && selectedEmailFolderId !== 'unfiled' ? selectedEmailFolderId : undefined,
+            labelIds: [],
+            linkedTaskIds: [],
+            linkedNoteIds: [],
+            messages: [{
+                id: crypto.randomUUID(),
+                subject: subject.trim(),
+                from: '',
+                receivedAt: now,
+                bodyPreview: summary,
+            }],
+            order: emailsData.conversations.length + 1,
+            lastReceivedAt: now,
+            createdAt: now,
+            updatedAt: now
+        };
+        updateEmailsData({ ...emailsData, conversations: [...emailsData.conversations, conversation] });
+        setSelectedEmailConversationId(conversation.id);
+    };
+
+    const updateEmailConversation = (id: string, updates: Partial<EmailConversation>) => {
+        updateEmailsData({
+            ...emailsData,
+            conversations: emailsData.conversations.map(c => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c)
+        });
+    };
+
+    const moveEmailConversation = (id: string, direction: -1 | 1) => {
+        const ordered = [...emailConversations];
+        const idx = ordered.findIndex(c => c.id === id);
+        const nextIdx = idx + direction;
+        if (idx < 0 || nextIdx < 0 || nextIdx >= ordered.length) return;
+        [ordered[idx], ordered[nextIdx]] = [ordered[nextIdx], ordered[idx]];
+        const orderMap = new Map(ordered.map((c, index) => [c.id, index + 1]));
+        updateEmailsData({
+            ...emailsData,
+            conversations: emailsData.conversations.map(c => ({ ...c, order: orderMap.get(c.id) || c.order }))
+        });
+    };
+
+    const toggleEmailLabel = (conversationId: string, labelId: string) => {
+        const conv = emailsData.conversations.find(c => c.id === conversationId);
+        if (!conv) return;
+        const current = conv.labelIds || [];
+        updateEmailConversation(conversationId, {
+            labelIds: current.includes(labelId) ? current.filter(id => id !== labelId) : [...current, labelId]
+        });
+    };
+
+    const openEmailConversation = (conversation: EmailConversation) => {
+        const link = conversation.webLink || conversation.messages.find(m => m.webLink)?.webLink;
+        if (link) {
+            window.open(link, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        alert('Outlook connector is ready in the UI, but no Outlook link is stored for this conversation yet.');
+    };
+
+    const linkEmailConversationToTarget = (conversationId: string, target: { type: 'task' | 'note'; id: string }) => {
+        const conv = emailsData.conversations.find(c => c.id === conversationId);
+        if (!conv) return;
+        const linkedTaskIds = target.type === 'task'
+            ? Array.from(new Set([...(conv.linkedTaskIds || []), target.id]))
+            : conv.linkedTaskIds || [];
+        const linkedNoteIds = target.type === 'note'
+            ? Array.from(new Set([...(conv.linkedNoteIds || []), target.id]))
+            : conv.linkedNoteIds || [];
+
+        let nextTasks = localOpp.tasks;
+        let nextNotes = localOpp.notes;
+        if (target.type === 'task') {
+            nextTasks = localOpp.tasks.map(t => t.id === target.id ? {
+                ...t,
+                linkedEmailConversationIds: Array.from(new Set([...(t.linkedEmailConversationIds || []), conversationId]))
+            } : t);
+        } else {
+            const reference = `<p><strong>[Email]</strong> ${conv.subject}</p>`;
+            nextNotes = localOpp.notes.map(n => n.id === target.id ? {
+                ...n,
+                linkedEmailConversationIds: Array.from(new Set([...(n.linkedEmailConversationIds || []), conversationId])),
+                content: n.content?.includes(`[Email]</strong> ${conv.subject}`) ? n.content : `${n.content || ''}${reference}`
+            } : n);
+            if (selectedNoteId === target.id) {
+                setActiveNoteHtml(prev => prev.includes(`[Email]</strong> ${conv.subject}`) ? prev : `${prev || ''}${reference}`);
+            }
+        }
+
+        const nextEmails = {
+            ...emailsData,
+            conversations: emailsData.conversations.map(c => c.id === conversationId ? { ...c, linkedTaskIds, linkedNoteIds, updatedAt: new Date().toISOString() } : c)
+        };
+        const updated = { ...localOpp, tasks: nextTasks, notes: nextNotes, emails: nextEmails, lastUpdated: new Date().toISOString() };
+        setLocalOpp(updated);
+        onUpdate(updated, opportunity.id, true);
+        setShowEmailLinkPicker(null);
+    };
+
+    const getLinkedEmailConversations = (target: { type: 'task' | 'note'; id: string }) =>
+        emailConversations.filter(c => target.type === 'task'
+            ? (c.linkedTaskIds || []).includes(target.id)
+            : (c.linkedNoteIds || []).includes(target.id));
+
+    const renderLinkedEmailsForTarget = (target: { type: 'task' | 'note'; id: string }) => {
+        if (!emailIntegrationEnabled) return null;
+        const linked = getLinkedEmailConversations(target);
+        return (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Linked Emails</h5>
+                    {!isSnapshot && (
+                        <button
+                            className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline"
+                            onClick={() => setShowEmailLinkPicker({ mode: 'target', targetType: target.type, targetId: target.id })}
+                        >
+                            + Link Email
+                        </button>
+                    )}
+                </div>
+                {linked.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                        {linked.map(conv => (
+                            <button
+                                key={conv.id}
+                                onClick={() => {
+                                    setActiveTab('emails');
+                                    setSelectedEmailConversationId(conv.id);
+                                }}
+                                className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-gray-700 hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors"
+                            >
+                                <Mail className="w-3.5 h-3.5 text-gray-400" />
+                                <span className="max-w-[220px] truncate">{conv.subject}</span>
+                            </button>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-[10px] text-gray-300 italic">No linked emails.</p>
+                )}
+            </div>
+        );
+    };
+
     const updateOfficialSellPrice = (value: number) => {
         const newCommercial = { ...localOpp.commercial, cqaOfficialSellPrice: value };
         const newKpis = { ...localOpp.kpis, proposalAmountUSD: value };
@@ -2149,6 +2448,31 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         let updatedOpp = { ...localOpp, kpis: newKpis, lastUpdated: new Date().toISOString() };
+
+        if (path === 'sold') {
+            const nextStatusLabel: OpportunityStatus | null = value === true
+                ? 'Won'
+                : value === false
+                    ? 'Lost'
+                    : null;
+
+            if (nextStatusLabel) {
+                const currentTimeline = newKpis.timeline || { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null };
+                updatedOpp = {
+                    ...updatedOpp,
+                    statusLabel: nextStatusLabel,
+                    detailedStatus: 'Completed',
+                    kpis: {
+                        ...newKpis,
+                        sold: value,
+                        timeline: {
+                            ...currentTimeline,
+                            deliveredAt: currentTimeline.deliveredAt || getTodayStr(),
+                        },
+                    },
+                };
+            }
+        }
 
         // Sync Logic for Proposal Amount -> CQA Official Sell
         if (path === 'proposalAmountUSD') {
@@ -2455,16 +2779,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         console.debug("[History] addHistoryEntry start", { date, content });
         const newEntry: HistoryEntry = {
             id: crypto.randomUUID(),
-            date: date || getTodayStr(),
+            date: normalizeHistoryDate(date),
             content: content || 'New event...'
         };
-        const updatedHistory = [...(localOpp.history || []), newEntry].sort((a, b) => b.date.localeCompare(a.date));
+        const updatedHistory = sortHistoryEntries([...(localOpp.history || []), newEntry]);
         console.debug("[History] state update and calling onUpdate", { entriesCount: updatedHistory.length });
         handleFieldChange('history', updatedHistory);
     };
     const updateHistoryEntry = (id: string, field: keyof HistoryEntry, value: string) => {
-        const updatedHistory = (localOpp.history || []).map(h => h.id === id ? { ...h, [field]: value } : h);
-        if (field === 'date') updatedHistory.sort((a, b) => b.date.localeCompare(a.date));
+        const updatedHistory = sortHistoryEntries((localOpp.history || []).map(h => {
+            if (h.id !== id) return h;
+            const updated = { ...h, [field]: value };
+            return field === 'date' ? { ...updated, date: normalizeHistoryDate(value) } : updated;
+        }));
         handleFieldChange('history', updatedHistory);
     };
     // Safe access: kpis or timeline may be null in older/partially-migrated data
@@ -2524,9 +2851,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
     const copyHistoryToClipboard = () => {
         // Sort descending: Newest (most recent/cercana) to Oldest (más lejana)
-        const sortedHistory = [...(localOpp.history || [])].sort((a, b) => b.date.localeCompare(a.date));
+        const sortedHistory = sortHistoryEntries(localOpp.history || []);
         const text = sortedHistory.map(h => {
-            const parts = h.date.split('-');
+            const normalizedDate = normalizeHistoryDate(h.date);
+            const parts = normalizedDate.split('-');
             const dateStr = parts.length === 3 ? `${parts[1]}/${parts[2]}` : h.date;
             return `${dateStr}: ${h.content}`;
         }).join('\n');
@@ -2578,6 +2906,60 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newAreas = (localOpp.kpis?.areasInvolved || []).map(a => a.id === areaId ? { ...a, calendar, daysSpent: worked, waitingDays: waiting } : a);
         updateKpiField('areasInvolved', newAreas);
         setEditingAreaCalendar(null);
+    };
+
+    const withTenderingWorkedDay = (opp: Opportunity, date: string): Opportunity => {
+        const baseKpis = opp.kpis || {
+            languageSkill: 0,
+            technicalUnderstanding: 0,
+            dealProbability: 0,
+            effortContribution: 0,
+            sold: null,
+            proposalAmountUSD: 0,
+            timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null },
+            execution: { myWorkDays: 0, waitingOnOthersDays: 0 },
+            areasInvolved: [],
+        };
+        const areas = baseKpis.areasInvolved || [];
+        const tendering = areas.find(a => a.area === 'Tendering') || {
+            id: crypto.randomUUID(),
+            area: 'Tendering',
+            daysSpent: 0,
+            waitingDays: 0,
+            calendar: {},
+        };
+        const calendar = {
+            ...(tendering.calendar || {}),
+            [date]: {
+                ...(tendering.calendar?.[date] || {}),
+                type: 'Worked' as DayType,
+                hours: tendering.calendar?.[date]?.hours || 1,
+            },
+        };
+
+        let worked = 0;
+        let waiting = 0;
+        Object.values(calendar).forEach(record => {
+            if (record.type === 'Worked') {
+                const totalHours = (record.hours || 0) + (record.minutes || 0) / 60;
+                if (totalHours >= 1) worked++;
+            } else if (record.type === 'Waiting') {
+                waiting++;
+            }
+        });
+
+        const nextTendering = { ...tendering, calendar, daysSpent: worked, waitingDays: waiting };
+        const nextAreas = areas.some(a => a.area === 'Tendering')
+            ? areas.map(a => a.area === 'Tendering' ? nextTendering : a)
+            : [...areas, nextTendering];
+
+        return {
+            ...opp,
+            kpis: {
+                ...baseKpis,
+                areasInvolved: nextAreas,
+            },
+        };
     };
 
     const totalAreaDays = (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
@@ -2680,14 +3062,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             return;
         }
 
+        const isMarkingDone = field === 'status'
+            && value === 'Done'
+            && selectedTaskForEdit.task.status !== 'Done';
+        const doneDate = isMarkingDone
+            ? (selectedTaskForEdit.task.dueDate || getTodayStr())
+            : '';
+
         // Optimistically update selected task in modal — this is the ONLY update that
         // needs to be synchronous (it drives the immediate visual feedback in the modal).
         const updatedTaskData: Task = {
             ...selectedTaskForEdit.task,
             [field]: value,
             // Auto-assign today as dueDate when marking Done without a date
-            ...(field === 'status' && value === 'Done' && !selectedTaskForEdit.task.dueDate
-                ? { dueDate: new Date().toISOString().split('T')[0] }
+            ...(isMarkingDone && !selectedTaskForEdit.task.dueDate
+                ? { dueDate: doneDate }
                 : {}),
         };
         setSelectedTaskForEdit({ task: updatedTaskData });
@@ -2718,7 +3107,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // it for subsequent user input. The modal already shows the new value via the
         // setSelectedTaskForEdit above; the task list + other tabs behind the modal can
         // re-render at low priority without freezing the UI on rapid edits.
-        const newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
+        let newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
+        if (isMarkingDone) {
+            newOpp = withTenderingWorkedDay(newOpp, doneDate);
+        }
         React.startTransition(() => {
             setLocalOpp(newOpp);
             onUpdate(newOpp);
@@ -2932,26 +3324,35 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const doc = new jsPDF();
         const s = localOpp;
         const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const pdfMargin = { left: 14, right: 14, top: 14, bottom: 18 };
+        const contentWidth = pageWidth - pdfMargin.left - pdfMargin.right;
+        const ensurePdfSpace = (height: number) => {
+            if (yPos + height > pageHeight - pdfMargin.bottom) {
+                doc.addPage();
+                yPos = pdfMargin.top;
+            }
+        };
 
         doc.setFillColor(61, 205, 88);
         doc.rect(0, 0, pageWidth, 25, 'F');
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(16);
-        doc.text("Tender Documentation", 14, 16);
+        doc.text("Tender Documentation", pdfMargin.left, 16);
 
         let yPos = 40;
         doc.setTextColor(0);
         doc.setFontSize(22);
         doc.setFont(undefined, 'bold');
-        const splitTitle = doc.splitTextToSize(s.title, pageWidth - 28);
-        doc.text(splitTitle, 14, yPos);
+        const splitTitle = doc.splitTextToSize(s.title, contentWidth);
+        doc.text(splitTitle, pdfMargin.left, yPos);
         yPos += (splitTitle.length * 10) + 10;
 
         doc.setFontSize(11);
         doc.setFont(undefined, 'normal');
         const headerText = `Customer: ${s.customer} | ID: ${s.id} | QLK: ${s.qlk || '-'} | Rev: ${s.revision}`;
-        const splitHeader = doc.splitTextToSize(headerText, pageWidth - 28);
-        doc.text(splitHeader, 14, yPos);
+        const splitHeader = doc.splitTextToSize(headerText, contentWidth);
+        doc.text(splitHeader, pdfMargin.left, yPos);
         yPos += (splitHeader.length * 7) + 3;
 
         autoTable(doc, {
@@ -2964,7 +3365,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 ['Status', s.statusLabel]
             ],
             theme: 'striped',
-            headStyles: { fillColor: [61, 205, 88] }
+            headStyles: { fillColor: [61, 205, 88] },
+            margin: pdfMargin
         });
         yPos = (doc as any).lastAutoTable.finalY + 15;
 
@@ -2973,74 +3375,98 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const qLinks = Array.isArray(s.links) ? s.links : (s.links ? Object.entries(s.links).map(([k, v]) => ({ id: k, type: 'link', label: k, url: v } as QuickLinkItem)) : []);
 
         if (qLinks.length > 0) {
+            ensurePdfSpace(18);
             doc.setFontSize(12);
             doc.setFont(undefined, 'bold');
-            doc.text("Quick Links", 14, yPos);
+            doc.setTextColor(0);
+            doc.text("Quick Links", pdfMargin.left, yPos);
             yPos += 6;
-            doc.setFontSize(9);
-            doc.setFont(undefined, 'normal');
 
-            qLinks.forEach((link: QuickLinkItem) => {
+            const quickLinkRows = qLinks.map((link: QuickLinkItem) => {
                 if (link.type === 'heading') {
-                    yPos += 2;
-                    doc.setFont(undefined, 'bold');
-                    doc.text(link.label.toUpperCase(), 14, yPos);
-                    doc.setFont(undefined, 'normal');
-                    yPos += 5;
-                } else if (link.type === 'separator') {
-                    yPos += 2;
-                    doc.setDrawColor(200, 200, 200);
-                    doc.line(14, yPos, pageWidth - 14, yPos);
-                    yPos += 5;
-                } else {
-                    const linkText = `${link.label}: ${link.url || ''}`;
-                    const splitLink = doc.splitTextToSize(linkText, pageWidth - 28);
-                    doc.text(splitLink, 14, yPos);
-                    if (link.url) {
-                        doc.link(14, yPos - 3, pageWidth - 28, splitLink.length * 4, { url: link.url });
+                    return [{ content: link.label.toUpperCase(), colSpan: 2, styles: { fontStyle: 'bold', textColor: [61, 205, 88], fillColor: [248, 250, 252] } }];
+                }
+                if (link.type === 'separator') {
+                    return [{ content: '', colSpan: 2, styles: { minCellHeight: 1, fillColor: [230, 230, 230] } }];
+                }
+                return [link.label || '-', link.url || ''];
+            });
+
+            autoTable(doc, {
+                startY: yPos,
+                body: quickLinkRows,
+                theme: 'grid',
+                margin: pdfMargin,
+                styles: {
+                    fontSize: 8,
+                    cellPadding: 2,
+                    overflow: 'linebreak',
+                    valign: 'top'
+                },
+                columnStyles: {
+                    0: { cellWidth: 42, fontStyle: 'bold', textColor: [61, 205, 88] },
+                    1: { cellWidth: contentWidth - 42 }
+                },
+                didParseCell: (data: any) => {
+                    if (data.section === 'body' && data.column.index === 0 && data.cell.raw) {
+                        data.cell.styles.fontStyle = 'bold';
+                        data.cell.styles.textColor = [61, 205, 88];
                     }
-                    yPos += (splitLink.length * 5) + 2;
+                },
+                didDrawCell: (data: any) => {
+                    if (data.section === 'body' && data.column.index === 1 && typeof data.cell.raw === 'string' && data.cell.raw) {
+                        doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: data.cell.raw });
+                    }
                 }
             });
-            yPos += 10;
+            yPos = (doc as any).lastAutoTable.finalY + 12;
         }
 
         if (s.commercial) {
+            const commercialSections = s.commercial.customSections || [];
+            ensurePdfSpace(commercialSections.length > 0 ? 45 : 32);
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.text("Commercial Summary", 14, yPos);
+            doc.setTextColor(0);
+            doc.text("Commercial Summary", pdfMargin.left, yPos);
             yPos += 8;
-            autoTable(doc, {
-                startY: yPos,
-                head: [['Item', 'Cost', 'Margin %', 'Sell Price', 'Discount %', 'Final Price']],
-                body: (s.commercial.customSections || []).map(sec => {
-                    const sp = sec.sellPrice || 0;
-                    const ds = sec.discount || 0;
-                    const net = sp * (1 - (ds / 100));
-                    const cost = net * (1 - ((sec.margin || 0) / 100));
-                    return [
-                        sec.name,
-                        cost.toLocaleString(undefined, { minimumFractionDigits: 2 }),
-                        `${sec.margin}%`,
-                        sp.toLocaleString(undefined, { minimumFractionDigits: 2 }),
-                        `${sec.discount}%`,
-                        net.toLocaleString(undefined, { minimumFractionDigits: 2 })
-                    ];
-                }),
-                theme: 'grid',
-                headStyles: { fillColor: [61, 205, 88] }
-            });
-            yPos = (doc as any).lastAutoTable.finalY + 12;
+            if (commercialSections.length > 0) {
+                autoTable(doc, {
+                    startY: yPos,
+                    head: [['Item', 'Cost', 'Margin %', 'Sell Price', 'Discount %', 'Final Price']],
+                    body: commercialSections.map(sec => {
+                        const sp = sec.sellPrice || 0;
+                        const ds = sec.discount || 0;
+                        const net = sp * (1 - (ds / 100));
+                        const cost = net * (1 - ((sec.margin || 0) / 100));
+                        return [
+                            sec.name,
+                            cost.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                            `${sec.margin}%`,
+                            sp.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                            `${sec.discount}%`,
+                            net.toLocaleString(undefined, { minimumFractionDigits: 2 })
+                        ];
+                    }),
+                    theme: 'grid',
+                    headStyles: { fillColor: [61, 205, 88] },
+                    margin: pdfMargin,
+                    styles: { overflow: 'linebreak', cellPadding: 2 }
+                });
+                yPos = (doc as any).lastAutoTable.finalY + 12;
+            }
 
             // Enhanced Sell Price - Highlighted and Larger
+            ensurePdfSpace(28);
             doc.setFontSize(10);
             doc.setFont(undefined, 'normal');
-            doc.text(`Official reference margin: ${s.commercial.cqaOfficialMargin}%`, 14, yPos);
+            doc.setTextColor(0);
+            doc.text(`Official reference margin: ${s.commercial.cqaOfficialMargin}%`, pdfMargin.left, yPos);
             yPos += 10;
             doc.setFontSize(16); // Larger size
             doc.setFont(undefined, 'bold');
             doc.setTextColor(61, 205, 88); // Bold green
-            doc.text(`CQA TOTAL SELL PRICE: $${s.commercial.cqaOfficialSellPrice.toLocaleString()}`, 14, yPos);
+            doc.text(`CQA TOTAL SELL PRICE: $${s.commercial.cqaOfficialSellPrice.toLocaleString()}`, pdfMargin.left, yPos);
             doc.setTextColor(0);
             yPos += 15;
         }
@@ -3235,18 +3661,42 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const generateExecutiveSummary = () => {
         const s = localOpp;
-        const text = `
-                                                                                        ${s.revision} report for the ${s.id}
-                                                                                        SR Link: ${s.links.srLink || ''}
-                                                                                        Description of the request: ${s.description || ''}
-                                                                                        Executive summary: ${s.presentation.executiveSummary || ''}
+        const quickLinkUrls = normalizeQuickLinks(s.links).defaultUrls;
+        const requestedDate = s.dates?.requested || '-';
+        const expectedDate = s.dates?.expected || '-';
+        const cqaSellPrice = s.commercial?.cqaOfficialSellPrice
+            ? `$${s.commercial.cqaOfficialSellPrice.toLocaleString()}`
+            : '-';
+        const cqaMargin = s.commercial?.cqaOfficialMargin
+            ? `${s.commercial.cqaOfficialMargin}%`
+            : '-';
 
-                                                                                        Information
-                                                                                        CQA Sell price: ${s.commercial.cqaOfficialSellPrice ? `$${s.commercial.cqaOfficialSellPrice.toLocaleString()}` : ''}
-                                                                                        GM CCO: ${s.commercial.cqaOfficialMargin ? `${s.commercial.cqaOfficialMargin}%` : ''}
-                                                                                        Notes / Discounts Logic: ${s.commercial.discountsAndNotes || ''}
-                                                                                        CQA 2.0 Link: ${s.links.cqaLink || ''}
-                                                                                        `.trim();
+        const text = [
+            `EXECUTIVE SUMMARY - ${s.id} ${s.revision || ''}`.trim(),
+            '',
+            `Opportunity: ${s.title || '-'}`,
+            `Customer: ${s.customer || '-'}`,
+            `QLK: ${s.qlk || '-'}`,
+            `Standard Status: ${s.statusLabel || '-'}`,
+            `Process Status: ${s.detailedStatus || '-'}`,
+            `Requested Date: ${requestedDate}`,
+            `Expected Completion Date: ${expectedDate}`,
+            '',
+            'Request Overview',
+            s.description || '-',
+            '',
+            'Executive Notes',
+            s.presentation?.executiveSummary || '-',
+            '',
+            'Commercial Information',
+            `CQA Sell Price: ${cqaSellPrice}`,
+            `GM CCO: ${cqaMargin}`,
+            `Notes / Discounts Logic: ${s.commercial?.discountsAndNotes || '-'}`,
+            '',
+            'Required Links',
+            `SR Link: ${quickLinkUrls.srLink || '-'}`,
+            `CQA 2.0 Link: ${quickLinkUrls.cqaLink || '-'}`,
+        ].join('\n');
         navigator.clipboard.writeText(text);
         alert("Executive summary copied to clipboard!");
     };
@@ -3267,7 +3717,25 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const updateTaskDetails = (taskId: string, updates: Partial<Task>) => {
-        const updatedTasks = localOpp.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t);
+        const existingTask = localOpp.tasks.find(t => t.id === taskId);
+        const isMarkingDone = existingTask
+            && updates.status === 'Done'
+            && existingTask.status !== 'Done';
+        const doneDate = isMarkingDone ? (existingTask.dueDate || getTodayStr()) : '';
+        const updatedTasks = localOpp.tasks.map(t => {
+            if (t.id !== taskId) return t;
+            return {
+                ...t,
+                ...updates,
+                ...(isMarkingDone && !t.dueDate ? { dueDate: doneDate } : {}),
+            };
+        });
+        if (isMarkingDone) {
+            const updated = withTenderingWorkedDay({ ...localOpp, tasks: updatedTasks, lastUpdated: new Date().toISOString() }, doneDate);
+            setLocalOpp(updated);
+            onUpdate(updated);
+            return;
+        }
         handleFieldChange('tasks', updatedTasks);
     };
 
@@ -3331,12 +3799,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 const linkedTask = localOpp.tasks[linkedTaskIndex];
                 let taskUpdates: Partial<Task> = {};
 
+                let doneDate = '';
                 if (changes.hasOwnProperty('isDone')) {
                     const newStatus = updatedTask.isDone ? 'Done' : (linkedTask.status === 'Done' ? 'Pending' : linkedTask.status);
                     if (newStatus !== linkedTask.status) {
                         taskUpdates.status = newStatus;
                         if (newStatus === 'Done' && !linkedTask.dueDate) {
-                            taskUpdates.dueDate = new Date().toISOString().split('T')[0];
+                            doneDate = getTodayStr();
+                            taskUpdates.dueDate = doneDate;
+                        } else if (newStatus === 'Done') {
+                            doneDate = linkedTask.dueDate || getTodayStr();
                         }
                     }
                 }
@@ -3354,7 +3826,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // PERF: inline-task edits fire frequently (checkbox toggles, text commits);
         // mark the heavy setLocalOpp as a transition so React can interrupt the
         // expediente-wide re-render when the user interacts with something else.
-        const newOpp = { ...localOpp, notes: updatedNotes, tasks: updatedTasks, lastUpdated: new Date().toISOString() };
+        let newOpp = { ...localOpp, notes: updatedNotes, tasks: updatedTasks, lastUpdated: new Date().toISOString() };
+        if (updatedTask.linkedTaskId && changes.hasOwnProperty('isDone') && updatedTask.isDone) {
+            const linkedTask = localOpp.tasks.find(t => t.id === updatedTask.linkedTaskId);
+            newOpp = withTenderingWorkedDay(newOpp, linkedTask?.dueDate || getTodayStr());
+        }
         React.startTransition(() => {
             setLocalOpp(newOpp);
             onUpdate(newOpp);
@@ -3832,10 +4308,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
             setLocalOpp(restoredOpp);
             onUpdate(restoredOpp, localOpp.id, true);
+            // Carry the restored snapshot's folder onto the new working revision so
+            // the editable copy can open the same files.
+            if (restoredOpp.folderLinked && versionToRestore.snapshot.revision) {
+                copyFolderLinkToRevision(localOpp.id, versionToRestore.snapshot.revision, nextRev).catch(() => {});
+            }
             setVersionToRestore(null);
             alert(`Version restored successfully. You are now working on a full editable copy of "${versionToRestore.commitMessage}" as revision ${nextRev}.`);
         } else {
             // FLOW A: NEW CLEAN VERSION
+            // Folder is per-revision. Ask whether this new revision should reuse the
+            // previous revision's folder (it can be the same, but we must ask).
+            const prevRevision = localOpp.revision || 'R1';
+            const reuseFolder = !!localOpp.folderLinked && window.confirm(
+                `Nueva revisión ${nextRev} creada.\n\n¿Vincular la MISMA carpeta de ${prevRevision} a esta revisión ${nextRev}?\n\nAceptar = usar la misma carpeta\nCancelar = no vincular ahora (podrás elegir una carpeta en la pestaña Carpeta)`
+            );
             const resetOpp: Opportunity = {
                 ...localOpp,
                 revision: nextRev,
@@ -3847,14 +4334,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 detailedStatus: 'Working on it',
                 stage: '1. Intake',
                 priority: 'Medium',
-                dates: { requested: '', expected: '', assigned: '' },
+                // New revision arrives today: stamp Requested date with today's date (R1's requested = day the revision is made).
+                dates: { requested: getTodayStr(), expected: '', assigned: '' },
                 links: [], 
                 presentation: resetPresentationData(),
                 history: [], // Clean version resets history
                 notes: [],
+                emails: localOpp.emails || createEmptyEmailsData(),
                 questions: [],
                 kpis: resetKPIData(localOpp.kpis),
-                folderLinked: false,
+                folderLinked: reuseFolder,
                 commercial: resetCommercialData(),
                 tasks: (localOpp.tasks || []).map(t => ({
                     ...t,
@@ -3870,6 +4359,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
             setLocalOpp(resetOpp);
             onUpdate(resetOpp, localOpp.id, true);
+            // Copy the folder link to the new revision's key so it opens the same
+            // folder while the old revision keeps its own.
+            if (reuseFolder) {
+                copyFolderLinkToRevision(localOpp.id, prevRevision, nextRev).catch(() => {});
+            }
             alert(`New clean version ${nextRev} created. Current progress saved.`);
         }
 
@@ -4114,12 +4608,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div
                                                 className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
                                                 onClick={() => {
-                                                    // Navigate directly within the same expediente (avoids parent re-render race)
-                                                    setActiveTab('tasks');
-                                                    setTimeout(() => {
-                                                        const el = document.getElementById(`task-${nextTask.id}`);
-                                                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                                    }, 80);
+                                                    focusTaskInTasksList(nextTask.id);
                                                 }}
                                             >
                                                 <div className="bg-white p-1 rounded-lg shadow-sm border border-blue-100 animate-pulse-subtle">
@@ -4228,6 +4717,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
                             <button onClick={() => setActiveTab('commercial')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
                             <button onClick={() => setActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
+                            {emailIntegrationEnabled && (
+                                <button onClick={() => setActiveTab('emails')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'emails' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Mail className="w-4 h-4" /> Emails</button>
+                            )}
                             <button onClick={() => setActiveTab('folder')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
                             <button onClick={() => setActiveTab('questions')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
                         </div>
@@ -4397,6 +4889,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                             <div className="p-4 bg-gray-50 rounded-2xl">
                                                 <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                                {renderLinkedEmailsForTarget({ type: 'task', id: selectedTaskForEdit.task.id })}
                                             </div>
                                         </div>
 
@@ -4579,14 +5072,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 }`}
                                             />
                                             {localOpp.dates.requested && localOpp.dates.expected && (() => {
-                                                const diff = countBusinessDays(localOpp.dates.requested, localOpp.dates.expected);
-                                                if (diff === 0) return null;
+                                                const businessDays = countBusinessDays(localOpp.dates.requested, localOpp.dates.expected, holidays);
+                                                const calendarDays = countCalendarDays(localOpp.dates.requested, localOpp.dates.expected);
+                                                const isOver = businessDays < 0 || calendarDays < 0;
                                                 return (
-                                                    <div className="absolute -top-6 right-0">
-                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border shadow-sm ${
-                                                            diff < 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'
+                                                    <div className="absolute -top-8 right-0 flex gap-1.5">
+                                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm ${
+                                                            isOver ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'
                                                         }`}>
-                                                            {Math.abs(diff)} Work Days {diff < 0 ? 'Over' : 'Duration'}
+                                                            {Math.abs(businessDays)} Business Days
+                                                        </span>
+                                                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm ${
+                                                            isOver ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                        }`}>
+                                                            {Math.abs(calendarDays)} Calendar Days
                                                         </span>
                                                     </div>
                                                 );
@@ -5402,12 +5901,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                                 <div className="relative border-l-2 border-[#3DCD58]/20 ml-3 space-y-8 pl-6 py-2">
-                                    {localOpp.history.map(entry => (
+                                    {sortHistoryEntries(localOpp.history || []).map(entry => (
                                         <div key={entry.id} id={`history-entry-${entry.id}`} className="relative">
                                             <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-[#3DCD58] border-4 border-white shadow-sm"></div>
                                             <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
                                                 <div className="flex justify-between items-center mb-2">
-                                                    <OptimizedInput disabled={isSnapshot} type="date" value={entry.date} onChange={(val: string) => updateHistoryEntry(entry.id, 'date', val)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0 cursor-pointer disabled:opacity-70" />
+                                                    <OptimizedInput disabled={isSnapshot} type="date" value={normalizeHistoryDate(entry.date)} onChange={(val: string) => updateHistoryEntry(entry.id, 'date', val)} className="text-xs font-bold text-[#3DCD58] border-none p-0 focus:ring-0 cursor-pointer disabled:opacity-70" />
                                                     {!isSnapshot && (
                                                         <button onClick={() => deleteHistoryEntry(entry.id)} className="text-gray-300 hover:text-red-500 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
                                                     )}
@@ -5445,6 +5944,194 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             </div>
                         )}
 
+                        {activeTab === 'emails' && emailIntegrationEnabled && (() => {
+                            const visibleConversations = emailConversations.filter(conv => {
+                                if (selectedEmailFolderId === 'all') return true;
+                                if (selectedEmailFolderId === 'unfiled') return !conv.folderId;
+                                return conv.folderId === selectedEmailFolderId;
+                            });
+                            const activeConversation = selectedEmailConversation && visibleConversations.some(c => c.id === selectedEmailConversation.id)
+                                ? selectedEmailConversation
+                                : visibleConversations[0] || null;
+
+                            return (
+                                <div className="h-[calc(100vh-230px)] min-h-[620px] bg-white border border-gray-200 rounded-xl overflow-hidden flex">
+                                    <div className="w-64 border-r border-gray-100 bg-gray-50/70 flex flex-col">
+                                        <div className="p-4 border-b border-gray-100">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest flex items-center gap-2"><Inbox className="w-4 h-4" /> Emails</h3>
+                                                <button onClick={addEmailGhostFolder} disabled={isSnapshot} className="p-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40" title="New folder"><FolderPlus className="w-3.5 h-3.5" /></button>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <button onClick={() => setSelectedEmailFolderId('all')} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold ${selectedEmailFolderId === 'all' ? 'bg-white text-[#3DCD58] shadow-sm border border-emerald-100' : 'text-gray-500 hover:bg-white'}`}>All Conversations</button>
+                                                <button onClick={() => setSelectedEmailFolderId('unfiled')} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold ${selectedEmailFolderId === 'unfiled' ? 'bg-white text-[#3DCD58] shadow-sm border border-emerald-100' : 'text-gray-500 hover:bg-white'}`}>Unfiled</button>
+                                                {[...emailsData.folders].sort((a, b) => (a.order || 0) - (b.order || 0)).map(folder => (
+                                                    <button key={folder.id} onClick={() => setSelectedEmailFolderId(folder.id)} className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 ${selectedEmailFolderId === folder.id ? 'bg-white text-[#3DCD58] shadow-sm border border-emerald-100' : 'text-gray-500 hover:bg-white'}`}>
+                                                        <Folder className="w-3.5 h-3.5" /> <span className="truncate">{folder.name}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="p-4 border-b border-gray-100">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Labels</h4>
+                                                <button onClick={addEmailLabel} disabled={isSnapshot} className="text-[10px] font-black text-[#3DCD58] hover:underline disabled:opacity-40">+ Add</button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {emailsData.labels.map(label => (
+                                                    <span key={label.id} className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: label.color }}>{label.text}</span>
+                                                ))}
+                                                {emailsData.labels.length === 0 && <span className="text-[10px] text-gray-300 italic">No labels</span>}
+                                            </div>
+                                        </div>
+                                        <div className="mt-auto p-4 border-t border-gray-100 space-y-2">
+                                            <button onClick={() => setShowOutlookSelector(true)} disabled={isSnapshot} className="w-full flex items-center justify-center gap-2 bg-[#3DCD58] text-white text-xs font-black rounded-lg py-2 hover:bg-[#2db64a] disabled:opacity-40">
+                                                <Mail className="w-3.5 h-3.5" /> Select Email
+                                            </button>
+                                            <button onClick={addLocalEmailConversation} disabled={isSnapshot} className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-lg py-2 hover:bg-gray-50 disabled:opacity-40">
+                                                <Plus className="w-3.5 h-3.5" /> Add Conversation
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-80 border-r border-gray-100 flex flex-col">
+                                        <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{visibleConversations.length} Conversations</span>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto">
+                                            {visibleConversations.length === 0 && (
+                                                <div className="h-full flex flex-col items-center justify-center text-gray-300 gap-2 p-8 text-center">
+                                                    <Mail className="w-10 h-10 opacity-30" />
+                                                    <p className="text-xs font-bold">No conversations</p>
+                                                </div>
+                                            )}
+                                            {visibleConversations.map((conv, idx) => (
+                                                <div
+                                                    key={conv.id}
+                                                    onClick={() => setSelectedEmailConversationId(conv.id)}
+                                                    className={`group p-4 border-b border-gray-50 cursor-pointer transition-colors ${activeConversation?.id === conv.id ? 'bg-emerald-50/60 border-l-4 border-l-[#3DCD58]' : 'hover:bg-gray-50 border-l-4 border-l-transparent'}`}
+                                                >
+                                                    <div className="flex items-start gap-2">
+                                                        <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={(e) => { e.stopPropagation(); moveEmailConversation(conv.id, -1); }} disabled={idx === 0 || isSnapshot} className="text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp className="w-3 h-3" /></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); moveEmailConversation(conv.id, 1); }} disabled={idx === visibleConversations.length - 1 || isSnapshot} className="text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown className="w-3 h-3" /></button>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <h4 className="text-sm font-black text-gray-800 truncate">{conv.subject}</h4>
+                                                            <p className="text-[10px] text-gray-400 font-bold mt-0.5">{conv.lastReceivedAt ? new Date(conv.lastReceivedAt).toLocaleDateString() : '-'}</p>
+                                                            <p className="text-xs text-gray-500 line-clamp-2 mt-2">{conv.summary || conv.messages[0]?.bodyPreview || ''}</p>
+                                                            <div className="flex flex-wrap gap-1 mt-2">
+                                                                {(conv.labelIds || []).map(labelId => {
+                                                                    const label = emailsData.labels.find(l => l.id === labelId);
+                                                                    return label ? <span key={label.id} className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style={{ backgroundColor: label.color }}>{label.text}</span> : null;
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 min-w-0 flex flex-col">
+                                        {activeConversation ? (
+                                            <>
+                                                <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-4">
+                                                    <div className="min-w-0">
+                                                        <h2 className="text-xl font-black text-gray-900 truncate">{activeConversation.subject}</h2>
+                                                        <p className="text-xs text-gray-400 font-bold mt-1">{activeConversation.messages.length} messages</p>
+                                                    </div>
+                                                    <div className="flex gap-2 shrink-0">
+                                                        <button onClick={() => openEmailConversation(activeConversation)} className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50">
+                                                            <ExternalLink className="w-3.5 h-3.5" /> Open
+                                                        </button>
+                                                        <button onClick={() => setShowEmailLinkPicker({ mode: 'conversation', targetType: 'task', conversationId: activeConversation.id })} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg text-xs font-bold text-blue-700 hover:bg-blue-100">
+                                                            <CheckSquare className="w-3.5 h-3.5" /> Link Task
+                                                        </button>
+                                                        <button onClick={() => setShowEmailLinkPicker({ mode: 'conversation', targetType: 'note', conversationId: activeConversation.id })} className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-lg text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+                                                            <FileText className="w-3.5 h-3.5" /> Link Note
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div className="p-5 grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-5 overflow-y-auto">
+                                                    <div className="space-y-5">
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Summary</label>
+                                                            <OptimizedTextArea disabled={isSnapshot} rows={5} value={activeConversation.summary || ''} onChange={(val: string) => updateEmailConversation(activeConversation.id, { summary: val })} className="mt-2 w-full border-gray-100 bg-gray-50 rounded-xl text-sm p-4 focus:bg-white focus:ring-[#3DCD58] resize-none" />
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Conversation Messages</h3>
+                                                            <div className="space-y-3">
+                                                                {activeConversation.messages.map(message => (
+                                                                    <div key={message.id} className="border border-gray-100 rounded-xl p-4 bg-white shadow-sm">
+                                                                        <div className="flex justify-between gap-3 mb-2">
+                                                                            <div className="min-w-0">
+                                                                                <p className="text-xs font-black text-gray-800 truncate">{message.subject}</p>
+                                                                                <p className="text-[10px] text-gray-400 font-bold">{message.from || 'Unknown sender'}</p>
+                                                                            </div>
+                                                                            <span className="text-[10px] text-gray-400 font-bold shrink-0">{message.receivedAt ? new Date(message.receivedAt).toLocaleString() : '-'}</span>
+                                                                        </div>
+                                                                        <p className="text-xs text-gray-600 whitespace-pre-wrap">{message.bodyPreview || 'No preview available.'}</p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Folder</label>
+                                                            <select disabled={isSnapshot} value={activeConversation.folderId || ''} onChange={(e) => updateEmailConversation(activeConversation.id, { folderId: e.target.value || undefined })} className="mt-2 w-full text-xs border-gray-200 rounded-lg">
+                                                                <option value="">Unfiled</option>
+                                                                {emailsData.folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Labels</label>
+                                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                                {emailsData.labels.map(label => {
+                                                                    const active = (activeConversation.labelIds || []).includes(label.id);
+                                                                    return (
+                                                                        <button key={label.id} disabled={isSnapshot} onClick={() => toggleEmailLabel(activeConversation.id, label.id)} className={`px-2 py-1 rounded-full text-[10px] font-black border ${active ? 'text-white' : 'text-gray-500 bg-white border-gray-200'}`} style={active ? { backgroundColor: label.color, borderColor: label.color } : undefined}>
+                                                                            {label.text}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Linked Tasks</h4>
+                                                            <div className="space-y-1">
+                                                                {(activeConversation.linkedTaskIds || []).map(taskId => {
+                                                                    const task = localOpp.tasks.find(t => t.id === taskId);
+                                                                    return task ? <button key={task.id} onClick={() => setSelectedTaskForEdit({ task })} className="w-full text-left px-2 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold truncate">{task.title}</button> : null;
+                                                                })}
+                                                                {!(activeConversation.linkedTaskIds || []).length && <p className="text-[10px] text-gray-300 italic">None</p>}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Linked Notes</h4>
+                                                            <div className="space-y-1">
+                                                                {(activeConversation.linkedNoteIds || []).map(noteId => {
+                                                                    const note = localOpp.notes.find(n => n.id === noteId);
+                                                                    return note ? <button key={note.id} onClick={() => { setActiveTab('notes'); setSelectedNoteId(note.id); }} className="w-full text-left px-2 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold truncate">{note.title}</button> : null;
+                                                                })}
+                                                                {!(activeConversation.linkedNoteIds || []).length && <p className="text-[10px] text-gray-300 italic">None</p>}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="flex-1 flex flex-col items-center justify-center text-gray-300 gap-2">
+                                                <Mail className="w-14 h-14 opacity-30" />
+                                                <p className="text-sm font-bold">No conversation selected</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                         {editingAreaCalendar && (() => {
                             const area = localOpp.kpis?.areasInvolved.find(a => a.id === editingAreaCalendar);
                             if (!area) return null;
@@ -5468,7 +6155,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         })()}
 
                         {activeTab === 'folder' && (
-                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} />
+                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} isSnapshot={isSnapshot} />
                         )}
 
                         {activeTab === 'notes' && (
@@ -5779,6 +6466,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     onNavigateToFile={navigateToFile}
                                                     onPreview={() => { }}
                                                 />
+                                                {renderLinkedEmailsForTarget({ type: 'note', id: currentNote.id })}
 
                                                 {/* Linked Tasks Section */}
                                                 {getLinkedTasksForNote(currentNote.id).length > 0 && (
@@ -6252,6 +6940,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-2xl">
                                             <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                            {renderLinkedEmailsForTarget({ type: 'task', id: selectedTaskForEdit.task.id })}
                                         </div>
                                     </div>
 
@@ -6423,6 +7112,89 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     />
                 )
             }
+
+            {emailIntegrationEnabled && showEmailLinkPicker && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[75vh] flex flex-col overflow-hidden animate-slide-in-right">
+                        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                                <Mail className="w-5 h-5 text-[#3DCD58]" /> Link Email
+                            </h3>
+                            <button onClick={() => setShowEmailLinkPicker(null)} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                            {showEmailLinkPicker.mode === 'target' && emailConversations.map(conv => (
+                                <button
+                                    key={conv.id}
+                                    onClick={() => linkEmailConversationToTarget(conv.id, { type: showEmailLinkPicker.targetType, id: showEmailLinkPicker.targetId })}
+                                    className="w-full text-left p-3 border border-gray-100 rounded-xl hover:border-[#3DCD58] hover:bg-emerald-50/40 transition-colors"
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-black text-gray-800 truncate">{conv.subject}</span>
+                                        <span className="text-[10px] text-gray-400 font-bold shrink-0">{conv.messages.length} messages</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{conv.summary || conv.messages[0]?.bodyPreview || ''}</p>
+                                </button>
+                            ))}
+                            {showEmailLinkPicker.mode === 'conversation' && showEmailLinkPicker.targetType === 'task' && localOpp.tasks.map(task => (
+                                <button
+                                    key={task.id}
+                                    onClick={() => linkEmailConversationToTarget(showEmailLinkPicker.conversationId, { type: 'task', id: task.id })}
+                                    className="w-full text-left p-3 border border-gray-100 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <CheckSquare className="w-4 h-4 text-blue-500" />
+                                        <span className="text-sm font-black text-gray-800 truncate">{task.title}</span>
+                                    </div>
+                                </button>
+                            ))}
+                            {showEmailLinkPicker.mode === 'conversation' && showEmailLinkPicker.targetType === 'note' && localOpp.notes.map(note => (
+                                <button
+                                    key={note.id}
+                                    onClick={() => linkEmailConversationToTarget(showEmailLinkPicker.conversationId, { type: 'note', id: note.id })}
+                                    className="w-full text-left p-3 border border-gray-100 rounded-xl hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-emerald-500" />
+                                        <span className="text-sm font-black text-gray-800 truncate">{note.title}</span>
+                                    </div>
+                                </button>
+                            ))}
+                            {showEmailLinkPicker.mode === 'target' && emailConversations.length === 0 && (
+                                <div className="py-12 text-center text-gray-400">
+                                    <Mail className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                                    <p className="text-xs font-bold">No email conversations available.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {emailIntegrationEnabled && showOutlookSelector && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-slide-in-right">
+                        <div className="flex items-start justify-between gap-4 mb-5">
+                            <div>
+                                <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                                    <Mail className="w-5 h-5 text-[#3DCD58]" /> Outlook Selector
+                                </h3>
+                                <p className="text-xs text-gray-500 mt-1">Connector UI is ready. Microsoft 365 permissions are required to read mailbox folders.</p>
+                            </div>
+                            <button onClick={() => setShowOutlookSelector(false)} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
+                        </div>
+                        <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 mb-5">
+                            <p className="text-xs text-gray-600 font-medium">
+                                When Graph access is available, this selector will list Outlook conversations by folder and add the selected thread here.
+                            </p>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setShowOutlookSelector(false)} className="px-4 py-2 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-lg">Close</button>
+                            <button onClick={() => { setShowOutlookSelector(false); addLocalEmailConversation(); }} className="px-4 py-2 text-xs font-black text-white bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg">Add Conversation</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {
                 addLinkRefForm && (

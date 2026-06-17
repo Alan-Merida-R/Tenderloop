@@ -91,7 +91,7 @@ export const ScheduleMonthView: React.FC<Props> = ({ items, anchor, onAnchorChan
                                             <button
                                                 key={it.block.id}
                                                 onClick={() => onSelectTask(it.oppId, it.task.id)}
-                                                className={`rounded border px-1 py-0.5 text-left truncate hover:shadow-sm transition-all flex items-center gap-1${it.dimmed ? ' opacity-40' : ''}`}
+                                                className={`rounded border px-1 py-0.5 text-left truncate hover:shadow-sm transition-all flex items-center gap-1${it.highlighted ? ' ring-2 ring-amber-400' : ''}`}
                                                 style={{ backgroundColor: style.bg, borderColor: style.border, color: style.text }}
                                                 title={`${it.oppAlias || it.oppId} — ${it.task.title}\n${formatBlockTimeRange(it.block)}`}
                                             >

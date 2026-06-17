@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Mail } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
@@ -58,6 +58,7 @@ export interface AppSettings {
   notificationSound?: SoundType;
   timerSound?: SoundType;
   alarms?: import('../types').AlarmConfig[];
+  emailIntegrationEnabled?: boolean;
 }
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
@@ -96,6 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   notificationSound: 'beep',
   timerSound: 'beep',
+  emailIntegrationEnabled: false,
   alarms: [
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
     { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
@@ -345,6 +347,32 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   className="w-full h-32 border-gray-200 rounded-lg text-sm p-3 focus:border-[#3DCD58] focus:ring-0"
                   placeholder="Tendering&#10;Sales CSE&#10;TSC"
                 />
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-[#3DCD58]" /> Outlook Emails
+                    </h3>
+                    <p className="text-xs text-gray-500 max-w-2xl">
+                      Enable the Emails section in every opportunity. When disabled, email folders, labels, conversation references and linked emails stay saved but hidden and paused.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, emailIntegrationEnabled: !prev.emailIntegrationEnabled }))}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${settings.emailIntegrationEnabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                    title="Toggle Outlook Emails"
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.emailIntegrationEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                <div className={`mt-4 rounded-lg border px-3 py-2 text-xs font-medium ${settings.emailIntegrationEnabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                  {settings.emailIntegrationEnabled
+                    ? 'Emails are enabled. Every expediente will show the Emails tab and linked email references.'
+                    : 'Emails are off by default. No email-related UI will appear until this is enabled and saved.'}
+                </div>
               </div>
 
               {/* TASK STANDARD TEMPLATE */}
@@ -722,6 +750,14 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           {/* TASK QUICK VIEW TAB */}
           {activeTab === 'taskview' && (() => {
             const openStatuses = ['In Progress', 'Pending', 'On Hold', 'Review'];
+            const aiPlanningOpps = opportunities
+              .filter(opp => opp.statusLabel === 'In Progress' || opp.statusLabel === 'On Hold')
+              .map(opp => ({
+                alias: opp.alias || `OPP-${opp.id.slice(-4)}`,
+                standardStatus: opp.statusLabel,
+                processStatus: opp.detailedStatus || 'Review',
+                expectedDate: opp.dates?.expected || 'No expected completion date',
+              }));
             const rows: { alias: string; task: string; status: string; missing: string[] }[] = [];
             for (const opp of opportunities) {
               if (!openStatuses.includes(opp.statusLabel)) continue;
@@ -736,7 +772,16 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               }
             }
             const copyToClipboard = () => {
-              const lines = ['Opportunity | Task | Status | Missing Info'];
+              const lines = [
+                'Open opportunities for AI planning',
+                'Use the expected completion date as the latest date available to help schedule and assign dates to this opportunity pending tasks.',
+                '',
+                'No. | Opportunity | Standard Status | Process Status | Expected Completion Date',
+              ];
+              aiPlanningOpps.forEach((opp, index) => {
+                lines.push(`${index + 1} | ${opp.alias} | ${opp.standardStatus} | ${opp.processStatus} | ${opp.expectedDate}`);
+              });
+              lines.push('', 'Task table', 'Opportunity | Task | Status | Missing Info');
               rows.forEach(r => lines.push(`${r.alias} | ${r.task} | ${r.status} | ${r.missing.length ? r.missing.join(', ') : '—'}`));
               navigator.clipboard.writeText(lines.join('\n'));
             };

@@ -164,6 +164,7 @@ export interface Task {
   subtasks: Subtask[];
   linkedNoteId?: string; // Legacy: Link to a note
   linkedNoteIds?: string[]; // New: Link to multiple notes
+  linkedEmailConversationIds?: string[];
 
   // New Scheduling & Dependency Fields
   order: number | null;
@@ -196,6 +197,56 @@ export interface NoteFolder {
   order?: number;
 }
 
+export interface EmailLabel {
+  id: string;
+  text: string;
+  color: string;
+}
+
+export interface EmailGhostFolder {
+  id: string;
+  name: string;
+  parentFolderId?: string;
+  order?: number;
+}
+
+export interface EmailMessage {
+  id: string;
+  outlookId?: string;
+  internetMessageId?: string;
+  subject: string;
+  from: string;
+  to?: string;
+  receivedAt: string;
+  bodyPreview?: string;
+  webLink?: string;
+}
+
+export interface EmailConversation {
+  id: string;
+  outlookConversationId?: string;
+  subject: string;
+  participants: string[];
+  summary: string;
+  folderId?: string;
+  labelIds?: string[];
+  linkedTaskIds?: string[];
+  linkedNoteIds?: string[];
+  messages: EmailMessage[];
+  order?: number;
+  lastReceivedAt?: string;
+  webLink?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpportunityEmailsData {
+  folders: EmailGhostFolder[];
+  labels: EmailLabel[];
+  conversations: EmailConversation[];
+  selectedOutlookFolderIds?: string[];
+}
+
 export interface MeetingNote {
   id: string;
   title: string;
@@ -206,6 +257,7 @@ export interface MeetingNote {
   inlineTasks?: InlineTask[];
   parentId?: string;  // sub-note: id of the parent note
   folderId?: string;  // folder this note belongs to
+  linkedEmailConversationIds?: string[];
   order?: number; // manual sort position within its list (folder/root)
 }
 
@@ -336,6 +388,7 @@ export interface Opportunity {
   // Lists
   notes: MeetingNote[];
   notesFolders?: NoteFolder[];
+  emails?: OpportunityEmailsData;
   tasks: Task[];
   questions: Question[]; 
   history: HistoryEntry[];

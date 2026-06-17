@@ -38,7 +38,12 @@
       "Bash(dir \"C:\\\\Users\\\\Alan Merida\\\\Documents\\\\GitHub\\\\Tenderloop\\\\features\" /s)",
       "Bash(findstr /i \"\\\\.tsx\\\\|\\\\.ts\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
-      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")"
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(python -c ' *)",
+      "Bash(git log *)",
+      "Bash(xargs wc -l)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 60)",
+      "PowerShell(npx vite build 2>&1 | Select-Object -Last 25)"
     ]
   }
 }

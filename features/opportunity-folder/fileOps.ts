@@ -162,8 +162,8 @@ export const openInNativeApp = async (
     resp = await fetch(`${OPEN_HELPER_URL}/open?${qs}`);
   } catch (err) {
     throw new Error(
-      'No se pudo conectar al asistente local (puerto 3099).\n' +
-      'Cierra TenderLoop y vuelve a abrirlo con LANZAR_TENDERLOOP para iniciar el asistente.'
+      'Could not connect to the local helper (port 3099).\n' +
+      'Close TenderLoop and reopen it with LANZAR_TENDERLOOP to start the helper.'
     );
   }
 
@@ -173,7 +173,93 @@ export const openInNativeApp = async (
       const body = await resp.json();
       if (body?.error) msg = body.error;
     } catch { /* ignore */ }
-    throw new Error(`No se pudo abrir "${absolute}": ${msg}`);
+    throw new Error(`Could not open "${absolute}": ${msg}`);
+  }
+};
+
+/**
+ * Build an absolute path from the linked root display path + a relative path.
+ * Exported so the UI can compute paths for multi-file OS operations.
+ */
+export const toAbsolutePath = (rootPathDisplay: string, relativePath: string[]): string =>
+  buildAbsolutePath(rootPathDisplay, relativePath);
+
+/**
+ * Open several files/folders in their native apps. Tries the batch endpoint
+ * (`/open-many`), but falls back to opening each one via the always-present
+ * `/open` endpoint so it works even if the local helper hasn't been updated.
+ */
+export const openManyNative = async (rootPathDisplay: string, relativePaths: string[][]): Promise<void> => {
+  const absolutes = relativePaths.map(rel => buildAbsolutePath(rootPathDisplay, rel));
+  const qs = new URLSearchParams({ paths: JSON.stringify(absolutes) }).toString();
+  const resp = await fetch(`${OPEN_HELPER_URL}/open-many?${qs}`).catch(() => null);
+  if (resp && resp.ok) return;
+  // Fallback: open each path individually via the legacy single-open endpoint.
+  for (const rel of relativePaths) {
+    await openInNativeApp(rootPathDisplay, rel);
+  }
+};
+
+/**
+ * Copy real files to the Windows clipboard via the local helper, so the user
+ * can paste them (Ctrl+V) into Explorer, Outlook or Teams.
+ */
+export const copyToOsClipboard = async (rootPathDisplay: string, relativePaths: string[][]): Promise<number> => {
+  const absolutes = relativePaths.map(rel => buildAbsolutePath(rootPathDisplay, rel));
+  const qs = new URLSearchParams({ paths: JSON.stringify(absolutes) }).toString();
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/clipboard?${qs}`);
+  } catch {
+    throw new Error('Could not connect to the local helper (port 3099). Open TenderLoop with LANZAR_TENDERLOOP.');
+  }
+  if (!resp.ok) {
+    let msg = `Error ${resp.status}`;
+    try { const b = await resp.json(); if (b?.error) msg = b.error; } catch {}
+    throw new Error(`Could not copy the files: ${msg}`);
+  }
+  const body = await resp.json().catch(() => ({}));
+  return body?.count || relativePaths.length;
+};
+
+/** Reveal (select) a file/folder in Windows Explorer. */
+export const revealInExplorer = async (rootPathDisplay: string, relativePath: string[]): Promise<void> => {
+  const absolute = buildAbsolutePath(rootPathDisplay, relativePath);
+  const qs = new URLSearchParams({ path: absolute }).toString();
+  await fetch(`${OPEN_HELPER_URL}/reveal?${qs}`).catch(() => null);
+};
+
+/**
+ * Auto-resolve the absolute path of a just-linked folder WITHOUT asking the user
+ * to type it. Writes a uniquely-named marker file into the folder, asks the local
+ * helper to find it on disk, then removes the marker. Returns the absolute path
+ * or null if the helper is unavailable / the folder could not be located.
+ */
+export const locateFolderPath = async (dirHandle: FileSystemDirectoryHandle): Promise<string | null> => {
+  const marker = `.tl_locate_${crypto.randomUUID()}.tmp`;
+  let wrote = false;
+  try {
+    const fh = await dirHandle.getFileHandle(marker, { create: true });
+    // @ts-ignore
+    const w = await fh.createWritable();
+    await w.write('tenderloop-locate');
+    await w.close();
+    wrote = true;
+
+    const qs = new URLSearchParams({ marker }).toString();
+    const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
+    if (resp && resp.ok) {
+      const body = await resp.json().catch(() => null);
+      if (body?.path) return body.path as string;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (wrote) {
+      // @ts-ignore
+      try { await dirHandle.removeEntry(marker); } catch {}
+    }
   }
 };
 

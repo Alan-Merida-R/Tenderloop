@@ -23,6 +23,18 @@ interface InboxItem {
 }
 const INBOX_KEY = 'tenderloop.inbox.v1';
 
+const normalizeDateString = (value?: string | null) => {
+    if (!value) return new Date().toLocaleDateString('en-CA');
+    const raw = value.split('T')[0];
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) return raw;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? new Date().toLocaleDateString('en-CA') : parsed.toLocaleDateString('en-CA');
+};
+
+const sortHistoryByDate = (history: HistoryEntry[]) =>
+    [...history].sort((a, b) => normalizeDateString(b.date).localeCompare(normalizeDateString(a.date)));
+
 
 export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
     const getLocalToday = () => new Date().toLocaleDateString('en-CA');
@@ -175,7 +187,7 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                     items.push({
                         id: h.id,
                         type: 'history',
-                        date: h.date.split('T')[0],
+                        date: normalizeDateString(h.date),
                         opportunityId: opp.id,
                         opportunityTitle: opp.title,
                         opportunityAlias: opp.alias,
@@ -227,7 +239,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             }
         });
 
-        return items;
+        return items.sort((a, b) => {
+            const dateCompare = a.date.localeCompare(b.date);
+            if (dateCompare !== 0) return dateCompare;
+            return a.title.localeCompare(b.title);
+        });
     }, [opportunities, filters]);
 
     const unorganizedItems = useMemo(() => {
@@ -323,7 +339,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
             } else if (item.type === 'note') {
                 updatedOpp.notes = (updatedOpp.notes || []).map(n => n.id === item.data.id ? { ...n, ...updates } : n);
             } else if (item.type === 'history') {
-                updatedOpp.history = (updatedOpp.history || []).map(h => h.id === item.data.id ? { ...h, ...updates } : h);
+                updatedOpp.history = sortHistoryByDate((updatedOpp.history || []).map(h => {
+                    if (h.id !== item.data.id) return h;
+                    const next = { ...h, ...updates };
+                    return { ...next, date: normalizeDateString(next.date) };
+                }));
             } else if (item.type === 'hours') {
                 if (!updatedOpp.kpis) return;
                 const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.area === item.data.area);
@@ -1041,10 +1061,10 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                 } else if (newItemType === 'history') {
                                     const newHistory: HistoryEntry = {
                                         id: crypto.randomUUID(),
-                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        date: normalizeDateString(formData.date),
                                         content: formData.title
                                     };
-                                    updatedOpp.history = [...(opp.history || []), newHistory];
+                                    updatedOpp.history = sortHistoryByDate([...(opp.history || []), newHistory]);
                                 } else if (newItemType === 'note') {
                                     const newNote: MeetingNote = {
                                         id: crypto.randomUUID(),
@@ -1298,11 +1318,11 @@ export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClo
                                                         attendees: ''
                                                     }];
                                                 } else if (item.type === 'history') {
-                                                    updatedOpp.history = [...(opp.history || []), {
+                                                    updatedOpp.history = sortHistoryByDate([...(opp.history || []), {
                                                         id: crypto.randomUUID(),
-                                                        date: assignDrop.date,
+                                                        date: normalizeDateString(assignDrop.date),
                                                         content: item.title
-                                                    }];
+                                                    }]);
                                                 }
                                                 onUpdateOpportunity?.(updatedOpp);
                                                 // Remove from inbox

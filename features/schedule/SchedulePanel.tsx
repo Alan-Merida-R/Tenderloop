@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ListChecks, CalendarClock, ExternalLink, Plus, Trash2, Edit3, AlertTriangle, Search } from 'lucide-react';
-import { Opportunity, Task, ExecutionBlock, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../../types';
+import { Opportunity, Task, TaskStatus, ExecutionBlock, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../../types';
 import {
     sortBlocks,
     formatBlockTimeRange,
@@ -21,6 +21,7 @@ interface Props {
     selected: { opp: Opportunity; task: Task } | null;
     unscheduled: UnscheduledItem[];
     onOpenInExpediente: (oppId: string, taskId: string) => void;
+    onChangeStatus: (oppId: string, taskId: string, status: TaskStatus) => void;
     onCreateBlock: (oppId: string, taskId: string, date: string, startTime: string, endTime?: string) => void;
     onUpdateBlock: (oppId: string, taskId: string, blockId: string, updates: Partial<ExecutionBlock>) => void;
     onDeleteBlock: (oppId: string, taskId: string, blockId: string) => void;
@@ -39,6 +40,7 @@ export const SchedulePanel: React.FC<Props> = ({
     selected,
     unscheduled,
     onOpenInExpediente,
+    onChangeStatus,
     onCreateBlock,
     onUpdateBlock,
     onDeleteBlock,
@@ -64,6 +66,7 @@ export const SchedulePanel: React.FC<Props> = ({
                     <DetailsTab
                         selected={selected}
                         onOpenInExpediente={onOpenInExpediente}
+                        onChangeStatus={onChangeStatus}
                         onCreateBlock={onCreateBlock}
                         onUpdateBlock={onUpdateBlock}
                         onDeleteBlock={onDeleteBlock}
@@ -90,10 +93,11 @@ const TabButton: React.FC<{ active: boolean; onClick: () => void; icon: React.Re
 const DetailsTab: React.FC<{
     selected: { opp: Opportunity; task: Task } | null;
     onOpenInExpediente: (oppId: string, taskId: string) => void;
+    onChangeStatus: (oppId: string, taskId: string, status: TaskStatus) => void;
     onCreateBlock: (oppId: string, taskId: string, date: string, startTime: string, endTime?: string) => void;
     onUpdateBlock: (oppId: string, taskId: string, blockId: string, updates: Partial<ExecutionBlock>) => void;
     onDeleteBlock: (oppId: string, taskId: string, blockId: string) => void;
-}> = ({ selected, onOpenInExpediente, onCreateBlock, onUpdateBlock, onDeleteBlock }) => {
+}> = ({ selected, onOpenInExpediente, onChangeStatus, onCreateBlock, onUpdateBlock, onDeleteBlock }) => {
     const [adding, setAdding] = useState(false);
     const [editing, setEditing] = useState<ExecutionBlock | null>(null);
 
@@ -118,7 +122,17 @@ const DetailsTab: React.FC<{
                 </div>
                 <h3 className="text-sm font-bold text-gray-900 leading-snug break-words">{task.title}</h3>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</span>
+                    {/* Status is editable here so the user can change it without leaving the schedule. */}
+                    <select
+                        value={task.status}
+                        onChange={e => onChangeStatus(opp.id, task.id, e.target.value as TaskStatus)}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border-0 cursor-pointer focus:ring-1 focus:ring-[#3DCD58] ${TASK_STATUS_COLORS[task.status]}`}
+                        title="Change task status"
+                    >
+                        {Object.keys(TASK_STATUS_COLORS).map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{task.priority || 'Medium'}</span>
                     {task.dueDate && (
                         <span className="text-[10px] font-bold text-gray-500">Due {task.dueDate}</span>
@@ -300,9 +314,9 @@ const UnscheduledTab: React.FC<{ items: UnscheduledItem[] }> = ({ items }) => {
                     </button>
                     {showNeedsInfo && (
                         <>
-                            <p className="text-[9px] text-gray-400 italic px-1 mb-1.5">These tasks are missing a due date — set one in the Expediente to enable scheduling.</p>
+                            <p className="text-[9px] text-gray-400 italic px-1 mb-1.5">These tasks have no due date yet — you can still drag them onto the calendar to schedule them.</p>
                             <ul className="space-y-1.5">
-                                {filteredNeeds.map(it => renderTaskCard(it, false))}
+                                {filteredNeeds.map(it => renderTaskCard(it, true))}
                             </ul>
                         </>
                     )}

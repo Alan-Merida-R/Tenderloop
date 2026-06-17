@@ -38,6 +38,18 @@ export const isTaskActive = (task: Task): boolean => {
     return task.status !== 'Done' && task.status !== 'Canceled';
 };
 
+/**
+ * Whether an opportunity should appear in the Schedule at all.
+ * Closed opportunities (process status Completed/Canceled, or a terminal
+ * Won/Lost/Canceled status) are excluded so their leftover open tasks don't
+ * keep showing up as schedulable once the opportunity is finished.
+ */
+export const isOpportunitySchedulable = (opp: Opportunity): boolean => {
+    if (opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled') return false;
+    if (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled') return false;
+    return true;
+};
+
 export interface ScheduleFilters {
     oppIds: string[];
     statuses: string[];

@@ -18,6 +18,75 @@ import { useScheduleNotifications } from './features/schedule/useScheduleNotific
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
 
+const getTodayStr = () => new Date().toLocaleDateString('en-CA');
+
+const normalizeHistoryDate = (value?: string | null) => {
+  if (!value) return getTodayStr();
+  const raw = value.split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? getTodayStr() : parsed.toLocaleDateString('en-CA');
+};
+
+const sortHistoryEntries = <T extends { date: string }>(history: T[]) =>
+  [...history]
+    .map(entry => ({ ...entry, date: normalizeHistoryDate(entry.date) }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+const markTenderingWorkedDay = (opp: Opportunity, date: string): Opportunity => {
+  const baseKpis = opp.kpis || {
+    languageSkill: 0,
+    technicalUnderstanding: 0,
+    dealProbability: 0,
+    effortContribution: 0,
+    sold: null,
+    proposalAmountUSD: 0,
+    timeline: { receivedAt: opp.dates?.requested || getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null },
+    execution: { myWorkDays: 0, waitingOnOthersDays: 0 },
+    areasInvolved: [],
+  };
+  const areas = baseKpis.areasInvolved || [];
+  const tendering = areas.find(a => a.area === 'Tendering') || {
+    id: crypto.randomUUID(),
+    area: 'Tendering',
+    daysSpent: 0,
+    waitingDays: 0,
+    calendar: {},
+  };
+  const calendar = {
+    ...(tendering.calendar || {}),
+    [date]: {
+      ...(tendering.calendar?.[date] || {}),
+      type: 'Worked' as const,
+      hours: tendering.calendar?.[date]?.hours || 1,
+    },
+  };
+
+  let worked = 0;
+  let waiting = 0;
+  Object.values(calendar).forEach(record => {
+    if (record.type === 'Worked') {
+      const totalHours = (record.hours || 0) + (record.minutes || 0) / 60;
+      if (totalHours >= 1) worked++;
+    } else if (record.type === 'Waiting') {
+      waiting++;
+    }
+  });
+
+  const nextTendering = { ...tendering, calendar, daysSpent: worked, waitingDays: waiting };
+  const nextAreas = areas.some(a => a.area === 'Tendering')
+    ? areas.map(a => a.area === 'Tendering' ? nextTendering : a)
+    : [...areas, nextTendering];
+
+  return {
+    ...opp,
+    kpis: {
+      ...baseKpis,
+      areasInvolved: nextAreas,
+    },
+  };
+};
+
 const SCHNEIDER_GREEN = '#3DCD58'; // Corporate Green
 
 // --- Local Error Boundary (fail-open: shows error instead of blank screen) ---
@@ -136,7 +205,7 @@ function App() {
     try {
       const saved = localStorage.getItem('TenderLoop_Settings_V1');
       if (saved) {
-        setAppSettings(JSON.parse(saved));
+        setAppSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(saved) });
       }
       // NEW: Restore minimized records
       // Restore Session State (Tab Independent)
@@ -610,6 +679,7 @@ function App() {
         holidays={stableHolidays}
         trackedAreas={stableTrackedAreas}
         globalLabels={stableGlobalLabels}
+        emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
           if (payload) minimizeToDock(payload);
@@ -1074,6 +1144,12 @@ function App() {
       },
       links: { bfo: '', internalFolder: '', officialFolder: '', cqaLink: '', ba: '', srLink: '', geet: '' },
       notes: initialNotes,
+      emails: {
+        folders: [],
+        labels: [],
+        conversations: [],
+        selectedOutlookFolderIds: []
+      },
       tasks: assignMissingOrders(defaultTasks),
       questions: [],
       history: [],
@@ -1178,6 +1254,9 @@ function App() {
     if (updatedOpp.tasks) {
         updatedOpp.tasks = assignMissingOrders(updatedOpp.tasks);
     }
+    if (updatedOpp.history) {
+      updatedOpp.history = sortHistoryEntries(updatedOpp.history);
+    }
 
     // HOTFIX PERFORMANCE: Trim history and old versions globally to prevent DB bloat
     if (updatedOpp.history && updatedOpp.history.length > 300) updatedOpp.history = updatedOpp.history.slice(0, 300);
@@ -1226,8 +1305,56 @@ function App() {
           };
         }
 
-        const orderChanged = oldOpp.priorityOrder !== updatedOpp.priorityOrder;
-        const statusChanged = oldOpp.statusLabel !== updatedOpp.statusLabel;
+        const incomingStatusChanged = oldOpp.statusLabel !== cleanedUpdate.statusLabel;
+        const incomingDetailedStatusChanged = oldOpp.detailedStatus !== cleanedUpdate.detailedStatus;
+
+        if (incomingStatusChanged && !incomingDetailedStatusChanged) {
+          if (cleanedUpdate.statusLabel === 'Canceled') {
+            cleanedUpdate.detailedStatus = 'Canceled';
+          } else if (['Submitted', 'Won', 'Lost'].includes(cleanedUpdate.statusLabel)) {
+            cleanedUpdate.detailedStatus = 'Completed';
+          } else if (cleanedUpdate.statusLabel === 'On Hold') {
+            cleanedUpdate.detailedStatus = 'Paused';
+          } else {
+            cleanedUpdate.detailedStatus = 'Review';
+          }
+        }
+
+        if (incomingDetailedStatusChanged && !incomingStatusChanged) {
+          if (cleanedUpdate.detailedStatus === 'Canceled') {
+            cleanedUpdate.statusLabel = 'Canceled';
+          } else if (cleanedUpdate.detailedStatus === 'Completed') {
+            cleanedUpdate.statusLabel = 'Submitted';
+          } else if (cleanedUpdate.detailedStatus === 'Paused') {
+            cleanedUpdate.statusLabel = 'On Hold';
+          } else {
+            cleanedUpdate.statusLabel = 'In Progress';
+          }
+        }
+
+        if (oldOpp.statusLabel !== cleanedUpdate.statusLabel) {
+          const currentKpis = cleanedUpdate.kpis || oldOpp.kpis || {};
+          const currentTimeline = (currentKpis as any).timeline || {};
+          cleanedUpdate.kpis = {
+            ...currentKpis,
+            ...(cleanedUpdate.statusLabel === 'Won'
+              ? { sold: true }
+              : cleanedUpdate.statusLabel === 'Lost'
+                ? { sold: false }
+                : { sold: null }),
+            timeline: {
+              ...currentTimeline,
+              deliveredAt: ['Submitted', 'Won', 'Lost'].includes(cleanedUpdate.statusLabel)
+                ? (currentTimeline.deliveredAt || new Date().toISOString().split('T')[0])
+                : ['Submitted', 'Won', 'Lost'].includes(oldOpp.statusLabel)
+                  ? null
+                  : currentTimeline.deliveredAt,
+            },
+          } as KPIs;
+        }
+
+        const orderChanged = oldOpp.priorityOrder !== cleanedUpdate.priorityOrder;
+        const statusChanged = oldOpp.statusLabel !== cleanedUpdate.statusLabel;
 
         const initialMap = prev.opportunities.map(o => o.id === (id || updatedOpp.id) ? { ...o, ...cleanedUpdate } : o);
 
@@ -1276,11 +1403,26 @@ function App() {
         ...prev,
         opportunities: prev.opportunities.map(o => {
           if (o.id !== oppId) return o;
-          return {
+          const existingTask = o.tasks.find(t => t.id === taskId);
+          const isMarkingDone = existingTask
+            && updates.status === 'Done'
+            && existingTask.status !== 'Done';
+          const doneDate = isMarkingDone
+            ? (existingTask.dueDate || getTodayStr())
+            : '';
+          const updatedOpp = {
             ...o,
-            tasks: o.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t),
+            tasks: o.tasks.map(t => {
+              if (t.id !== taskId) return t;
+              return {
+                ...t,
+                ...updates,
+                ...(isMarkingDone && !t.dueDate ? { dueDate: doneDate } : {}),
+              };
+            }),
             lastUpdated: new Date().toISOString()
           };
+          return isMarkingDone ? markTenderingWorkedDay(updatedOpp, doneDate) : updatedOpp;
         })
       }));
     });
@@ -1316,6 +1458,9 @@ function App() {
 
           if (status) {
             task.status = status;
+            if (status === 'Done' && !task.dueDate) {
+              task.dueDate = dateStr;
+            }
           } else if (task.status === 'Pending') {
             task.status = 'In Progress';
           }
@@ -1367,12 +1512,15 @@ function App() {
           area.calendar = calendar;
           updatedAreas[areaIndex] = area;
 
-          const result = {
+          let result = {
             ...o,
             tasks: updatedTasks,
             kpis: { ...o.kpis, areasInvolved: updatedAreas },
             lastUpdated: new Date().toISOString()
           };
+          if (status === 'Done') {
+            result = markTenderingWorkedDay(result, task.dueDate || dateStr);
+          }
           updatedOpp = result;
           return result;
         });
@@ -1478,7 +1626,7 @@ function App() {
   if (isTimerOnlyWindow) {
     return (
       <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound} primary={false}>
-        <div className="h-screen w-screen bg-black p-2 flex">
+        <div className="h-screen w-screen min-h-0 bg-black p-1 flex overflow-hidden">
           <TimerWidget floating />
         </div>
       </TimerProvider>
@@ -1782,6 +1930,7 @@ function App() {
                     holidays={stableHolidays}
                     trackedAreas={stableTrackedAreas}
                     globalLabels={stableGlobalLabels}
+                    emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}
                   />

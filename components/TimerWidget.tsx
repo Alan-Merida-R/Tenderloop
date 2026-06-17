@@ -124,7 +124,7 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
 
     const popOut = React.useCallback(() => {
         const url = `${window.location.pathname}?window=timer`;
-        window.open(url, 'tenderloop_timer', 'width=380,height=300,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
+        window.open(url, 'tenderloop_timer', 'width=320,height=230,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
     }, []);
 
     // Floating / popup layout: big Windows-Clock-style digital readout.
@@ -276,66 +276,81 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
     onPause, onResume, onStop, onSkip, onOpenStart, onOpenSettings, formatTime,
 }) => {
     const hasSession = timerState.isRunning || !!timerState.taskId || timerState.elapsedSeconds > 0;
+    const [viewport, setViewport] = React.useState(() => ({
+        width: typeof window === 'undefined' ? 320 : window.innerWidth,
+        height: typeof window === 'undefined' ? 230 : window.innerHeight,
+    }));
+
+    React.useEffect(() => {
+        const handleResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const isTiny = viewport.width < 250 || viewport.height < 165;
+    const isCompact = isTiny || viewport.width < 310 || viewport.height < 215;
+    const readoutFontSize = isTiny ? '30px' : isCompact ? '42px' : '64px';
 
     const bg = isBreak
         ? 'bg-gradient-to-br from-red-950 to-red-900 text-white'
         : 'bg-gradient-to-br from-slate-900 to-slate-800 text-gray-100';
 
     return (
-        <div className={`w-full h-full min-h-[220px] rounded-2xl ${bg} flex flex-col shadow-inner`}>
-            <div className="px-4 pt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-[0.18em] opacity-80">
-                <span>{pomodoroEnabled ? phaseLabel : 'Timer'}</span>
+        <div className={`w-full h-full min-h-0 overflow-hidden ${isCompact ? 'rounded-lg' : 'rounded-2xl'} ${bg} flex flex-col shadow-inner`}>
+            <div className={`${isCompact ? 'px-2 pt-1.5 text-[9px]' : 'px-4 pt-3 text-[10px]'} flex shrink-0 items-center justify-between font-black uppercase tracking-[0.14em] opacity-80`}>
+                <span className="truncate">{pomodoroEnabled ? phaseLabel : 'Timer'}</span>
                 <div className="flex items-center gap-1">
-                    <button onClick={onOpenSettings} title="Pomodoro settings" className="p-1 rounded hover:bg-white/15 transition-colors">
-                        <Settings className="w-3.5 h-3.5" />
+                    <button onClick={onOpenSettings} title="Pomodoro settings" className={`${isCompact ? 'p-0.5' : 'p-1'} rounded hover:bg-white/15 transition-colors`}>
+                        <Settings className={isCompact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
                     </button>
                 </div>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center px-4">
+            <div className={`${isCompact ? 'px-2' : 'px-4'} flex min-h-0 flex-1 flex-col items-center justify-center`}>
                 {hasSession ? (
                     <>
                         {/* Primary big readout: phase countdown in pomodoro mode, total elapsed otherwise */}
-                        <div className="font-mono font-black tabular-nums leading-none tracking-tight"
-                            style={{ fontSize: 'clamp(44px, 18vw, 84px)', textShadow: isBreak ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 12px rgba(61,205,88,0.35)' }}>
+                        <div className="font-mono font-black tabular-nums leading-none tracking-normal"
+                            style={{ fontSize: readoutFontSize, textShadow: isBreak ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 12px rgba(61,205,88,0.35)' }}>
                             {pomodoroEnabled ? formatTime(phaseRemaining) : formatTime(displaySeconds)}
                         </div>
-                        {pomodoroEnabled && (
-                            <div className="mt-2 text-[11px] font-mono tabular-nums opacity-70">
+                        {pomodoroEnabled && !isTiny && (
+                            <div className={`${isCompact ? 'mt-1 text-[9px]' : 'mt-2 text-[11px]'} font-mono tabular-nums opacity-70`}>
                                 preset {formatTime(phaseTargetSeconds)}
                             </div>
                         )}
-                        {timerState.taskTitle && (
-                            <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.15em] opacity-70 truncate max-w-full text-center" title={timerState.taskTitle}>
+                        {timerState.taskTitle && !isTiny && (
+                            <div className={`${isCompact ? 'mt-1 text-[9px]' : 'mt-2 text-[10px]'} max-w-full truncate text-center font-bold uppercase tracking-[0.12em] opacity-70`} title={timerState.taskTitle}>
                                 {timerState.taskTitle}
                             </div>
                         )}
                     </>
                 ) : (
-                    <button onClick={onOpenStart} className="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-sm font-bold flex items-center gap-2 transition-colors">
-                        <Clock className="w-4 h-4" /> Start timer
+                    <button onClick={onOpenStart} className={`${isCompact ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'} rounded-lg bg-white/15 hover:bg-white/25 font-bold flex items-center gap-2 transition-colors`}>
+                        <Clock className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} /> Start timer
                     </button>
                 )}
             </div>
 
             {hasSession && (
-                <div className="px-4 pb-3 flex items-center justify-center gap-1">
+                <div className={`${isCompact ? 'px-2 pb-1.5' : 'px-4 pb-3'} flex shrink-0 items-center justify-center gap-1`}>
                     {timerState.isRunning ? (
-                        <button onClick={onPause} title="Pause" className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                            <Pause className="w-5 h-5" />
+                        <button onClick={onPause} title="Pause" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                            <Pause className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                         </button>
                     ) : (
-                        <button onClick={onResume} title="Resume" className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                            <Play className="w-5 h-5" />
+                        <button onClick={onResume} title="Resume" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                            <Play className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                         </button>
                     )}
                     {pomodoroEnabled && (
-                        <button onClick={onSkip} title="Skip phase" className="p-2 rounded-full hover:bg-white/20 transition-colors">
-                            <SkipForward className="w-4 h-4" />
+                        <button onClick={onSkip} title="Skip phase" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                            <SkipForward className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
                         </button>
                     )}
-                    <button onClick={onStop} title="Stop" className="p-2 rounded-full hover:bg-white/25 text-red-100 transition-colors">
-                        <StopCircle className="w-5 h-5" />
+                    <button onClick={onStop} title="Stop" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/25 text-red-100 transition-colors`}>
+                        <StopCircle className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                     </button>
                 </div>
             )}

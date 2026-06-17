@@ -31,10 +31,16 @@ import {
   ClipboardPaste,
   ArrowRightLeft,
   FolderInput,
-  HardDrive
+  HardDrive,
+  Pin,
+  PinOff,
+  Files,
+  FolderTree,
+  CheckCheck
 } from 'lucide-react';
-import { getFolderHandle, setFolderHandle, verifyPermission, clearFolderHandle, getRootPathDisplay, setRootPathDisplay } from '../../services/opportunityFolderLink';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir } from './fileOps';
+import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey } from '../../services/opportunityFolderLink';
+import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, copyToOsClipboard, openManyNative, revealInExplorer } from './fileOps';
+import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { getFileIcon } from './icons';
 import { FileItem } from './types';
 import { DocTypeSelector } from '../doc-links/DocTypeSelector';
@@ -48,12 +54,20 @@ interface Props {
   opportunity: Opportunity;
   onUpdate: (updated: Opportunity) => void;
   initialFileKey?: string;
+  /** True when viewing an old version snapshot. Navigation/open/edit still work,
+   *  but we must not push the snapshot back into the live record via onUpdate. */
+  isSnapshot?: boolean;
 }
 
 const CLASSIFICATIONS = ['Editable', 'Info', 'Approvals', 'Not important', 'Proposal'];
 const EDITABLE_STATUSES = ['In progress', 'Pending information', 'In approval / review', 'Not started', 'Done'];
 
-export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey }) => {
+export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey, isSnapshot }) => {
+  // Folder links are stored PER REVISION so each revision keeps its own folder.
+  // storageKey is what we read/write in IndexedDB; opportunityId stays the key
+  // for file metadata (DocMeta), which is shared across revisions.
+  const revision = (opportunity.revision || '').trim();
+  const storageKey = folderKey(opportunityId, revision);
   // Navigation & Handles
   const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [currentHandle, setCurrentHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -69,6 +83,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   // UI State
   const [isLoading, setIsLoading] = useState(false);
+  const [isResolvingRoot, setIsResolvingRoot] = useState(true);
   const [isApiSupported, setIsApiSupported] = useState(true);
   const [pendingPermHandle, setPendingPermHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [rootPathInput, setRootPathInput] = useState('');
@@ -102,9 +117,37 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     onConfirm: () => Promise<void>;
   } | null>(null);
 
+  // Multi-selection (Windows-Explorer style: click, Ctrl+click, Shift+click)
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [anchorKey, setAnchorKey] = useState<string | null>(null);
+  const [osClipBusy, setOsClipBusy] = useState(false);
+
+  // Quick-access pins (F5)
+  const [pins, setPins] = useState<FolderPin[]>([]);
+  const [showPins, setShowPins] = useState(true);
+
+  // Auto path resolution (F1)
+  const [isLocating, setIsLocating] = useState(false);      // blocking (link/template)
+  const [autoDetecting, setAutoDetecting] = useState(false); // background (on load)
+
+  // In-app drag-to-folder move (F2)
+  const [dragOverDirKey, setDragOverDirKey] = useState<string | null>(null);
+
+  // Template creation flow (F4) — choose root vs a subfolder (revision)
+  const [templateChoice, setTemplateChoice] = useState<{
+    newFolderHandle: FileSystemDirectoryHandle;
+    folderName: string;
+    subfolders: { name: string; handle: FileSystemDirectoryHandle }[];
+  } | null>(null);
+
   useEffect(() => {
     if (!('showDirectoryPicker' in window)) setIsApiSupported(false);
   }, []);
+
+  // Load pins whenever the linked folder (per revision) changes.
+  useEffect(() => {
+    getPins(storageKey).then(setPins).catch(() => setPins([]));
+  }, [storageKey]);
 
   const loadMetas = useCallback(async (fileItems: FileItem[]) => {
     const newMetas: Record<string, DocMeta> = {};
@@ -135,28 +178,55 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   }, [currentHandle, path, loadMetas]);
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
-      const handle = await getFolderHandle(opportunityId);
-      const rp = await getRootPathDisplay(opportunityId);
+      setIsResolvingRoot(true);
+      // Reset view first so switching to a different revision never shows the
+      // previous revision's folder while the new one resolves.
+      setRootHandle(null);
+      setCurrentHandle(null);
+      setItems([]);
+      setPath([]);
+      setHistory([]);
+      setHistoryIdx(-1);
+      // Per-revision lookup, with legacy fallback for folders linked before
+      // per-revision storage existed.
+      const handle = await getFolderHandleForRevision(opportunityId, revision);
+      const rp = await getRootPathDisplayForRevision(opportunityId, revision);
+      if (cancelled) return;
       setRootPathDisplayVal(rp);
       setPendingPermHandle(null);
-      if (!handle) return;
+      if (!handle) {
+        setIsResolvingRoot(false);
+        return;
+      }
       // Only use queryPermission here — requestPermission requires a user gesture
       // and cannot be called from a useEffect without one.
       // @ts-ignore
       const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (cancelled) return;
       if (perm === 'granted') {
         setRootHandle(handle);
         setCurrentHandle(handle);
         setPath([]);
         setHistory([{ handle, path: [] }]);
         setHistoryIdx(0);
+        // Auto-fill the base path in the background if it was never resolved.
+        if (!rp) detectPathSilently(handle);
       } else {
         setPendingPermHandle(handle);
       }
+      setIsResolvingRoot(false);
     };
-    init();
-  }, [opportunityId]);
+    init().catch(e => {
+      console.error('Failed to resolve linked folder', e);
+      if (!cancelled) {
+        setPendingPermHandle(null);
+        setIsResolvingRoot(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [opportunityId, revision]);
 
   useEffect(() => {
     if (!searchQuery) {
@@ -250,65 +320,110 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setPath([]);
         setHistory([{ handle: pendingPermHandle, path: [] }]);
         setHistoryIdx(0);
+        if (!rootPathDisplay) detectPathSilently(pendingPermHandle);
         setPendingPermHandle(null);
       }
     } catch (e) { }
   };
 
+  /**
+   * Persist the link to a chosen directory handle as the root, auto-resolving the
+   * absolute base path via the local helper (no manual typing). Falls back to a
+   * prompt only if the helper cannot locate it. Shared by "link existing" and the
+   * template flow.
+   */
+  const finalizeRootLink = async (handle: FileSystemDirectoryHandle, presetPath?: string) => {
+    await setFolderHandle(storageKey, handle);
+
+    let resolved = (presetPath || '').trim();
+    if (!resolved) {
+      setIsLocating(true);
+      try {
+        resolved = (await locateFolderPath(handle)) || '';
+      } finally {
+        setIsLocating(false);
+      }
+    }
+    // Never prompt the user for the path. If auto-detection didn't resolve it
+    // (helper not running yet / unusual location), leave it empty — the sidebar
+    // keeps trying / offers a manual "Re-detect" button without blocking.
+    if (resolved) {
+      await setRootPathDisplay(storageKey, resolved);
+      setRootPathDisplayVal(resolved);
+    }
+
+    // Don't mutate the live record while viewing a snapshot — the link is
+    // already persisted per-revision in IndexedDB above.
+    if (!isSnapshot) onUpdate({ ...opportunity, folderLinked: true });
+    setRootHandle(handle);
+    navigateTo(handle, [], true);
+  };
+
   const handleChangeRoot = async () => {
     try {
+      // Request readwrite so we can write the locate-marker and operate on files.
       // @ts-ignore
-      const handle = await window.showDirectoryPicker();
-      const suggestedPath = prompt("Enter the absolute base path for this folder (e.g. C:\\Projects\\...):", rootPathDisplay);
-
-      await setFolderHandle(opportunityId, handle);
-      if (suggestedPath !== null) {
-        await setRootPathDisplay(opportunityId, suggestedPath.trim());
-        setRootPathDisplayVal(suggestedPath.trim());
-      }
-
-      onUpdate({ ...opportunity, folderLinked: true });
-      setRootHandle(handle);
-      navigateTo(handle, [], true);
-      alert("Root folder linked successfully.");
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      await finalizeRootLink(handle);
     } catch (e) { }
   };
 
+  /**
+   * Create a project folder from a template (F4):
+   *  1. User picks the TEMPLATE folder (source).
+   *  2. User picks WHERE to save it (destination parent).
+   *  3. A copy of the template (all files + subfolders) is created, named after
+   *     the opportunity.
+   *  4. The user is asked whether this new folder is the root, or whether to pick
+   *     a subfolder inside it (typically a revision folder) as the root.
+   */
   const handleCreateFromTemplate = async () => {
     try {
+      // 1. Pick the template source.
       // @ts-ignore
-      const parentHandle = await window.showDirectoryPicker();
-      const folderName = `${opportunityId} - ${opportunity.title.replace(/[\/\\?%*:|"<>]/g, '')}`;
+      const templateHandle = await window.showDirectoryPicker({ id: 'tl-template-src' });
+
+      // 2. Pick the destination parent.
       // @ts-ignore
-      const newFolderHandle = await parentHandle.getDirectoryHandle(folderName, { create: true });
-      
-      const subfolders = [
-        '01_Reception',
-        '02_Technical_Analysis',
-        '03_Architecture',
-        '04_Costing',
-        '05_Proposal',
-        '06_Delivery'
-      ];
-      
-      for (const sf of subfolders) {
+      const destParent = await window.showDirectoryPicker({ id: 'tl-template-dest', mode: 'readwrite' });
+      if (!(await verifyPermission(destParent, true))) {
+        alert("Write permission is required on the destination folder.");
+        return;
+      }
+
+      // 3. Create the new folder named after the opportunity and copy everything.
+      const safeTitle = (opportunity.title || '').replace(/[\/\\?%*:|"<>]/g, '').trim();
+      const folderName = safeTitle ? `${opportunityId} - ${safeTitle}` : `${opportunityId}`;
+      const newFolderHandle = await destParent.getDirectoryHandle(folderName, { create: true });
+
+      setIsLocating(true); // reuse spinner to signal "working"
+      try {
         // @ts-ignore
-        await newFolderHandle.getDirectoryHandle(sf, { create: true });
+        for await (const child of templateHandle.values()) {
+          await copyEntryToDir({
+            name: child.name,
+            kind: child.kind,
+            handle: child as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+            relativePath: [],
+          }, newFolderHandle);
+        }
+      } finally {
+        setIsLocating(false);
       }
 
-      const suggestedPath = prompt("Enter the absolute base path for the parent folder (e.g. C:\\Projects):", rootPathDisplay);
-      
-      await setFolderHandle(opportunityId, newFolderHandle);
-      if (suggestedPath !== null) {
-        const fullPath = suggestedPath.trim() + '\\' + folderName;
-        await setRootPathDisplay(opportunityId, fullPath);
-        setRootPathDisplayVal(fullPath);
+      // 4. Gather subfolders so the user can pick the root (e.g. a revision folder).
+      const subfolders: { name: string; handle: FileSystemDirectoryHandle }[] = [];
+      // @ts-ignore
+      for await (const child of newFolderHandle.values()) {
+        if (child.kind === 'directory') subfolders.push({ name: child.name, handle: child as FileSystemDirectoryHandle });
       }
+      subfolders.sort((a, b) => a.name.localeCompare(b.name));
 
-      onUpdate({ ...opportunity, folderLinked: true });
-      setRootHandle(newFolderHandle);
-      navigateTo(newFolderHandle, [], true);
-      alert("Project folder created from template successfully.");
+      if (subfolders.length === 0) {
+        await finalizeRootLink(newFolderHandle);
+      } else {
+        setTemplateChoice({ newFolderHandle, folderName, subfolders });
+      }
     } catch (e) {
       console.error("Template creation failed", e);
     }
@@ -370,6 +485,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setCurrentHandle(handle);
     setPath(newPath);
     setSelectedItem(null);
+    setSelectedKeys(new Set());
+    setAnchorKey(null);
     setSearchQuery(''); // Clear search on nav
     if (isNew) {
       const newHist = history.slice(0, historyIdx + 1);
@@ -379,9 +496,177 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     }
   };
 
+  // --- Selection (Windows-Explorer style) ---
+  const displayedItems = () => (searchQuery ? searchResults : items);
+
+  const handleRowSelect = (item: FileItem, e: React.MouseEvent) => {
+    const key = item.relativePath.join('/');
+    const list = displayedItems().map(i => i.relativePath.join('/'));
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedKeys(prev => {
+        const next = new Set(prev);
+        next.has(key) ? next.delete(key) : next.add(key);
+        return next;
+      });
+      setAnchorKey(key);
+    } else if (e.shiftKey && anchorKey && list.includes(anchorKey)) {
+      const a = list.indexOf(anchorKey);
+      const b = list.indexOf(key);
+      const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+      setSelectedKeys(new Set(list.slice(lo, hi + 1)));
+    } else {
+      setSelectedKeys(new Set([key]));
+      setAnchorKey(key);
+    }
+    setSelectedItem(item);
+  };
+
+  const clearSelection = () => { setSelectedKeys(new Set()); setSelectedItem(null); setAnchorKey(null); };
+  const selectedItems = (): FileItem[] => displayedItems().filter(i => selectedKeys.has(i.relativePath.join('/')));
+
+  // --- Quick-access pins (F5) ---
+  const handleTogglePin = async (item: FileItem) => {
+    const key = item.relativePath.join('/');
+    const next = isPinned(pins, key)
+      ? await removePin(storageKey, key)
+      : await addPin(storageKey, { key, name: item.name, kind: item.kind, relativePath: item.relativePath });
+    setPins(next);
+  };
+
+  const handlePinSelected = async () => {
+    let next = pins;
+    for (const item of selectedItems()) {
+      const key = item.relativePath.join('/');
+      if (!isPinned(next, key)) next = await addPin(storageKey, { key, name: item.name, kind: item.kind, relativePath: item.relativePath });
+    }
+    setPins(next);
+  };
+
+  const openPin = async (pin: FolderPin) => {
+    if (!rootHandle) return;
+    try {
+      if (pin.kind === 'directory') {
+        let t = rootHandle;
+        for (const seg of pin.relativePath) t = await t.getDirectoryHandle(seg);
+        navigateTo(t, pin.relativePath, true);
+      } else {
+        // Navigate to the parent dir and select the file.
+        const dirPath = pin.relativePath.slice(0, -1);
+        let t = rootHandle;
+        for (const seg of dirPath) t = await t.getDirectoryHandle(seg);
+        navigateTo(t, dirPath, true);
+        setTimeout(async () => {
+          const contents = await listDirectory(t, dirPath);
+          const found = contents.find(i => i.name === pin.name);
+          if (found) { setSelectedItem(found); setSelectedKeys(new Set([pin.key])); }
+        }, 120);
+      }
+    } catch {
+      alert('Could not open the quick access. It may have been moved or deleted.');
+    }
+  };
+
+  // --- Bulk OS operations (F3) ---
+  const handleOpenSelected = async () => {
+    const sel = selectedItems();
+    if (sel.length === 0) return;
+    const base = await ensureRootPath();
+    if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
+    try {
+      await openManyNative(base, sel.map(i => i.relativePath));
+    } catch (e: any) {
+      alert(e?.message || 'Could not open the files.');
+    }
+  };
+
+  const handleCopyToWindows = async () => {
+    const sel = selectedItems();
+    if (sel.length === 0) return;
+    setOsClipBusy(true);
+    try {
+      const base = await ensureRootPath();
+      if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
+      await copyToOsClipboard(base, sel.map(i => i.relativePath));
+      setCopySuccess('os');
+      setTimeout(() => setCopySuccess(null), 2000);
+    } catch (e: any) {
+      alert(e?.message || 'Could not copy the files to the Windows clipboard.');
+    } finally {
+      setOsClipBusy(false);
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    const sel = selectedItems();
+    if (sel.length === 0 || !currentHandle) return;
+    setConfirmation({
+      op: 'delete',
+      title: `Delete ${sel.length} item(s)`,
+      source: sel.map(i => i.name).join(', '),
+      sourcePath: path.join('/') || 'Root',
+      onConfirm: async () => {
+        for (const item of sel) {
+          // @ts-ignore
+          try { await currentHandle.removeEntry(item.name, { recursive: true }); } catch (e) { console.error(e); }
+        }
+        clearSelection();
+        loadCurrentDirectory();
+      }
+    });
+  };
+
   // Operations
   const handleCopy = (item: FileItem) => setClipboard({ op: 'copy', items: [item] });
   const handleCut = (item: FileItem) => setClipboard({ op: 'move', items: [item] });
+
+  // --- In-app drag to move into a folder (F2) ---
+  const TL_DRAG_MIME = 'application/x-tl-files';
+
+  const handleRowDragStart = (item: FileItem, e: React.DragEvent) => {
+    const key = item.relativePath.join('/');
+    // If the dragged row isn't part of the current selection, drag just it.
+    const dragging = selectedKeys.has(key) ? selectedItems() : [item];
+    const keys = dragging.map(i => i.relativePath.join('/'));
+    e.dataTransfer.setData(TL_DRAG_MIME, JSON.stringify(keys));
+    // Best-effort OS hint: absolute path(s) as text (real file drag-out to
+    // Teams/Outlook is not supported from the browser — use "Copy to Windows").
+    if (rootPathDisplay) {
+      const paths = dragging.map(i => `${rootPathDisplay}\\${i.relativePath.join('\\')}`);
+      e.dataTransfer.setData('text/plain', paths.join('\n'));
+    }
+    e.dataTransfer.effectAllowed = 'copyMove';
+  };
+
+  const handleDirDrop = async (targetDir: FileItem, e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverDirKey(null);
+    const raw = e.dataTransfer.getData(TL_DRAG_MIME);
+    if (!raw) return; // external OS files fall through to container upload handler
+    let keys: string[] = [];
+    try { keys = JSON.parse(raw); } catch { return; }
+    const targetKey = targetDir.relativePath.join('/');
+    const movers = displayedItems().filter(i =>
+      keys.includes(i.relativePath.join('/')) && i.relativePath.join('/') !== targetKey
+    );
+    if (movers.length === 0) return;
+    const destHandle = targetDir.handle as FileSystemDirectoryHandle;
+    try {
+      if (!(await verifyPermission(destHandle, true))) { alert('Write permission denied on the destination folder.'); return; }
+      for (const item of movers) {
+        if (!(await verifyPermission(item.handle, true))) {
+          // @ts-ignore
+          await item.handle.requestPermission({ mode: 'readwrite' });
+        }
+        await moveEntryToDir(item, destHandle);
+      }
+      clearSelection();
+      loadCurrentDirectory();
+    } catch (err: any) {
+      console.error('Move via drag failed', err);
+      alert(`Could not move: ${err.message}`);
+    }
+  };
 
   const handlePaste = async () => {
     if (!clipboard || !currentHandle) return;
@@ -504,17 +789,65 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleBreadcrumbClick = async (idx: number) => { if (!rootHandle) return; let t = rootHandle; const np = path.slice(0, idx + 1); for (const s of np) t = await t.getDirectoryHandle(s); navigateTo(t, np); };
 
   // Helpers
-  const handleCopyPath = () => { if (!selectedItem) return; const t = `${rootPathDisplay}\\${selectedItem.relativePath.join('\\')}`; navigator.clipboard.writeText(t); setCopySuccess('full'); setTimeout(() => setCopySuccess(null), 2000); };
+  const handleCopyPath = async () => {
+    if (!selectedItem) return;
+    const base = await ensureRootPath();
+    const t = `${base}\\${selectedItem.relativePath.join('\\')}`;
+    navigator.clipboard.writeText(t);
+    setCopySuccess('full');
+    setTimeout(() => setCopySuccess(null), 2000);
+  };
 
   const handleOpenNative = async (item: FileItem) => {
+    const base = await ensureRootPath();
+    if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
     try {
-      await openInNativeApp(rootPathDisplay, item.relativePath);
+      await openInNativeApp(base, item.relativePath);
     } catch (err: any) {
       console.error('Open native failed', err);
-      alert(err?.message || 'No se pudo abrir el archivo.');
+      alert(err?.message || 'Could not open the file.');
     }
   };
-  const handleSaveRootPath = async () => { if (!rootPathInput.trim()) return; await setRootPathDisplay(opportunityId, rootPathInput.trim()); setRootPathDisplayVal(rootPathInput.trim()); };
+  const handleSaveRootPath = async () => { if (!rootPathInput.trim()) return; await setRootPathDisplay(storageKey, rootPathInput.trim()); setRootPathDisplayVal(rootPathInput.trim()); };
+
+  /** Detect the absolute base path silently (no blocking spinner). Used on load. */
+  const detectPathSilently = useCallback(async (handle: FileSystemDirectoryHandle) => {
+    setAutoDetecting(true);
+    try {
+      const p = await locateFolderPath(handle);
+      if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); return p; }
+    } catch { /* ignore */ } finally { setAutoDetecting(false); }
+    return null;
+  }, [storageKey]);
+
+  /**
+   * Return the absolute base path, resolving it on the fly if it isn't known yet.
+   * Opening / copying files needs it; rather than failing, we auto-detect now.
+   */
+  const ensureRootPath = async (): Promise<string> => {
+    if (rootPathDisplay) return rootPathDisplay;
+    if (rootHandle) {
+      const p = await detectPathSilently(rootHandle);
+      if (p) return p;
+    }
+    return '';
+  };
+
+  const PATH_UNAVAILABLE_MSG =
+    'Could not detect the folder path. Make sure the local helper is running (open TenderLoop with LANZAR_TENDERLOOP), then click "Re-detect" in the Base Path panel.';
+
+  /** User-initiated re-detection of the base path (blocking, shows spinner). */
+  const handleRedetectPath = async () => {
+    if (!rootHandle) return;
+    setIsLocating(true);
+    try {
+      const p = await locateFolderPath(rootHandle);
+      if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); }
+      else alert('Could not auto-detect the path. The folder may be outside the searched locations — you can set it manually.');
+    } finally {
+      setIsLocating(false);
+    }
+  };
   const updateMetaField = async (key: string, field: keyof DocMeta, value: any) => { await saveMeta(opportunityId, key, { [field]: value }); await loadMetas(items); };
 
   // Render Helpers
@@ -534,23 +867,29 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         {fileItems.map(item => {
           const key = item.relativePath.join('/');
           const meta = metas[key];
-          const isSelected = selectedItem?.name === item.name && selectedItem?.relativePath.join('/') === key;
+          const isSelected = selectedKeys.has(key);
+          const pinned = isPinned(pins, key);
+          const isDir = item.kind === 'directory';
+          const isDropTarget = dragOverDirKey === key;
           return (
             <tr
               key={key}
-              onClick={() => setSelectedItem(item)}
+              onClick={(e) => handleRowSelect(item, e)}
               onDoubleClick={() => {
-                if (item.kind === 'directory') {
+                if (isDir) {
                   navigateTo(item.handle as FileSystemDirectoryHandle, item.relativePath);
                 } else {
                   handleOpenNative(item);
                 }
               }}
-              className={`group hover:bg-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : ''}`}
+              className={`group hover:bg-gray-50 cursor-pointer transition-colors select-none ${isSelected ? 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200' : ''} ${isDropTarget ? 'bg-blue-50 ring-2 ring-inset ring-blue-300' : ''}`}
               draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData('text/plain', item.name); // Simple drag
-              }}
+              onDragStart={(e) => handleRowDragStart(item, e)}
+              onDragOver={isDir ? (e) => {
+                if (e.dataTransfer.types.includes(TL_DRAG_MIME)) { e.preventDefault(); e.stopPropagation(); setDragOverDirKey(key); }
+              } : undefined}
+              onDragLeave={isDir ? () => setDragOverDirKey(prev => prev === key ? null : prev) : undefined}
+              onDrop={isDir ? (e) => handleDirDrop(item, e) : undefined}
             >
               <td className="px-4 py-2">
                 <div className="flex items-center gap-3">
@@ -581,7 +920,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 {item.kind === 'file' ? ((item.size || 0) / 1024).toFixed(1) + ' KB' : '-'}
               </td>
               <td className="px-4 py-2 relative">
-                <div className="hidden group-hover:flex gap-1 justify-end">
+                <div className={`${pinned ? 'flex' : 'hidden group-hover:flex'} gap-1 justify-end`}>
+                  <button onClick={(e) => { e.stopPropagation(); handleTogglePin(item); }} title={pinned ? 'Remove quick access' : 'Create quick access'} className={`p-1 rounded ${pinned ? 'text-[#3DCD58] hover:bg-emerald-50' : 'hover:bg-gray-200'}`}>{pinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}</button>
                   <button onClick={(e) => { e.stopPropagation(); handleRename(item); }} title="Rename" className="p-1 hover:bg-gray-200 rounded"><Edit3 className="w-3 h-3" /></button>
                   <button onClick={(e) => { e.stopPropagation(); handleCopy(item); }} title="Copy" className="p-1 hover:bg-gray-200 rounded"><Copy className="w-3 h-3" /></button>
                   <button onClick={(e) => { e.stopPropagation(); handleCut(item); }} title="Cut" className="p-1 hover:bg-gray-200 rounded"><Scissors className="w-3 h-3" /></button>
@@ -596,6 +936,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   );
 
   if (!isApiSupported) return <div className="p-10 text-center">FileSystem API not supported.</div>;
+
+  if (isResolvingRoot || isLocating) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-10 text-center text-gray-400">
+        <RefreshCw className="w-8 h-8 mb-4 animate-spin text-[#3DCD58]" />
+        <p className="text-sm font-bold uppercase tracking-widest">{isLocating ? 'Processing folder…' : 'Loading linked folder...'}</p>
+        {isLocating && <p className="text-[11px] mt-2 text-gray-400">Detecting path / copying files. This may take a few seconds.</p>}
+      </div>
+    );
+  }
 
   if (!rootHandle) {
     return (
@@ -648,7 +998,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Base Path</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                Base Path
+                <span className="text-[8px] font-bold text-[#3DCD58] bg-emerald-50 px-1 py-0.5 rounded normal-case tracking-normal">Auto</span>
+              </label>
               <div className="bg-white border border-gray-200 rounded-lg p-2 space-y-2">
                 {isEditingPath ? (
                   <div className="space-y-2 animate-in fade-in duration-200">
@@ -657,7 +1010,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                       value={rootPathInput}
                       onChange={e => setRootPathInput(e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter') handleSaveRootPath();
+                        if (e.key === 'Enter') { handleSaveRootPath(); setIsEditingPath(false); }
                         if (e.key === 'Escape') setIsEditingPath(false);
                       }}
                       className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:ring-[#3DCD58] focus:border-[#3DCD58] font-mono"
@@ -665,10 +1018,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                     />
                     <div className="flex gap-1">
                       <button
-                        onClick={() => {
-                          handleSaveRootPath();
-                          setIsEditingPath(false);
-                        }}
+                        onClick={() => { handleSaveRootPath(); setIsEditingPath(false); }}
                         className="flex-1 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded hover:bg-[#2db64a] transition-colors"
                       >
                         Save
@@ -683,22 +1033,33 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                   </div>
                 ) : (
                   <>
-                    <div className="text-[10px] font-mono text-gray-500 break-all bg-gray-50 p-1.5 rounded border border-gray-100 min-h-[2.5rem] flex items-center">
-                      {rootPathDisplay || 'Not set'}
+                    <div className="text-[10px] font-mono break-all bg-gray-50 p-1.5 rounded border border-gray-100 min-h-[2.5rem] flex items-center">
+                      {rootPathDisplay
+                        ? <span className="text-gray-500">{rootPathDisplay}</span>
+                        : (autoDetecting || isLocating)
+                          ? <span className="text-gray-400 italic flex items-center gap-1.5"><RefreshCw className="w-3 h-3 animate-spin" /> Detecting automatically…</span>
+                          : <span className="text-gray-300 italic">Not detected yet — click Re-detect</span>}
                     </div>
-                    <button
-                      onClick={() => {
-                        setRootPathInput(rootPathDisplay);
-                        setIsEditingPath(true);
-                      }}
-                      className="w-full py-1.5 px-3 bg-[#3DCD58] text-white text-[10px] font-black uppercase tracking-widest rounded-md hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Edit3 className="w-3 h-3" /> Edit Base Path
-                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={handleRedetectPath}
+                        title="Detect the absolute path automatically"
+                        className="flex-1 py-1.5 px-2 bg-[#3DCD58] text-white text-[10px] font-black uppercase tracking-widest rounded-md hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Re-detect
+                      </button>
+                      <button
+                        onClick={() => { setRootPathInput(rootPathDisplay); setIsEditingPath(true); }}
+                        title="Edit manually"
+                        className="py-1.5 px-2 bg-gray-100 text-gray-500 rounded-md hover:bg-gray-200 transition-colors flex items-center justify-center"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
-              <p className="text-[9px] text-gray-400 leading-tight">Must match your physical local path for links to work.</p>
+              <p className="text-[9px] text-gray-400 leading-tight">Detected automatically when you link the folder. Used to open files in their native app.</p>
             </div>
 
             <div className="space-y-2">
@@ -809,6 +1170,35 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         </div>
       </div>
 
+      {/* Quick Access (Pins) right rail — F5 */}
+      <div className={`border-l border-gray-100 bg-gray-50/50 shrink-0 flex flex-col transition-all duration-200 ${showPins ? 'w-60' : 'w-10'}`}>
+        <div className="p-2 border-b border-gray-100 flex items-center gap-1">
+          {showPins && <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-2 flex items-center gap-1.5"><Pin className="w-3 h-3" /> Quick Access</span>}
+          <button onClick={() => setShowPins(s => !s)} className="p-1.5 hover:bg-gray-200 rounded ml-auto" title={showPins ? 'Collapse' : 'Quick Access'}>
+            {showPins ? <ChevronRight className="w-4 h-4 text-gray-400" /> : <Pin className="w-4 h-4 text-[#3DCD58]" />}
+          </button>
+        </div>
+        {showPins && (
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {pins.length === 0 ? (
+              <div className="text-center text-[11px] text-gray-400 mt-8 px-3 leading-relaxed">
+                <Pin className="w-6 h-6 mx-auto mb-2 opacity-20" />
+                Pin files or folders with the pin icon to keep them within reach here.
+              </div>
+            ) : pins.map(pin => (
+              <div key={pin.key} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer transition-colors" onClick={() => openPin(pin)} title={pin.relativePath.join('/')}>
+                <div className="shrink-0">{getFileIcon(pin.kind === 'directory' ? undefined : pin.name.split('.').pop()?.toLowerCase(), pin.kind === 'directory')}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium truncate">{pin.name}</div>
+                  <div className="text-[9px] text-gray-400 truncate">{pin.relativePath.slice(0, -1).join('/') || 'Root'}</div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); removePin(storageKey, pin.key).then(setPins); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded shrink-0" title="Remove quick access"><X className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Confirmation Modal */}
       {confirmation && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -876,7 +1266,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               </button>
               <button onClick={() => handleOpenNative(selectedItem!)} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold hover:bg-gray-50">
                 <ExternalLink className="w-3.5 h-3.5" />
-                Abrir
+                Open
               </button>
               <button onClick={() => { setShowPreview(false); setIsPreviewExpanded(false); }} className="p-2 hover:bg-gray-100 rounded-full ml-4"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
@@ -904,7 +1294,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 <p className="text-sm text-gray-500 mb-8 max-w-sm">Preview not available for this file type in-app.</p>
                 <div className="flex gap-3 justify-center">
                   <button onClick={handleCopyPath} className="px-6 py-2.5 bg-gray-800 text-white text-xs font-bold rounded-xl hover:bg-gray-900 shadow-lg shadow-gray-200 transition-all">Copy full path</button>
-                  <button onClick={() => handleOpenNative(selectedItem!)} className="px-6 py-2.5 bg-[#3DCD58] text-white text-xs font-bold rounded-xl hover:bg-[#2db64a] shadow-lg shadow-emerald-200 transition-all">Abrir</button>
+                  <button onClick={() => handleOpenNative(selectedItem!)} className="px-6 py-2.5 bg-[#3DCD58] text-white text-xs font-bold rounded-xl hover:bg-[#2db64a] shadow-lg shadow-emerald-200 transition-all">Open</button>
                 </div>
               </div>
             )}
@@ -919,27 +1309,72 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         </div>
       )}
 
-      {/* Linked Items Sidebar */}
-      {/* Floating Action Bar (Bottom Overlay) */}
-      {selectedItem && !confirmation && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] bg-gray-900 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-6 animate-slide-in-up border border-gray-700/50">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold truncate max-w-[250px]">{selectedItem.name}</span>
-            <div className="w-px h-5 bg-gray-700 mx-1"></div>
-            {selectedItem.kind === 'file' ? (
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleOpenNative(selectedItem)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg text-xs font-bold transition-all" title="Abrir en su aplicación"><ExternalLink className="w-3.5 h-3.5" /> Abrir</button>
-                <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy Path"><Copy className="w-3.5 h-3.5" /></button>
-                <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Manage Links"><LinkIcon className="w-3.5 h-3.5" /></button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleOpenNative(selectedItem)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg text-xs font-bold transition-all" title="Abrir carpeta en el Explorador"><ExternalLink className="w-3.5 h-3.5" /> Abrir</button>
-                <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all"><Copy className="w-3.5 h-3.5" /> Copy Path</button>
-              </div>
-            )}
+      {/* Floating Action Bar (Bottom Overlay) — supports multi-selection (F3) */}
+      {selectedKeys.size >= 1 && !confirmation && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] bg-gray-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-slide-in-up border border-gray-700/50 max-w-[95vw] flex-wrap justify-center">
+          <div className="flex items-center gap-2">
+            <CheckCheck className="w-4 h-4 text-[#3DCD58]" />
+            <span className="text-sm font-bold truncate max-w-[220px]">
+              {selectedKeys.size === 1 ? (selectedItem?.name || '1 selected') : `${selectedKeys.size} selected`}
+            </span>
           </div>
-          <button onClick={() => setSelectedItem(null)} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>
+          <div className="w-px h-5 bg-gray-700"></div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleOpenSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] rounded-lg text-xs font-bold transition-all" title="Open all in their native app"><ExternalLink className="w-3.5 h-3.5" /> Open{selectedKeys.size > 1 ? ' all' : ''}</button>
+            <button onClick={handleCopyToWindows} disabled={osClipBusy} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all disabled:opacity-50" title="Copy to the Windows clipboard (paste in Explorer/Teams/Outlook)">
+              {copySuccess === 'os' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <Files className="w-3.5 h-3.5" />} Copy to Windows
+            </button>
+            <button onClick={() => setClipboard({ op: 'copy', items: selectedItems() })} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy within the app (paste into another folder)"><Copy className="w-3.5 h-3.5" /> Copy</button>
+            <button onClick={() => setClipboard({ op: 'move', items: selectedItems() })} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Move within the app (paste into another folder)"><Scissors className="w-3.5 h-3.5" /> Move</button>
+            <button onClick={handlePinSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Create quick access"><Pin className="w-3.5 h-3.5" /> Pin</button>
+            {selectedKeys.size === 1 && (
+              <>
+                <button onClick={handleCopyPath} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy path">{copySuccess === 'full' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <Copy className="w-3.5 h-3.5" />}</button>
+                {isFileSelected && <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Linked items"><LinkIcon className="w-3.5 h-3.5" /></button>}
+              </>
+            )}
+            <button onClick={handleDeleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-300 rounded-lg text-xs font-bold transition-all" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
+          <button onClick={clearSelection} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {/* Template root/revision choice (F4) */}
+      {templateChoice && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-slide-in-right">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-emerald-50 rounded-lg"><FolderTree className="w-5 h-5 text-[#3DCD58]" /></div>
+              <h3 className="text-lg font-bold text-gray-900">Folder created</h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-1 break-all"><span className="font-mono text-xs bg-gray-50 px-1.5 py-0.5 rounded">{templateChoice.folderName}</span></p>
+            <p className="text-sm text-gray-600 mb-4">Which folder should be the root for this revision?</p>
+
+            <button
+              onClick={async () => { const tc = templateChoice; setTemplateChoice(null); await finalizeRootLink(tc.newFolderHandle); }}
+              className="w-full mb-3 px-4 py-2.5 bg-[#3DCD58] text-white rounded-lg font-bold text-sm hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
+            >
+              <HardDrive className="w-4 h-4" /> Use the whole folder as root
+            </button>
+
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Or select a subfolder (revision)</p>
+            <div className="max-h-56 overflow-y-auto space-y-1.5 mb-4">
+              {templateChoice.subfolders.map(sf => (
+                <button
+                  key={sf.name}
+                  onClick={async () => { const h = sf.handle; setTemplateChoice(null); await finalizeRootLink(h); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 border border-gray-100 hover:border-emerald-200 rounded-lg text-sm text-gray-700 transition-colors text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="truncate font-medium">{sf.name}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <button onClick={() => setTemplateChoice(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium text-sm">Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 
