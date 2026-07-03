@@ -184,7 +184,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [templateChoice, setTemplateChoice] = useState<{
     newFolderHandle: FileSystemDirectoryHandle;
     folderName: string;
-    subfolders: { name: string; handle: FileSystemDirectoryHandle }[];
+    absolutePath?: string;
+    subfolders: { name: string; handle: FileSystemDirectoryHandle; absolutePath?: string }[];
   } | null>(null);
 
   const [templateNaming, setTemplateNaming] = useState<{
@@ -508,12 +509,20 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setIsLocating(true);
     try {
       let newFolderHandle: FileSystemDirectoryHandle | undefined;
+      let newFolderAbsolutePath: string | undefined;
+      let resolvedDestParentPath: string | undefined;
+      const resolveDestParentPath = async () => {
+        if (!resolvedDestParentPath) {
+          resolvedDestParentPath = (await locateFolderPathWithMarker(destParent)) ?? undefined;
+        }
+        return resolvedDestParentPath;
+      };
 
       if (templateOsPath || !templateHandle) {
         // ── OS-level copy via the local helper ────────────────────────
         // Determine the destination OS path: use the typed path, or auto-detect
         // from the handle the browser opened successfully.
-        const resolvedDest = (await locateFolderPathWithMarker(destParent)) ?? undefined;
+        const resolvedDest = await resolveDestParentPath();
         if (!resolvedDest) {
           throw new Error(
             'Could not determine the destination path.\n\n' +
@@ -524,6 +533,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         if (helperResult.copied === 0 && helperResult.skipped.length > 0) {
           throw new Error(helperResult.skipped.map((i: any) => `${i.path}: ${i.reason}`).join('\n'));
         }
+        newFolderAbsolutePath = helperResult.target || `${resolvedDest.replace(/[\\/]+$/, '')}\\${folderName}`;
         // Try to re-open the created folder via File System API (for the subfolder step).
         if (destParent) {
           newFolderHandle = await destParent.getDirectoryHandle(folderName, { create: false }).catch(() => undefined);
@@ -531,6 +541,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       } else {
         // ── File System API copy (no system files in either folder) ───
         newFolderHandle = await destParent!.getDirectoryHandle(folderName, { create: true });
+        const resolvedDest = await resolveDestParentPath();
+        if (resolvedDest) {
+          newFolderAbsolutePath = `${resolvedDest.replace(/[\\/]+$/, '')}\\${folderName}`;
+        }
         const copyResult = { copied: 0, skipped: [] as { path: string; reason: string }[] };
         // @ts-ignore
         for await (const child of templateHandle.values()) {
@@ -551,17 +565,23 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       }
 
       // 4. Gather subfolders so the user can pick the root (e.g. a revision folder).
-      const subfolders: { name: string; handle: FileSystemDirectoryHandle }[] = [];
+      const subfolders: { name: string; handle: FileSystemDirectoryHandle; absolutePath?: string }[] = [];
       // @ts-ignore
       for await (const child of newFolderHandle.values()) {
-        if (child.kind === 'directory') subfolders.push({ name: child.name, handle: child as FileSystemDirectoryHandle });
+        if (child.kind === 'directory') {
+          subfolders.push({
+            name: child.name,
+            handle: child as FileSystemDirectoryHandle,
+            absolutePath: newFolderAbsolutePath ? `${newFolderAbsolutePath}\\${child.name}` : undefined,
+          });
+        }
       }
       subfolders.sort((a, b) => a.name.localeCompare(b.name));
 
       if (subfolders.length === 0) {
-        await finalizeRootLink(newFolderHandle);
+        await finalizeRootLink(newFolderHandle, newFolderAbsolutePath);
       } else {
-        setTemplateChoice({ newFolderHandle, folderName, subfolders });
+        setTemplateChoice({ newFolderHandle, folderName, absolutePath: newFolderAbsolutePath, subfolders });
       }
     } catch (e) {
       console.error('Template creation failed', e);
@@ -1358,7 +1378,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <p className="text-sm text-gray-600 mb-4">Which folder should be the root for this revision?</p>
 
             <button
-              onClick={async () => { const tc = templateChoice; setTemplateChoice(null); await finalizeRootLink(tc.newFolderHandle); }}
+              onClick={async () => { const tc = templateChoice; setTemplateChoice(null); await finalizeRootLink(tc.newFolderHandle, tc.absolutePath); }}
               className="w-full mb-3 px-4 py-2.5 bg-[#3DCD58] text-white rounded-lg font-bold text-sm hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
             >
               <HardDrive className="w-4 h-4" /> Use the whole folder as root
@@ -1369,7 +1389,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               {templateChoice.subfolders.map(sf => (
                 <button
                   key={sf.name}
-                  onClick={async () => { const h = sf.handle; setTemplateChoice(null); await finalizeRootLink(h); }}
+                  onClick={async () => { const h = sf.handle; const absolutePath = sf.absolutePath; setTemplateChoice(null); await finalizeRootLink(h, absolutePath); }}
                   className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 border border-gray-100 hover:border-emerald-200 rounded-lg text-sm text-gray-700 transition-colors text-left"
                 >
                   <FolderOpen className="w-4 h-4 text-gray-400 shrink-0" />

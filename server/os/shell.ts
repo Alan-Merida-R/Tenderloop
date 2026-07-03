@@ -172,6 +172,25 @@ export const findDirByName = async (name: string, hints: string[]): Promise<Find
  * it. Slow full-tree scan; superseded by findDirByName.
  */
 export const locateByMarker = async (marker: string): Promise<{ path: string; searchedRoot: string } | null> => {
+    try {
+        const out = await runPowerShell(
+            `$ErrorActionPreference='SilentlyContinue';` +
+            `$m=${psSingleQuote(marker)};` +
+            `$sql='SELECT TOP 10 System.ItemUrl FROM SYSTEMINDEX WHERE System.FileName = ''' + $m.Replace("'","''") + '''';` +
+            `$c=New-Object System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows'");` +
+            `$c.Open();$q=$c.CreateCommand();$q.CommandText=$sql;` +
+            `$r=$q.ExecuteReader();while($r.Read()){` +
+            `$p=[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\';` +
+            `Split-Path -LiteralPath $p -Parent` +
+            `};$c.Close()`,
+            5000
+        );
+        const firstLine = (out || '').split(/\r?\n/).map(l => l.trim()).find(Boolean);
+        if (firstLine && existsSync(path.join(firstLine, marker))) {
+            return { path: firstLine, searchedRoot: 'index' };
+        }
+    } catch { /* index unavailable â€” fall back to scan */ }
+
     const home = process.env.USERPROFILE || process.env.HOMEPATH || 'C:\\Users';
     const roots: string[] = [];
     const pushRoot = (p?: string) => { if (p && existsSync(p) && !roots.includes(p)) roots.push(p); };
