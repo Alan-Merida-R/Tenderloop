@@ -7,7 +7,6 @@
     "dev": "vite",
     "dev-flow": "vite --port 3003",
     "build": "vite build",
-    "build-flow": "vite build --config vite.flow.config.ts",
     "preview": "vite preview",
     "server": "node server/openHelper.js"
   },
