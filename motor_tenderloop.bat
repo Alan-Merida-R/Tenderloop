@@ -5,8 +5,11 @@ cd /d "%~dp0"
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=VISIBLE"
 
-:: --- Liberar puerto 3000 si esta ocupado ---
+:: --- Liberar puertos 3000 (app) y 3099 (backend) si estan ocupados ---
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do (
+    taskkill /f /pid %%a >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3099 " ^| findstr "LISTENING"') do (
     taskkill /f /pid %%a >nul 2>&1
 )
 
@@ -47,9 +50,11 @@ if not exist "node_modules\.bin\vite.cmd" (
     exit /b 1
 )
 
-:: --- Open helper en segundo plano ---
-if exist "server\openHelper.js" (
-    start "" /B node server\openHelper.js
+:: --- Backend TenderLoop en segundo plano (puerto 3099) ---
+if exist "server\index.ts" (
+    start "" /B node_modules\.bin\tsx.cmd server\index.ts
+) else (
+    if exist "server\openHelper.js" start "" /B node server\openHelper.js
 )
 
 :: --- Abrir navegador en modo app cuando vite este listo ---
