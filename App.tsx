@@ -306,7 +306,40 @@ function App() {
   const stableHolidays = useMemo(() => appSettings.holidays || EMPTY_ARR, [appSettings.holidays]);
   const stableGlobalLabels = useMemo(() => appSettings.globalLabels || EMPTY_ARR, [appSettings.globalLabels]);
   const stableTrackedAreas = useMemo(() => appSettings.trackedAreas || EMPTY_ARR, [appSettings.trackedAreas]);
+  const stableHiddenOpportunityDetailSections = useMemo(() => appSettings.hiddenOpportunityDetailSections || EMPTY_ARR, [appSettings.hiddenOpportunityDetailSections]);
+  const stableOpportunityDetailSectionOrder = useMemo(() => appSettings.opportunityDetailSectionOrder || EMPTY_ARR, [appSettings.opportunityDetailSectionOrder]);
   const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
+
+  useEffect(() => {
+    const handleGlobalEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+
+      window.setTimeout(() => {
+        if (e.defaultPrevented) return;
+
+        if (showSettings) {
+          e.preventDefault();
+          setShowSettings(false);
+          return;
+        }
+
+        if (splitTab) {
+          e.preventDefault();
+          setSplitTab(null);
+          return;
+        }
+
+        if (selectedOppId) {
+          e.preventDefault();
+          setSelectedOppId(null);
+          setActiveDeepLink(null);
+        }
+      }, 0);
+    };
+
+    document.addEventListener('keydown', handleGlobalEscape);
+    return () => document.removeEventListener('keydown', handleGlobalEscape);
+  }, [showSettings, splitTab, selectedOppId]);
 
   // Data Synchronization (Database only, not UI state/navigation)
   useEffect(() => {
@@ -680,6 +713,9 @@ function App() {
         trackedAreas={stableTrackedAreas}
         globalLabels={stableGlobalLabels}
         emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
+        hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
+        opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
+        userName={appSettings.userName || 'User'}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
           if (payload) minimizeToDock(payload);
@@ -1626,7 +1662,7 @@ function App() {
   if (isTimerOnlyWindow) {
     return (
       <TimerProvider onLogTime={handleTimerLog} opportunities={stableOpportunities} timerSound={appSettings.timerSound} notificationSound={appSettings.notificationSound} primary={false}>
-        <div className="h-screen w-screen min-h-0 bg-black p-1 flex overflow-hidden">
+        <div className="h-screen w-screen min-h-0 bg-transparent p-0 flex overflow-hidden items-center justify-center">
           <TimerWidget floating />
         </div>
       </TimerProvider>
@@ -1931,6 +1967,9 @@ function App() {
                     trackedAreas={stableTrackedAreas}
                     globalLabels={stableGlobalLabels}
                     emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
+                    hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
+                    opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
+                    userName={appSettings.userName || 'User'}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}
                   />

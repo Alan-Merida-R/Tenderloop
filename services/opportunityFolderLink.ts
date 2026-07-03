@@ -69,6 +69,29 @@ export const copyFolderLinkToRevision = async (opportunityId: string, fromRevisi
   return true;
 };
 
+/**
+ * Migrate the legacy opportunity-level folder key to a per-revision key.
+ * This preserves the current revision's folder while making future revisions
+ * start empty unless the user explicitly links one.
+ */
+export const moveLegacyFolderLinkToRevision = async (opportunityId: string, revision: string): Promise<boolean> => {
+  const trimmedRevision = revision.trim();
+  if (!trimmedRevision) return false;
+
+  const revisionKey = folderKey(opportunityId, trimmedRevision);
+  const existingRevisionHandle = await getFolderHandle(revisionKey);
+  if (existingRevisionHandle) return false;
+
+  const legacyHandle = await getFolderHandle(opportunityId);
+  if (!legacyHandle) return false;
+
+  const legacyPath = await getRootPathDisplay(opportunityId);
+  await setFolderHandle(revisionKey, legacyHandle);
+  if (legacyPath) await setRootPathDisplay(revisionKey, legacyPath);
+  await clearFolderHandle(opportunityId);
+  return true;
+};
+
 export const setFolderHandle = async (opportunityId: string, handle: FileSystemDirectoryHandle): Promise<void> => {
   const db = await getDB();
   return new Promise((resolve, reject) => {

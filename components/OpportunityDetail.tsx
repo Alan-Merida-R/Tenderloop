@@ -2,16 +2,19 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
-import { getRootPathDisplay, copyFolderLinkToRevision } from '../services/opportunityFolderLink';
+import { getRootPathDisplay, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
+import { ImportSrEmailModal } from './ImportSrEmailModal';
+import { RevisionCarryoverModal } from './RevisionCarryoverModal';
+import { SrPrefill } from '../services/srEmailParser';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
-import { NoteTemplate, SimpleMultiSelect } from './SettingsModal';
+import { NoteTemplate, SimpleMultiSelect, OPPORTUNITY_DETAIL_SECTIONS, normalizeOpportunityDetailSectionOrder, type OpportunityDetailSectionKey } from './SettingsModal';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { moveAndReorderNote, moveAndReorderFolder, isFolderDescendantOf, sortWithOrderFallback } from '../services/noteUtils';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
@@ -70,6 +73,10 @@ interface Props {
     onCloseTab?: () => void;
     isSubView?: boolean;
     emailIntegrationEnabled?: boolean;
+    hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
+    opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
+    /** Global user name inserted in bracketed form when copying History for bFO. */
+    userName?: string;
 }
 
 export interface RichTextEditorHandle {
@@ -77,10 +84,51 @@ export interface RichTextEditorHandle {
     removeMark: (id: string) => void;
 }
 
+/**
+ * innerHTML does NOT capture live form-field state: an <input>'s typed text
+ * lives in its `value` PROPERTY, a checkbox in `checked`, a <select> in
+ * `selectedIndex` — none of which serialize. Mirror them into attributes/child
+ * nodes right before reading innerHTML so template forms survive save/reload.
+ */
+const syncFormFieldValues = (root: HTMLElement) => {
+    root.querySelectorAll('input').forEach(el => {
+        const input = el as HTMLInputElement;
+        if (input.type === 'checkbox' || input.type === 'radio') {
+            if (input.checked) input.setAttribute('checked', 'checked');
+            else input.removeAttribute('checked');
+        } else {
+            input.setAttribute('value', input.value);
+        }
+    });
+    root.querySelectorAll('textarea').forEach(el => {
+        const ta = el as HTMLTextAreaElement;
+        if (ta.textContent !== ta.value) ta.textContent = ta.value;
+    });
+    root.querySelectorAll('select').forEach(el => {
+        const sel = el as HTMLSelectElement;
+        Array.from(sel.options).forEach((opt, i) => {
+            if (i === sel.selectedIndex) opt.setAttribute('selected', 'selected');
+            else opt.removeAttribute('selected');
+        });
+    });
+};
+
+/**
+ * Form fields inside a contentEditable region behave erratically (typing can
+ * edit around them instead of in them). Marking them contentEditable=false
+ * restores native input behavior while keeping them part of the note.
+ */
+const prepareEmbeddedFormFields = (root: HTMLElement) => {
+    root.querySelectorAll('input, textarea, select').forEach(el => {
+        (el as HTMLElement).setAttribute('contenteditable', 'false');
+    });
+};
+
 export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void, disabled?: boolean }>(
     ({ content, onChange, onSelection, onLinkClick, onAttach, disabled }, ref) => {
         const editorRef = useRef<HTMLDivElement>(null);
         const isInternalUpdate = useRef(false);
+        const plainTextPasteRef = useRef(false);
 
         useImperativeHandle(ref, () => ({
             highlightSelection: (id: string, text: string) => {
@@ -123,10 +171,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         useEffect(() => {
             if (editorRef.current) {
-                const currentHTML = editorRef.current.innerHTML;
-                if (content !== currentHTML && !isInternalUpdate.current) {
-                    editorRef.current.innerHTML = content || '';
+                const el = editorRef.current;
+                // CARET/DATA-LOSS FIX: never rewrite the DOM while the user is typing
+                // inside the editor (or an embedded form field). Rewriting innerHTML
+                // collapses the caret to the start, so fast typers ended up typing
+                // into the title/first line and losing formatting. Note switches are
+                // safe: the editor remounts via key={note.id}, so this effect's job
+                // is only to absorb EXTERNAL content changes, which by definition
+                // happen while the editor is not focused.
+                const isFocused = el === document.activeElement || el.contains(document.activeElement);
+                const currentHTML = el.innerHTML;
+                if (content !== currentHTML && !isInternalUpdate.current && !isFocused) {
+                    el.innerHTML = content || '';
                     latestHtmlRef.current = content || '';
+                    prepareEmbeddedFormFields(el);
                 }
             }
             // Reset the internal update flag AFTER the prop sync attempt.
@@ -135,12 +193,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             isInternalUpdate.current = false;
         }, [content]);
 
+        // Initial mount: make embedded form fields behave natively.
+        useEffect(() => {
+            if (editorRef.current) prepareEmbeddedFormFields(editorRef.current);
+        }, []);
+
         const exec = (command: string, value: string | undefined = undefined) => {
             if (disabled) return;
             if (editorRef.current) editorRef.current.focus();
             document.execCommand(command, false, value);
             if (editorRef.current) {
                 isInternalUpdate.current = true;
+                // Freshly inserted form fields (e.g. toolbar checkbox) need native
+                // behavior, and existing field values must survive serialization.
+                prepareEmbeddedFormFields(editorRef.current);
+                syncFormFieldValues(editorRef.current);
+                latestHtmlRef.current = editorRef.current.innerHTML;
                 onChange(editorRef.current.innerHTML);
             }
         };
@@ -212,6 +280,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     }
                 }
             }
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
+                // Paste as plain text: flag it and let the browser fire the paste
+                // event (keydown has no clipboard access) — handlePaste intercepts.
+                plainTextPasteRef.current = true;
+                window.setTimeout(() => { plainTextPasteRef.current = false; }, 500);
+                return;
+            }
             if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
                 e.preventDefault();
                 document.execCommand('bold');
@@ -267,6 +342,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
             if (disabled) return;
             isInternalUpdate.current = true;
+            // Mirror embedded form-field state (input values, checkboxes, selects)
+            // into serializable attributes BEFORE reading innerHTML — typing into a
+            // template's <input> bubbles here but only mutates the value property.
+            syncFormFieldValues(e.currentTarget);
             const newHtml = e.currentTarget.innerHTML;
             latestHtmlRef.current = newHtml;
             if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
@@ -275,6 +354,30 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 onChange(newHtml);
             }, 150);
         };
+
+        // <select> and <input type="date"> fire 'change' (not 'input') on commit.
+        // React doesn't surface native change from arbitrary children of a
+        // contentEditable div, so attach a native listener.
+        useEffect(() => {
+            const el = editorRef.current;
+            if (!el || disabled) return;
+            const onFormChange = (e: Event) => {
+                const t = e.target;
+                if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) {
+                    isInternalUpdate.current = true;
+                    syncFormFieldValues(el);
+                    const newHtml = el.innerHTML;
+                    latestHtmlRef.current = newHtml;
+                    if (debounceTimeoutRef.current) window.clearTimeout(debounceTimeoutRef.current);
+                    debounceTimeoutRef.current = window.setTimeout(() => {
+                        debounceTimeoutRef.current = null;
+                        onChange(newHtml);
+                    }, 150);
+                }
+            };
+            el.addEventListener('change', onFormChange);
+            return () => el.removeEventListener('change', onFormChange);
+        }, [disabled, onChange]);
 
         useEffect(() => {
             return () => {
@@ -322,6 +425,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
             if (disabled) return;
+            // Ctrl+Shift+V → insert clipboard TEXT only, discarding formatting.
+            if (plainTextPasteRef.current) {
+                plainTextPasteRef.current = false;
+                const text = e.clipboardData?.getData('text/plain');
+                if (text) {
+                    e.preventDefault();
+                    // insertText keeps undo history and fires onInput (which serializes).
+                    document.execCommand('insertText', false, text);
+                    return;
+                }
+            }
             const items = Array.from(e.clipboardData?.items || []) as DataTransferItem[];
             const imageItem = items.find(i => i.type.startsWith('image/'));
             if (!imageItem) return;
@@ -1492,6 +1606,34 @@ const DEFAULT_QUICK_LINKS = [
     { id: 'geet', label: 'GEET', locked: false, placeholder: 'GEET URL', aliases: ['geet', 'geet link'] },
 ] as const;
 
+// Icon palette offered for the unlocked default quick links (Folder, BA, GEET).
+// `name` is what gets stored in opportunity.quickLinkIcons; all icons are already
+// imported at the top of this file.
+const QUICK_LINK_ICON_OPTIONS: { name: string; Icon: React.ComponentType<{ className?: string; title?: string }> }[] = [
+    { name: 'folder', Icon: FolderOpen },
+    { name: 'folderClosed', Icon: Folder },
+    { name: 'link', Icon: LinkIcon },
+    { name: 'file', Icon: FileText },
+    { name: 'sheet', Icon: FileSpreadsheet },
+    { name: 'table', Icon: Table },
+    { name: 'dollar', Icon: DollarSign },
+    { name: 'percent', Icon: Percent },
+    { name: 'briefcase', Icon: Briefcase },
+    { name: 'database', Icon: Database },
+    { name: 'calendar', Icon: CalendarIcon },
+    { name: 'mail', Icon: Mail },
+    { name: 'inbox', Icon: Inbox },
+    { name: 'chart', Icon: BarChart3 },
+    { name: 'target', Icon: Target },
+    { name: 'checks', Icon: ListChecks },
+    { name: 'tag', Icon: Tag },
+    { name: 'pin', Icon: Pin },
+    { name: 'zap', Icon: Zap },
+    { name: 'presentation', Icon: Presentation },
+];
+const QUICK_LINK_ICON_MAP: Record<string, React.ComponentType<{ className?: string; title?: string }>> =
+    Object.fromEntries(QUICK_LINK_ICON_OPTIONS.map(o => [o.name, o.Icon]));
+
 type DefaultQuickLinkId = typeof DEFAULT_QUICK_LINKS[number]['id'];
 type NormalizedQuickLinks = {
     defaultUrls: Record<DefaultQuickLinkId, string>;
@@ -1637,17 +1779,40 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
 
 type OpportunityDetailTab = 'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'folder' | 'kpi' | 'emails';
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false }) => {
+const isOpportunityDetailTabVisible = (tab: OpportunityDetailTab, hiddenSections: OpportunityDetailSectionKey[] = [], emailIntegrationEnabled = false) => {
+    if (tab === 'overview') return true;
+    if (tab === 'emails' && !emailIntegrationEnabled) return false;
+    return !hiddenSections.includes(tab as OpportunityDetailSectionKey);
+};
+
+const renderOpportunityDetailTabIcon = (tab: OpportunityDetailTab) => {
+    switch (tab) {
+        case 'kpi': return <BarChart3 className="w-4 h-4" />;
+        case 'history': return <HistoryIcon className="w-4 h-4" />;
+        case 'tasks': return <ListChecks className="w-4 h-4" />;
+        case 'commercial': return <DollarSign className="w-4 h-4" />;
+        case 'notes': return <FileText className="w-4 h-4" />;
+        case 'emails': return <Mail className="w-4 h-4" />;
+        case 'folder': return <FolderOpen className="w-4 h-4" />;
+        case 'questions': return <HelpCircle className="w-4 h-4" />;
+        default: return null;
+    }
+};
+
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User' }) => {
     const { getTimerState, confirmStop } = useTimerActions();
-    const requestedTab = deepLink?.tab === 'emails' && !emailIntegrationEnabled ? 'overview' : (deepLink?.tab as OpportunityDetailTab | undefined);
-    const [activeTab, setActiveTab] = useState<OpportunityDetailTab>(requestedTab || 'overview');
+    const requestedTab = (deepLink?.tab || 'overview') as OpportunityDetailTab;
+    const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? requestedTab : 'overview';
+    const [activeTab, setActiveTab] = useState<OpportunityDetailTab>(initialTab);
     const [isDeferring, setIsDeferring] = useState(false);
+    const isTabVisible = useCallback((tab: OpportunityDetailTab) => isOpportunityDetailTabVisible(tab, hiddenOpportunityDetailSections, emailIntegrationEnabled), [hiddenOpportunityDetailSections, emailIntegrationEnabled]);
+    const orderedDetailTabs = useMemo(() => normalizeOpportunityDetailSectionOrder(opportunityDetailSectionOrder).filter((tab) => isOpportunityDetailTabVisible(tab as OpportunityDetailTab, hiddenOpportunityDetailSections, emailIntegrationEnabled)) as OpportunityDetailTab[], [opportunityDetailSectionOrder, hiddenOpportunityDetailSections, emailIntegrationEnabled]);
 
     useEffect(() => {
-        if (!emailIntegrationEnabled && activeTab === 'emails') {
+        if (!isTabVisible(activeTab)) {
             setActiveTab('overview');
         }
-    }, [emailIntegrationEnabled, activeTab]);
+    }, [activeTab, isTabVisible]);
 
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
@@ -1658,6 +1823,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const isSnapshot = !!viewingVersionId;
     const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
     const [showAddSectionModal, setShowAddSectionModal] = useState(false);
+    const [expandedCommercialRevisionNotes, setExpandedCommercialRevisionNotes] = useState<Set<string>>(new Set());
     const [newSectionName, setNewSectionName] = useState('');
 
     const updateTimeoutRef = useRef<number | null>(null);
@@ -1699,12 +1865,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     useEffect(() => {
         if (deepLink?.tab) {
-            setActiveTab(deepLink.tab as any);
+            const nextTab = deepLink.tab as OpportunityDetailTab;
+            setActiveTab(isOpportunityDetailTabVisible(nextTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? nextTab : 'overview');
         }
-    }, [deepLink?.tab]);
+    }, [deepLink?.tab, hiddenOpportunityDetailSections, emailIntegrationEnabled]);
 
     const lastScrolledTaskId = useRef<string | null>(null);
     const focusTaskInTasksList = useCallback((taskId: string) => {
+        if (!isTabVisible('tasks')) {
+            setActiveTab('overview');
+            return;
+        }
         setActiveTab('tasks');
         setTaskViewMode('list');
         setTaskFilter('');
@@ -1726,7 +1897,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         window.setTimeout(() => {
             setHighlightTaskId(current => current === taskId ? null : current);
         }, 3500);
-    }, []);
+    }, [isTabVisible]);
 
     useEffect(() => {
         // Reset last scrolled when deepLink officially changes from parent
@@ -1745,6 +1916,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [diffBaseId, setDiffBaseId] = useState<string | null>(null);
     const [diffCompareId, setDiffCompareId] = useState<string | null>(null);
     const [showCopyTasksModal, setShowCopyTasksModal] = useState(false);
+    const [showRevisionCarryoverModal, setShowRevisionCarryoverModal] = useState(false);
+    const [revisionCarryoverSource, setRevisionCarryoverSource] = useState<{
+        sourceLabel: string;
+        notes: MeetingNote[];
+        defaultLinks: { id: string; label: string; url: string }[];
+        customLinks: QuickLinkItem[];
+    } | null>(null);
+    const [showSrImport, setShowSrImport] = useState(false);
     const [versionSearchTerm, setVersionSearchTerm] = useState('');
 
     const handleVersionSwitch = (vId: string | null) => {
@@ -1922,6 +2101,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             lastNoteId.current = selectedNoteId;
         }
     }, [selectedNoteId]); // Note: We removed localOpp.notes from dependency to prevent typing wipe-out
+
+    // STALE-EDITOR FIX: when the user LEAVES the notes tab, the cleanup above
+    // flushes the typed content into localOpp.notes — but activeNoteHtml (the
+    // editor's initial content) still holds the html from when the note was
+    // first loaded. Returning to the tab remounts NoteEditorWrapper from that
+    // stale state, so the user's latest edits seemed lost until they switched
+    // notes back and forth. Re-sync from the (already flushed) note on re-entry.
+    useEffect(() => {
+        if (activeTab !== 'notes' || !selectedNoteId) return;
+        const n = localOppRef.current.notes.find(nn => nn.id === selectedNoteId);
+        if (n) {
+            setActiveNoteHtml(n.content || '');
+            activeNoteHtmlRef.current = n.content || '';
+        }
+    }, [activeTab]);
     const [isNoteFullScreen, setIsNoteFullScreen] = useState(false);
     const [textSelection, setTextSelection] = useState<string | null>(null);
     const [showQuestionsSplit, setShowQuestionsSplit] = useState(false);
@@ -1962,6 +2156,77 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
     const [showLabelMenu, setShowLabelMenu] = useState(false);
     const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
+
+    useEffect(() => {
+        const closeCurrentLayer = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape' || e.defaultPrevented) return;
+
+            const handled = () => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            };
+
+            if (addLinkRefForm) { setAddLinkRefForm(null); handled(); return; }
+            if (showDocPicker) { setShowDocPicker(null); handled(); return; }
+            if (showEmailLinkPicker) { setShowEmailLinkPicker(null); handled(); return; }
+            if (showOutlookSelector) { setShowOutlookSelector(false); handled(); return; }
+            if (showQuickRefFilePicker) { setShowQuickRefFilePicker(false); handled(); return; }
+            if (showNotePickerForTask) { setShowNotePickerForTask(null); handled(); return; }
+            if (showLabelMenu) { setShowLabelMenu(false); handled(); return; }
+            if (showVersionMenu) { setShowVersionMenu(false); handled(); return; }
+            if (showMoreActionsMenu) { setShowMoreActionsMenu(false); handled(); return; }
+            if (showFullCalendar) { setShowFullCalendar(false); handled(); return; }
+            if (showAddAreaModal) { setShowAddAreaModal(false); handled(); return; }
+            if (showAddSectionModal) { setShowAddSectionModal(false); setNewSectionName(''); handled(); return; }
+            if (showCreateVersionModal) { setShowCreateVersionModal(false); setVersionToRestore(null); handled(); return; }
+            if (showDiffModal) { setShowDiffModal(false); handled(); return; }
+            if (showCopyTasksModal) { setShowCopyTasksModal(false); handled(); return; }
+            if (showRevisionCarryoverModal) { setShowRevisionCarryoverModal(false); setRevisionCarryoverSource(null); handled(); return; }
+            if (showSrImport) { setShowSrImport(false); handled(); return; }
+            if (showQuestionsSplit) { setShowQuestionsSplit(false); handled(); return; }
+            if (splitViewNoteId) { setSplitViewNoteId(null); handled(); return; }
+            if (selectedTaskForEdit) {
+                if (isSubView) onBack();
+                else setSelectedTaskForEdit(null);
+                handled();
+                return;
+            }
+            if (viewingVersionId) { setViewingVersionId(null); handled(); return; }
+            if (activeTab !== 'overview') { setActiveTab('overview'); handled(); return; }
+
+            onBack();
+            handled();
+        };
+
+        document.addEventListener('keydown', closeCurrentLayer);
+        return () => document.removeEventListener('keydown', closeCurrentLayer);
+    }, [
+        activeTab,
+        addLinkRefForm,
+        onBack,
+        selectedTaskForEdit,
+        showAddAreaModal,
+        showAddSectionModal,
+        showCopyTasksModal,
+        showRevisionCarryoverModal,
+        showCreateVersionModal,
+        showDiffModal,
+        showDocPicker,
+        showEmailLinkPicker,
+        showFullCalendar,
+        showLabelMenu,
+        showMoreActionsMenu,
+        showNotePickerForTask,
+        showOutlookSelector,
+        showQuestionsSplit,
+        showQuickRefFilePicker,
+        showSrImport,
+        showVersionMenu,
+        isSubView,
+        splitViewNoteId,
+        viewingVersionId
+    ]);
 
     useEffect(() => {
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
@@ -2162,29 +2427,51 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const normalizedQuickLinks = useMemo(() => normalizeQuickLinks(localOpp.links), [localOpp.links]);
 
-    // Locked default quick links (SRLink, BFO, CQA) always render first, in their fixed
-    // order — they're never reorderable. Unlocked ones (Folder, BA, GEET, ...) render
-    // after, in the manual order stored in quickLinksOrder; any unlocked link not yet
-    // present there (e.g. newly added to DEFAULT_QUICK_LINKS) is appended at the end.
-    const lockedDefaultLinks = useMemo(() => DEFAULT_QUICK_LINKS.filter(l => l.locked), []);
-    const unlockedDefaultLinkIds = useMemo(() => DEFAULT_QUICK_LINKS.filter(l => !l.locked).map(l => l.id), []);
-    const orderedUnlockedDefaultLinks = useMemo(() => {
+    // All default quick links — locked (SRLink, BFO, CQA) and unlocked (Folder, BA, GEET)
+    // alike — render in the single manual order stored in quickLinksOrder. Any link not yet
+    // present there (e.g. newly added to DEFAULT_QUICK_LINKS) is appended in its built-in order.
+    const orderedDefaultLinks = useMemo(() => {
         const storedOrder = localOpp.quickLinksOrder || [];
+        const allIds = DEFAULT_QUICK_LINKS.map(l => l.id) as readonly string[];
         const ids = [
-            ...storedOrder.filter(id => (unlockedDefaultLinkIds as readonly string[]).includes(id)),
-            ...unlockedDefaultLinkIds.filter(id => !storedOrder.includes(id))
+            ...storedOrder.filter(id => allIds.includes(id)),
+            ...allIds.filter(id => !storedOrder.includes(id))
         ];
         return ids.map(id => DEFAULT_QUICK_LINKS.find(l => l.id === id)!).filter(Boolean);
-    }, [localOpp.quickLinksOrder, unlockedDefaultLinkIds]);
-    const orderedDefaultLinks = useMemo(() => [...lockedDefaultLinks, ...orderedUnlockedDefaultLinks], [lockedDefaultLinks, orderedUnlockedDefaultLinks]);
+    }, [localOpp.quickLinksOrder]);
 
+    // A default quick link the user hid (e.g. an empty locked SRLink/BFO/CQA) is
+    // kept out of the overview list but its URL is never dropped — unhiding brings it back.
+    const hiddenQuickLinkIds = useMemo(() => new Set(localOpp.hiddenQuickLinks || []), [localOpp.hiddenQuickLinks]);
+    const visibleDefaultLinks = useMemo(() => orderedDefaultLinks.filter(l => !hiddenQuickLinkIds.has(l.id)), [orderedDefaultLinks, hiddenQuickLinkIds]);
+    const hiddenDefaultLinks = useMemo(() => orderedDefaultLinks.filter(l => hiddenQuickLinkIds.has(l.id)), [orderedDefaultLinks, hiddenQuickLinkIds]);
+    const getQuickLinkLabel = useCallback(
+        (link: { id: string; label: string }) => localOpp.quickLinkLabels?.[link.id]?.trim() || link.label,
+        [localOpp.quickLinkLabels]
+    );
+    // Icon shown for a default quick link: locked ones are always the padlock; unlocked
+    // ones use the user's override if set, else the built-in default (Folder → folder icon).
+    const getQuickLinkIcon = useCallback((link: { id: string; locked: boolean }): React.ComponentType<{ className?: string; title?: string }> => {
+        if (link.locked) return Lock;
+        const override = localOpp.quickLinkIcons?.[link.id];
+        if (override && QUICK_LINK_ICON_MAP[override]) return QUICK_LINK_ICON_MAP[override];
+        return link.id === 'folder' ? FolderOpen : LinkIcon;
+    }, [localOpp.quickLinkIcons]);
+    const [iconPickerFor, setIconPickerFor] = useState<string | null>(null);
+
+    // Move a default link up/down. Adjacency is computed over the VISIBLE list (so a hidden
+    // neighbor is skipped), then the two are swapped inside the full stored order.
     const moveDefaultQuickLink = (id: string, direction: -1 | 1) => {
-        const currentOrder = orderedUnlockedDefaultLinks.map(l => l.id);
-        const idx = currentOrder.indexOf(id);
-        const newIdx = idx + direction;
-        if (idx === -1 || newIdx < 0 || newIdx >= currentOrder.length) return;
-        const reordered = [...currentOrder];
-        [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+        if (viewingVersionId) return;
+        const visibleIds = visibleDefaultLinks.map(l => l.id);
+        const vIdx = visibleIds.indexOf(id);
+        const neighbor = visibleIds[vIdx + direction];
+        if (vIdx === -1 || neighbor === undefined) return;
+        const fullOrder = orderedDefaultLinks.map(l => l.id);
+        const from = fullOrder.indexOf(id);
+        const to = fullOrder.indexOf(neighbor);
+        const reordered = [...fullOrder];
+        [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
         handleFieldChange('quickLinksOrder', reordered, true);
     };
 
@@ -2205,6 +2492,90 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const setDefaultQuickLinkUrl = (id: DefaultQuickLinkId, url: string) => {
         updateQuickLinks({ ...normalizedQuickLinks.defaultUrls, [id]: url }, normalizedQuickLinks.customLinks);
+    };
+
+    // Rename an unlocked default link (Folder/BA/GEET). Storing the built-in label (or
+    // blank) removes the override so it falls back to the default name.
+    const setDefaultQuickLinkLabel = (id: DefaultQuickLinkId, label: string) => {
+        if (viewingVersionId) return;
+        const fallback = DEFAULT_QUICK_LINKS.find(l => l.id === id)?.label;
+        const trimmed = label.trim();
+        const next = { ...(localOpp.quickLinkLabels || {}) };
+        if (trimmed && trimmed !== fallback) next[id] = trimmed;
+        else delete next[id];
+        handleFieldChange('quickLinkLabels', next, true);
+    };
+
+    const toggleQuickLinkHidden = (id: DefaultQuickLinkId) => {
+        if (viewingVersionId) return;
+        const current = localOpp.hiddenQuickLinks || [];
+        const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+        handleFieldChange('hiddenQuickLinks', next, true);
+    };
+
+    // Set (or clear, with name === '') the icon override for an unlocked default link.
+    const setDefaultQuickLinkIcon = (id: DefaultQuickLinkId, name: string) => {
+        if (viewingVersionId) return;
+        const next = { ...(localOpp.quickLinkIcons || {}) };
+        if (name) next[id] = name;
+        else delete next[id];
+        handleFieldChange('quickLinkIcons', next, true);
+        setIconPickerFor(null);
+    };
+
+    /**
+     * Auto-fill from a bFO SR email: applies every parsed field in ONE batch
+     * update (single setLocalOpp + immediate sync) so the expediente can't end
+     * up half-filled if the user closes right after applying. Parsed values win
+     * over placeholders; existing values are kept when the email had no data.
+     */
+    const applySrPrefill = (prefill: SrPrefill) => {
+        if (viewingVersionId) return;
+        const today = new Date().toISOString().split('T')[0];
+        const importNote: MeetingNote = {
+            id: crypto.randomUUID(),
+            title: prefill.noteTitle,
+            date: today,
+            type: 'General',
+            content: prefill.noteHtml,
+            attendees: ''
+        };
+        const historyEntry: HistoryEntry = {
+            id: crypto.randomUUID(),
+            date: today,
+            content: `Auto-filled from SR email${prefill.srId ? ` (${prefill.srId})` : ''}`
+        };
+        const updated: Opportunity = {
+            ...localOpp,
+            id: prefill.opId?.trim() || localOpp.id,
+            title: prefill.title?.trim() || localOpp.title,
+            alias: prefill.alias?.trim() || localOpp.alias,
+            customer: prefill.customer?.trim() || localOpp.customer,
+            seller: prefill.seller?.trim() || localOpp.seller,
+            srId: prefill.srId?.trim() || localOpp.srId,
+            quoteType: prefill.quoteType || localOpp.quoteType,
+            description: prefill.comments?.trim() || localOpp.description,
+            dates: {
+                ...localOpp.dates,
+                requested: prefill.requestedDate || localOpp.dates.requested,
+                expected: prefill.expectedDate || localOpp.dates.expected
+            },
+            // Amount lands in BOTH linked fields: KPI Proposal Amount and CQA Official Sell Price
+            kpis: prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD)
+                ? { ...localOpp.kpis, proposalAmountUSD: prefill.proposalAmountUSD }
+                : localOpp.kpis,
+            commercial: prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD)
+                ? { ...localOpp.commercial, cqaOfficialSellPrice: prefill.proposalAmountUSD }
+                : localOpp.commercial,
+            links: prefill.srLink?.trim()
+                ? composeQuickLinks({ ...normalizedQuickLinks.defaultUrls, srLink: prefill.srLink.trim() }, normalizedQuickLinks.customLinks)
+                : localOpp.links,
+            notes: [importNote, ...localOpp.notes],
+            history: [...(localOpp.history || []), historyEntry],
+            lastUpdated: new Date().toISOString()
+        };
+        setLocalOpp(updated);
+        syncToParentNow(updated);
     };
 
     const addQuickLinkItem = (item: QuickLinkItem) => {
@@ -2558,6 +2929,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return { ...t, margin };
     }, [localOpp.commercial.customSections]);
 
+    const commercialRevisionHistory = useMemo(() => {
+        return [...(localOpp.versions || [])]
+            .filter(v => v.snapshot?.commercial)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .map(v => ({
+                id: v.id,
+                revision: v.snapshot.revision || v.commitMessage || 'previous',
+                createdAt: v.createdAt,
+                sellPrice: v.snapshot.commercial?.cqaOfficialSellPrice || 0,
+                margin: v.snapshot.commercial?.cqaOfficialMargin || 0,
+                notes: v.snapshot.commercial?.discountsAndNotes || '',
+            }));
+    }, [localOpp.versions]);
+
     const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
     const totalMargin = commercialTotals.margin;
 
@@ -2723,12 +3108,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (field === 'content') {
             handleNoteContentChange(value);
         } else {
-            const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId ? { ...n, [field]: value } : n);
+            // RENAME DATA-LOSS FIX: while the user types, the note's live content
+            // exists only in activeNoteHtmlRef (the 1.5s flush hasn't run yet).
+            // Building the update from localOpp.notes alone captured STALE content,
+            // and handleFieldChange's 300ms debounced save then overwrote the
+            // flushed content — deleted text reappeared or fresh text vanished
+            // when renaming. Always carry the live content along with the rename.
+            const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId
+                ? { ...n, [field]: value, content: activeNoteHtmlRef.current ?? n.content }
+                : n);
             handleFieldChange('notes', updatedNotes);
         }
     };
     const updateNoteById = (noteId: string, field: keyof MeetingNote, value: string) => {
-        const updatedNotes = localOpp.notes.map(n => n.id === noteId ? { ...n, [field]: value } : n);
+        const updatedNotes = localOpp.notes.map(n => {
+            if (n.id !== noteId) return n;
+            // Same stale-content guard as updateSelectedNote for the open note.
+            const liveContent = noteId === selectedNoteId && field !== 'content'
+                ? (activeNoteHtmlRef.current ?? n.content)
+                : n.content;
+            return { ...n, content: liveContent, [field]: value };
+        });
         handleFieldChange('notes', updatedNotes);
     }
     const handleSelection = () => {
@@ -2856,7 +3256,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             const normalizedDate = normalizeHistoryDate(h.date);
             const parts = normalizedDate.split('-');
             const dateStr = parts.length === 3 ? `${parts[1]}/${parts[2]}` : h.date;
-            return `${dateStr}: ${h.content}`;
+            const user = (userName || 'User').trim() || 'User';
+            return `${dateStr}: [${user}] ${h.content}`;
         }).join('\n');
         navigator.clipboard.writeText(text);
         alert("History copied to clipboard for bFO.");
@@ -3372,7 +3773,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
         // Quick Links Section in PDF
         // Quick Links Section in PDF (Updated for Array support)
-        const qLinks = Array.isArray(s.links) ? s.links : (s.links ? Object.entries(s.links).map(([k, v]) => ({ id: k, type: 'link', label: k, url: v } as QuickLinkItem)) : []);
+        const rawQLinks = Array.isArray(s.links) ? s.links : (s.links ? Object.entries(s.links).map(([k, v]) => ({ id: k, type: 'link', label: k, url: v } as QuickLinkItem)) : []);
+        // Honor the overview's per-opportunity renames and hidden default links.
+        const hiddenQLinkIds = new Set(s.hiddenQuickLinks || []);
+        const qLinks = rawQLinks
+            .filter(link => !hiddenQLinkIds.has(link.id))
+            .map(link => ({ ...link, label: s.quickLinkLabels?.[link.id]?.trim() || link.label }));
 
         if (qLinks.length > 0) {
             ensurePdfSpace(18);
@@ -3423,41 +3829,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         if (s.commercial) {
-            const commercialSections = s.commercial.customSections || [];
-            ensurePdfSpace(commercialSections.length > 0 ? 45 : 32);
+            ensurePdfSpace(48);
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
             doc.setTextColor(0);
             doc.text("Commercial Summary", pdfMargin.left, yPos);
             yPos += 8;
-            if (commercialSections.length > 0) {
-                autoTable(doc, {
-                    startY: yPos,
-                    head: [['Item', 'Cost', 'Margin %', 'Sell Price', 'Discount %', 'Final Price']],
-                    body: commercialSections.map(sec => {
-                        const sp = sec.sellPrice || 0;
-                        const ds = sec.discount || 0;
-                        const net = sp * (1 - (ds / 100));
-                        const cost = net * (1 - ((sec.margin || 0) / 100));
-                        return [
-                            sec.name,
-                            cost.toLocaleString(undefined, { minimumFractionDigits: 2 }),
-                            `${sec.margin}%`,
-                            sp.toLocaleString(undefined, { minimumFractionDigits: 2 }),
-                            `${sec.discount}%`,
-                            net.toLocaleString(undefined, { minimumFractionDigits: 2 })
-                        ];
-                    }),
-                    theme: 'grid',
-                    headStyles: { fillColor: [61, 205, 88] },
-                    margin: pdfMargin,
-                    styles: { overflow: 'linebreak', cellPadding: 2 }
-                });
-                yPos = (doc as any).lastAutoTable.finalY + 12;
-            }
 
-            // Enhanced Sell Price - Highlighted and Larger
-            ensurePdfSpace(28);
             doc.setFontSize(10);
             doc.setFont(undefined, 'normal');
             doc.setTextColor(0);
@@ -3469,6 +3847,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             doc.text(`CQA TOTAL SELL PRICE: $${s.commercial.cqaOfficialSellPrice.toLocaleString()}`, pdfMargin.left, yPos);
             doc.setTextColor(0);
             yPos += 15;
+
+            if (s.commercial.discountsAndNotes?.trim()) {
+                ensurePdfSpace(25);
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'bold');
+                doc.text("Commercial Annotations", pdfMargin.left, yPos);
+                yPos += 6;
+                doc.setFont(undefined, 'normal');
+                const notes = doc.splitTextToSize(s.commercial.discountsAndNotes, contentWidth);
+                doc.text(notes, pdfMargin.left, yPos);
+                yPos += (notes.length * 5) + 8;
+            }
         }
 
         if (s.tasks && s.tasks.length > 0) {
@@ -4010,41 +4400,65 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const nextTask = useMemo(() => getNextTask(localOpp.tasks || []), [localOpp.tasks]);
 
+    /**
+     * WYSIWYG note export: renders the note's actual HTML (same styles as the
+     * editor) through jsPDF's doc.html/html2canvas pipeline, so the PDF looks
+     * like the note on screen — fonts, colors, tables, highlights, checkboxes,
+     * embedded images — instead of the flattened text-only rendering.
+     */
     const handleExportNotePDF = async (note: MeetingNote) => {
         if (!note) return;
-        const { jsPDF, autoTable } = await loadPdfLibs();
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
+        const { jsPDF } = await loadPdfLibs();
+        const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+        const pageWidthPt = doc.internal.pageSize.getWidth();
         const opportunityName = localOpp.title.replace(/[/\\?%*:|"<>]/g, '-');
         const noteTitle = note.title.replace(/[/\\?%*:|"<>]/g, '-');
         const fileName = `Note_${opportunityName}_${noteTitle}.pdf`;
 
-        doc.setFillColor(61, 205, 88);
-        doc.rect(0, 0, pageWidth, 25, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(14);
-        doc.text("Meeting Note Output", 14, 16);
+        // Offscreen container replicating the editor's look (see .editor-content
+        // styles in RichTextEditor). Width 760px maps to the printable area.
+        const CONTENT_WIDTH_PX = 760;
+        const marginPt = 36;
+        const container = document.createElement('div');
+        container.style.cssText = `position:fixed;left:-10000px;top:0;width:${CONTENT_WIDTH_PX}px;background:#ffffff;font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.65;color:#1f2937;`;
+        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        container.innerHTML = `
+            <style>
+                .pdf-note ul { list-style-type: disc; padding-left: 1.5em; margin: 0.5em 0; }
+                .pdf-note ol { list-style-type: decimal; padding-left: 1.5em; margin: 0.5em 0; }
+                .pdf-note li { padding-left: 0.25em; }
+                .pdf-note a { color: #3b82f6; text-decoration: underline; }
+                .pdf-note table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
+                .pdf-note td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
+                .pdf-note h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0 0.25em; }
+                .pdf-note hr { border: none; border-top: 2px solid #e5e7eb; margin: 1.25em 0; }
+                .pdf-note img { max-width: 100%; height: auto; }
+                .pdf-note .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61,205,88,0.1); font-weight: 500; }
+                .pdf-note p { margin: 0.35em 0; }
+            </style>
+            <div style="background:#3DCD58;color:#ffffff;padding:14px 18px;font-weight:bold;font-size:15px;">Meeting Note Output</div>
+            <div style="padding:18px 4px 0;">
+                <div style="font-size:22px;font-weight:800;color:#111827;margin-bottom:6px;">${esc(note.title || 'Untitled Note')}</div>
+                <div style="font-size:11px;color:#6b7280;">${esc(localOpp.id)} — ${esc(localOpp.title)}</div>
+                <div style="font-size:11px;color:#6b7280;margin-bottom:10px;">Date: ${esc(note.date || 'N/A')}</div>
+                <hr style="border:none;border-top:2px solid #e5e7eb;margin:10px 0 16px;" />
+                <div class="pdf-note">${note.content || '<p style="color:#9ca3af;font-style:italic;">(Empty note)</p>'}</div>
+            </div>`;
+        document.body.appendChild(container);
 
-        let yPos = 40;
-        doc.setTextColor(0);
-        doc.setFontSize(18);
-        doc.setFont(undefined, 'bold');
-        const titleLines = doc.splitTextToSize(note.title, pageWidth - 28);
-        doc.text(titleLines, 14, yPos);
-        yPos += titleLines.length * 8 + 5;
-
-        doc.setFontSize(10);
-        doc.setFont(undefined, 'normal');
-        doc.setTextColor(100);
-        doc.text(`${localOpp.id} - ${localOpp.title}`, 14, yPos);
-        yPos += 5;
-        doc.text(`Date: ${note.date || 'N/A'}`, 14, yPos);
-        yPos += 15;
-
-        doc.setTextColor(0);
-
-        // Render note content with centralized helper (text, images, tables)
-        yPos = await renderNoteContentToPdf(doc, autoTable, note.content, yPos, pageWidth);
+        try {
+            await doc.html(container, {
+                x: marginPt,
+                y: marginPt,
+                width: pageWidthPt - marginPt * 2,
+                windowWidth: CONTENT_WIDTH_PX,
+                autoPaging: 'text',
+                margin: [marginPt, marginPt, marginPt, marginPt],
+                html2canvas: { scale: (pageWidthPt - marginPt * 2) / CONTENT_WIDTH_PX, useCORS: true, logging: false }
+            });
+        } finally {
+            container.remove();
+        }
 
         if ('showSaveFilePicker' in window) {
             try {
@@ -4265,11 +4679,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const activeVersion = viewingVersionId ? localOpp.versions?.find(v => v.id === viewingVersionId) : null;
 
-    const handleCreateVersion = () => {
+    const handleCreateVersion = async () => {
         if (!newVersionData.commitMessage) return alert("Commit message is required");
 
         if ((localOpp.versions?.length || 0) >= 10) {
-            return alert("Maximum version limit (10) reached for this opportunity. Delete an old snapshot to create a new one.");
+            return alert("Maximum revision limit (10) reached for this opportunity. Delete an old snapshot to create a new one.");
         }
 
         const finalSrIdForSnapshot = newVersionData.srId || localOpp.srId || '';
@@ -4291,6 +4705,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         };
 
         const nextRev = incrementRevision(localOpp.revision || 'R1');
+        const prevRevision = localOpp.revision || 'R1';
 
         // 2. Decide if we are RESTORING or creating a CLEAN version
         if (versionToRestore) {
@@ -4317,12 +4732,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             alert(`Version restored successfully. You are now working on a full editable copy of "${versionToRestore.commitMessage}" as revision ${nextRev}.`);
         } else {
             // FLOW A: NEW CLEAN VERSION
-            // Folder is per-revision. Ask whether this new revision should reuse the
-            // previous revision's folder (it can be the same, but we must ask).
-            const prevRevision = localOpp.revision || 'R1';
-            const reuseFolder = !!localOpp.folderLinked && window.confirm(
-                `Nueva revisión ${nextRev} creada.\n\n¿Vincular la MISMA carpeta de ${prevRevision} a esta revisión ${nextRev}?\n\nAceptar = usar la misma carpeta\nCancelar = no vincular ahora (podrás elegir una carpeta en la pestaña Carpeta)`
-            );
+            // Move any legacy opportunity-level folder link onto the current
+            // revision so the new revision can start empty.
+            await moveLegacyFolderLinkToRevision(localOpp.id, prevRevision).catch(() => {});
+            const sourceNotes = JSON.parse(JSON.stringify(localOpp.notes || [])) as MeetingNote[];
+            const sourceDefaultLinks = DEFAULT_QUICK_LINKS.map(link => ({
+                id: link.id,
+                label: link.label,
+                url: normalizedQuickLinks.defaultUrls[link.id] || ''
+            })).filter(link => !!link.url);
+            const sourceCustomLinks = JSON.parse(JSON.stringify(normalizedQuickLinks.customLinks)) as QuickLinkItem[];
             const resetOpp: Opportunity = {
                 ...localOpp,
                 revision: nextRev,
@@ -4343,7 +4762,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 emails: localOpp.emails || createEmptyEmailsData(),
                 questions: [],
                 kpis: resetKPIData(localOpp.kpis),
-                folderLinked: reuseFolder,
+                folderLinked: false,
                 commercial: resetCommercialData(),
                 tasks: (localOpp.tasks || []).map(t => ({
                     ...t,
@@ -4359,16 +4778,52 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
             setLocalOpp(resetOpp);
             onUpdate(resetOpp, localOpp.id, true);
-            // Copy the folder link to the new revision's key so it opens the same
-            // folder while the old revision keeps its own.
-            if (reuseFolder) {
-                copyFolderLinkToRevision(localOpp.id, prevRevision, nextRev).catch(() => {});
-            }
+            setRevisionCarryoverSource({
+                sourceLabel: `${prevRevision}${localOpp.title ? ` - ${localOpp.title}` : ''}`,
+                notes: sourceNotes,
+                defaultLinks: sourceDefaultLinks,
+                customLinks: sourceCustomLinks
+            });
+            setShowRevisionCarryoverModal(true);
             alert(`New clean version ${nextRev} created. Current progress saved.`);
         }
 
         setShowCreateVersionModal(false);
         setNewVersionData({ commitMessage: '', tags: '', srId: '' });
+    };
+
+    const handleApplyRevisionCarryover = (selection: { noteIds: string[]; defaultLinkIds: string[]; customLinkIds: string[] }) => {
+        if (!revisionCarryoverSource) return;
+
+        const selectedNotes = JSON.parse(JSON.stringify(
+            revisionCarryoverSource.notes.filter(note => selection.noteIds.includes(note.id))
+        )) as MeetingNote[];
+        const selectedDefaultUrls = { ...normalizedQuickLinks.defaultUrls };
+        revisionCarryoverSource.defaultLinks.forEach(link => {
+            if (selection.defaultLinkIds.includes(link.id)) selectedDefaultUrls[link.id as DefaultQuickLinkId] = link.url;
+        });
+        const selectedCustomLinks = JSON.parse(JSON.stringify(
+            revisionCarryoverSource.customLinks.filter(link => selection.customLinkIds.includes(link.id))
+        )) as QuickLinkItem[];
+
+        const updates: Partial<Opportunity> = {};
+        if (selectedNotes.length > 0) updates.notes = selectedNotes;
+        if (selection.defaultLinkIds.length > 0 || selectedCustomLinks.length > 0) {
+            updates.links = composeQuickLinks(selectedDefaultUrls, selectedCustomLinks);
+        }
+
+        if (Object.keys(updates).length > 0) {
+            const updated = {
+                ...localOpp,
+                ...updates,
+                lastUpdated: new Date().toISOString()
+            } as Opportunity;
+            setLocalOpp(updated);
+            onUpdate(updated, opportunity.id, true);
+        }
+
+        setShowRevisionCarryoverModal(false);
+        setRevisionCarryoverSource(null);
     };
 
     const handleRestoreFromSnapshot = (ver: OpportunityVersion) => {
@@ -4497,7 +4952,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${isSnapshot ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
                                                 >
                                                     <HistoryIcon className="w-3.5 h-3.5" />
-                                                    Versions
+                                                    Revisions
                                                     {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                                 </button>
 
@@ -4507,7 +4962,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
                                                             <div className="p-3 border-b border-gray-100 bg-gray-50 flex flex-col gap-2">
                                                                 <div className="flex justify-between items-center">
-                                                                    <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Version History</h4>
+                                                                    <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Revision History</h4>
                                                                     <button onClick={() => { setShowCreateVersionModal(true); setShowVersionMenu(false); }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
                                                                         <Plus className="w-3 h-3" /> New revision
                                                                     </button>
@@ -4525,7 +4980,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             </div>
                                                             <div className="overflow-y-auto p-2 space-y-4 flex-1 min-h-[100px]">
                                                                 {(localOpp.versions || []).length === 0 && (
-                                                                    <div className="text-center py-8 text-gray-400 text-xs italic">No versions created yet.</div>
+                                                                    <div className="text-center py-8 text-gray-400 text-xs italic">No revisions created yet.</div>
                                                                 )}
                                                                 {Object.keys(versionGroups).length > 0 && Object.entries(versionGroups).map(([sr, versions]: [string, OpportunityVersion[]]) => (
                                                                     <div key={sr}>
@@ -4581,6 +5036,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="w-px h-6 bg-gray-200 mx-1"></div>
                                             <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
                                             <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
+                                            {!isSnapshot && (
+                                                <button
+                                                    onClick={() => setShowSrImport(true)}
+                                                    className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] border border-[#3DCD58]/20 rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"
+                                                    title="Auto-fill this expediente from a bFO Support Request email (.msg / .eml file or pasted text)"
+                                                >
+                                                    <Mail className="w-3.5 h-3.5" /> Auto-fill from Email
+                                                </button>
+                                            )}
                                             {!isSnapshot && (
                                                 <>
                                                     <div className="w-px h-6 bg-gray-200 mx-1"></div>
@@ -4712,16 +5176,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
                         <div className="w-full px-4 flex">
                             <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
-                            <button onClick={() => setActiveTab('kpi')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'kpi' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><BarChart3 className="w-4 h-4" /> KPI</button>
-                            <button onClick={() => setActiveTab('history')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'history' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HistoryIcon className="w-4 h-4" /> History</button>
-                            <button onClick={() => setActiveTab('tasks')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><ListChecks className="w-4 h-4" /> Tasks</button>
-                            <button onClick={() => setActiveTab('commercial')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'commercial' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><DollarSign className="w-4 h-4" /> Commercial</button>
-                            <button onClick={() => setActiveTab('notes')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'notes' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FileText className="w-4 h-4" /> Notes</button>
-                            {emailIntegrationEnabled && (
-                                <button onClick={() => setActiveTab('emails')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'emails' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><Mail className="w-4 h-4" /> Emails</button>
-                            )}
-                            <button onClick={() => setActiveTab('folder')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'folder' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><FolderOpen className="w-4 h-4" /> Opportunity Folder</button>
-                            <button onClick={() => setActiveTab('questions')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === 'questions' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}><HelpCircle className="w-4 h-4" /> Questions</button>
+                            {orderedDetailTabs.map(tab => {
+                                const section = OPPORTUNITY_DETAIL_SECTIONS.find(item => item.key === tab);
+                                return (
+                                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>
+                                        {renderOpportunityDetailTabIcon(tab)}
+                                        {section?.label || tab}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                 )}
@@ -5201,20 +5664,63 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
 
                                     <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
-                                        {orderedDefaultLinks.map((link) => {
+                                        {visibleDefaultLinks.map((link, visIdx) => {
                                             const url = normalizedQuickLinks.defaultUrls[link.id] || '';
-                                            const Icon = link.locked ? Lock : link.id === 'folder' ? FolderOpen : LinkIcon;
-                                            const unlockedIdx = orderedUnlockedDefaultLinks.findIndex(l => l.id === link.id);
+                                            const Icon = getQuickLinkIcon(link);
                                             return (
-                                                <div key={link.id} className="flex items-center gap-2 bg-gray-50 p-1.5 rounded border border-gray-100 min-w-0">
-                                                    {!link.locked && (
+                                                <div key={link.id} className="relative flex items-center gap-2 bg-gray-50 p-1.5 rounded border border-gray-100 min-w-0 group">
+                                                    {!isSnapshot && (
                                                         <div className="flex flex-col shrink-0">
-                                                            <button onClick={() => moveDefaultQuickLink(link.id, -1)} disabled={unlockedIdx === 0} className="hover:text-blue-500 disabled:opacity-30" title="Move up"><ChevronUp className="w-3 h-3" /></button>
-                                                            <button onClick={() => moveDefaultQuickLink(link.id, 1)} disabled={unlockedIdx === orderedUnlockedDefaultLinks.length - 1} className="hover:text-blue-500 disabled:opacity-30" title="Move down"><ChevronDown className="w-3 h-3" /></button>
+                                                            <button onClick={() => moveDefaultQuickLink(link.id, -1)} disabled={visIdx === 0} className="hover:text-blue-500 disabled:opacity-30" title="Move up"><ChevronUp className="w-3 h-3" /></button>
+                                                            <button onClick={() => moveDefaultQuickLink(link.id, 1)} disabled={visIdx === visibleDefaultLinks.length - 1} className="hover:text-blue-500 disabled:opacity-30" title="Move down"><ChevronDown className="w-3 h-3" /></button>
                                                         </div>
                                                     )}
-                                                    <Icon className={`w-3.5 h-3.5 shrink-0 ${link.locked ? 'text-gray-300' : 'text-gray-400'}`} title={link.locked ? 'Locked quick link' : 'Default quick link'} />
-                                                    <span className="text-[10px] font-black text-gray-500 w-16 shrink-0 uppercase">{link.label}</span>
+                                                    {link.locked ? (
+                                                        <Icon className="w-3.5 h-3.5 shrink-0 text-gray-300" title="Locked quick link" />
+                                                    ) : (
+                                                        <button
+                                                            disabled={isSnapshot}
+                                                            onClick={() => setIconPickerFor(iconPickerFor === link.id ? null : link.id)}
+                                                            className="shrink-0 p-0.5 -m-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-200 disabled:hover:bg-transparent"
+                                                            title="Change icon"
+                                                        >
+                                                            <Icon className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
+                                                    {iconPickerFor === link.id && !isSnapshot && !link.locked && (
+                                                        <>
+                                                            <div className="fixed inset-0 z-20" onClick={() => setIconPickerFor(null)} />
+                                                            <div className="absolute z-30 top-9 left-6 bg-white border border-gray-200 rounded-xl shadow-xl p-2 w-52 animate-in fade-in zoom-in-95 duration-150">
+                                                                <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-gray-100">
+                                                                    <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Icon</span>
+                                                                    <button onClick={() => setDefaultQuickLinkIcon(link.id, '')} className="flex items-center gap-0.5 text-[9px] font-bold text-gray-400 hover:text-gray-600"><RotateCcw className="w-2.5 h-2.5" /> Default</button>
+                                                                </div>
+                                                                <div className="grid grid-cols-6 gap-1">
+                                                                    {QUICK_LINK_ICON_OPTIONS.map(({ name, Icon: Opt }) => (
+                                                                        <button
+                                                                            key={name}
+                                                                            onClick={() => setDefaultQuickLinkIcon(link.id, name)}
+                                                                            className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${localOpp.quickLinkIcons?.[link.id] === name ? 'bg-[#3DCD58]/10 text-[#3DCD58]' : 'text-gray-500 hover:bg-gray-100'}`}
+                                                                            title={name}
+                                                                        >
+                                                                            <Opt className="w-4 h-4" />
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    {link.locked ? (
+                                                        <span className="text-[10px] font-black text-gray-500 w-16 shrink-0 uppercase">{link.label}</span>
+                                                    ) : (
+                                                        <OptimizedInput
+                                                            disabled={isSnapshot}
+                                                            value={getQuickLinkLabel(link)}
+                                                            onChange={(val: string) => setDefaultQuickLinkLabel(link.id, val)}
+                                                            className="text-[10px] font-black text-gray-500 w-16 shrink-0 uppercase bg-transparent border-none focus:ring-0 p-0 truncate disabled:text-gray-400"
+                                                            placeholder={link.label}
+                                                        />
+                                                    )}
                                                     <input
                                                         disabled={isSnapshot}
                                                         type="url"
@@ -5227,6 +5733,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <a href={url} target="_blank" rel="noreferrer" className="text-[#3DCD58] hover:text-green-700 shrink-0 p-1 bg-white rounded border border-gray-200 shadow-sm">
                                                             <ExternalLink className="w-3.5 h-3.5" />
                                                         </a>
+                                                    )}
+                                                    {!isSnapshot && (
+                                                        <button
+                                                            onClick={() => toggleQuickLinkHidden(link.id)}
+                                                            className="shrink-0 p-1 text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            title="Hide this link (you can restore it below)"
+                                                        >
+                                                            <EyeOff className="w-3.5 h-3.5" />
+                                                        </button>
                                                     )}
                                                 </div>
                                             );
@@ -5342,6 +5857,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </button>
                                             </div>
                                         ))}
+
+                                        {/* Hidden links — always LAST, below defaults and custom links */}
+                                        {!isSnapshot && hiddenDefaultLinks.length > 0 && (
+                                            <div className="flex flex-wrap items-center gap-1.5 pt-2 mt-1 border-t border-gray-100">
+                                                <span className="text-[9px] font-black uppercase tracking-wider text-gray-300">Hidden</span>
+                                                {hiddenDefaultLinks.map(link => (
+                                                    <button
+                                                        key={link.id}
+                                                        onClick={() => toggleQuickLinkHidden(link.id)}
+                                                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 hover:bg-gray-200 text-[10px] font-bold text-gray-500 uppercase transition-colors"
+                                                        title="Show this link again"
+                                                    >
+                                                        <Eye className="w-3 h-3" /> {getQuickLinkLabel(link)}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -5594,32 +6126,70 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
 
                         {activeTab === 'commercial' && (
-                            <div className="space-y-6">
+                            <div className="flex flex-col gap-6">
                                 {/* Historical Snapshots Summary */}
-                                {(localOpp.versions || []).length > 0 && (
-                                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between shadow-sm">
-                                         <div className="flex items-center gap-3">
+                                {commercialRevisionHistory.length > 0 && (
+                                     <div className="order-2 bg-blue-50 border border-blue-100 p-4 rounded-xl shadow-sm">
+                                         <div className="flex items-center gap-3 mb-4">
                                              <div className="bg-blue-100 p-2 rounded-lg"><HistoryIcon className="w-5 h-5 text-blue-600" /></div>
                                              <div>
-                                                 <h4 className="text-sm font-bold text-blue-900">Last Snapshot Summary</h4>
-                                                 <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wider">Revision: {localOpp.versions[0].snapshot.revision || 'previous'}</p>
+                                                 <h4 className="text-sm font-bold text-blue-900">Previous Revision Commercial Summary</h4>
+                                                 <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wider">CQA Sell and margin saved in prior revisions</p>
                                              </div>
                                          </div>
-                                         <div className="flex gap-6">
-                                             <div className="text-right">
-                                                 <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Sell</div>
-                                                 <div className="text-sm font-black text-gray-700">${(localOpp.versions[0].snapshot.commercial?.cqaOfficialSellPrice || 0).toLocaleString()}</div>
-                                             </div>
-                                             <div className="text-right">
-                                                 <div className="text-[10px] font-bold text-gray-400 uppercase">Last CQA Margin</div>
-                                                 <div className="text-sm font-black text-blue-700">{(localOpp.versions[0].snapshot.commercial?.cqaOfficialMargin || 0)}%</div>
-                                             </div>
+                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                             {commercialRevisionHistory.map(revision => (
+                                                 <div key={revision.id} className="bg-white border border-blue-100 rounded-xl p-3 shadow-sm">
+                                                     <div className="flex justify-between gap-3 mb-3">
+                                                         <div>
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">Revision</div>
+                                                             <div className="text-sm font-black text-blue-900">{revision.revision}</div>
+                                                         </div>
+                                                         <div className="text-right text-[10px] text-blue-400 font-bold">
+                                                             {new Date(revision.createdAt).toLocaleDateString()}
+                                                         </div>
+                                                     </div>
+                                                     <div className="grid grid-cols-2 gap-3">
+                                                         <div>
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">CQA Sell</div>
+                                                             <div className="text-sm font-black text-gray-700">${revision.sellPrice.toLocaleString()}</div>
+                                                         </div>
+                                                         <div className="text-right">
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">CQA Margin</div>
+                                                             <div className="text-sm font-black text-blue-700">{revision.margin}%</div>
+                                                         </div>
+                                                     </div>
+                                                     {revision.notes?.trim() && (
+                                                         <div className="mt-3 pt-3 border-t border-blue-50">
+                                                             <button
+                                                                 type="button"
+                                                                 onClick={() => {
+                                                                     setExpandedCommercialRevisionNotes(prev => {
+                                                                         const next = new Set(prev);
+                                                                         next.has(revision.id) ? next.delete(revision.id) : next.add(revision.id);
+                                                                         return next;
+                                                                     });
+                                                                 }}
+                                                                 className="flex items-center gap-1.5 text-[10px] font-black uppercase text-blue-600 hover:text-blue-800"
+                                                             >
+                                                                 {expandedCommercialRevisionNotes.has(revision.id) ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                                 {expandedCommercialRevisionNotes.has(revision.id) ? 'Hide notes' : 'Show notes'}
+                                                             </button>
+                                                             {expandedCommercialRevisionNotes.has(revision.id) && (
+                                                                 <div className="mt-2 rounded-lg bg-blue-50/70 border border-blue-100 px-3 py-2 text-xs text-blue-900 whitespace-pre-wrap">
+                                                                     {revision.notes}
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     )}
+                                                 </div>
+                                             ))}
                                          </div>
                                      </div>
                                 )}
 
                                 {/* Quick References — files & links for fast access */}
-                                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                                <div className="order-5 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                                     <div className="flex justify-between items-center mb-4">
                                         <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                                             <LinkIcon className="w-4 h-4 text-emerald-500" /> Quick References
@@ -5705,7 +6275,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     )}
                                 </div>
 
-                                <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                                {(localOpp.commercial.customSections || []).length > 0 && (
+                                <>
+                                <div className="order-3 flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                                     <h3 className="text-lg font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
                                         <DollarSign className="w-5 h-5 text-emerald-500" /> Commercial Breakdown
                                     </h3>
@@ -5719,7 +6291,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     )}
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <div className="order-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                     {(localOpp.commercial.customSections || []).map((sec) => (
                                         <div key={sec.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative group hover:border-[#3DCD58] transition-all">
                                             {!isSnapshot && (
@@ -5811,16 +6383,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
                                     ))}
-                                    {(localOpp.commercial.customSections || []).length === 0 && (
-                                        <div className="col-span-full py-20 border-2 border-dashed border-gray-200 rounded-[32px] flex flex-col items-center justify-center text-gray-400 bg-gray-50/50 animate-pulse">
-                                            <div className="bg-white p-6 rounded-3xl shadow-sm mb-4"><DollarSign className="w-12 h-12 text-gray-200" /></div>
-                                            <p className="font-black text-gray-500 uppercase tracking-widest text-xs">Awaiting Commercial Data</p>
-                                            <p className="text-[10px] uppercase font-bold mt-1">Add a new section to begin calculation</p>
-                                        </div>
-                                    )}
                                 </div>
+                                </>
+                                )}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="order-1 grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
                                         <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-emerald-500" /> Commercial Annotations
@@ -5838,9 +6405,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                                                 <BarChart3 className="w-4 h-4 text-emerald-500" /> Project Financial View
                                             </h4>
-                                            <div className="flex items-center gap-2 bg-[#3DCD58]/10 px-4 py-1.5 rounded-full">
-                                                <span className="text-[10px] text-[#3DCD58] font-black uppercase tracking-widest">Global GM:</span>
-                                                <span className="text-xs text-[#3DCD58] font-black">{totalMargin}%</span>
+                                            <div className="flex items-center gap-2">
+                                                {(localOpp.commercial.customSections || []).length > 0 && (
+                                                    <div className="flex items-center gap-2 bg-[#3DCD58]/10 px-4 py-1.5 rounded-full">
+                                                        <span className="text-[10px] text-[#3DCD58] font-black uppercase tracking-widest">Global GM:</span>
+                                                        <span className="text-xs text-[#3DCD58] font-black">{totalMargin}%</span>
+                                                    </div>
+                                                )}
+                                                {!isSnapshot && (
+                                                    <button
+                                                        onClick={() => setShowAddSectionModal(true)}
+                                                        className="px-3 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-lg shadow-sm hover:bg-[#2db64a] transition-all flex items-center gap-1.5"
+                                                    >
+                                                        <Plus className="w-3.5 h-3.5" /> Add Line
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex-1 p-6 border-2 border-emerald-50 rounded-[28px] bg-gradient-to-br from-white to-emerald-50/30 flex flex-col justify-center space-y-8">
@@ -5872,6 +6451,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                             </div>
+                                            {(localOpp.commercial.customSections || []).length > 0 && (
                                             <div className="pt-6 border-t border-gray-200/60">
                                                 <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-[#3DCD58]/20 shadow-lg shadow-[#3DCD58]/5">
                                                     <div>
@@ -5883,6 +6463,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                             </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -7281,7 +7862,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <div className="flex gap-2 justify-end mt-2">
                                     <button onClick={() => { setShowCreateVersionModal(false); setVersionToRestore(null); }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
                                     <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
-                                        {versionToRestore ? `Confirm Restore` : `Create Version`}
+                                        {versionToRestore ? `Confirm Restore` : `Create Revision`}
                                     </button>
                                 </div>
                             </div>
@@ -7302,11 +7883,35 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 )
             }
             {
+                showSrImport && (
+                    <ImportSrEmailModal
+                        isOpen={showSrImport}
+                        onClose={() => setShowSrImport(false)}
+                        currentOppId={localOpp.id}
+                        existingOpps={(opportunities || []).map(o => ({ id: o.id, title: o.title, srId: o.srId }))}
+                        onApply={applySrPrefill}
+                    />
+                )
+            }
+            {
+                showRevisionCarryoverModal && revisionCarryoverSource && (
+                    <RevisionCarryoverModal
+                        isOpen={showRevisionCarryoverModal}
+                        onClose={() => { setShowRevisionCarryoverModal(false); setRevisionCarryoverSource(null); }}
+                        sourceLabel={revisionCarryoverSource.sourceLabel}
+                        notes={revisionCarryoverSource.notes}
+                        defaultLinks={revisionCarryoverSource.defaultLinks}
+                        customLinks={revisionCarryoverSource.customLinks}
+                        onApply={handleApplyRevisionCarryover}
+                    />
+                )
+            }
+            {
                 showDiffModal && (
                     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
                         <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
                             <div className="p-4 border-b flex justify-between items-center">
-                                <h3 className="font-bold">Version Comparison</h3>
+                                <h3 className="font-bold">Revision Comparison</h3>
                                 <button onClick={() => setShowDiffModal(false)}><X className="w-5 h-5" /></button>
                             </div>
                             <div className="p-4 overflow-y-auto flex-1">
@@ -7316,7 +7921,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <p className="text-xs">Current State</p>
                                     </div>
                                     <div className="p-2 bg-green-50 rounded border border-green-100">
-                                        <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Version)</h4>
+                                        <h4 className="font-bold text-green-800 text-xs uppercase mb-1">Compare (Revision)</h4>
                                         <p className="text-xs">
                                             {(localOpp.versions || []).find(v => v.id === diffCompareId)?.commitMessage || diffCompareId}
                                         </p>

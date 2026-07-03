@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Mail } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
@@ -28,6 +28,26 @@ export interface NoteTemplate {
   content: string;
   autoCreate: boolean;
 }
+
+export type OpportunityDetailSectionKey = 'kpi' | 'history' | 'tasks' | 'commercial' | 'notes' | 'emails' | 'folder' | 'questions';
+
+export const OPPORTUNITY_DETAIL_SECTIONS: { key: OpportunityDetailSectionKey; label: string; description: string }[] = [
+  { key: 'kpi', label: 'KPI', description: 'Shows performance metrics, delivery dates, work calendars and area tracking for each opportunity.' },
+  { key: 'history', label: 'History', description: 'Shows the chronological event log, milestones and important changes registered during the tender.' },
+  { key: 'tasks', label: 'Tasks', description: 'Shows the action plan, task details, owners, dependencies, subtasks and execution schedule.' },
+  { key: 'commercial', label: 'Commercial', description: 'Shows commercial sections, CQA target sell price, margins, discounts and commercial quick references.' },
+  { key: 'notes', label: 'Notes', description: 'Shows meeting notes, note folders, templates, inline tasks and linked notes.' },
+  { key: 'emails', label: 'Emails', description: 'Shows the email workspace for Outlook conversations, folders, labels and email links to tasks or notes.' },
+  { key: 'folder', label: 'Opportunity Folder', description: 'Shows the local opportunity folder browser, linked files and document preview tools.' },
+  { key: 'questions', label: 'Questions', description: 'Shows open questions captured from notes or tasks and their resolution status.' },
+];
+
+export const normalizeOpportunityDetailSectionOrder = (order?: OpportunityDetailSectionKey[]) => {
+  const validKeys = new Set(OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key));
+  const ordered = (order || []).filter((key): key is OpportunityDetailSectionKey => validKeys.has(key));
+  const missing = OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key).filter(key => !ordered.includes(key));
+  return [...ordered, ...missing];
+};
 
 export type SoundType =
   | 'beep'
@@ -59,6 +79,10 @@ export interface AppSettings {
   timerSound?: SoundType;
   alarms?: import('../types').AlarmConfig[];
   emailIntegrationEnabled?: boolean;
+  hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
+  opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
+  /** Global variables usable across the app (e.g. the user name stamped when copying History). */
+  userName?: string;
 }
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
@@ -98,6 +122,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationSound: 'beep',
   timerSound: 'beep',
   emailIntegrationEnabled: false,
+  hiddenOpportunityDetailSections: [],
+  opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
+  userName: 'User',
   alarms: [
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
     { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
@@ -162,7 +189,7 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'tasks' | 'notes' | 'labels' | 'taskview' | 'alarms'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'expediente' | 'tasks' | 'notes' | 'labels' | 'taskview' | 'alarms'>('general');
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
@@ -183,7 +210,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   const handleSave = () => {
     const holidays = holidaysText.split('\n').map(l => l.trim()).filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l));
     const trackedAreas = trackedAreasText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    onSave({ ...settings, holidays, trackedAreas });
+    onSave({ ...settings, holidays, trackedAreas, opportunityDetailSectionOrder: normalizeOpportunityDetailSectionOrder(settings.opportunityDetailSectionOrder) });
     onClose();
   };
 
@@ -291,6 +318,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             <CheckSquare className="w-4 h-4" /> Default Tasks
           </button>
           <button
+            onClick={() => setActiveTab('expediente')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'expediente' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <LayoutList className="w-4 h-4" /> Opportunity Detail
+          </button>
+          <button
             onClick={() => setActiveTab('notes')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'notes' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
@@ -323,6 +356,22 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           {activeTab === 'general' && (
             <div className="space-y-4">
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-4 flex items-center gap-2"><User className="w-4 h-4" /> Global Variables</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Values reused across the app. The <b>User name</b> is stamped in brackets when you copy the History for bFO
+                  (e.g. <span className="font-mono">07/02: [{(settings.userName || '').trim() || 'User'}] Comment</span>).
+                </p>
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">User name</label>
+                <input
+                  type="text"
+                  value={settings.userName ?? ''}
+                  onChange={(e) => setSettings(prev => ({ ...prev, userName: e.target.value }))}
+                  className="w-full mt-1 border-gray-200 rounded-lg text-sm p-2.5 focus:border-[#3DCD58] focus:ring-0"
+                  placeholder="User"
+                />
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-4 flex items-center gap-2"><Calendar className="w-4 h-4" /> Holidays</h3>
                 <p className="text-xs text-gray-500 mb-2">
                   Define non-working days (Company Holidays) for business day calculations. Weekends are automatically excluded.
@@ -347,32 +396,6 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   className="w-full h-32 border-gray-200 rounded-lg text-sm p-3 focus:border-[#3DCD58] focus:ring-0"
                   placeholder="Tendering&#10;Sales CSE&#10;TSC"
                 />
-              </div>
-
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-[#3DCD58]" /> Outlook Emails
-                    </h3>
-                    <p className="text-xs text-gray-500 max-w-2xl">
-                      Enable the Emails section in every opportunity. When disabled, email folders, labels, conversation references and linked emails stay saved but hidden and paused.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSettings(prev => ({ ...prev, emailIntegrationEnabled: !prev.emailIntegrationEnabled }))}
-                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${settings.emailIntegrationEnabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
-                    title="Toggle Outlook Emails"
-                  >
-                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.emailIntegrationEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                  </button>
-                </div>
-                <div className={`mt-4 rounded-lg border px-3 py-2 text-xs font-medium ${settings.emailIntegrationEnabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
-                  {settings.emailIntegrationEnabled
-                    ? 'Emails are enabled. Every expediente will show the Emails tab and linked email references.'
-                    : 'Emails are off by default. No email-related UI will appear until this is enabled and saved.'}
-                </div>
               </div>
 
               {/* TASK STANDARD TEMPLATE */}
@@ -552,6 +575,130 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                       {SOUND_OPTIONS.find(o => o.value === (settings.timerSound || 'beep'))?.hint}
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* OPPORTUNITY DETAIL TAB */}
+          {activeTab === 'expediente' && (
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <LayoutList className="w-4 h-4 text-[#3DCD58]" /> Opportunity Detail Sections
+                    </h3>
+                    <p className="text-xs text-gray-500 max-w-2xl">
+                      Choose which sheets appear inside every opportunity detail. These settings apply to every opportunity and stay saved after reloading the page.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(prev => ({
+                      ...prev,
+                      hiddenOpportunityDetailSections: [],
+                      emailIntegrationEnabled: true,
+                      opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key)
+                    }))}
+                    className="text-[10px] font-bold text-gray-400 hover:text-[#3DCD58] uppercase flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-emerald-50"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Show all
+                  </button>
+                </div>
+
+                <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-black text-gray-800">Overview</p>
+                      <p className="text-xs text-gray-500 max-w-2xl">
+                        Main opportunity sheet with title, customer, status, quick links, key dates and the high-level opportunity summary.
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-black uppercase text-[#3DCD58] bg-white border border-emerald-100 px-2 py-1 rounded-lg shrink-0">Always visible</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {normalizeOpportunityDetailSectionOrder(settings.opportunityDetailSectionOrder).map((sectionKey, index, orderedKeys) => {
+                    const section = OPPORTUNITY_DETAIL_SECTIONS.find(item => item.key === sectionKey);
+                    if (!section) return null;
+                    const sectionHidden = (settings.hiddenOpportunityDetailSections || []).includes(section.key);
+                    const enabled = section.key === 'emails'
+                      ? !!settings.emailIntegrationEnabled && !sectionHidden
+                      : !sectionHidden;
+                    return (
+                      <div key={section.key} className={`rounded-xl border p-4 transition-all ${enabled ? 'bg-white border-emerald-100 shadow-sm' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className="flex flex-col gap-1 pt-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (index === 0) return;
+                                  const next = [...orderedKeys];
+                                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                  setSettings({ ...settings, opportunityDetailSectionOrder: next });
+                                }}
+                                disabled={index === 0}
+                                className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300"
+                                title="Move up"
+                              >
+                                <ChevronUp className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (index === orderedKeys.length - 1) return;
+                                  const next = [...orderedKeys];
+                                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                  setSettings({ ...settings, opportunityDetailSectionOrder: next });
+                                }}
+                                disabled={index === orderedKeys.length - 1}
+                                className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300"
+                                title="Move down"
+                              >
+                                <ChevronDown className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-black text-gray-400 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">#{index + 2}</span>
+                                <p className="text-sm font-black text-gray-800">{section.label}</p>
+                              </div>
+                              <p className="text-xs text-gray-500 leading-snug max-w-2xl mt-1">{section.description}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                            const current = settings.hiddenOpportunityDetailSections || [];
+                              const next = enabled
+                                ? Array.from(new Set([...current, section.key]))
+                                : current.filter(key => key !== section.key);
+                              setSettings({
+                                ...settings,
+                                hiddenOpportunityDetailSections: next,
+                                ...(section.key === 'emails' ? { emailIntegrationEnabled: !enabled } : {})
+                              });
+                            }}
+                            className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${enabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                            title={`Toggle ${section.label}`}
+                          >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                        </div>
+                        <div className={`mt-4 rounded-lg border px-3 py-2 text-xs font-medium ${enabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                          {enabled
+                            ? `${section.label} is visible in every opportunity detail.`
+                            : `${section.label} is hidden in every opportunity detail.`}
+                          {section.key === 'emails' && (
+                            <span> Email folders, labels, conversation references and linked emails remain saved while hidden.</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

@@ -36,6 +36,13 @@ export default defineConfig(({ mode }) => {
         alias: {
           // Fix: Replace __dirname with path.resolve('.') for ESM compatibility
           '@': path.resolve('.'),
+          // Browser polyfill for Node's `buffer` builtin. Required by
+          // iconv-lite/safer-buffer (pulled in by @kenjiuno/msgreader when
+          // reading classic-Outlook .msg files); without it Vite serves an
+          // empty stub and safer-buffer crashes with
+          // "Cannot read properties of undefined (reading 'prototype')".
+          // The trailing slash forces resolution to the npm package.
+          buffer: 'buffer/',
         }
       }
     };

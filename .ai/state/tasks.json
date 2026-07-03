@@ -643,7 +643,9 @@
     "risks": [
       "Acceso al sistema de archivos requiere File System Access API (ya usada en el proyecto)."
     ],
-    "notes": [],
+    "notes": [
+      "2026-06-17: Flujo de template ampliado. Ahora: 1) elegir carpeta template (origen), 2) elegir destino, 3) copia recursiva de todos los archivos y subcarpetas renombrada con el nombre de la oportunidad, 4) modal para elegir si la carpeta completa es la raiz o una subcarpeta (revision). Implementado en features/opportunity-folder/OpportunityFolderTab.tsx (handleCreateFromTemplate). Estado: needs_testing manual."
+    ],
     "implemented_at": "2026-06-15",
     "implemented_by": "subagent-vista-general"
   },
@@ -657,7 +659,7 @@
     "priority": "high",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/CalendarView.tsx",
       "components/OpportunityDetail.tsx"
@@ -674,7 +676,10 @@
     "risks": [
       "Puede ser relacionado con re-renders excesivos durante el drag."
     ],
-    "notes": []
+    "notes": [
+      "[2026-06-17] Drag de bloques ya no se revierte: ScheduleView.mutateTask usa onOppUpdate(...,true) (commit inmediato). Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-023",
@@ -774,7 +779,7 @@
     "priority": "high",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/CalendarView.tsx",
       "components/OpportunityDetail.tsx"
@@ -790,8 +795,10 @@
     "dependencies": [],
     "risks": [],
     "notes": [
-      "Relacionado con TASK-022. Posible causa raíz común."
-    ]
+      "Relacionado con TASK-022. Posible causa raíz común.",
+      "[2026-06-17] Mismo fix que TASK-022 (persistencia inmediata al mover bloques en Schedule). Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-027",
@@ -803,7 +810,7 @@
     "priority": "medium",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/CalendarView.tsx"
     ],
@@ -816,7 +823,10 @@
     ],
     "dependencies": [],
     "risks": [],
-    "notes": []
+    "notes": [
+      "[2026-06-17] Filtros: el calendario ya no se vacia, resalta coincidencias (ring ambar); los filtros solo recortan la lista Unscheduled. Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-028",
@@ -828,7 +838,7 @@
     "priority": "high",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/OpportunityDetail.tsx",
       "App.tsx"
@@ -846,8 +856,10 @@
       "Requiere permiso de notificaciones del navegador. Si se deniega, no funciona."
     ],
     "notes": [
-      "Puede requerir Service Worker o Notification API."
-    ]
+      "Puede requerir Service Worker o Notification API.",
+      "[2026-06-17] Notificaciones 15min/al iniciar ya estaban en useScheduleNotifications; se agrego boton \"Enable alerts\" en el header de Schedule para pedir permiso con gesto del usuario. Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-029",
@@ -859,7 +871,7 @@
     "priority": "medium",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/CalendarView.tsx",
       "components/OpportunityDetail.tsx"
@@ -874,7 +886,10 @@
     ],
     "dependencies": [],
     "risks": [],
-    "notes": []
+    "notes": [
+      "[2026-06-17] Tareas sin fecha (Needs Info) ahora son arrastrables/agendables al calendario. Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-030",
@@ -886,7 +901,7 @@
     "priority": "medium",
     "owner": "programmer-editor",
     "subagent": "subagent-tareas-schedule",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "components/OpportunityDetail.tsx"
     ],
@@ -899,7 +914,10 @@
     ],
     "dependencies": [],
     "risks": [],
-    "notes": []
+    "notes": [
+      "[2026-06-17] Status editable: dropdown en el panel de detalles del Schedule (SchedulePanel.DetailsTab -> onChangeStatus). Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-031",
@@ -956,9 +974,10 @@
     "dependencies": [],
     "risks": [],
     "notes": [
-      "Relacionado con TASK-017."
+      "Relacionado con TASK-017.",
+      "[2026-06-17] Extendido: Approval ahora tiene paridad con Missing Info (aviso en tarjeta Next Step con nombre del responsable, agrupacion por status, columna Waiting On en morado). Ver .ai/reports/CAMBIOS_2026-06-17.md"
     ],
-    "implemented_at": "2026-06-15"
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-033",
@@ -1083,7 +1102,7 @@
     "owner": "programmer-editor",
     "subagent": "subagent-notas",
     "status": "needs_testing",
-    "implemented_at": "2026-06-15",
+    "implemented_at": "2026-06-17",
     "files_probable": [
       "components/OpportunityDetail.tsx",
       "services/save.worker.ts"
@@ -1103,7 +1122,8 @@
       "Pérdida de datos si no se corrige. Prioridad crítica."
     ],
     "notes": [
-      "PRIORIDAD CRÍTICA — pérdida de datos de usuario."
+      "PRIORIDAD CRÍTICA — pérdida de datos de usuario.",
+      "[2026-06-17] Refuerzo anti-perdida: nuevo listener visibilitychange/pagehide/beforeunload que hace flush de la nota al cerrar/ocultar (OpportunityDetail.tsx). Ver .ai/reports/CAMBIOS_2026-06-17.md"
     ]
   },
   {
@@ -1341,8 +1361,10 @@
     "risks": [
       "CRÍTICO — pérdida de datos."
     ],
-    "notes": [],
-    "implemented_at": "2026-06-15"
+    "notes": [
+      "[2026-06-17] Fix real: carpeta por revision (clave OP::revision con fallback legacy) en opportunityFolderLink.ts; ver revision vieja muestra su carpeta y navega; al crear revision pregunta si reusar carpeta; Requested date = hoy. Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ],
+    "implemented_at": "2026-06-17"
   },
   {
     "id": "TASK-046",
@@ -1624,7 +1646,9 @@
     "risks": [
       "Parsing de correos puede ser frágil si el formato cambia. Requiere análisis del formato de correos de Salesforce."
     ],
-    "notes": []
+    "notes": [
+      "[2026-06-17] Analisis entregado (formatos .msg/.eml/pegar texto, mapeo de campos, decisiones). Pendiente: usuario debe enviar 1-3 correos reales de SR para construir el extractor. Ver .ai/reports/CAMBIOS_2026-06-17.md"
+    ]
   },
   {
     "id": "TASK-056",
@@ -1636,24 +1660,32 @@
     "priority": "medium",
     "owner": "programmer-editor",
     "subagent": "subagent-integraciones",
-    "status": "pending",
+    "status": "needs_testing",
     "files_probable": [
       "features/opportunity-folder/"
     ],
     "files_allowed": [
-      "features/opportunity-folder/"
+      "features/opportunity-folder/",
+      "features/opportunity-folder/OpportunityFolderTab.tsx",
+      "features/opportunity-folder/fileOps.ts",
+      "server/openHelper.js"
     ],
     "files_locked": [],
     "acceptance_criteria": [
-      "El usuario puede arrastrar archivos de la app y soltarlos en Outlook o Teams."
+      "El usuario puede arrastrar archivos de la app y soltarlos en Outlook o Teams.",
+      "Alternativa entregada: 'Copy to Windows' copia los archivos reales al portapapeles y se pegan con Ctrl+V en Outlook, Teams y el Explorador."
     ],
     "dependencies": [],
     "risks": [
       "Limitación de browser sandboxing para drag & drop cross-application. Puede no ser factible sin Electron."
     ],
     "notes": [
-      "Marcar como BLOCKED si el entorno de browser no permite cross-app drag & drop."
-    ]
+      "Marcar como BLOCKED si el entorno de browser no permite cross-app drag & drop.",
+      "2026-06-17: Confirmado que el arrastre real del navegador hacia Outlook/Teams NO es factible (el sandbox no entrega rutas nativas / CF_HDROP). En vez de Electron se implemento la via confiable por portapapeles: boton 'Copy to Windows' usa el asistente local (server/openHelper.js endpoint /clipboard -> PowerShell Set-Clipboard -LiteralPath) para copiar los archivos REALES al portapapeles de Windows; el usuario pega con Ctrl+V en Outlook/Teams/Explorer. Tambien soltar sobre una carpeta de la lista mueve in-app, y el dragstart deja la ruta como texto (best-effort). Requiere reiniciar el asistente (LANZAR_TENDERLOOP) para activar /clipboard. Estado: needs_testing manual.",
+      "Decision: cerrar como 'resuelto con alternativa por portapapeles' salvo que se migre a Electron para drag nativo real."
+    ],
+    "implemented_at": "2026-06-17",
+    "implemented_by": "claude (sesion folder)"
   },
   {
     "id": "TASK-057",

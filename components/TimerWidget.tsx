@@ -3,6 +3,35 @@ import React from 'react';
 import { useTimer } from '../contexts/TimerContext';
 import { Play, Pause, StopCircle, Clock, Settings, SkipForward, ExternalLink } from 'lucide-react';
 
+const FLOATING_TIMER_WINDOW_STORAGE_KEY = 'tenderloop_floating_timer_window_v1';
+const IN_PAGE_TIMER_CLOCK_STORAGE_KEY = 'tenderloop_in_page_timer_clock_v1';
+const FLOATING_TIMER_STOP_RESIZE_FLAG = 'tenderloop_timer_stop_resize';
+
+const readFloatingTimerWindowSize = () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(FLOATING_TIMER_WINDOW_STORAGE_KEY) || 'null');
+        const width = Number(saved?.width);
+        const height = Number(saved?.height);
+        if (Number.isFinite(width) && Number.isFinite(height)) {
+            return {
+                width: Math.min(Math.max(width, 190), 520),
+                height: Math.min(Math.max(height, 190), 520),
+            };
+        }
+    } catch {
+        // Ignore malformed saved popup sizes.
+    }
+    return { width: 280, height: 280 };
+};
+
+const saveFloatingTimerWindowSize = (width: number, height: number) => {
+    try {
+        localStorage.setItem(FLOATING_TIMER_WINDOW_STORAGE_KEY, JSON.stringify({ width, height }));
+    } catch {
+        // Ignore storage errors.
+    }
+};
+
 interface TimerWidgetProps {
     onTaskClick?: (taskId: string, oppId: string) => void;
     // Render the Windows-Clock-style layout used when the widget is popped out into its
@@ -124,7 +153,8 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
 
     const popOut = React.useCallback(() => {
         const url = `${window.location.pathname}?window=timer`;
-        window.open(url, 'tenderloop_timer', 'width=320,height=230,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
+        const size = readFloatingTimerWindowSize();
+        window.open(url, 'tenderloop_timer', `popup=yes,width=${size.width},height=${size.height},resizable=yes,menubar=no,toolbar=no,location=no,status=no`);
     }, []);
 
     // Floating / popup layout: big Windows-Clock-style digital readout.
@@ -140,7 +170,16 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
                 pomodoroEnabled={pomodoroConfig.enabled}
                 onPause={pauseTimer}
                 onResume={() => startTimer(timerState.taskId!, timerState.oppId!, timerState.taskTitle!)}
-                onStop={stopTimer}
+                onStop={() => {
+                    try {
+                        sessionStorage.setItem(FLOATING_TIMER_STOP_RESIZE_FLAG, '1');
+                        window.resizeTo(640, 760);
+                        window.moveTo(Math.max(0, Math.round((window.screen.availWidth - 640) / 2)), Math.max(0, Math.round((window.screen.availHeight - 760) / 2)));
+                    } catch {
+                        // Browser may block scripted resize/move; the modal remains scrollable.
+                    }
+                    stopTimer();
+                }}
                 onSkip={skipPomodoroPhase}
                 onOpenStart={openStartModal}
                 onOpenSettings={openPomodoroSettings}
@@ -268,8 +307,203 @@ interface FloatingPanelProps {
     onSkip: () => void;
     onOpenStart: () => void;
     onOpenSettings: () => void;
+    onOpenTask?: () => void;
     formatTime: (s: number) => string;
 }
+
+const readInPageTimerClockState = () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(IN_PAGE_TIMER_CLOCK_STORAGE_KEY) || 'null');
+        const size = Number(saved?.size);
+        const left = Number(saved?.left);
+        const top = Number(saved?.top);
+        if (Number.isFinite(size) && Number.isFinite(left) && Number.isFinite(top)) {
+            return {
+                size: Math.min(Math.max(size, 190), 420),
+                left: Math.max(8, left),
+                top: Math.max(8, top),
+            };
+        }
+    } catch {
+        // Ignore malformed saved state.
+    }
+    const fallbackSize = 250;
+    return {
+        size: fallbackSize,
+        left: typeof window === 'undefined' ? 24 : Math.max(24, window.innerWidth - fallbackSize - 24),
+        top: typeof window === 'undefined' ? 120 : Math.max(24, window.innerHeight - fallbackSize - 24),
+    };
+};
+
+const saveInPageTimerClockState = (state: { size: number; left: number; top: number }) => {
+    try {
+        localStorage.setItem(IN_PAGE_TIMER_CLOCK_STORAGE_KEY, JSON.stringify(state));
+    } catch {
+        // Ignore storage errors.
+    }
+};
+
+const InPageTimerClock: React.FC<FloatingPanelProps> = ({
+    timerState, isBreak, phaseLabel, phaseRemaining, phaseTargetSeconds, displaySeconds, pomodoroEnabled,
+    onPause, onResume, onStop, onSkip, onOpenSettings, onOpenTask, formatTime,
+}) => {
+    const [clock, setClock] = React.useState(readInPageTimerClockState);
+    const dragRef = React.useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; startLeft: number; startTop: number; startSize: number } | null>(null);
+
+    React.useEffect(() => {
+        saveInPageTimerClockState(clock);
+    }, [clock]);
+
+    React.useEffect(() => {
+        const clampToViewport = () => {
+            setClock(prev => ({
+                ...prev,
+                left: Math.min(Math.max(8, prev.left), Math.max(8, window.innerWidth - prev.size - 8)),
+                top: Math.min(Math.max(8, prev.top), Math.max(8, window.innerHeight - prev.size - 8)),
+            }));
+        };
+        window.addEventListener('resize', clampToViewport);
+        return () => window.removeEventListener('resize', clampToViewport);
+    }, []);
+
+    const updateFromPointer = React.useCallback((e: PointerEvent) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        if (drag.mode === 'move') {
+            const nextLeft = drag.startLeft + e.clientX - drag.startX;
+            const nextTop = drag.startTop + e.clientY - drag.startY;
+            setClock(prev => ({
+                ...prev,
+                left: Math.min(Math.max(8, nextLeft), Math.max(8, window.innerWidth - prev.size - 8)),
+                top: Math.min(Math.max(8, nextTop), Math.max(8, window.innerHeight - prev.size - 8)),
+            }));
+            return;
+        }
+
+        const delta = Math.max(e.clientX - drag.startX, e.clientY - drag.startY);
+        const nextSize = Math.min(Math.max(190, drag.startSize + delta), 420);
+        setClock({
+            size: nextSize,
+            left: Math.min(Math.max(8, drag.startLeft), Math.max(8, window.innerWidth - nextSize - 8)),
+            top: Math.min(Math.max(8, drag.startTop), Math.max(8, window.innerHeight - nextSize - 8)),
+        });
+    }, []);
+
+    const stopPointerAction = React.useCallback(() => {
+        dragRef.current = null;
+        window.removeEventListener('pointermove', updateFromPointer);
+    }, [updateFromPointer]);
+
+    const startPointerAction = (e: React.PointerEvent, mode: 'move' | 'resize') => {
+        e.preventDefault();
+        dragRef.current = {
+            mode,
+            startX: e.clientX,
+            startY: e.clientY,
+            startLeft: clock.left,
+            startTop: clock.top,
+            startSize: clock.size,
+        };
+        window.addEventListener('pointermove', updateFromPointer);
+        window.addEventListener('pointerup', stopPointerAction, { once: true });
+    };
+
+    const isTiny = clock.size < 220;
+    const isCompact = clock.size < 275;
+    const timeFontSize = Math.max(34, Math.min(78, clock.size * 0.22));
+    const bgClass = isBreak
+        ? 'bg-rose-50/70 border-red-200/80 text-red-950'
+        : 'bg-white/62 border-emerald-200/80 text-slate-900';
+
+    return (
+        <div
+            className={`fixed z-[100] select-none rounded-full border-4 ${bgClass} shadow-2xl backdrop-blur-md animate-in fade-in zoom-in duration-200`}
+            style={{
+                width: clock.size,
+                height: clock.size,
+                left: clock.left,
+                top: clock.top,
+                boxShadow: isBreak
+                    ? '0 18px 40px rgba(127,29,29,0.16), inset 0 0 30px rgba(255,255,255,0.45)'
+                    : '0 18px 40px rgba(15,23,42,0.14), inset 0 0 34px rgba(255,255,255,0.5)',
+            }}
+            onPointerDown={(e) => {
+                if ((e.target as HTMLElement).closest('button')) return;
+                startPointerAction(e, 'move');
+            }}
+            title="Drag to move"
+        >
+            <div className="pointer-events-none absolute inset-[10px] rounded-full border border-slate-900/10" />
+            <div className="pointer-events-none absolute inset-[22px] rounded-full border border-white/60" />
+            <button
+                type="button"
+                className="absolute bottom-7 right-7 h-5 w-5 cursor-nwse-resize rounded-full border border-slate-300/80 bg-white/75 shadow-sm hover:bg-white"
+                title="Drag to resize"
+                onPointerDown={(e) => startPointerAction(e, 'resize')}
+            />
+
+            <div className={`${isCompact ? 'px-8 pt-6' : 'px-11 pt-8'} h-full flex flex-col items-center justify-between`}>
+                <div className="w-full min-w-0 text-center">
+                    <button
+                        type="button"
+                        onClick={onOpenTask}
+                        className={`${isCompact ? 'text-[9px]' : 'text-[10px]'} max-w-full truncate font-black uppercase tracking-[0.12em] text-slate-700/80 hover:text-[#228b3b]`}
+                        title={timerState.taskTitle || 'No task'}
+                    >
+                        {timerState.taskTitle || phaseLabel}
+                    </button>
+                    {pomodoroEnabled && !isTiny && (
+                        <div className="mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                            {phaseLabel}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+                    <div
+                        className="font-mono font-black tabular-nums leading-none"
+                        style={{
+                            fontSize: timeFontSize,
+                            fontFamily: '"Courier New", "Roboto Mono", "SFMono-Regular", monospace',
+                            color: isBreak ? '#7f1d1d' : '#0f172a',
+                            textShadow: isBreak ? '0 2px 10px rgba(254,202,202,0.75)' : '0 2px 12px rgba(16,185,129,0.22)',
+                        }}
+                    >
+                        {pomodoroEnabled ? formatTime(phaseRemaining) : formatTime(displaySeconds)}
+                    </div>
+                    {pomodoroEnabled && !isTiny && (
+                        <div className="mt-2 text-[10px] font-mono tabular-nums text-slate-500">
+                            {formatTime(phaseTargetSeconds)}
+                        </div>
+                    )}
+                </div>
+
+                <div className={`${isCompact ? 'pb-5' : 'pb-7'} flex items-center justify-center gap-1 text-slate-700`}>
+                    {timerState.isRunning ? (
+                        <button type="button" onClick={onPause} title="Pause" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
+                            <Pause className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
+                        </button>
+                    ) : (
+                        <button type="button" onClick={onResume} title="Resume" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
+                            <Play className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
+                        </button>
+                    )}
+                    {pomodoroEnabled && (
+                        <button type="button" onClick={onSkip} title="Skip phase" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
+                            <SkipForward className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+                        </button>
+                    )}
+                    <button type="button" onClick={onOpenSettings} title="Pomodoro settings" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
+                        <Settings className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+                    </button>
+                    <button type="button" onClick={onStop} title="Stop" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full text-red-600 hover:bg-red-100 transition-colors`}>
+                        <StopCircle className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
     timerState, isBreak, phaseLabel, phaseRemaining, phaseTargetSeconds, displaySeconds, pomodoroEnabled,
@@ -282,37 +516,112 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
     }));
 
     React.useEffect(() => {
-        const handleResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+        let saveTimer: number | undefined;
+        const handleResize = () => {
+            const next = { width: window.innerWidth, height: window.innerHeight };
+            setViewport(next);
+            if (sessionStorage.getItem(FLOATING_TIMER_STOP_RESIZE_FLAG) === '1') return;
+            window.clearTimeout(saveTimer);
+            saveTimer = window.setTimeout(() => saveFloatingTimerWindowSize(next.width, next.height), 250);
+        };
         handleResize();
         window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        return () => {
+            window.clearTimeout(saveTimer);
+            window.removeEventListener('resize', handleResize);
+        };
     }, []);
 
-    const isTiny = viewport.width < 250 || viewport.height < 165;
-    const isCompact = isTiny || viewport.width < 310 || viewport.height < 215;
-    const readoutFontSize = isTiny ? '30px' : isCompact ? '42px' : '64px';
+    React.useEffect(() => {
+        const previousBodyBackground = document.body.style.background;
+        const previousHtmlBackground = document.documentElement.style.background;
+        document.body.style.background = 'transparent';
+        document.documentElement.style.background = 'transparent';
+        return () => {
+            document.body.style.background = previousBodyBackground;
+            document.documentElement.style.background = previousHtmlBackground;
+        };
+    }, []);
+
+    const dialSize = Math.max(172, Math.min(viewport.width, viewport.height) - 12);
+    const isTiny = dialSize < 210;
+    const isCompact = dialSize < 260;
+    const readoutFontSize = Math.max(28, Math.min(68, dialSize * 0.2));
+    const resizeDragRef = React.useRef<{ startX: number; startY: number; startSize: number } | null>(null);
+    const startResize = (e: React.PointerEvent) => {
+        e.preventDefault();
+        resizeDragRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            startSize: Math.min(window.outerWidth || viewport.width, window.outerHeight || viewport.height),
+        };
+        window.addEventListener('pointermove', handleResizeDrag);
+        window.addEventListener('pointerup', stopResizeDrag, { once: true });
+    };
+    const handleResizeDrag = (e: PointerEvent) => {
+        const drag = resizeDragRef.current;
+        if (!drag) return;
+        const delta = Math.max(e.clientX - drag.startX, e.clientY - drag.startY);
+        const next = Math.min(Math.max(drag.startSize + delta, 190), 520);
+        saveFloatingTimerWindowSize(next, next);
+        try {
+            window.resizeTo(next, next);
+        } catch {
+            setViewport({ width: next, height: next });
+        }
+    };
+    const stopResizeDrag = () => {
+        resizeDragRef.current = null;
+        window.removeEventListener('pointermove', handleResizeDrag);
+    };
 
     const bg = isBreak
-        ? 'bg-gradient-to-br from-red-950 to-red-900 text-white'
-        : 'bg-gradient-to-br from-slate-900 to-slate-800 text-gray-100';
+        ? 'bg-gradient-to-br from-rose-50 via-white to-red-100 text-red-950 border-red-200'
+        : 'bg-gradient-to-br from-white via-emerald-50 to-slate-100 text-slate-900 border-emerald-200';
 
     return (
-        <div className={`w-full h-full min-h-0 overflow-hidden ${isCompact ? 'rounded-lg' : 'rounded-2xl'} ${bg} flex flex-col shadow-inner`}>
-            <div className={`${isCompact ? 'px-2 pt-1.5 text-[9px]' : 'px-4 pt-3 text-[10px]'} flex shrink-0 items-center justify-between font-black uppercase tracking-[0.14em] opacity-80`}>
-                <span className="truncate">{pomodoroEnabled ? phaseLabel : 'Timer'}</span>
+        <div className="w-full h-full min-h-0 overflow-hidden bg-transparent flex items-center justify-center">
+        <div
+            className={`${bg} relative overflow-hidden rounded-full border-4 shadow-2xl flex flex-col`}
+            style={{
+                width: dialSize,
+                height: dialSize,
+                boxShadow: isBreak
+                    ? 'inset 0 0 34px rgba(255,255,255,0.8), 0 14px 38px rgba(127,29,29,0.18)'
+                    : 'inset 0 0 42px rgba(255,255,255,0.9), 0 14px 38px rgba(15,23,42,0.16)',
+            }}
+        >
+            <div className="pointer-events-none absolute inset-[10px] rounded-full border border-slate-900/10" />
+            <div className="pointer-events-none absolute inset-[22px] rounded-full border border-white/70" />
+            <div
+                className="absolute bottom-7 right-7 z-20 h-5 w-5 cursor-nwse-resize rounded-full border border-slate-300/70 bg-white/75 shadow-sm hover:bg-white"
+                title="Drag to resize"
+                onPointerDown={startResize}
+            />
+
+            <div className={`${isCompact ? 'px-8 pt-5 text-[8px]' : 'px-11 pt-7 text-[10px]'} flex shrink-0 items-center justify-between font-black uppercase tracking-[0.14em] opacity-80`}>
+                <span className="truncate" title={timerState.taskTitle || phaseLabel}>
+                    {timerState.taskTitle || phaseLabel}
+                </span>
                 <div className="flex items-center gap-1">
-                    <button onClick={onOpenSettings} title="Pomodoro settings" className={`${isCompact ? 'p-0.5' : 'p-1'} rounded hover:bg-white/15 transition-colors`}>
+                    <button onClick={onOpenSettings} title="Pomodoro settings" className={`${isCompact ? 'p-0.5' : 'p-1'} rounded-full hover:bg-slate-900/10 transition-colors`}>
                         <Settings className={isCompact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
                     </button>
                 </div>
             </div>
 
-            <div className={`${isCompact ? 'px-2' : 'px-4'} flex min-h-0 flex-1 flex-col items-center justify-center`}>
+            <div className={`${isCompact ? 'px-5' : 'px-8'} flex min-h-0 flex-1 flex-col items-center justify-center`}>
                 {hasSession ? (
                     <>
                         {/* Primary big readout: phase countdown in pomodoro mode, total elapsed otherwise */}
                         <div className="font-mono font-black tabular-nums leading-none tracking-normal"
-                            style={{ fontSize: readoutFontSize, textShadow: isBreak ? '0 2px 8px rgba(0,0,0,0.25)' : '0 2px 12px rgba(61,205,88,0.35)' }}>
+                            style={{
+                                fontSize: readoutFontSize,
+                                fontFamily: '"Courier New", "Roboto Mono", "SFMono-Regular", monospace',
+                                letterSpacing: '0',
+                                color: isBreak ? '#7f1d1d' : '#0f172a',
+                                textShadow: isBreak ? '0 2px 10px rgba(254,202,202,0.9)' : '0 2px 12px rgba(16,185,129,0.28)',
+                            }}>
                             {pomodoroEnabled ? formatTime(phaseRemaining) : formatTime(displaySeconds)}
                         </div>
                         {pomodoroEnabled && !isTiny && (
@@ -327,33 +636,34 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = ({
                         )}
                     </>
                 ) : (
-                    <button onClick={onOpenStart} className={`${isCompact ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'} rounded-lg bg-white/15 hover:bg-white/25 font-bold flex items-center gap-2 transition-colors`}>
+                    <button onClick={onOpenStart} className={`${isCompact ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'} rounded-full bg-slate-900 text-white hover:bg-slate-700 font-bold flex items-center gap-2 transition-colors`}>
                         <Clock className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} /> Start timer
                     </button>
                 )}
             </div>
 
             {hasSession && (
-                <div className={`${isCompact ? 'px-2 pb-1.5' : 'px-4 pb-3'} flex shrink-0 items-center justify-center gap-1`}>
+                <div className={`${isCompact ? 'px-8 pb-5' : 'px-11 pb-7'} flex shrink-0 items-center justify-center gap-1`}>
                     {timerState.isRunning ? (
-                        <button onClick={onPause} title="Pause" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                        <button onClick={onPause} title="Pause" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
                             <Pause className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                         </button>
                     ) : (
-                        <button onClick={onResume} title="Resume" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                        <button onClick={onResume} title="Resume" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
                             <Play className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                         </button>
                     )}
                     {pomodoroEnabled && (
-                        <button onClick={onSkip} title="Skip phase" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/20 transition-colors`}>
+                        <button onClick={onSkip} title="Skip phase" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-slate-900/10 transition-colors`}>
                             <SkipForward className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
                         </button>
                     )}
-                    <button onClick={onStop} title="Stop" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-white/25 text-red-100 transition-colors`}>
+                    <button onClick={onStop} title="Stop" className={`${isCompact ? 'p-1.5' : 'p-2'} rounded-full hover:bg-red-100 text-red-600 transition-colors`}>
                         <StopCircle className={isCompact ? 'w-4 h-4' : 'w-5 h-5'} />
                     </button>
                 </div>
             )}
+        </div>
         </div>
     );
 };

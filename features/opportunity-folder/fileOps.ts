@@ -79,6 +79,104 @@ export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirecto
   }
 };
 
+export interface CopyTemplateResult {
+  copied: number;
+  skipped: { path: string; reason: string }[];
+}
+
+const shouldSkipTemplateEntry = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  return (
+    lower === 'desktop.ini' ||
+    lower === 'thumbs.db' ||
+    lower === '.ds_store' ||
+    lower === '$recycle.bin' ||
+    lower === 'system volume information'
+  );
+};
+
+const errorMessage = (err: unknown): string => {
+  if (err instanceof Error) return err.message || err.name;
+  return String(err || 'Unknown error');
+};
+
+/**
+ * Best-effort recursive copy for opportunity templates. Some Windows folders
+ * include protected/system metadata files; those should not abort the template
+ * flow because they are not part of the user's project content.
+ */
+export const copyTemplateEntryToDir = async (
+  entry: FileItem,
+  destDir: FileSystemDirectoryHandle,
+  result: CopyTemplateResult = { copied: 0, skipped: [] }
+): Promise<CopyTemplateResult> => {
+  const path = [...(entry.relativePath || []), entry.name].filter(Boolean).join('/');
+
+  if (shouldSkipTemplateEntry(entry.name)) {
+    result.skipped.push({ path, reason: 'System metadata file skipped' });
+    return result;
+  }
+
+  try {
+    if (entry.kind === 'file') {
+      const file = await (entry.handle as FileSystemFileHandle).getFile();
+      const newFile = await destDir.getFileHandle(entry.name, { create: true });
+      // @ts-ignore
+      const writable = await newFile.createWritable();
+      await writable.write(file);
+      await writable.close();
+      result.copied += 1;
+      return result;
+    }
+
+    const newDir = await destDir.getDirectoryHandle(entry.name, { create: true });
+    result.copied += 1;
+    // @ts-ignore
+    for await (const child of (entry.handle as FileSystemDirectoryHandle).values()) {
+      await copyTemplateEntryToDir({
+        name: child.name,
+        kind: child.kind,
+        handle: child as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+        relativePath: [...(entry.relativePath || []), entry.name],
+      }, newDir, result);
+    }
+  } catch (err) {
+    result.skipped.push({ path, reason: errorMessage(err) });
+  }
+
+  return result;
+};
+
+export const copyTemplateFromOsPath = async (
+  sourcePath: string,
+  destParentPath: string,
+  folderName: string
+): Promise<CopyTemplateResult & { target?: string }> => {
+  const qs = new URLSearchParams({
+    source: sourcePath,
+    destParent: destParentPath,
+    folderName,
+  }).toString();
+
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/copy-template?${qs}`);
+  } catch {
+    throw new Error('Could not connect to the local helper (port 3099). Open TenderLoop with LANZAR_TENDERLOOP.');
+  }
+
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(body?.error || `Template copy failed with error ${resp.status}`);
+  }
+
+  return {
+    copied: body?.copied || 0,
+    skipped: Array.isArray(body?.skipped) ? body.skipped : [],
+    target: body?.target,
+  };
+};
+
 // Robust Move Logic (Copy + Delete)
 export const moveEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle) => {
   // Native move is often restricted or flaky across handles. We use Copy + Delete.
@@ -231,20 +329,45 @@ export const revealInExplorer = async (rootPathDisplay: string, relativePath: st
 
 /**
  * Auto-resolve the absolute path of a just-linked folder WITHOUT asking the user
- * to type it. Writes a uniquely-named marker file into the folder, asks the local
- * helper to find it on disk, then removes the marker. Returns the absolute path
- * or null if the helper is unavailable / the folder could not be located.
+ * to type it — and WITHOUT writing anything into the folder. The folder's name
+ * plus the names of a few entries inside it (as disambiguation hints) are sent
+ * to the local helper, which resolves the path via the Windows Search index
+ * (instant) or a prioritised scan. Returns the absolute path or null if the
+ * helper is unavailable / the folder could not be located.
  */
 export const locateFolderPath = async (dirHandle: FileSystemDirectoryHandle): Promise<string | null> => {
-  const marker = `.tl_locate_${crypto.randomUUID()}.tmp`;
-  let wrote = false;
+  const hints: string[] = [];
   try {
-    const fh = await dirHandle.getFileHandle(marker, { create: true });
     // @ts-ignore
-    const w = await fh.createWritable();
-    await w.write('tenderloop-locate');
-    await w.close();
-    wrote = true;
+    for await (const entry of dirHandle.values()) {
+      hints.push(entry.name);
+      if (hints.length >= 8) break;
+    }
+  } catch { /* unreadable — search by name alone */ }
+
+  const qs = new URLSearchParams({ name: dirHandle.name, hints: JSON.stringify(hints) }).toString();
+  const resp = await fetch(`${OPEN_HELPER_URL}/find-dir?${qs}`).catch(() => null);
+  if (resp && resp.ok) {
+    const body = await resp.json().catch(() => null);
+    if (body?.path) return body.path as string;
+  }
+  return null;
+};
+
+/**
+ * Resolve an exact absolute path for a directory handle by dropping a temporary
+ * marker file into it and asking the helper to locate that marker. This is more
+ * reliable than name-based lookup for standard Windows folders such as
+ * Documents, Downloads or Pictures.
+ */
+export const locateFolderPathWithMarker = async (dirHandle: FileSystemDirectoryHandle): Promise<string | null> => {
+  const marker = `.tenderloop_marker_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    const fileHandle = await dirHandle.getFileHandle(marker, { create: true });
+    // @ts-ignore
+    const writable = await fileHandle.createWritable();
+    await writable.write('marker');
+    await writable.close();
 
     const qs = new URLSearchParams({ marker }).toString();
     const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
@@ -253,12 +376,12 @@ export const locateFolderPath = async (dirHandle: FileSystemDirectoryHandle): Pr
       if (body?.path) return body.path as string;
     }
     return null;
-  } catch {
-    return null;
   } finally {
-    if (wrote) {
+    try {
       // @ts-ignore
-      try { await dirHandle.removeEntry(marker); } catch {}
+      await dirHandle.removeEntry(marker);
+    } catch {
+      // Ignore cleanup failures.
     }
   }
 };

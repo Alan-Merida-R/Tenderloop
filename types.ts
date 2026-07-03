@@ -384,6 +384,12 @@ export interface Opportunity {
   links: QuickLinks | QuickLinkItem[]; // Supported legacy object or new array
   /** Manual display order (list of ids) for the unlocked default quick links (e.g. Folder, BA, GEET). Locked ones (SRLink, BFO, CQA) are never reorderable. */
   quickLinksOrder?: string[];
+  /** Per-opportunity display-name overrides for the unlocked default quick links (Folder, BA, GEET). Keyed by link id; absent id = use the built-in label. */
+  quickLinkLabels?: Record<string, string>;
+  /** Per-opportunity icon overrides for the unlocked default quick links. Keyed by link id; value is an icon name from the quick-link icon palette. */
+  quickLinkIcons?: Record<string, string>;
+  /** Ids of default quick links (e.g. locked SRLink/BFO/CQA) hidden on this opportunity's overview when unused. */
+  hiddenQuickLinks?: string[];
 
   // Lists
   notes: MeetingNote[];

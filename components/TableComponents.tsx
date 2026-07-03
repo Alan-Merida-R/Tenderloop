@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Columns, Check, X, Filter } from 'lucide-react';
+import { Columns, Check, Filter, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface EditableCellProps {
     value: string | number;
@@ -89,11 +89,20 @@ interface ColumnSelectorProps {
     columns: { key: string; label: string }[];
     visibleColumns: string[];
     onChange: (cols: string[]) => void;
+    columnOrder?: string[];
+    onOrderChange?: (cols: string[]) => void;
 }
 
-export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visibleColumns, onChange }) => {
+export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visibleColumns, onChange, columnOrder, onOrderChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+    const orderedColumns = React.useMemo(() => {
+        if (!columnOrder || columnOrder.length === 0) return columns;
+        const byKey = new Map(columns.map(col => [col.key, col]));
+        const ordered = columnOrder.map(key => byKey.get(key)).filter(Boolean) as { key: string; label: string }[];
+        const missing = columns.filter(col => !columnOrder.includes(col.key));
+        return [...ordered, ...missing];
+    }, [columns, columnOrder]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -113,6 +122,17 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
         }
     };
 
+    const moveColumn = (key: string, direction: 'up' | 'down') => {
+        if (!onOrderChange) return;
+        const keys = orderedColumns.map(col => col.key);
+        const index = keys.indexOf(key);
+        const nextIndex = direction === 'up' ? index - 1 : index + 1;
+        if (index < 0 || nextIndex < 0 || nextIndex >= keys.length) return;
+        const next = [...keys];
+        [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+        onOrderChange(next);
+    };
+
     return (
         <div className="relative" ref={ref}>
             <button
@@ -123,20 +143,31 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-2 animate-in fade-in zoom-in duration-200">
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-2 animate-in fade-in zoom-in duration-200">
                     <div className="text-xs font-bold text-gray-400 uppercase mb-2 px-2">Visible Columns</div>
                     <div className="space-y-1 max-h-60 overflow-y-auto">
-                        {columns.map(col => (
-                            <button
+                        {orderedColumns.map((col, index) => (
+                            <div
                                 key={col.key}
-                                onClick={() => toggleColumn(col.key)}
                                 className="flex items-center w-full px-2 py-1.5 text-xs text-left rounded hover:bg-gray-50 transition-colors gap-2"
                             >
-                                <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${visibleColumns.includes(col.key) ? 'bg-[#3DCD58] border-[#3DCD58] text-white' : 'border-gray-300'}`}>
-                                    {visibleColumns.includes(col.key) && <Check className="w-2.5 h-2.5" />}
-                                </div>
-                                <span className={visibleColumns.includes(col.key) ? 'text-gray-900 font-medium' : 'text-gray-500'}>{col.label}</span>
-                            </button>
+                                {onOrderChange && (
+                                    <div className="flex flex-col">
+                                        <button type="button" onClick={() => moveColumn(col.key, 'up')} disabled={index === 0} className="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move up">
+                                            <ChevronUp className="w-3 h-3" />
+                                        </button>
+                                        <button type="button" onClick={() => moveColumn(col.key, 'down')} disabled={index === orderedColumns.length - 1} className="text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move down">
+                                            <ChevronDown className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                )}
+                                <button type="button" onClick={() => toggleColumn(col.key)} className="flex items-center flex-1 min-w-0 gap-2 text-left">
+                                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${visibleColumns.includes(col.key) ? 'bg-[#3DCD58] border-[#3DCD58] text-white' : 'border-gray-300'}`}>
+                                        {visibleColumns.includes(col.key) && <Check className="w-2.5 h-2.5" />}
+                                    </div>
+                                    <span className={`truncate ${visibleColumns.includes(col.key) ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>{col.label}</span>
+                                </button>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -167,6 +198,14 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
     }, []);
 
     const visibleOptions = options.filter(opt => (opt || '').toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 50);
+    const allVisibleSelected = visibleOptions.length > 0 && visibleOptions.every(opt => selected.includes(opt));
+    const toggleAllVisible = () => {
+        if (allVisibleSelected) {
+            onChange(selected.filter(opt => !visibleOptions.includes(opt)));
+            return;
+        }
+        onChange(Array.from(new Set([...selected, ...visibleOptions])));
+    };
 
     return (
         <div className="relative inline-block ml-1" ref={ref}>
@@ -188,6 +227,20 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
                         onClick={e => e.stopPropagation()}
                     />
                     <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
+                        {visibleOptions.length > 0 && (
+                            <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded font-semibold text-gray-800 border-b border-gray-100 mb-1 pb-2">
+                                <input
+                                    type="checkbox"
+                                    checked={allVisibleSelected}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        toggleAllVisible();
+                                    }}
+                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                />
+                                <span>Select all</span>
+                            </label>
+                        )}
                         {visibleOptions.map(opt => (
                             <label key={opt} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 p-1 rounded">
                                 <input

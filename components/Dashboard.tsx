@@ -19,6 +19,40 @@ import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { ScheduleView } from '../features/schedule/ScheduleView';
 
+const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
+
+const normalizeColumnKeys = (keys: unknown, fallbackKeys: string[]) => {
+    if (!Array.isArray(keys)) return fallbackKeys;
+    const validKeys = keys.filter((key): key is string => typeof key === 'string' && fallbackKeys.includes(key));
+    const missingKeys = fallbackKeys.filter(key => !validKeys.includes(key));
+    return [...validKeys, ...missingKeys];
+};
+
+const normalizeVisibleColumnKeys = (keys: unknown, fallbackKeys: string[]) => {
+    if (!Array.isArray(keys)) return fallbackKeys;
+    return keys.filter((key): key is string => typeof key === 'string' && fallbackKeys.includes(key));
+};
+
+const readGeneralColumnPrefs = (fallbackKeys: string[]) => {
+    try {
+        const saved = localStorage.getItem(GENERAL_COLUMNS_STORAGE_KEY);
+        if (!saved) return { visibleColumns: fallbackKeys, columnOrder: fallbackKeys };
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+            return {
+                visibleColumns: normalizeVisibleColumnKeys(parsed, fallbackKeys),
+                columnOrder: fallbackKeys,
+            };
+        }
+        return {
+            visibleColumns: normalizeVisibleColumnKeys(parsed?.visibleColumns, fallbackKeys),
+            columnOrder: normalizeColumnKeys(parsed?.columnOrder, fallbackKeys),
+        };
+    } catch (e) {
+        return { visibleColumns: fallbackKeys, columnOrder: fallbackKeys };
+    }
+};
+
 
 
 
@@ -266,7 +300,7 @@ const OpportunityCard = React.memo(({
             onClick={(e) => { e.stopPropagation(); onSelect(opp.id); }}
             draggable
             onDragStart={(e) => handleDragStart(e, opp.id, 'opp')}
-            className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-[#3DCD58] cursor-grab active:cursor-grabbing transition-all group relative flex flex-col gap-2 overflow-hidden"
+            className="kanban-cursor-grab bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-[#3DCD58] cursor-grab active:cursor-grabbing transition-all group relative flex flex-col gap-2 overflow-hidden"
         >
             <div className={`absolute top-0 left-0 right-0 h-1 ${opp.statusLabel === 'Won' ? 'bg-green-500' : 'bg-gray-200'}`}></div>
             <div className="flex flex-col gap-1 mt-2">
@@ -310,7 +344,7 @@ const OpportunityCard = React.memo(({
                             e.stopPropagation();
                             onSelect(opp.id, { tab: 'tasks', taskId: nextTask.id });
                         }}
-                        className={`mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isBlockedStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
+                        className={`kanban-cursor-pointer mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isBlockedStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
                         title="Open this task in expediente"
                     >
                         <div className="shrink-0 mt-0.5">
@@ -692,6 +726,14 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
 
     // Limit rendered items to keep DOM light
     const renderedOptions = visibleOptions.slice(0, 50);
+    const allRenderedSelected = renderedOptions.length > 0 && renderedOptions.every(opt => selected.includes(opt));
+    const toggleAllRendered = () => {
+        if (allRenderedSelected) {
+            onChange(selected.filter(opt => !renderedOptions.includes(opt)));
+            return;
+        }
+        onChange(Array.from(new Set([...selected, ...renderedOptions])));
+    };
 
     return (
         <div className="relative">
@@ -722,6 +764,20 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
                             </div>
                         )}
                         <div className="flex flex-col gap-1 overflow-y-auto">
+                            {renderedOptions.length > 0 && (
+                                <label className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer group border-b border-gray-100 mb-1 pb-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={allRenderedSelected}
+                                        onChange={(e) => {
+                                            e.stopPropagation();
+                                            toggleAllRendered();
+                                        }}
+                                        className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] cursor-pointer"
+                                    />
+                                    <span className="text-sm font-semibold text-gray-800">Select all</span>
+                                </label>
+                            )}
                             {renderedOptions.map(opt => (
                                 <label key={opt} className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer group">
                                     <input
@@ -783,7 +839,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const [detailedStatusFilters, setDetailedStatusFilters] = useState<string[]>([]);
 
     // Column State
-    const allColumns = [
+    const allColumns = useMemo(() => [
         { key: 'id', label: 'ID' },
         { key: 'title', label: 'Title' },
         { key: 'customer', label: 'Customer' },
@@ -795,8 +851,26 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'nextStep', label: 'Next Step' },
         { key: 'waiting', label: 'Waiting On' },
         { key: 'notes', label: 'Notes' }
-    ];
-    const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns.map(c => c.key));
+    ], []);
+    const allColumnKeys = useMemo(() => allColumns.map(c => c.key), [allColumns]);
+    const [visibleColumns, setVisibleColumns] = useState<string[]>(() => readGeneralColumnPrefs(allColumnKeys).visibleColumns);
+    const [columnOrder, setColumnOrder] = useState<string[]>(() => readGeneralColumnPrefs(allColumnKeys).columnOrder);
+    const orderedTableColumns = useMemo(() => {
+        const byKey = new Map(allColumns.map(col => [col.key, col]));
+        return normalizeColumnKeys(columnOrder, allColumnKeys)
+            .map(key => byKey.get(key))
+            .filter(Boolean) as typeof allColumns;
+    }, [allColumns, allColumnKeys, columnOrder]);
+
+    useEffect(() => {
+        const normalizedVisible = visibleColumns.filter(key => allColumnKeys.includes(key));
+        const normalizedOrder = normalizeColumnKeys(columnOrder, allColumnKeys);
+        localStorage.setItem(GENERAL_COLUMNS_STORAGE_KEY, JSON.stringify({
+            visibleColumns: normalizedVisible,
+            columnOrder: normalizedOrder,
+        }));
+    }, [visibleColumns, columnOrder, allColumnKeys]);
+
     const [collapsedColumns, setCollapsedColumns] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem('tenderloop_collapsed_proposal_columns');
@@ -1824,6 +1898,105 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setSelectedForExport(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
     };
 
+    const visibleOrderedTableColumns = orderedTableColumns.filter(col => visibleColumns.includes(col.key));
+
+    const renderOpportunityColumnHeader = (key: string, statusLabel = 'Process Status') => {
+        switch (key) {
+            case 'id':
+                return <th key={key} className="px-6 py-3 w-32"><div className="flex items-center">ID<ColumnFilter options={idOptions} selected={columnFilters.id || []} onChange={v => setColumnFilters(p => ({...p, id: v}))} /></div></th>;
+            case 'title':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Title<ColumnFilter options={titleOptions} selected={columnFilters.title || []} onChange={v => setColumnFilters(p => ({...p, title: v}))} /></div></th>;
+            case 'customer':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>;
+            case 'seller':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>;
+            case 'status':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">{statusLabel}<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>;
+            case 'assigned':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Assigned<ColumnFilter options={assignedOptions} selected={columnFilters.assigned || []} onChange={v => setColumnFilters(p => ({...p, assigned: v}))} /></div></th>;
+            case 'expected':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>;
+            case 'amount':
+                return <th key={key} className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>;
+            case 'nextStep':
+                return <th key={key} className="px-6 py-3">Next Step</th>;
+            case 'waiting':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>;
+            case 'notes':
+                return <th key={key} className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>;
+            default:
+                return null;
+        }
+    };
+
+    const renderGeneralOpportunityCell = (opp: Opportunity, key: string) => {
+        const amount = getSellPrice(opp);
+        const nextTask = getNextTask(opp.tasks || []);
+        const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Approval');
+
+        switch (key) {
+            case 'id':
+                return <td key={key} className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>;
+            case 'title':
+                return <td key={key} className="px-6 py-3 font-medium text-gray-900"><EditableCell value={opp.title} onChange={(val) => handleInlineEdit(opp, 'title', val)} /></td>;
+            case 'customer':
+                return <td key={key} className="px-6 py-3 text-gray-600"><EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} /></td>;
+            case 'seller':
+                return <td key={key} className="px-6 py-3 text-gray-600"><EditableCell value={opp.seller || ''} onChange={(val) => handleInlineEdit(opp, 'seller', val)} /></td>;
+            case 'status':
+                return (
+                    <td key={key} className="px-6 py-3">
+                        <EditableCell
+                            type="select"
+                            value={opp.detailedStatus || 'Working on it'}
+                            options={Object.keys(DETAILED_STATUS_COLORS)}
+                            onChange={(val) => handleInlineEdit(opp, 'detailedStatus', val)}
+                            displayValue={<span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${DETAILED_STATUS_COLORS[opp.detailedStatus || 'Working on it']}`}>{translateStatus(opp.detailedStatus || 'Working on it')}</span>}
+                        />
+                    </td>
+                );
+            case 'assigned':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600">{opp.dates?.assigned || '-'}</td>;
+            case 'expected':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-mono"><EditableCell type="date" value={opp.dates?.expected || ''} onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)} /></td>;
+            case 'amount':
+                return <td key={key} className="px-6 py-3 text-right font-mono font-medium"><EditableCell type="number" value={amount} onChange={(val) => handleInlineEdit(opp, 'sellPrice', val)} displayValue={`$${amount.toLocaleString()}`} /></td>;
+            case 'nextStep':
+                return (
+                    <td key={key} className="px-6 py-3 text-xs text-gray-600">
+                        {nextTask ? (
+                            <div className="flex flex-col gap-1">
+                                <EditableCell value={nextTask.title} onChange={(val) => onTaskUpdate(opp.id, nextTask.id, { title: val })} />
+                                <select value={nextTask.status} onChange={(e) => onTaskUpdate(opp.id, nextTask.id, { status: e.target.value as any })} className={`text-[9px] border-none p-0 bg-transparent font-medium cursor-pointer uppercase ${TASK_STATUS_COLORS[nextTask.status as any]}`}>
+                                    {Object.keys(TASK_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}
+                                </select>
+                            </div>
+                        ) : <span className="text-gray-300 italic">No tasks</span>}
+                    </td>
+                );
+            case 'waiting':
+                return (
+                    <td key={key} className="px-6 py-3">
+                        {waitingTasks.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                                {waitingTasks.map(t => (
+                                    <div key={t.id} className={`text-[10px] px-1.5 py-0.5 rounded border flex flex-col ${t.status === 'Approval' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`} title={t.title}>
+                                        <span className="font-bold truncate max-w-[150px]">{t.status === 'Approval' ? 'Approval: ' : ''}{t.title}</span>
+                                        {(t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
+                                        {t.responsible && <span className="text-[9px] opacity-80 italic">{t.status === 'Approval' ? 'Approver' : 'Owes info'}: {t.responsible}</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : <span className="text-xs text-gray-400">-</span>}
+                    </td>
+                );
+            case 'notes':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><EditableCell value={opp.kanbanNote || ''} onChange={(val) => handleInlineEdit(opp, 'kanbanNote', val)} /></td>;
+            default:
+                return null;
+        }
+    };
+
     // Reusable Task Card Renderer for Next Steps
 
 
@@ -1863,6 +2036,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 columns={allColumns}
                                 visibleColumns={visibleColumns}
                                 onChange={setVisibleColumns}
+                                columnOrder={columnOrder}
+                                onOrderChange={setColumnOrder}
                             />
                         </div>
                     )}
@@ -2287,16 +2462,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 sticky top-0 bg-gray-50 z-10">
                                         <tr>
-                                            {visibleColumns.includes('id') && <th className="px-6 py-3 w-32"><div className="flex items-center">ID<ColumnFilter options={idOptions} selected={columnFilters.id || []} onChange={v => setColumnFilters(p => ({...p, id: v}))} /></div></th>}
-                                            {visibleColumns.includes('title') && <th className="px-6 py-3"><div className="flex items-center">Title<ColumnFilter options={titleOptions} selected={columnFilters.title || []} onChange={v => setColumnFilters(p => ({...p, title: v}))} /></div></th>}
-                                            {visibleColumns.includes('customer') && <th className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>}
-                                            {visibleColumns.includes('seller') && <th className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>}
-                                            {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Process Status<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>}
-                                            {visibleColumns.includes('expected') && <th className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>}
-                                            {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>}
-                                            {visibleColumns.includes('nextStep') && <th className="px-6 py-3">Next Step</th>}
-                                            {visibleColumns.includes('waiting') && <th className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>}
-                                            {visibleColumns.includes('notes') && <th className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>}
+                                            {visibleOrderedTableColumns.map(col => renderOpportunityColumnHeader(col.key, 'Process Status'))}
                                             {visibleColumns.length < allColumns.length && <th className="px-6 py-3 text-gray-400 italic">Ocultas ({allColumns.length - visibleColumns.length})</th>}
                                         </tr>
                                     </thead>
@@ -2308,6 +2474,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                             const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Approval' || t.status === 'Waiting');
                                             return (
                                                 <tr key={opp.id} className="hover:bg-gray-50 transition-colors">
+                                                    {visibleOrderedTableColumns.map(col => renderGeneralOpportunityCell(opp, col.key))}
+                                                    {false && <>
                                                     {visibleColumns.includes('id') && <td className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap cursor-pointer hover:text-[#3DCD58] hover:underline" onClick={() => onSelect(opp.id)}>{opp.id}</td>}
                                                     {visibleColumns.includes('title') && <td className="px-6 py-3 font-medium text-gray-900"><EditableCell value={opp.title} onChange={(val) => handleInlineEdit(opp, 'title', val)} /></td>}
                                                     {visibleColumns.includes('customer') && <td className="px-6 py-3 text-gray-600"><EditableCell value={opp.customer} onChange={(val) => handleInlineEdit(opp, 'customer', val)} /></td>}
@@ -2353,6 +2521,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                         ) : <span className="text-xs text-gray-400">-</span>}
                                                     </td>}
                                                     {visibleColumns.includes('notes') && <td className="px-6 py-3 text-xs text-gray-600"><EditableCell value={opp.kanbanNote || ''} onChange={(val) => handleInlineEdit(opp, 'kanbanNote', val)} /></td>}
+                                                    </>}
                                                     {visibleColumns.length < allColumns.length && <td className="px-6 py-3"></td>}
                                                 </tr>
                                             );
@@ -2407,7 +2576,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 const isCollapsed = collapsedColumns.includes(columnKey);
                                                 return (
                                             <div
-                                                className={`flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all ${isCollapsed ? 'flex-col gap-3 py-4' : ''}`}
+                                                className={`kanban-cursor-grab flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200'} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all ${isCollapsed ? 'flex-col gap-3 py-4' : ''}`}
                                                 draggable
                                                 onDragStart={(e) => { e.stopPropagation(); setDraggingCol(columnKey); e.dataTransfer.setData('colKey', columnKey); }}
                                                 onDragEnd={() => setDraggingCol(null)}

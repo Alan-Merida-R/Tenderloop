@@ -38,8 +38,8 @@ import {
   FolderTree,
   CheckCheck
 } from 'lucide-react';
-import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey } from '../../services/opportunityFolderLink';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, copyToOsClipboard, openManyNative, revealInExplorer } from './fileOps';
+import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle } from '../../services/opportunityFolderLink';
+import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { getFileIcon } from './icons';
 import { FileItem } from './types';
@@ -140,6 +140,13 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     subfolders: { name: string; handle: FileSystemDirectoryHandle }[];
   } | null>(null);
 
+  const [templateNaming, setTemplateNaming] = useState<{
+    templateHandle?: FileSystemDirectoryHandle;
+    templatePath?: string;
+    destParent?: FileSystemDirectoryHandle;
+    name: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!('showDirectoryPicker' in window)) setIsApiSupported(false);
   }, []);
@@ -189,8 +196,15 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       setPath([]);
       setHistory([]);
       setHistoryIdx(-1);
-      // Per-revision lookup, with legacy fallback for folders linked before
+      // Per-revision lookup, with migration for folders linked before
       // per-revision storage existed.
+      if (!isSnapshot && revision) {
+        const revisionHandle = await getFolderHandle(folderKey(opportunityId, revision));
+        const legacyHandle = await getFolderHandle(opportunityId);
+        if (!revisionHandle && legacyHandle) {
+          await moveLegacyFolderLinkToRevision(opportunityId, revision);
+        }
+      }
       const handle = await getFolderHandleForRevision(opportunityId, revision);
       const rp = await getRootPathDisplayForRevision(opportunityId, revision);
       if (cancelled) return;
@@ -379,25 +393,83 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
    */
   const handleCreateFromTemplate = async () => {
     try {
-      // 1. Pick the template source.
-      // @ts-ignore
-      const templateHandle = await window.showDirectoryPicker({ id: 'tl-template-src' });
+      // ── 1. Pick the template SOURCE ───────────────────────────────────
+      let templateHandle: FileSystemDirectoryHandle | undefined;
+      let templateOsPath: string | undefined;
+      try {
+        // @ts-ignore
+        templateHandle = await window.showDirectoryPicker({ id: 'tl-template-src' });
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        const entered = window.prompt(
+          'The browser cannot open that folder (it may contain system files).\n\nPaste the FULL Windows path of the TEMPLATE folder:\n\nExample:  C:\\Users\\Alan\\Documents\\MyTemplate',
+          ''
+        );
+        if (!entered?.trim()) return;
+        templateOsPath = entered.trim().replace(/^"|"$/g, '');
+      }
 
-      // 2. Pick the destination parent.
+      // ── 2. Pick the DESTINATION parent ────────────────────────────────
       // @ts-ignore
       const destParent = await window.showDirectoryPicker({ id: 'tl-template-dest', mode: 'readwrite' });
       if (!(await verifyPermission(destParent, true))) {
-        alert("Write permission is required on the destination folder.");
+        alert('Write permission is required on the destination folder.');
         return;
       }
 
-      // 3. Create the new folder named after the opportunity and copy everything.
+      // ── 3. Build the default folder name & open the naming dialog ─────
+      // Default = the expediente title as-is (it already starts with the OP
+      // reference since the SR import prepends it) — no extra id prefix.
       const safeTitle = (opportunity.title || '').replace(/[\/\\?%*:|"<>]/g, '').trim();
-      const folderName = safeTitle ? `${opportunityId} - ${safeTitle}` : `${opportunityId}`;
-      const newFolderHandle = await destParent.getDirectoryHandle(folderName, { create: true });
+      const defaultName = safeTitle || `${opportunityId}`;
+      
+      setTemplateNaming({
+        templateHandle,
+        templatePath: templateOsPath,
+        destParent,
+        name: defaultName,
+      });
+    } catch (e: any) {
+      console.error('Template creation failed', e);
+      alert('Error en handleCreateFromTemplate: ' + (e.message || e));
+    }
+  };
 
-      setIsLocating(true); // reuse spinner to signal "working"
-      try {
+  /** Runs after the user confirms the folder name in the naming dialog. */
+  const confirmTemplateCreation = async () => {
+    if (!templateNaming) return;
+    const { templateHandle, templatePath: templateOsPath, destParent } = templateNaming as any;
+    const folderName = templateNaming.name.replace(/[\/\\?%*:|"<>]/g, '').trim();
+    if (!folderName) return;
+    setTemplateNaming(null);
+
+    setIsLocating(true);
+    try {
+      let newFolderHandle: FileSystemDirectoryHandle | undefined;
+
+      if (templateOsPath || !templateHandle) {
+        // ── OS-level copy via the local helper ────────────────────────
+        // Determine the destination OS path: use the typed path, or auto-detect
+        // from the handle the browser opened successfully.
+        const resolvedDest = (await locateFolderPathWithMarker(destParent)) ?? undefined;
+        if (!resolvedDest) {
+          throw new Error(
+            'Could not determine the destination path.\n\n' +
+            'Make sure TenderLoop is running via LANZAR_TENDERLOOP.'
+          );
+        }
+        const helperResult = await copyTemplateFromOsPath(templateOsPath!, resolvedDest, folderName);
+        if (helperResult.copied === 0 && helperResult.skipped.length > 0) {
+          throw new Error(helperResult.skipped.map((i: any) => `${i.path}: ${i.reason}`).join('\n'));
+        }
+        // Try to re-open the created folder via File System API (for the subfolder step).
+        if (destParent) {
+          newFolderHandle = await destParent.getDirectoryHandle(folderName, { create: false }).catch(() => undefined);
+        }
+      } else {
+        // ── File System API copy (no system files in either folder) ───
+        newFolderHandle = await destParent!.getDirectoryHandle(folderName, { create: true });
+        const copyResult = { copied: 0, skipped: [] as { path: string; reason: string }[] };
         // @ts-ignore
         for await (const child of templateHandle.values()) {
           await copyEntryToDir({
@@ -407,8 +479,13 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             relativePath: [],
           }, newFolderHandle);
         }
-      } finally {
-        setIsLocating(false);
+      }
+
+      setIsLocating(false);
+
+      if (!newFolderHandle) {
+        alert(`Folder "${folderName}" was created successfully.\n\nUse "Link Existing Folder" to link it to this opportunity.`);
+        return;
       }
 
       // 4. Gather subfolders so the user can pick the root (e.g. a revision folder).
@@ -425,9 +502,14 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setTemplateChoice({ newFolderHandle, folderName, subfolders });
       }
     } catch (e) {
-      console.error("Template creation failed", e);
+      console.error('Template creation failed', e);
+      alert(e instanceof Error ? e.message : 'Could not create the folder from the template. Check permissions on the destination and try again.');
+    } finally {
+      setIsLocating(false);
     }
   };
+
+
 
   const handleGoToPath = async () => {
     if (!goToPath.trim() || !rootHandle) return;
@@ -947,6 +1029,93 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     );
   }
 
+  const renderTemplateModals = () => (
+    <>
+      {/* Template naming (F4) — edit/confirm the new folder's name BEFORE copying */}
+      {templateNaming && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 text-left">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-slide-in-right">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-emerald-50 rounded-lg"><FolderTree className="w-5 h-5 text-[#3DCD58]" /></div>
+              <h3 className="text-lg font-bold text-gray-900">Name the new folder</h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              A copy of the template will be created with this name in the folder you selected. Edit it if you want — nothing is copied until you confirm.
+            </p>
+            <input
+              autoFocus
+              value={templateNaming.name}
+              onChange={e => setTemplateNaming({ ...templateNaming, name: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && templateNaming.name.trim()) confirmTemplateCreation();
+                if (e.key === 'Escape') setTemplateNaming(null);
+              }}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-[#3DCD58]/40 focus:border-[#3DCD58] outline-none"
+              placeholder="Folder name"
+            />
+            {!templateNaming.name.trim() && (
+              <p className="text-[10px] text-red-500 font-bold mt-1">The name cannot be empty.</p>
+            )}
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setTemplateNaming(null)}
+                className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmTemplateCreation}
+                disabled={!templateNaming.name.trim()}
+                className="px-4 py-2 bg-[#3DCD58] hover:bg-[#2db64a] disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg font-bold text-sm"
+              >
+                Create Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Template root/revision choice (F4) */}
+      {templateChoice && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 text-left">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-slide-in-right">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-emerald-50 rounded-lg"><FolderTree className="w-5 h-5 text-[#3DCD58]" /></div>
+              <h3 className="text-lg font-bold text-gray-900">Folder created</h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-1 break-all"><span className="font-mono text-xs bg-gray-50 px-1.5 py-0.5 rounded">{templateChoice.folderName}</span></p>
+            <p className="text-sm text-gray-600 mb-4">Which folder should be the root for this revision?</p>
+
+            <button
+              onClick={async () => { const tc = templateChoice; setTemplateChoice(null); await finalizeRootLink(tc.newFolderHandle); }}
+              className="w-full mb-3 px-4 py-2.5 bg-[#3DCD58] text-white rounded-lg font-bold text-sm hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
+            >
+              <HardDrive className="w-4 h-4" /> Use the whole folder as root
+            </button>
+
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Or select a subfolder (revision)</p>
+            <div className="max-h-56 overflow-y-auto space-y-1.5 mb-4">
+              {templateChoice.subfolders.map(sf => (
+                <button
+                  key={sf.name}
+                  onClick={async () => { const h = sf.handle; setTemplateChoice(null); await finalizeRootLink(h); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 border border-gray-100 hover:border-emerald-200 rounded-lg text-sm text-gray-700 transition-colors text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="truncate font-medium">{sf.name}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <button onClick={() => setTemplateChoice(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (!rootHandle) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-10 text-center">
@@ -977,6 +1146,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           </div>
           
           <div className="mt-8 text-left bg-blue-50 p-4 rounded-xl border border-blue-100 max-w-md">  </div>
+          {renderTemplateModals()}
         </div>
         )}
       </div>
@@ -1339,44 +1509,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         </div>
       )}
 
-      {/* Template root/revision choice (F4) */}
-      {templateChoice && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-slide-in-right">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-emerald-50 rounded-lg"><FolderTree className="w-5 h-5 text-[#3DCD58]" /></div>
-              <h3 className="text-lg font-bold text-gray-900">Folder created</h3>
-            </div>
-            <p className="text-sm text-gray-500 mb-1 break-all"><span className="font-mono text-xs bg-gray-50 px-1.5 py-0.5 rounded">{templateChoice.folderName}</span></p>
-            <p className="text-sm text-gray-600 mb-4">Which folder should be the root for this revision?</p>
 
-            <button
-              onClick={async () => { const tc = templateChoice; setTemplateChoice(null); await finalizeRootLink(tc.newFolderHandle); }}
-              className="w-full mb-3 px-4 py-2.5 bg-[#3DCD58] text-white rounded-lg font-bold text-sm hover:bg-[#2db64a] transition-colors flex items-center justify-center gap-2"
-            >
-              <HardDrive className="w-4 h-4" /> Use the whole folder as root
-            </button>
-
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Or select a subfolder (revision)</p>
-            <div className="max-h-56 overflow-y-auto space-y-1.5 mb-4">
-              {templateChoice.subfolders.map(sf => (
-                <button
-                  key={sf.name}
-                  onClick={async () => { const h = sf.handle; setTemplateChoice(null); await finalizeRootLink(h); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-emerald-50 border border-gray-100 hover:border-emerald-200 rounded-lg text-sm text-gray-700 transition-colors text-left"
-                >
-                  <FolderOpen className="w-4 h-4 text-gray-400 shrink-0" />
-                  <span className="truncate font-medium">{sf.name}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex justify-end">
-              <button onClick={() => setTemplateChoice(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium text-sm">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderTemplateModals()}
 
       {showLinkedItems && isFileSelected && (
         <LinkedItemsPanel

@@ -1,6 +1,6 @@
 # Progreso de Tender Loop — Reporte Local
 
-Última actualización: 2026-06-16
+Última actualización: 2026-06-17
 
 ## Resumen general
 
@@ -8,10 +8,10 @@ Estado general: Ronda 1 implementada + Vista General (10 tareas) — testing pen
 Porcentaje estimado: 25%
 Tareas totales: 60
 Tareas hechas: 0
-Tareas en testing: 13
+Tareas en testing: 14
 Tareas listas (segunda tanda): 3
 Tareas en proceso: 0
-Tareas pendientes: 44
+Tareas pendientes: 43
 Tareas bloqueadas: 0
 
 ---
@@ -31,6 +31,7 @@ Tareas bloqueadas: 0
 |---|---|---|---|---|
 | 2026-06-16 | Proposals Dashboard | components/Dashboard.tsx | Las columnas contraídas se guardan en localStorage y se restauran al recargar hasta que el usuario las expanda | needs_testing manual |
 | 2026-06-16 | Expediente / Quick Links | components/OpportunityDetail.tsx | Defaults sin duplicados: SRLink, BFO, CQA, Folder, BA y GEET; icono de abrir inmediato al capturar URL; contenedor usa todo el espacio disponible | needs_testing manual |
+| 2026-06-17 | Expediente / Folder | features/opportunity-folder/, server/openHelper.js, services/folderPinsStore.ts | 5 mejoras: Base Path automático (sin pedir ruta), multiselección estilo Windows + "Copy to Windows" (portapapeles real), accesos rápidos (pins), flujo template (copia + elegir raíz/revisión), arrastre a carpeta para mover. UI en inglés. Relacionado TASK-021 y TASK-056. | needs_testing manual |
 
 ## Tareas listas (segunda tanda — no activar aún)
 

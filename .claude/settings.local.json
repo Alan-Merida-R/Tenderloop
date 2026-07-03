@@ -43,7 +43,14 @@
       "Bash(git log *)",
       "Bash(xargs wc -l)",
       "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 60)",
-      "PowerShell(npx vite build 2>&1 | Select-Object -Last 25)"
+      "PowerShell(npx vite build 2>&1 | Select-Object -Last 25)",
+      "Bash(npm install *)",
+      "Read(//c/Users/Alan Merida/Documents/GitHub/Tenderloop/**)",
+      "PowerShell($n='Tenderloop'; $sql='SELECT TOP 25 System.ItemPathDisplay FROM SYSTEMINDEX WHERE System.FileName = ''' + $n.Replace\\(\"'\",\"''\"\\) + ''' AND System.ItemType = ''Directory'''; $c=New-Object System.Data.OleDb.OleDbConnection\\(\"Provider=Search.CollatorDSO;Extended Properties='Application=Windows'\"\\); $c.Open\\(\\); $q=$c.CreateCommand\\(\\); $q.CommandText=$sql; $r=$q.ExecuteReader\\(\\); while\\($r.Read\\(\\)\\){$r.GetString\\(0\\)}; $c.Close\\(\\))",
+      "Bash(TENDERLOOP_OPEN_PORT=3098 node server/openHelper.js)",
+      "Bash(curl -s \"http://127.0.0.1:3098/health\")",
+      "Bash(curl -s \"http://127.0.0.1:3098/find-dir?name=GitHub&hints=%5B%22Tenderloop%22%5D\")",
+      "Bash(time curl -s \"http://127.0.0.1:3098/find-dir?name=Tenderloop&hints=%5B%22package.json%22%2C%22App.tsx%22%5D\")"
     ]
   }
 }
