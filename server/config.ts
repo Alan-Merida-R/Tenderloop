@@ -18,6 +18,7 @@ export const DATA_DIR = path.join(
 );
 
 export const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+export const DEFAULT_DB_PATH = path.join(DATA_DIR, 'tendering_db.json');
 
 /**
  * OS-integration routes (/api/os/*) act on the local machine (open files,

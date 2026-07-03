@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
+import { createDefaultBackendDb, importBackendDb, isBackendAvailable, openDefaultBackendDb, saveBackendDb } from './services/backendDb';
 import Dashboard from './components/Dashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
@@ -17,6 +18,7 @@ import { useScheduleNotifications } from './features/schedule/useScheduleNotific
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
+type StorageMode = 'backend' | 'file' | null;
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -153,6 +155,10 @@ function App() {
   const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [fallbackFileName, setFallbackFileName] = useState<string | null>(null);
+  const [storageMode, setStorageMode] = useState<StorageMode>(null);
+  const [backendAvailable, setBackendAvailable] = useState(false);
+  const [backendRevision, setBackendRevision] = useState<number>(0);
+  const [backendName, setBackendName] = useState<string | null>(null);
 
   // Navigation
   const [currentView, setCurrentView] = useState<AppView>('general-dashboard');
@@ -184,6 +190,7 @@ function App() {
   // instead of waiting the normal 3-second debounce. Setting this ref to true
   // is consumed by the next autosave effect tick.
   const immediateFlushRef = useRef(false);
+  const backendRevisionRef = useRef(0);
   // PERF FIX: Debounce refs for sessionStorage writes.
   // sessionStorage.setItem is synchronous and runs on the main thread.
   // On low-RAM machines it can spike for 5-15ms per call.
@@ -257,6 +264,35 @@ function App() {
   // Load Recents & Auto-open last DB
   useEffect(() => {
     const init = async () => {
+      const hasBackend = await isBackendAvailable();
+      setBackendAvailable(hasBackend);
+      if (hasBackend) {
+        try {
+          setStatus('loading');
+          const snapshot = await openDefaultBackendDb();
+          const migratedData = migrateData(snapshot.data);
+          mergeNoteCrashBackups(migratedData);
+          setDb(migratedData);
+          setFileHandle(null);
+          setStorageMode('backend');
+          backendRevisionRef.current = snapshot.status.revision;
+          setBackendRevision(snapshot.status.revision);
+          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+          setIsDbLoaded(true);
+          setStartupHint(null);
+          setErrorMessage(null);
+          setStatus('idle');
+          return;
+        } catch (err: any) {
+          if (err?.status !== 404) {
+            console.warn('[Backend DB] Auto-open failed, falling back to file picker flow.', err);
+            setErrorMessage('Backend DB unavailable: ' + err.message);
+          }
+          setStatus('idle');
+        }
+      }
+
       // Load recents list
       const recents = await getRecentDbs();
       setRecentDbs(recents);
@@ -294,6 +330,7 @@ function App() {
   // re-renders through Dashboard / OpportunityDetail when unrelated state changes.
   const dbRef = useRef(db);
   dbRef.current = db;
+  backendRevisionRef.current = backendRevision;
   const appSettingsRef = useRef(appSettings);
   appSettingsRef.current = appSettings;
   const selectedOppIdRef = useRef(selectedOppId);
@@ -362,6 +399,13 @@ function App() {
           isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
           setDb(event.data.db);
           setStatus('saved');
+        } else if (event.data.type === 'BACKEND_REVISION') {
+          const revision = Number(event.data.revision || 0);
+          if (revision > 0) {
+            backendRevisionRef.current = revision;
+            setBackendRevision(revision);
+            setStatus('saved');
+          }
         }
       };
     };
@@ -371,7 +415,9 @@ function App() {
 
   // Auto-save Effect
   useEffect(() => {
-    if (!db || !fileHandle || status === 'loading') return;
+    if (!db || !isDbLoaded || status === 'loading') return;
+    if (storageMode === 'file' && !fileHandle) return;
+    if (storageMode !== 'backend' && storageMode !== 'file') return;
 
     // HOTFIX PERFORMANCE: Handle remote changes vs local changes
     if (isBroadcastingRef.current) {
@@ -443,19 +489,36 @@ function App() {
         console.debug("[Autosave] Flush started...");
         setStatus('saving');
 
-        // Final sanity check for permission before writing
-        // @ts-ignore
-        const permission = await fileHandle.queryPermission({ mode: 'readwrite' });
+        let success = false;
+        if (storageMode === 'backend') {
+          console.debug("[Autosave] Executing saveBackendDb...");
+          const snapshot = await saveBackendDb(db, backendRevisionRef.current || undefined);
+          backendRevisionRef.current = snapshot.status.revision;
+          setBackendRevision(snapshot.status.revision);
+          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+          syncChannel.current?.postMessage({
+            type: 'BACKEND_REVISION',
+            revision: snapshot.status.revision,
+            originTabId: tabId
+          });
+          success = true;
+        } else {
+          if (!fileHandle) return;
+          // Final sanity check for permission before writing
+          // @ts-ignore
+          const permission = await fileHandle.queryPermission({ mode: 'readwrite' });
 
-        if (permission !== 'granted') {
-          console.warn("[Autosave] Write permission not granted:", permission);
-          setStatus('error');
-          setErrorMessage("Database is read-only. Please use Change DB to re-authenticate.");
-          return;
+          if (permission !== 'granted') {
+            console.warn("[Autosave] Write permission not granted:", permission);
+            setStatus('error');
+            setErrorMessage("Database is read-only. Please use Change DB to re-authenticate.");
+            return;
+          }
+
+          console.debug("[Autosave] Executing saveToDisk...");
+          success = await saveToDisk(fileHandle, db);
         }
-
-        console.debug("[Autosave] Executing saveToDisk...");
-        const success = await saveToDisk(fileHandle, db);
 
         if (success) {
           console.debug("[Autosave] Save success.");
@@ -477,7 +540,11 @@ function App() {
       } catch (err: any) {
         console.error("[Autosave] Critical error:", err);
         setStatus('error');
-        setErrorMessage("Failed to save changes. Check file permissions.");
+        if (err?.status === 409) {
+          setErrorMessage("Backend database changed elsewhere. Reload the database before saving more changes.");
+        } else {
+          setErrorMessage(storageMode === 'backend' ? "Failed to save changes through backend." : "Failed to save changes. Check file permissions.");
+        }
       } finally {
         isSavingRef.current = false;
       }
@@ -489,7 +556,7 @@ function App() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [db, fileHandle]);
+  }, [db, fileHandle, isDbLoaded, storageMode]);
 
   // Handle Page Exit / Unload
   useEffect(() => {
@@ -566,6 +633,10 @@ function App() {
 
       setDb(migratedData);
       setFileHandle(handle);
+      setStorageMode('file');
+      setBackendRevision(0);
+      backendRevisionRef.current = 0;
+      setBackendName(null);
       setIsDbLoaded(true);
       setFallbackFileName(null);
       setStatus('idle');
@@ -915,6 +986,10 @@ function App() {
     setDb(INITIAL_DB);
     setIsDbLoaded(false);
     setFileHandle(null);
+    setStorageMode(null);
+    setBackendRevision(0);
+    backendRevisionRef.current = 0;
+    setBackendName(null);
 
     setStatus('loading');
     setErrorMessage(null);
@@ -940,7 +1015,27 @@ function App() {
           return;
         }
 
-        // Logic for handle (autosave enabled)
+        console.debug("[App] Migrating and setting state...");
+        const migratedData = migrateData(result.data);
+        mergeNoteCrashBackups(migratedData);
+
+        if (backendAvailable) {
+          const snapshot = await importBackendDb(migratedData);
+          setDb(migrateData(snapshot.data));
+          setFileHandle(null);
+          setStorageMode('backend');
+          backendRevisionRef.current = snapshot.status.revision;
+          setBackendRevision(snapshot.status.revision);
+          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+          setIsDbLoaded(true);
+          setRecentDbs(await getRecentDbs());
+          setStartupHint(null);
+          setStatus('idle');
+          return;
+        }
+
+        // Legacy file mode (backend unavailable)
         if (result.handle) {
           try {
             // @ts-ignore
@@ -950,17 +1045,16 @@ function App() {
             console.error("Failed to request write permission", e);
           }
           setFileHandle(result.handle);
+          setStorageMode('file');
           setFallbackFileName(null);
           await rememberDb(result.handle, { name: result.handle.name });
         } else {
           setFileHandle(null);
+          setStorageMode('file');
           // @ts-ignore
           setFallbackFileName(result.name || "Offline DB");
         }
 
-        console.debug("[App] Migrating and setting state...");
-        const migratedData = migrateData(result.data);
-        mergeNoteCrashBackups(migratedData);
         setDb(migratedData);
         setIsDbLoaded(true);
         setRecentDbs(await getRecentDbs());
@@ -981,6 +1075,22 @@ function App() {
     setStatus('loading');
     setErrorMessage(null);
     try {
+      if (backendAvailable) {
+        const snapshot = await createDefaultBackendDb(false);
+        const migratedData = migrateData(snapshot.data);
+        setDb(migratedData);
+        setFileHandle(null);
+        setStorageMode('backend');
+        backendRevisionRef.current = snapshot.status.revision;
+        setBackendRevision(snapshot.status.revision);
+        setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+        setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+        setIsDbLoaded(true);
+        setStartupHint(null);
+        setStatus('idle');
+        return;
+      }
+
       const result = await createDatabaseFile();
       if (result.error) {
         if (result.error !== 'Creación cancelada.') {
@@ -995,6 +1105,7 @@ function App() {
       if (result.data && result.handle) {
         setDb(result.data);
         setFileHandle(result.handle);
+        setStorageMode('file');
         setIsDbLoaded(true);
         await saveToDisk(result.handle, result.data); // Force immediate save
         await rememberDb(result.handle, { name: result.handle.name });
@@ -1046,7 +1157,7 @@ function App() {
   };
 
   const deleteOpportunity = async (id: string) => {
-    if (!db || !fileHandle) return;
+    if (!db || !isDbLoaded) return;
     setSelectedOppId(null);
     const newOpps = db.opportunities.filter(o => o.id !== id);
     const newDb = { ...db, opportunities: newOpps };
@@ -1717,7 +1828,7 @@ function App() {
               <div className="flex items-center gap-2 relative">
                 <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm">
                   <button onClick={handleOpenDB} className="flex items-center gap-2 px-3 py-1.5 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-l-lg transition-colors border-r border-gray-200">
-                    <FolderOpen className="w-4 h-4" /> Open DB
+                    <FolderOpen className="w-4 h-4" /> {backendAvailable ? 'Import JSON' : 'Open DB'}
                   </button>
                   {recentDbs.length > 0 && (
                     <div className="relative">
@@ -1757,7 +1868,7 @@ function App() {
                   )}
                 </div>
                 <button onClick={handleCreateDB} className="flex items-center gap-2 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
-                  <PlusCircle className="w-4 h-4" /> New DB
+                  <PlusCircle className="w-4 h-4" /> {backendAvailable ? 'New Backend DB' : 'New DB'}
                 </button>
                 {startupHint === '__reopen__' && pendingHandle ? (
                   <button
@@ -1787,7 +1898,7 @@ function App() {
               <div className="flex items-center gap-3 animate-fade-in">
                 <span className="text-xs text-gray-400 font-mono hidden sm:inline-block border border-gray-100 px-2 py-1 rounded bg-gray-50 flex items-center gap-1">
                   <FileJson className="w-3 h-3" />
-                  {fileHandle ? fileHandle.name : fallbackFileName}
+                  {storageMode === 'backend' ? (backendName || 'Backend DB') : (fileHandle ? fileHandle.name : fallbackFileName)}
                 </span>
 
                 {/* Always allow switching DB even when loaded */}
@@ -1805,7 +1916,7 @@ function App() {
                       <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
                         <div className="p-2 border-b border-gray-100">
                           <button onClick={() => { setShowRecents(false); handleOpenDB(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
-                            <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> Open another file...
+                            <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> {backendAvailable ? 'Import another JSON...' : 'Open another file...'}
                           </button>
                         </div>
                         <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
@@ -1858,7 +1969,9 @@ function App() {
                 <p className="text-gray-500 text-sm mt-1">
                   {pendingHandle
                     ? `Tu base de datos "${(pendingHandle as any).name}" necesita permiso para reabrirse.`
-                    : 'Abre o crea una base de datos para comenzar.'}
+                    : backendAvailable
+                      ? 'Crea una base backend o importa una base JSON existente.'
+                      : 'Abre o crea una base de datos para comenzar.'}
                 </p>
               </div>
               {pendingHandle && startupHint === '__reopen__' ? (
@@ -1883,10 +1996,10 @@ function App() {
               ) : (
                 <div className="flex gap-4 flex-wrap justify-center">
                   <button onClick={handleOpenDB} className="flex items-center gap-2 px-6 py-3 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-xl font-bold shadow-md transition-all">
-                    <FolderOpen className="w-5 h-5" /> Abrir Base de Datos
+                    <FolderOpen className="w-5 h-5" /> {backendAvailable ? 'Importar JSON' : 'Abrir Base de Datos'}
                   </button>
                   <button onClick={handleCreateDB} className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition-all">
-                    <PlusCircle className="w-5 h-5" /> Nueva Base de Datos
+                    <PlusCircle className="w-5 h-5" /> {backendAvailable ? 'Nueva Base Backend' : 'Nueva Base de Datos'}
                   </button>
                 </div>
               )}
@@ -1911,7 +2024,7 @@ function App() {
             <div className={`h-full overflow-hidden transition-all duration-300 ${splitTab ? 'w-1/2 border-r border-gray-100' : 'w-full'}`}>
               <LocalErrorBoundary fallbackLabel="Dashboard">
                 <Dashboard
-                  key={fileHandle?.name || 'sandbox'}
+                  key={storageMode === 'backend' ? (backendName || 'backend') : (fileHandle?.name || 'sandbox')}
                   mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
                   opportunities={dashboardOpportunities}
                   onSelect={handleSelectOpp}

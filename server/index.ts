@@ -6,6 +6,8 @@
 import express from 'express';
 import { PORT, HOST, ENABLE_OS_INTEGRATION } from './config';
 import { osRouter } from './routes/os';
+import { dbRouter } from './routes/db';
+import { dbRepository } from './db/repository';
 
 const app = express();
 app.disable('x-powered-by');
@@ -29,13 +31,15 @@ const health = (_req: express.Request, res: express.Response) => {
     res.json({
         ok: true,
         port: PORT,
-        dbOpen: false, // wired to the repository in Phase 2
+        dbOpen: dbRepository.status().open,
+        db: dbRepository.status(),
         features: ['open', 'open-many', 'reveal', 'clipboard', 'locate', 'find-dir', 'copy-template'],
     });
 };
 
 app.get('/api/health', health);
 app.get('/health', health); // legacy alias
+app.use('/api/db', dbRouter);
 
 if (ENABLE_OS_INTEGRATION) {
     app.use('/api/os', osRouter);
