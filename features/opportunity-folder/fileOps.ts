@@ -79,6 +79,20 @@ export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirecto
   }
 };
 
+export const copyFileAs = async (
+  sourceHandle: FileSystemFileHandle,
+  destDir: FileSystemDirectoryHandle,
+  newName: string
+): Promise<FileSystemFileHandle> => {
+  const file = await sourceHandle.getFile();
+  const newFileHandle = await destDir.getFileHandle(newName, { create: true });
+  // @ts-ignore
+  const writable = await newFileHandle.createWritable();
+  await writable.write(file);
+  await writable.close();
+  return newFileHandle;
+};
+
 export interface CopyTemplateResult {
   copied: number;
   skipped: { path: string; reason: string }[];
