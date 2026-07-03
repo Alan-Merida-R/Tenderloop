@@ -298,7 +298,7 @@ export const buildSrPrefill = (parsed: ParsedSrEmail): SrPrefill => {
         seller: parsed.leader,
         srId: parsed.srId,
         quoteType: mapQuoteType(parsed.typeOfOffer),
-        requestedDate: parsed.requestedDate,
+        requestedDate: undefined,
         expectedDate: parsed.expectedDate,
         proposalAmountUSD: parsed.amount,
         srLink: parsed.srLink,

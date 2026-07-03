@@ -10,6 +10,7 @@ interface Props {
     currentOppId: string;
     /** Light list used only to warn when the SR already exists elsewhere. */
     existingOpps: { id: string; title: string; srId?: string }[];
+    currentRequestedDate: string;
     onApply: (prefill: SrPrefill) => void;
 }
 
@@ -27,7 +28,7 @@ const FIELD_LABELS: { key: EditableField; label: string; type?: 'date' }[] = [
     { key: 'srLink', label: 'SR Link' },
 ];
 
-export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOppId, existingOpps, onApply }) => {
+export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOppId, existingOpps, currentRequestedDate, onApply }) => {
     const [pasteText, setPasteText] = useState('');
     const [prefill, setPrefill] = useState<SrPrefill | null>(null);
     const [sourceLabel, setSourceLabel] = useState('');
@@ -63,7 +64,10 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
         }
         setError('');
         setSourceLabel(source);
-        setPrefill(buildSrPrefill(parsed));
+        setPrefill({
+            ...buildSrPrefill(parsed),
+            requestedDate: currentRequestedDate,
+        });
     };
 
     const handleFile = async (file: File) => {

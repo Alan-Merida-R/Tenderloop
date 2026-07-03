@@ -7889,6 +7889,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         onClose={() => setShowSrImport(false)}
                         currentOppId={localOpp.id}
                         existingOpps={(opportunities || []).map(o => ({ id: o.id, title: o.title, srId: o.srId }))}
+                        currentRequestedDate={localOpp.dates.requested || getTodayStr()}
                         onApply={applySrPrefill}
                     />
                 )
