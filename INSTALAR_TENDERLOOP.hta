@@ -333,20 +333,6 @@
       }, 250);
     }
 
-    function createShortcut(path, target, description, hotkey, icon) {
-      var shortcut = shell.CreateShortcut(path);
-      shortcut.TargetPath = target;
-      shortcut.WorkingDirectory = scriptDir;
-      shortcut.Description = description;
-      if (icon) {
-        shortcut.IconLocation = icon;
-      }
-      if (hotkey) {
-        shortcut.Hotkey = hotkey;
-      }
-      shortcut.Save();
-    }
-
     function startInstall() {
       el("installBtn").disabled = true;
       el("openBtn").disabled = true;
@@ -408,20 +394,12 @@
         logLine("[INFO] TenderLoop.exe is optional. Shortcuts use the stable launcher instead.");
       }
 
-      setStep(4, "Creating shortcuts");
-      var desktop = shell.SpecialFolders("Desktop");
-      var programs = shell.SpecialFolders("Programs");
-      var appFolder = programs + "\\TenderLoop";
-      var launcherPath = scriptDir + "\\ABRIR_TENDERLOOP.vbs";
-      if (!fso.FolderExists(appFolder)) fso.CreateFolder(appFolder);
-      // Use the VBS launcher directly. Some corporate EDR products quarantine
-      // unsigned helper EXEs that only start scripts; this launcher opens the
-      // exact same application without a console or administrator privileges.
-      createShortcut(desktop + "\\TenderLoop.lnk", launcherPath, "Open TenderLoop", "Ctrl+Alt+T", scriptDir + "\\tenderloop.ico");
-      createShortcut(appFolder + "\\TenderLoop.lnk", launcherPath, "Open TenderLoop", "Ctrl+Alt+T", scriptDir + "\\tenderloop.ico");
-      createShortcut(appFolder + "\\Uninstall TenderLoop.lnk", scriptDir + "\\DESINSTALAR_TENDERLOOP.vbs", "Remove TenderLoop local files and shortcuts", null, "%SystemRoot%\\System32\\shell32.dll,167");
-      logLine("[OK] Desktop shortcut created.");
-      logLine("[OK] Start Menu shortcuts created.");
+      setStep(4, "Verifying launcher");
+      if (!fso.FileExists(scriptDir + "\\ABRIR_TENDERLOOP.vbs")) {
+        failInstall("ABRIR_TENDERLOOP.vbs was not found after setup.");
+        return;
+      }
+      logLine("[OK] No shortcuts were created. Open TenderLoop with ABRIR_TENDERLOOP.vbs in this folder.");
 
       // The launcher requires this marker in addition to Vite. It prevents a
       // partial node_modules folder from bypassing this visible setup flow.

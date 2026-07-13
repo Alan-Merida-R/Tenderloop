@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- The installer no longer creates Desktop or Start Menu shortcuts. It validates the visible `ABRIR_TENDERLOOP.vbs` launcher instead, avoiding stale shortcut paths on corporate computers.
 - Starting setup no longer deletes the existing completion marker. The installer now records its start time and only treats a marker updated during that specific run as success, so a cancelled or blocked setup cannot make an existing installation appear uninstalled.
 - Uninstall preparation no longer reports itself as complete removal. The explicit **Remove folder now** action runs a detached cleanup that closes TenderLoop's local ports again, retries folder deletion for up to 60 seconds, and only reports success after the project folder is gone.
 - Removed the optional unsigned `TenderLoop.exe` launcher. The supported user-facing launcher is now `ABRIR_TENDERLOOP.vbs`, which opens TenderLoop without a terminal and starts verified setup when installation is incomplete. This avoids corporate security products quarantining a helper EXE.
