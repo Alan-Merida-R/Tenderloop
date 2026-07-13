@@ -1,10 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy } from 'lucide-react';
-import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel } from '../types';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail } from 'lucide-react';
+import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_COLORS, GlobalContact } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
 import { playSound } from '../services/soundService';
+import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
+import {
+  mergeEmailComposeSettings, resolveTemplates, variablesForKind,
+  DEFAULT_EMAIL_TEMPLATES, DEFAULT_SUBJECT_FORMAT, DEFAULT_FULLNAME_FORMAT,
+  type EmailComposeSettings, type EmailTemplate,
+} from '../services/emailTemplates';
+
+const DEFAULT_SOW_FLOW: { steps: any[]; questions: any[] } = (() => {
+  try {
+    const match = SOW_TEMPLATE_HTML.match(/const FLOW_DATA = (\{[\s\S]*?\});\s*\n\s*const STORAGE_KEY/);
+    return match ? JSON.parse(match[1]) : { steps: [], questions: [] };
+  } catch { return { steps: [], questions: [] }; }
+})();
 
 export interface TaskTemplate {
   id: string;
@@ -79,11 +92,22 @@ export interface AppSettings {
   timerSound?: SoundType;
   alarms?: import('../types').AlarmConfig[];
   emailIntegrationEnabled?: boolean;
+  /** Whether the "+ SOW" note-template button is available in the Notes tab. Off by default. */
+  sowSectionEnabled?: boolean;
   hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
   opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
+  processRadialWidgetEnabled?: boolean;
+  /** Process board buckets hidden from the dashboard. Temporary minimization stays local to the board. */
+  hiddenProposalProcessColumns?: string[];
   /** Global variables usable across the app (e.g. the user name stamped when copying History). */
   userName?: string;
+  globalContacts?: GlobalContact[];
+  /** Email composer configuration: subject format, Outlook mode and template overrides/customs. */
+  emailCompose?: EmailComposeSettings;
+  /** Reusable SOW sections/questions shared by every opportunity. */
+  globalSowForm?: { sections: any[]; questions: any[]; flowOverrides?: Record<string, any> };
 }
+export const DEFAULT_STAKEHOLDER_ROLES = ['CSE', 'Tender Engineer', 'TSC', 'Delivery', 'Field Services', 'FoxMass', 'Supply Chain', 'Other'];
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
 ];
@@ -122,9 +146,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationSound: 'beep',
   timerSound: 'beep',
   emailIntegrationEnabled: false,
+  sowSectionEnabled: false,
   hiddenOpportunityDetailSections: [],
   opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
+  processRadialWidgetEnabled: false,
+  hiddenProposalProcessColumns: [],
   userName: 'User',
+  globalContacts: [],
+  globalSowForm: { sections: [], questions: [] },
   alarms: [
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
     { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
@@ -189,8 +218,11 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
 };
 
 export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'expediente' | 'tasks' | 'notes' | 'labels' | 'taskview' | 'alarms'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'contacts' | 'expediente' | 'tasks' | 'notes' | 'sow' | 'labels' | 'taskview' | 'alarms' | 'emailTemplates'>('general');
+  const [emailTplSelectedId, setEmailTplSelectedId] = useState<string>('status_report');
+  const emailBodyRef = React.useRef<HTMLTextAreaElement>(null);
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
+  const [sowEditorText, setSowEditorText] = useState(() => JSON.stringify(initialSettings.globalSowForm || { sections: [], questions: [] }, null, 2));
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
@@ -200,6 +232,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   useEffect(() => {
     if (isOpen) {
       setSettings(initialSettings);
+      setSowEditorText(JSON.stringify(initialSettings.globalSowForm || { sections: [], questions: [] }, null, 2));
       setHolidaysText((initialSettings.holidays || []).join('\n'));
       setTrackedAreasText((initialSettings.trackedAreas || DEFAULT_TRACKED_AREAS).join('\n'));
     }
@@ -210,9 +243,19 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   const handleSave = () => {
     const holidays = holidaysText.split('\n').map(l => l.trim()).filter(l => /^\d{4}-\d{2}-\d{2}$/.test(l));
     const trackedAreas = trackedAreasText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    onSave({ ...settings, holidays, trackedAreas, opportunityDetailSectionOrder: normalizeOpportunityDetailSectionOrder(settings.opportunityDetailSectionOrder) });
+    const contacts = (settings.globalContacts || []).filter(c => c.name.trim()).map(c => ({ ...c, name: c.name.trim(), email: c.email.trim(), availableRoles: c.availableRoles || [] }));
+    const duplicate = contacts.find((c, index) => contacts.findIndex(other => (!!c.email && other.email.toLowerCase() === c.email.toLowerCase()) || other.name.toLowerCase() === c.name.toLowerCase()) !== index);
+    if (duplicate) { alert(`Duplicate contact: ${duplicate.name}. Select the existing person instead of creating another one.`); return; }
+    onSave({ ...settings, globalContacts: contacts, holidays, trackedAreas, opportunityDetailSectionOrder: normalizeOpportunityDetailSectionOrder(settings.opportunityDetailSectionOrder) });
     onClose();
   };
+
+  const updateGlobalSowForm = (updater: (form: { sections: any[]; questions: any[]; flowOverrides?: Record<string, any> }) => { sections: any[]; questions: any[]; flowOverrides?: Record<string, any> }) => {
+    setSettings(prev => ({ ...prev, globalSowForm: updater(prev.globalSowForm || { sections: [], questions: [] }) }));
+  };
+  const sowStepOptions = [
+    ['flow_base-data', 'Step 1 — Base Data'], ['flow_commercial', 'Step 2 — Commercial'], ['flow_technical-scope', 'Step 3 — Technical Scope'], ['flow_hardware-cabinets', 'Step 4 — Hardware & Cabinets'], ['flow_services-execution', 'Step 5 — Services & Execution'], ['flow_tests-site-activities', 'Step 6 — Tests & Site Activities'], ['flow_training', 'Step 7 — Training'], ['flow_documentation-deliverables', 'Step 8 — Documentation & Deliverables'],
+  ];
 
   const handleTaskChange = (id: string, field: keyof TaskTemplate, value: any) => {
     setSettings(prev => ({
@@ -291,6 +334,71 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
     }
   };
 
+  // --- Email templates tab helpers ---
+  const emailCfg = mergeEmailComposeSettings(settings.emailCompose);
+  const effectiveEmailTemplates = resolveTemplates(settings.emailCompose);
+  const selectedEmailTemplate = effectiveEmailTemplates.find(t => t.id === emailTplSelectedId) || effectiveEmailTemplates[0];
+
+  const updateEmailCfg = (patch: Partial<EmailComposeSettings>) => {
+    setSettings(prev => ({ ...prev, emailCompose: { ...mergeEmailComposeSettings(prev.emailCompose), ...patch } }));
+  };
+
+  const upsertEmailTemplate = (tpl: EmailTemplate) => {
+    setSettings(prev => {
+      const cfg = mergeEmailComposeSettings(prev.emailCompose);
+      return { ...prev, emailCompose: { ...cfg, templates: [...cfg.templates.filter(t => t.id !== tpl.id), tpl] } };
+    });
+  };
+
+  const patchSelectedEmailTemplate = (patch: Partial<EmailTemplate>) => {
+    if (!selectedEmailTemplate) return;
+    upsertEmailTemplate({ ...selectedEmailTemplate, ...patch });
+  };
+
+  /** Built-ins: drop the override so the default applies again. Customs: delete entirely. */
+  const resetOrDeleteEmailTemplate = (id: string) => {
+    const isBuiltIn = DEFAULT_EMAIL_TEMPLATES.some(d => d.id === id);
+    if (!isBuiltIn && !confirm('Delete this custom template?')) return;
+    setSettings(prev => {
+      const cfg = mergeEmailComposeSettings(prev.emailCompose);
+      return { ...prev, emailCompose: { ...cfg, templates: cfg.templates.filter(t => t.id !== id) } };
+    });
+    if (!isBuiltIn) setEmailTplSelectedId('status_report');
+  };
+
+  const addCustomEmailTemplate = () => {
+    const tpl: EmailTemplate = {
+      id: crypto.randomUUID(),
+      kind: 'custom',
+      topicLabel: 'New Template',
+      bodyHtml: '<p>Hello,</p><p>Regarding <b>{fullOpportunityName}</b>...</p><p>Best regards,<br/>{userName}</p>',
+      isCustom: true,
+    };
+    upsertEmailTemplate(tpl);
+    setEmailTplSelectedId(tpl.id);
+  };
+
+  const duplicateEmailTemplate = (src: EmailTemplate) => {
+    const tpl: EmailTemplate = { ...src, id: crypto.randomUUID(), kind: 'custom', topicLabel: `${src.topicLabel} (copy)`, isCustom: true };
+    upsertEmailTemplate(tpl);
+    setEmailTplSelectedId(tpl.id);
+  };
+
+  const insertEmailVariable = (name: string) => {
+    if (!name || !selectedEmailTemplate) return;
+    const token = `{${name}}`;
+    const el = emailBodyRef.current;
+    if (el && document.activeElement !== null) {
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? el.value.length;
+      const next = el.value.slice(0, start) + token + el.value.slice(end);
+      patchSelectedEmailTemplate({ bodyHtml: next });
+      requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + token.length, start + token.length); });
+    } else {
+      patchSelectedEmailTemplate({ bodyHtml: (selectedEmailTemplate.bodyHtml || '') + token });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-4xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-fade-in">
@@ -312,6 +420,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             <Settings className="w-4 h-4" /> General
           </button>
           <button
+            onClick={() => setActiveTab('contacts')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'contacts' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <User className="w-4 h-4" /> Contacts
+          </button>
+          <button
             onClick={() => setActiveTab('tasks')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'tasks' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
@@ -330,6 +444,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             <FileText className="w-4 h-4" /> Note Templates
           </button>
           <button
+            onClick={() => setActiveTab('sow')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'sow' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <LayoutList className="w-4 h-4" /> SOW Library
+          </button>
+          <button
             onClick={() => setActiveTab('labels')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'labels' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
@@ -346,6 +466,12 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'alarms' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
             <Bell className="w-4 h-4" /> Alarms
+          </button>
+          <button
+            onClick={() => setActiveTab('emailTemplates')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'emailTemplates' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Mail className="w-4 h-4" /> Emails
           </button>
         </div>
 
@@ -369,6 +495,58 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   className="w-full mt-1 border-gray-200 rounded-lg text-sm p-2.5 focus:border-[#3DCD58] focus:ring-0"
                   placeholder="User"
                 />
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-[#3DCD58]" /> Process Radial Widget
+                    </h3>
+                    <p className="text-xs text-gray-500 max-w-2xl">
+                      Shows In Progress and On Hold opportunities as radial time indicators. The widget can stay inside the app or open as a small floating browser window.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, processRadialWidgetEnabled: !prev.processRadialWidgetEnabled }))}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${settings.processRadialWidgetEnabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                    title="Toggle process radial widget"
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.processRadialWidgetEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                <div className={`mt-4 rounded-lg border px-3 py-2 text-xs font-medium ${settings.processRadialWidgetEnabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                  {settings.processRadialWidgetEnabled
+                    ? 'Enabled. The radial widget appears in the app with a pop-out control.'
+                    : 'Disabled. Turn it on to monitor active opportunity timelines.'}
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2"><LayoutList className="w-4 h-4 text-[#3DCD58]" /> Process Board Columns</h3>
+                <p className="text-xs text-gray-500 mb-4">Choose the process buckets to hide from the Proposals dashboard. Hidden buckets remain available in the data and can be restored here. The collapse control inside the dashboard is unchanged.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {Object.keys(DETAILED_STATUS_COLORS).filter(status => !['No Status', 'Waiting'].includes(status)).map(status => {
+                    const isHidden = (settings.hiddenProposalProcessColumns || []).includes(status);
+                    return (
+                      <label key={status} className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-700 cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={isHidden}
+                          onChange={() => setSettings(prev => {
+                            const hidden = new Set(prev.hiddenProposalProcessColumns || []);
+                            if (hidden.has(status)) hidden.delete(status);
+                            else hidden.add(status);
+                            return { ...prev, hiddenProposalProcessColumns: [...hidden] };
+                          })}
+                          className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                        />
+                        <span>Hide {status}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -577,6 +755,25 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'contacts' && (
+            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div><h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Global Contact Directory</h3><p className="text-xs text-gray-500 mt-1">Used for autocomplete. Opportunity roles are selected independently.</p></div>
+                <button type="button" onClick={() => setSettings(prev => ({ ...prev, globalContacts: [...(prev.globalContacts || []), { id: crypto.randomUUID(), name: '', email: '', availableRoles: [] }] }))} className="px-3 py-2 rounded-lg bg-[#3DCD58] text-white text-xs font-bold flex items-center gap-1"><Plus className="w-3 h-3" /> Add contact</button>
+              </div>
+              <datalist id="global-contact-name-options">{(settings.globalContacts || []).filter(c => c.name).map(c => <option key={c.id} value={c.name}>{c.email}</option>)}</datalist>
+              {(settings.globalContacts || []).map(contact => (
+                <div key={contact.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_auto] gap-2 items-start p-3 rounded-xl border border-gray-200 bg-gray-50">
+                  <input list="global-contact-name-options" value={contact.name} onChange={e => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, name: e.target.value } : c) }))} placeholder="Search or enter name" className="border-gray-200 rounded-lg text-sm" />
+                  <input type="email" value={contact.email} onChange={e => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, email: e.target.value } : c) }))} placeholder="Email (unique)" className="border-gray-200 rounded-lg text-sm" />
+                  <div className="flex gap-1"><div className="flex-1"><SimpleMultiSelect options={trackedAreasText.split('\n').map(v => v.trim()).filter(Boolean).map(area => ({ id: area, label: area }))} selected={contact.availableRoles || []} onChange={roles => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, availableRoles: roles } : c) }))} placeholder="Select roles / areas" /></div><button type="button" onClick={() => { const area = prompt('New tracked area / role:')?.trim(); if (!area) return; const current = trackedAreasText.split('\n').map(v => v.trim()).filter(Boolean); if (!current.some(v => v.toLowerCase() === area.toLowerCase())) setTrackedAreasText([...current, area].join('\n')); setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, availableRoles: Array.from(new Set([...(c.availableRoles || []), area])) } : c) })); }} className="px-2 rounded border border-gray-200 bg-white text-blue-600 font-bold" title="Create tracked area">+</button></div>
+                  <button type="button" onClick={() => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).filter(c => c.id !== contact.id) }))} className="p-2 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+              {(settings.globalContacts || []).length === 0 && <div className="text-center text-xs text-gray-400 py-8">No contacts yet.</div>}
             </div>
           )}
 
@@ -801,6 +998,22 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 Define templates available in the "Add Note" menu. Enable <b>Auto-Create</b> to automatically insert a note with this content into every <b>new</b> opportunity.
               </div>
 
+              <div className="flex items-center justify-between gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
+                <div>
+                  <p className="text-sm font-bold text-gray-800">SOW Section</p>
+                  <p className="text-xs text-gray-500">Show the "+ SOW" button next to the note templates so users can add the Scope of Work guided form.</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.sowSectionEnabled || false}
+                    onChange={e => setSettings(prev => ({ ...prev, sowSectionEnabled: e.target.checked }))}
+                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                  />
+                  <span className="text-xs font-medium text-gray-600">Enabled</span>
+                </label>
+              </div>
+
               {settings.noteTemplates.map(note => (
                 <div key={note.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3 relative group">
                   <div className="flex items-center justify-between gap-4">
@@ -830,6 +1043,60 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <button onClick={addNote} className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" /> Add Note Template
               </button>
+            </div>
+          )}
+
+          {activeTab === 'sow' && (
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><LayoutList className="w-4 h-4" /> Global SOW question library</h3>
+                  <p className="text-xs text-gray-500 mt-1">Create reusable questions once and use them in every SOW. Pick the Step where it belongs, its answer type, responsible area, and whether it is mandatory.</p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <button type="button" className="px-3 py-2 text-xs font-bold bg-gray-100 hover:bg-gray-200 rounded-lg" onClick={() => {
+                    const question = { id: `GQ-${Date.now()}`, key: `global_q_${Date.now()}`, sectionId: 'flow_commercial', label: 'New question', type: 'text', options: [], required: false, subsection: '', owner: '', help: '', output: '', logic: null };
+                    updateGlobalSowForm(form => ({ ...form, questions: [...form.questions, question] }));
+                  }}><Plus className="w-3.5 h-3.5 inline mr-1" /> Add question</button>
+                  <button type="button" className="px-3 py-2 text-xs font-bold bg-gray-100 hover:bg-gray-200 rounded-lg" onClick={() => updateGlobalSowForm(form => ({ ...form, sections: [...form.sections, { id: `global_section_${Date.now()}`, title: 'New section', color: '#2c7be5', description: '', logic: null }] }))}><Plus className="w-3.5 h-3.5 inline mr-1" /> Add section</button>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-2">
+                  <h4 className="text-sm font-bold text-emerald-900">Default Steps and questions</h4>
+                  <p className="text-xs text-emerald-800">These are the built-in questions. Any edit below becomes a global override and is applied in every SOW. You can change the wording, answer type, options, required status, owner, subsection and visibility relationship.</p>
+                </div>
+                <div className="space-y-2">
+                  {DEFAULT_SOW_FLOW.steps.map(step => <details key={step.Section} className="border border-gray-200 rounded-xl bg-white" open={false}>
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-gray-800">Step {step.Step} — {step.Section} <span className="ml-2 text-xs font-normal text-gray-500">({DEFAULT_SOW_FLOW.questions.filter(q => q.section === step.Section).length} questions)</span></summary>
+                    <div className="p-3 pt-0 space-y-3">{DEFAULT_SOW_FLOW.questions.filter(q => q.section === step.Section).map(base => {
+                      const question = { ...base, ...((settings.globalSowForm as any)?.flowOverrides?.[base.key] || {}) };
+                      const saveOverride = (patch: any) => updateGlobalSowForm(form => ({ ...form, flowOverrides: { ...(form.flowOverrides || {}), [base.key]: { ...base, ...((form.flowOverrides || {})[base.key] || {}), ...patch } } }));
+                      const logic = question.logic || null;
+                      return <div key={base.key} className="border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50/50">
+                        <div className="flex items-center gap-2"><span className="text-[10px] font-mono font-bold text-gray-400">{base.id}</span><input value={question.label || ''} onChange={e => saveOverride({ label: e.target.value })} className="flex-1 text-sm font-semibold border-gray-200 rounded-lg" /><button type="button" className="text-[10px] text-gray-500 hover:text-red-600" onClick={() => updateGlobalSowForm(form => { const overrides = { ...(form.flowOverrides || {}) }; delete overrides[base.key]; return { ...form, flowOverrides: overrides }; })}>Reset</button></div>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-2"><select value={question.type || 'text'} onChange={e => saveOverride({ type: e.target.value })} className="text-xs border-gray-200 rounded-lg">{['text','long_text','number','currency','date','boolean','single_select','multi_select','checkbox','link'].map(type => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}</select><select value={question.owner || ''} onChange={e => saveOverride({ owner: e.target.value })} className="text-xs border-gray-200 rounded-lg"><option value="">Responsible area</option>{(settings.trackedAreas || DEFAULT_TRACKED_AREAS).map(area => <option key={area}>{area}</option>)}</select><input value={question.subsection || ''} onChange={e => saveOverride({ subsection: e.target.value })} className="text-xs border-gray-200 rounded-lg" placeholder="Subsection" /><label className="flex items-center gap-2 text-xs px-2"><input type="checkbox" checked={!!question.required} onChange={e => saveOverride({ required: e.target.checked })} /> Required</label></div>
+                        {['single_select','multi_select'].includes(question.type) && <textarea value={(question.options || []).join('\n')} onChange={e => saveOverride({ options: e.target.value.split('\n').map(v => v.trim()).filter(Boolean) })} className="w-full text-xs border-gray-200 rounded-lg" placeholder="Options — one per line" />}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-t border-gray-200 pt-2"><select value={logic?.source || ''} onChange={e => saveOverride({ logic: e.target.value ? { op: logic?.op || 'equals', source: e.target.value, value: logic?.value || '' } : null })} className="text-xs border-gray-200 rounded-lg"><option value="">Always visible (no relationship)</option>{DEFAULT_SOW_FLOW.questions.filter(q => q.key !== base.key).map(q => <option key={q.key} value={q.key}>{q.id} — {q.label}</option>)}</select><select disabled={!logic} value={logic?.op || 'equals'} onChange={e => saveOverride({ logic: { ...(logic || {}), op: e.target.value } })} className="text-xs border-gray-200 rounded-lg"><option value="equals">Equals</option><option value="includes">Includes</option><option value="includes_any">Includes any</option><option value="has_value">Has any answer</option><option value="is_empty">Is empty</option></select><input disabled={!logic || ['has_value','is_empty'].includes(logic?.op)} value={Array.isArray(logic?.value) ? logic.value.join(', ') : logic?.value || ''} onChange={e => saveOverride({ logic: { ...(logic || {}), value: logic?.op === 'includes_any' ? e.target.value.split(',').map(v => v.trim()).filter(Boolean) : e.target.value } })} className="text-xs border-gray-200 rounded-lg" placeholder="Expected answer, e.g. Modicon" /></div>
+                      </div>;
+                    })}</div>
+                  </details>)}
+                </div>
+                <div className="space-y-3">
+                  {(settings.globalSowForm?.sections || []).map(section => <div key={section.id} className="border border-blue-100 bg-blue-50/40 rounded-xl p-4 grid gap-3">
+                    <div className="flex gap-2"><input value={section.title} onChange={e => updateGlobalSowForm(form => ({ ...form, sections: form.sections.map(s => s.id === section.id ? { ...s, title: e.target.value } : s) }))} className="flex-1 text-sm font-bold border-gray-200 rounded-lg" placeholder="Section title" /><button type="button" onClick={() => updateGlobalSowForm(form => ({ ...form, sections: form.sections.filter(s => s.id !== section.id), questions: form.questions.filter(q => q.sectionId !== section.id) }))} className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button></div>
+                    <input value={section.description || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, sections: form.sections.map(s => s.id === section.id ? { ...s, description: e.target.value } : s) }))} className="text-xs border-gray-200 rounded-lg" placeholder="Short instructions for this section" />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2"><select value={section.logic?.source || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, sections: form.sections.map(s => s.id === section.id ? { ...s, logic: e.target.value ? { op: 'includes', source: e.target.value, value: s.logic?.value || 'Modicon' } : null } : s) }))} className="text-xs border-gray-200 rounded-lg"><option value="">Always show this section</option><option value="flow_T001">Show when a system is selected</option><option value="flow_B008">Show when opportunity type is selected</option></select><select value={section.logic?.op || 'includes'} disabled={!section.logic} onChange={e => updateGlobalSowForm(form => ({ ...form, sections: form.sections.map(s => s.id === section.id && s.logic ? { ...s, logic: { ...s.logic, op: e.target.value } } : s) }))} className="text-xs border-gray-200 rounded-lg"><option value="includes">Includes</option><option value="equals">Equals</option><option value="has_value">Has any answer</option></select><input disabled={!section.logic || section.logic?.op === 'has_value'} value={section.logic?.value || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, sections: form.sections.map(s => s.id === section.id && s.logic ? { ...s, logic: { ...s.logic, value: e.target.value } } : s) }))} className="text-xs border-gray-200 rounded-lg" placeholder="Example: Modicon" /></div>
+                    <p className="text-[11px] text-blue-700">Example: select “Show when a system is selected” + Includes + Modicon to hide the whole section until Modicon is selected.</p>
+                  </div>)}
+                  {(settings.globalSowForm?.questions || []).map(question => <div key={question.key} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                    <div className="flex gap-2"><input value={question.label} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, label: e.target.value } : q) }))} className="flex-1 text-sm font-semibold border-gray-200 rounded-lg" placeholder="Question" /><button type="button" onClick={() => updateGlobalSowForm(form => ({ ...form, questions: form.questions.filter(q => q.key !== question.key) }))} className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2"><select value={question.sectionId} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, sectionId: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg"><optgroup label="Steps">{sowStepOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</optgroup><optgroup label="Custom sections">{(settings.globalSowForm?.sections || []).map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</optgroup></select><select value={question.type} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, type: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg">{['text','long_text','number','currency','date','boolean','single_select','multi_select','checkbox','link'].map(type => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}</select><select value={question.owner || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, owner: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg"><option value="">Responsible area</option>{(settings.trackedAreas || DEFAULT_TRACKED_AREAS).map(area => <option key={area}>{area}</option>)}</select></div>
+                    {['single_select', 'multi_select'].includes(question.type) && <textarea value={(question.options || []).join('\n')} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, options: e.target.value.split('\n').map(v => v.trim()).filter(Boolean) } : q) }))} className="w-full text-xs border-gray-200 rounded-lg" placeholder="Options — one per line" />}
+                    <div className="flex flex-wrap items-center gap-3 text-xs"><label className="flex items-center gap-2"><input type="checkbox" checked={!!question.required} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, required: e.target.checked } : q) }))} /> Required answer</label><input value={question.subsection || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, subsection: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg" placeholder="Subsection (optional)" /></div>
+                    <p className="text-[11px] text-gray-500">To add a dependency: open any SOW → Design questions → Edit this question → add “Show this question when”. You can use answers such as System offered = Modicon.</p>
+                  </div>)}
+                </div>
+                {!settings.globalSowForm?.questions?.length && !settings.globalSowForm?.sections?.length && <p className="text-xs text-gray-500 text-center py-8">Start with “Add question”. Use a custom section when the question group does not belong to one of the eight Steps.</p>}
+              </div>
             </div>
           )}
 
@@ -1078,6 +1345,141 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 >
                   <Plus className="w-4 h-4" /> Add Alarm
                 </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'emailTemplates' && (
+            <div className="space-y-6">
+              {/* Formats & mode */}
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Mail className="w-4 h-4" /> Email Composer</h3>
+                  <p className="text-xs text-gray-500">Drafts always open in Outlook for you to review — nothing is sent automatically.</p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Subject format</label>
+                    <input
+                      value={emailCfg.subjectFormat}
+                      onChange={e => updateEmailCfg({ subjectFormat: e.target.value })}
+                      placeholder={DEFAULT_SUBJECT_FORMAT}
+                      className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1 font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Use {'{topic}'} and {'{fullOpportunityName}'}.</p>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Full opportunity name format</label>
+                    <input
+                      value={emailCfg.fullNameFormat}
+                      onChange={e => updateEmailCfg({ fullNameFormat: e.target.value })}
+                      placeholder={DEFAULT_FULLNAME_FORMAT}
+                      className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1 font-mono"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Use {'{opId}'}, {'{customer}'}, {'{projectTitle}'}, {'{alias}'}, {'{srId}'}, {'{revision}'}.</p>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-gray-400 uppercase">Outlook mode</label>
+                    <select
+                      value={emailCfg.outlookMode}
+                      onChange={e => updateEmailCfg({ outlookMode: e.target.value as EmailComposeSettings['outlookMode'] })}
+                      className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1"
+                    >
+                      <option value="auto">Auto (recommended — detects classic vs. new Outlook)</option>
+                      <option value="com">Force Classic Outlook (COM)</option>
+                      <option value="eml">Force .eml file (new Outlook compatible)</option>
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-0.5">"Auto" automatically uses full COM functionality on classic Outlook, and the safe .eml method on the new Outlook — no sign-in prompts either way.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Template manager */}
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Templates</h3>
+                    <p className="text-xs text-gray-500">Edit any template or create your own — changes apply the next time you compose an email.</p>
+                  </div>
+                  <button onClick={addCustomEmailTemplate} className="text-xs font-bold bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg hover:bg-[#2db64a] flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add template</button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {effectiveEmailTemplates.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setEmailTplSelectedId(t.id)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${selectedEmailTemplate?.id === t.id ? 'bg-[#3DCD58] border-[#3DCD58] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-[#3DCD58]'}`}
+                    >
+                      {t.topicLabel}{t.isCustom ? ' ✳' : ''}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedEmailTemplate && (
+                  <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Topic label ({'{topic}'} in the subject)</label>
+                        <input
+                          value={selectedEmailTemplate.topicLabel}
+                          onChange={e => patchSelectedEmailTemplate({ topicLabel: e.target.value })}
+                          className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Subject override (optional)</label>
+                        <input
+                          value={selectedEmailTemplate.subjectFormat || ''}
+                          onChange={e => patchSelectedEmailTemplate({ subjectFormat: e.target.value || undefined })}
+                          placeholder={`Global: ${emailCfg.subjectFormat}`}
+                          className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1 font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[9px] font-bold text-gray-400 uppercase">Body (HTML with {'{variables}'})</label>
+                        <select
+                          value=""
+                          onChange={e => { insertEmailVariable(e.target.value); e.currentTarget.value = ''; }}
+                          className="text-[10px] border-gray-200 rounded bg-white max-w-[260px]"
+                        >
+                          <option value="">Insert variable...</option>
+                          {variablesForKind(selectedEmailTemplate.kind).map(v => (
+                            <option key={v.name} value={v.name}>{`{${v.name}} — ${v.description}`}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <textarea
+                        ref={emailBodyRef}
+                        value={selectedEmailTemplate.bodyHtml}
+                        onChange={e => patchSelectedEmailTemplate({ bodyHtml: e.target.value })}
+                        rows={10}
+                        spellCheck={false}
+                        className="w-full text-[11px] font-mono border-gray-200 rounded-lg bg-white leading-relaxed"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-2">
+                        <button onClick={() => duplicateEmailTemplate(selectedEmailTemplate)} className="text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center gap-1"><Copy className="w-3.5 h-3.5" /> Duplicate</button>
+                        {selectedEmailTemplate.isCustom ? (
+                          <button onClick={() => resetOrDeleteEmailTemplate(selectedEmailTemplate.id)} className="text-xs font-bold text-red-400 hover:text-red-600 flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                        ) : (
+                          <button onClick={() => resetOrDeleteEmailTemplate(selectedEmailTemplate.id)} className="text-xs font-bold text-gray-500 hover:text-gray-700 flex items-center gap-1"><RotateCcw className="w-3.5 h-3.5" /> Reset to default</button>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-gray-400">{selectedEmailTemplate.isCustom ? 'Custom template' : 'Built-in template'}</span>
+                    </div>
+                    {/* Static preview */}
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-400 uppercase">Preview (raw variables)</label>
+                      <div
+                        className="mt-1 bg-white border border-gray-200 rounded-lg p-3 text-xs max-h-48 overflow-y-auto"
+                        dangerouslySetInnerHTML={{ __html: selectedEmailTemplate.bodyHtml }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

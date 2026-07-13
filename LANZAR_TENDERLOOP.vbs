@@ -3,13 +3,18 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 batPath = scriptDir & "\motor_tenderloop.bat"
+installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
 
 If fso.FolderExists(scriptDir & "\node_modules") Then
-    ' Ejecucion normal: consola oculta, solo se ve el navegador
-    WshShell.Run "cmd /c """ & batPath & """ HIDDEN", 0, False
+    ' Normal run: hidden console, only the app window is visible.
+    WshShell.Run """" & batPath & """ HIDDEN", 0, False
 Else
-    ' Primera vez: mostrar ventana para que se vea la instalacion
-    WshShell.Run "cmd /c """ & batPath & """ VISIBLE", 1, False
+    ' First run: show the Windows-style installer.
+    If fso.FileExists(installerUi) Then
+        WshShell.Run "mshta.exe """ & installerUi & """", 1, False
+    Else
+        WshShell.Run """" & batPath & """ VISIBLE", 1, False
+    End If
 End If
 
 Set fso = Nothing

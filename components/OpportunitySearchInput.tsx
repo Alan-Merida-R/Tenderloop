@@ -114,16 +114,18 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 if (selectedIds.includes(o.id)) return false;
                 if (!lower) return true; // Show all if no search text
 
-                const versionSRs = (o.versions || []).map(v => v.srId || '').filter(Boolean);
-                return (
-                    (o.title || '').toLowerCase().includes(lower) ||
-                    (o.id || '').toLowerCase().includes(lower) ||
-                    (o.customer || '').toLowerCase().includes(lower) ||
-                    (o.srId || '').toLowerCase().includes(lower) ||
-                    versionSRs.some(v => v.toLowerCase().includes(lower)) ||
-                    (o.alias || '').toLowerCase().includes(lower) ||
-                    (o.labels || []).some(l => (l.text || '').toLowerCase().includes(lower))
-                );
+                // Dashboard receives a pre-built index from App. This keeps
+                // suggestions consistent with the main search, including
+                // notes, seller, location and every other stored field.
+                // Other dialogs can pass full records without this cache, so
+                // retain a small compatibility fallback for their typeahead.
+                const searchable = o._searchIndex || [
+                    o.title, o.id, o.customer, o.customerAddress, o.seller,
+                    o.srId, o.alias, o.description, o.kanbanNote,
+                    ...(o.labels || []).map(label => label.text),
+                    ...(o.versions || []).map(version => version.srId),
+                ].filter(Boolean).join(' ').toLowerCase();
+                return searchable.includes(lower);
             })
             .slice(0, 50); // Increased limit
     }, [opportunities, deferredValue, selectedIds]);

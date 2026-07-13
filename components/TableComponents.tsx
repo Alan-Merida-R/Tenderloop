@@ -143,9 +143,12 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-2 animate-in fade-in zoom-in duration-200">
-                    <div className="text-xs font-bold text-gray-400 uppercase mb-2 px-2">Visible Columns</div>
-                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                <div className="fixed inset-x-3 top-16 bottom-3 flex flex-col bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-3 animate-in fade-in zoom-in duration-200 md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-64 md:p-2">
+                    <div className="flex items-center justify-between gap-3 text-xs font-bold text-gray-400 uppercase mb-2 px-2 shrink-0">
+                        <span>Visible Columns</span>
+                        <button type="button" onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-900 normal-case md:hidden">Close</button>
+                    </div>
+                    <div className="space-y-1 min-h-0 flex-1 overflow-y-auto md:max-h-60 md:flex-none">
                         {orderedColumns.map((col, index) => (
                             <div
                                 key={col.key}

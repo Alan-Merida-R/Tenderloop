@@ -10,6 +10,8 @@ import {
     openNative, revealInExplorer, copyPathsToClipboard,
     copyDirectoryBestEffort, findDirByName, locateByMarker
 } from '../os/shell';
+import { composeEmail, findMissingAttachments } from '../os/outlookCompose';
+import type { ComposeMode } from '../os/outlookCompose';
 
 /** Parse a query param holding a JSON array of strings. */
 const parsePaths = (raw: unknown): string[] => {
@@ -121,6 +123,38 @@ osRouter.get('/find-dir', async (req: Request, res: Response) => {
     const found = await findDirByName(name, hints);
     if (found) return res.json({ ok: true, ...found });
     return res.status(404).json({ error: 'Directory not found', name });
+});
+
+// --- Open an email DRAFT in Outlook (classic via COM, new via .eml) — never sends ---
+osRouter.post('/compose-email', async (req: Request, res: Response) => {
+    const body = req.body || {};
+    const strArr = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.trim()).map(x => (x as string).trim()) : [];
+
+    const payload = {
+        to: strArr(body.to),
+        cc: strArr(body.cc),
+        bcc: strArr(body.bcc),
+        subject: typeof body.subject === 'string' ? body.subject : '',
+        htmlBody: typeof body.htmlBody === 'string' ? body.htmlBody : '',
+        attachments: strArr(body.attachments).map(p => path.normalize(p)),
+    };
+    const mode: ComposeMode = body.mode === 'com' || body.mode === 'eml' ? body.mode : 'auto';
+
+    if (!payload.to.length) return res.status(400).json({ error: 'Missing "to" recipients' });
+    if (!payload.subject.trim()) return res.status(400).json({ error: 'Missing "subject"' });
+
+    const missingAttachments = findMissingAttachments(payload.attachments);
+    if (missingAttachments.length) {
+        return res.status(400).json({ error: 'Some attachments do not exist', missingAttachments });
+    }
+
+    try {
+        const result = await composeEmail(payload, mode);
+        return res.json({ ok: true, openedWith: result.openedWith, missingAttachments: [] });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || String(err) });
+    }
 });
 
 // --- DEPRECATED: locate a folder by unique marker file ---

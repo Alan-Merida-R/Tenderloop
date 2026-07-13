@@ -3,6 +3,8 @@ import path from 'node:path';
 import { BACKUPS_DIR, DEFAULT_DB_PATH } from '../config';
 import { DatabaseSchema, INITIAL_DB } from '../../types';
 
+const BACKUP_MIN_INTERVAL_MS = 10_000;
+
 export interface DbSnapshot {
     data: DatabaseSchema;
     revision: number;
@@ -23,6 +25,12 @@ export interface DbStatus {
 
 export class DbRepository {
     private snapshot: DbSnapshot | null = null;
+    // Serializes save() calls so overlapping requests (multiple tabs/windows,
+    // a retry racing a fresh autosave) can't both pass the revision check
+    // before either write lands — without this, two concurrent saves could
+    // silently clobber each other or race on the same-destination rename().
+    private writeChain: Promise<unknown> = Promise.resolve();
+    private lastBackupAt = 0;
 
     status(): DbStatus {
         return {
@@ -109,6 +117,20 @@ export class DbRepository {
     }
 
     async save(data: unknown, expectedRevision?: number): Promise<DbSnapshot> {
+        // Chain onto the shared queue so this save's revision check + write
+        // happen atomically with respect to any other in-flight save. The
+        // chain always resolves (errors are swallowed on the shared link)
+        // so one failed save can't wedge every save after it; the actual
+        // result/error for this call is still carried by `run`.
+        const run = this.writeChain.then(
+            () => this.performSave(data, expectedRevision),
+            () => this.performSave(data, expectedRevision)
+        );
+        this.writeChain = run.then(() => undefined, () => undefined);
+        return run;
+    }
+
+    private async performSave(data: unknown, expectedRevision?: number): Promise<DbSnapshot> {
         if (!this.snapshot) throw new Error('No database is open.');
         if (expectedRevision != null && expectedRevision !== this.snapshot.revision) {
             const err = new Error(`Revision conflict. Current revision is ${this.snapshot.revision}.`);
@@ -122,7 +144,7 @@ export class DbRepository {
             lastUpdated: new Date().toISOString(),
         };
         try {
-            await this.backup();
+            await this.backup(false);
         } catch (err) {
             console.warn('[db] Backup before save failed; continuing with atomic save.', err);
         }
@@ -136,8 +158,15 @@ export class DbRepository {
         return this.currentOrThrow();
     }
 
-    async backup(): Promise<{ path: string } | null> {
+    // `force` bypasses the throttle below — used by the explicit "backup now"
+    // endpoint, which should always produce a fresh copy on request.
+    async backup(force = true): Promise<{ path: string } | null> {
         if (!this.snapshot) return null;
+        // Backups run before every save, but autosave can fire every few
+        // seconds while a user is typing — skip the extra full-file copy
+        // when the last one is still fresh, since it already covers this
+        // window of edits.
+        if (!force && Date.now() - this.lastBackupAt < BACKUP_MIN_INTERVAL_MS) return null;
         try {
             await stat(this.snapshot.path);
         } catch {
@@ -149,6 +178,7 @@ export class DbRepository {
         const safeName = path.basename(this.snapshot.path).replace(/[^a-zA-Z0-9._-]/g, '_');
         const backupPath = path.join(BACKUPS_DIR, `${timestamp}_${safeName}`);
         await copyFile(this.snapshot.path, backupPath);
+        this.lastBackupAt = Date.now();
         return { path: backupPath };
     }
 
@@ -194,6 +224,9 @@ const validateDatabase = (value: unknown): DatabaseSchema => {
 const writeAtomicJson = async (targetPath: string, data: DatabaseSchema): Promise<void> => {
     await mkdir(path.dirname(targetPath), { recursive: true });
     const tmpPath = path.join(path.dirname(targetPath), `${path.basename(targetPath)}.${process.pid}.${Date.now()}.tmp`);
-    await writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+    // Compact (no pretty-print indentation) — cuts serialization + write time
+    // noticeably on a large DB, since every save now waits in a write queue
+    // (see DbRepository.save) rather than racing concurrently.
+    await writeFile(tmpPath, JSON.stringify(data), 'utf8');
     await rename(tmpPath, targetPath);
 };

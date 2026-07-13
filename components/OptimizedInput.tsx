@@ -12,10 +12,11 @@ interface OptimizedInputProps {
     autoComplete?: string;
     id?: string;
     onKeyDown?: (e: React.KeyboardEvent) => void;
+    onDraftChange?: (value: string) => void;
     disabled?: boolean;
 }
 
-export const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus, autoComplete, id, onKeyDown, disabled }: OptimizedInputProps) => {
+export const OptimizedInput = React.memo(({ value, onChange, className, placeholder, type = "text", step, autoFocus, autoComplete, id, onKeyDown, onDraftChange, disabled }: OptimizedInputProps) => {
     const [localVal, setLocalVal] = useState(value || '');
     useEffect(() => { setLocalVal(value || ''); }, [value]);
 
@@ -37,7 +38,7 @@ export const OptimizedInput = React.memo(({ value, onChange, className, placehol
             value={localVal}
             autoComplete={autoComplete}
             disabled={disabled}
-            onChange={(e) => setLocalVal(e.target.value)}
+            onChange={(e) => { setLocalVal(e.target.value); onDraftChange?.(e.target.value); }}
             onBlur={handleSync}
             onKeyDown={(e) => { 
                 if (e.key === 'Enter') {
@@ -54,7 +55,7 @@ export const OptimizedInput = React.memo(({ value, onChange, className, placehol
     );
 });
 
-export const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder, disabled }: any) => {
+export const OptimizedTextArea = React.memo(({ value, onChange, className, placeholder, onDraftChange, disabled }: any) => {
     const [localVal, setLocalVal] = useState(value || '');
     useEffect(() => { setLocalVal(value || ''); }, [value]);
 
@@ -62,7 +63,7 @@ export const OptimizedTextArea = React.memo(({ value, onChange, className, place
         <textarea 
             value={localVal}
             disabled={disabled}
-            onChange={(e) => setLocalVal(e.target.value)}
+            onChange={(e) => { setLocalVal(e.target.value); onDraftChange?.(e.target.value); }}
             onBlur={() => { if (!disabled && localVal !== value) onChange(localVal); }}
             className={className}
             placeholder={placeholder}

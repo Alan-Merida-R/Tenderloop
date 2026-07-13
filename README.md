@@ -1,3 +1,19 @@
+# Beta download and use
+
+The current beta is available from the [`version-beta`](https://github.com/Alan-Merida-R/Tenderloop/tree/version-beta) branch.
+
+1. Download the [beta ZIP](https://github.com/Alan-Merida-R/Tenderloop/archive/refs/heads/version-beta.zip), or select **Code -> Download ZIP** while viewing `version-beta`.
+2. Extract the ZIP to a short Windows path such as `C:\TenderLoop`.
+3. Install Node.js 18+ (LTS) if it is not already installed.
+4. Double-click `LANZAR_TENDERLOOP.vbs`.
+
+The first start installs dependencies and then opens the local app. For the complete Windows guide, see [MANUAL_USUARIO.md](MANUAL_USUARIO.md). Beta scope and validation notes are in [docs/version-beta.md](docs/version-beta.md).
+
+---
+
+Exit code: 0
+Wall time: 1 seconds
+Output:
 # TenderLoop Ecosystem - Executive Tendering Solution
 ===================================================
 
@@ -267,3 +283,4 @@ Si deseas realizar cambios o mejoras en la aplicación, sigue estas directrices 
 Desarrollado con un enfoque en **Performance-First Design**. 
 
 © 2026 TenderLoop Team. Todos los derechos reservados.
+

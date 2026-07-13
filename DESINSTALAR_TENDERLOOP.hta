@@ -1,0 +1,82 @@
+<!doctype html>
+<html><head><meta http-equiv="x-ua-compatible" content="IE=11"><title>TenderLoop Uninstaller</title>
+<hta:application id="TenderLoopUninstaller" applicationname="TenderLoop Uninstaller" border="thin" caption="yes" contextmenu="no" maximizebutton="no" minimizebutton="yes" scroll="no" showintaskbar="yes" singleinstance="yes" sysmenu="yes" />
+<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;font-family:"Segoe UI",Arial,sans-serif;color:#1f2933;background:#f3f3f3}.shell{width:700px;height:450px;background:#fff;border:1px solid #c8c8c8;box-sizing:border-box}.header{height:94px;padding:19px 26px;box-sizing:border-box;border-bottom:1px solid #dedede;background:linear-gradient(#fff,#f7f7f7)}h1{margin:0 0 6px;font-size:23px}.subtitle,.remaining{margin:0;color:#5f6b7a;font-size:13px}.content{height:266px;padding:22px 26px;box-sizing:border-box}.row{display:flex;justify-content:space-between;margin-bottom:10px}.status{font-weight:600}.progress{height:17px;border:1px solid #b8b8b8;background:#eee;margin-bottom:17px}.bar{height:100%;width:0;background:#0078d4}.notice{padding:11px 13px;border-left:4px solid #0078d4;background:#f1f7fc;font-size:13px;line-height:1.4;margin-bottom:14px}.log{width:100%;height:78px;box-sizing:border-box;resize:none;border:1px solid #c8c8c8;background:#fbfbfb;font-family:Consolas,monospace;font-size:12px;padding:7px}.footer{height:88px;padding:17px 26px;box-sizing:border-box;border-top:1px solid #dedede;background:#f7f7f7;text-align:right}button{min-width:105px;height:32px;margin-left:8px;border:1px solid #adadad;background:#fff;font-family:"Segoe UI",Arial,sans-serif;font-size:13px}button.primary{border-color:#005a9e;background:#0078d4;color:#fff}button:disabled{color:#999;background:#eee;border-color:#d5d5d5}</style></head>
+<body><div class="shell"><div class="header"><h1>Uninstall TenderLoop</h1><p class="subtitle">Remove local dependencies and TenderLoop shortcuts.</p></div><div class="content"><div class="row"><span id="status" class="status">Ready to uninstall</span><span id="remaining" class="remaining">4 steps remaining</span></div><div class="progress"><div id="bar" class="bar"></div></div><div class="notice"><b>Your work stays safe.</b><br>Your database, Node.js installation and project files are not removed. After cleanup, you may delete this folder yourself.</div><textarea id="log" class="log" readonly></textarea></div><div class="footer"><button id="uninstall" class="primary" onclick="startUninstall()">Uninstall</button><button id="close" onclick="window.close()">Cancel</button></div></div>
+<script language="javascript">
+var shell=new ActiveXObject("WScript.Shell"),fso=new ActiveXObject("Scripting.FileSystemObject"),exec,poll;
+function e(id){return document.getElementById(id)}function dir(){var p=decodeURIComponent(location.pathname);p=p.replace(/^\//,"").replace(/\//g,"\\");return fso.GetParentFolderName(p)}var root=dir();window.resizeTo(720,490);window.moveTo((screen.width-720)/2,(screen.height-490)/2);function log(t){e("log").value+=t+"\r\n";e("log").scrollTop=e("log").scrollHeight}function step(n,text){e("status").innerText=text;e("remaining").innerText=Math.max(4-n,0)+" steps remaining";e("bar").style.width=(n*25)+"%"}function done(ok){window.clearInterval(poll);e("bar").style.width="100%";e("status").innerText=ok?"Uninstall complete":"Cleanup needs attention";e("remaining").innerText=ok?"Complete":"Review the log";e("close").innerText="Close";e("close").disabled=false}
+function startUninstall(){
+  if(!window.confirm("Remove TenderLoop dependencies and shortcuts? Your database and project files will remain safe.")) return;
+  e("uninstall").disabled=true;
+  e("close").disabled=true;
+  step(1,"Closing TenderLoop processes");
+  var engine=root+"\\DESINSTALAR_TENDERLOOP.bat";
+  var desktop=shell.SpecialFolders("Desktop");
+  var menu=shell.SpecialFolders("Programs")+"\\TenderLoop";
+  if(!fso.FileExists(engine)){
+    log("[ERROR] The cleanup engine is missing: "+engine);
+    done(false);
+    return;
+  }
+  
+  var tempDir = fso.GetSpecialFolder(2);
+  var tempName = fso.GetTempName();
+  var logFile = tempDir + "\\" + tempName + ".log";
+  var doneFile = tempDir + "\\" + tempName + ".done";
+
+  var cmdToRun = "cmd.exe /d /c \"\"" + engine + "\" \"" + desktop + "\" \"" + menu + "\"\" > \"" + logFile + "\" 2>&1 & echo %errorlevel% > \"" + doneFile + "\"";
+  shell.Run(cmdToRun, 0, false);
+
+  var lastPos = 0;
+  poll = window.setInterval(function(){
+    if (fso.FileExists(logFile)) {
+      try {
+        var file = fso.OpenTextFile(logFile, 1, false, -2);
+        var content = file.ReadAll();
+        file.Close();
+        if (content.length > lastPos) {
+          var newContent = content.substring(lastPos);
+          var lines = newContent.split(/\r?\n/);
+          for (var i = 0; i < lines.length - 1; i++) {
+            log(lines[i]);
+          }
+          lastPos = content.length - lines[lines.length - 1].length;
+        }
+      } catch (e) {}
+    }
+
+    if (fso.FileExists(doneFile)) {
+      window.clearInterval(poll);
+      var exitCode = 0;
+      try {
+        var file = fso.OpenTextFile(doneFile, 1);
+        exitCode = parseInt(file.ReadLine(), 10);
+        file.Close();
+      } catch (e) {}
+
+      if (fso.FileExists(logFile)) {
+        try {
+          var file = fso.OpenTextFile(logFile, 1, false, -2);
+          var content = file.ReadAll();
+          file.Close();
+          if (content.length > lastPos) {
+            var lines = content.substring(lastPos).split(/\r?\n/);
+            for (var i = 0; i < lines.length; i++) {
+              if (lines[i] || i < lines.length - 1) log(lines[i]);
+            }
+          }
+        } catch (e) {}
+      }
+
+      try { fso.DeleteFile(logFile, true); } catch (e) {}
+      try { fso.DeleteFile(doneFile, true); } catch (e) {}
+
+      step(4,"Finishing cleanup");
+      done(exitCode === 0);
+    } else if (e("log").value.length > 80) {
+      step(2,"Removing TenderLoop files");
+    }
+  }, 250);
+}
+</script></body></html>

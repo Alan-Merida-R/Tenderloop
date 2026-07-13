@@ -1,19 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, Folder, File, ChevronRight, HardDrive, RefreshCw, Check, ArrowLeft, ChevronUp } from 'lucide-react';
-import { getFolderHandle, verifyPermission } from '../../services/opportunityFolderLink';
+import { getFolderHandleForRevision, verifyPermission } from '../../services/opportunityFolderLink';
 import { listDirectory } from '../opportunity-folder/fileOps';
 import { getFileIcon } from '../opportunity-folder/icons';
 import { FileItem } from '../opportunity-folder/types';
 
 interface Props {
   opportunityId: string;
+  /** The opportunity's current revision (e.g. "R0.1") — folders are linked per-revision, so this must match OpportunityFolderTab's lookup or the picker won't find the assigned folder. */
+  revision?: string;
   onSelect: (fileKeys: string[]) => void;
   onClose: () => void;
   title?: string;
   multi?: boolean;
+  /** Folder path to open into on load — e.g. the folder currently selected in the Folder tab, so attaching a file doesn't force a re-navigation from root. */
+  initialPath?: string[];
 }
 
-export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, onSelect, onClose, title = "Select Document", multi = false }) => {
+export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, onSelect, onClose, title = "Select Document", multi = false, initialPath }) => {
   const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [currentHandle, setCurrentHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [path, setPath] = useState<string[]>([]);
@@ -23,13 +27,27 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, onSelect, 
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getFolderHandle(opportunityId).then(async (handle) => {
+    getFolderHandleForRevision(opportunityId, revision).then(async (handle) => {
       if (handle && await verifyPermission(handle, false)) {
         setRootHandle(handle);
+        if (initialPath && initialPath.length > 0) {
+          try {
+            let h = handle;
+            for (const seg of initialPath) {
+              h = await h.getDirectoryHandle(seg);
+            }
+            setCurrentHandle(h);
+            setPath(initialPath);
+            return;
+          } catch {
+            // Folder may have moved/been renamed — fall back to root below.
+          }
+        }
         setCurrentHandle(handle);
       }
     });
-  }, [opportunityId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opportunityId, revision]);
 
   const load = useCallback(async () => {
     if (!currentHandle) return;

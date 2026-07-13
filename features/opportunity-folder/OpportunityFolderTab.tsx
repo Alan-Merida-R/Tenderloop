@@ -42,7 +42,7 @@ import {
   Download
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle } from '../../services/opportunityFolderLink';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath, copyFileAs } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -61,6 +61,9 @@ interface Props {
   /** True when viewing an old version snapshot. Navigation/open/edit still work,
    *  but we must not push the snapshot back into the live record via onUpdate. */
   isSnapshot?: boolean;
+  /** Reports the currently browsed folder path up to the parent, so other pickers
+   *  (e.g. attaching a file to a task) can default to it instead of the folder root. */
+  onPathChange?: (path: string[]) => void;
 }
 
 const CLASSIFICATIONS = ['Editable', 'Info', 'Approvals', 'Not important', 'Proposal'];
@@ -109,7 +112,7 @@ const buildRevisionFileName = (sourceName: string, revision: string) => {
 const sanitizeExportName = (value: string) =>
   (value || 'file').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 80);
 
-export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey, isSnapshot }) => {
+export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey, isSnapshot, onPathChange }) => {
   // Folder links are stored PER REVISION so each revision keeps its own folder.
   // storageKey is what we read/write in IndexedDB; opportunityId stays the key
   // for file metadata (DocMeta), which is shared across revisions.
@@ -122,6 +125,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [items, setItems] = useState<FileItem[]>([]);
   const [history, setHistory] = useState<{ handle: FileSystemDirectoryHandle, path: string[] }[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+
+  useEffect(() => { onPathChange?.(path); }, [path, onPathChange]);
 
   // Metadata & Selection
   const [metas, setMetas] = useState<Record<string, DocMeta>>({});
@@ -409,6 +414,23 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
    * prompt only if the helper cannot locate it. Shared by "link existing" and the
    * template flow.
    */
+  const resolveExactFolderPath = async (handle: FileSystemDirectoryHandle, fallbackToNameSearch = true): Promise<string> => {
+    try {
+      const exact = await locateFolderPathWithMarker(handle);
+      if (exact) return exact;
+    } catch (err) {
+      console.warn('Exact folder path detection failed', err);
+    }
+    if (fallbackToNameSearch) {
+      try {
+        return (await locateFolderPath(handle)) || '';
+      } catch {
+        return '';
+      }
+    }
+    return '';
+  };
+
   const finalizeRootLink = async (handle: FileSystemDirectoryHandle, presetPath?: string) => {
     await setFolderHandle(storageKey, handle);
 
@@ -416,7 +438,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     if (!resolved) {
       setIsLocating(true);
       try {
-        resolved = (await locateFolderPath(handle)) || '';
+        resolved = await resolveExactFolderPath(handle);
       } finally {
         setIsLocating(false);
       }
@@ -427,6 +449,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     if (resolved) {
       await setRootPathDisplay(storageKey, resolved);
       setRootPathDisplayVal(resolved);
+    } else {
+      await setRootPathDisplay(storageKey, '');
+      setRootPathDisplayVal('');
     }
 
     // Don't mutate the live record while viewing a snapshot — the link is
@@ -548,12 +573,22 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         const copyResult = { copied: 0, skipped: [] as { path: string; reason: string }[] };
         // @ts-ignore
         for await (const child of templateHandle.values()) {
-          await copyEntryToDir({
+          await copyTemplateEntryToDir({
             name: child.name,
             kind: child.kind,
             handle: child as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
             relativePath: [],
-          }, newFolderHandle);
+          }, newFolderHandle, copyResult);
+        }
+        if (copyResult.copied === 0 && copyResult.skipped.length > 0) {
+          throw new Error(copyResult.skipped.map(i => `${i.path}: ${i.reason}`).join('\n'));
+        }
+        if (copyResult.skipped.length > 0) {
+          alert(
+            `Template copied with ${copyResult.skipped.length} skipped item(s).\n\n` +
+            copyResult.skipped.slice(0, 10).map(i => `${i.path}: ${i.reason}`).join('\n') +
+            (copyResult.skipped.length > 10 ? '\n...' : '')
+          );
         }
       }
 
@@ -1187,7 +1222,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const detectPathSilently = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setAutoDetecting(true);
     try {
-      const p = await locateFolderPath(handle);
+      const p = await resolveExactFolderPath(handle);
       if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); return p; }
     } catch { /* ignore */ } finally { setAutoDetecting(false); }
     return null;
@@ -1214,7 +1249,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     if (!rootHandle) return;
     setIsLocating(true);
     try {
-      const p = await locateFolderPath(rootHandle);
+      const p = await resolveExactFolderPath(rootHandle);
       if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); }
       else alert('Could not auto-detect the path. The folder may be outside the searched locations — you can set it manually.');
     } finally {
@@ -1658,6 +1693,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         <div className="p-4 border-b border-gray-100">
           <button onClick={handleChangeRoot} className="w-full flex items-center justify-center gap-2 text-xs font-bold bg-white border border-gray-200 py-2 rounded-lg hover:bg-gray-50 shadow-sm transition-all mb-4">
             <ArrowRightLeft className="w-3 h-3" /> Change Linked Folder
+          </button>
+          <button onClick={handleCreateFromTemplate} className="w-full flex items-center justify-center gap-2 text-xs font-bold bg-[#3DCD58] text-white border border-[#3DCD58] py-2 rounded-lg hover:bg-[#2db64a] shadow-sm transition-all mb-4">
+            <FolderTree className="w-3.5 h-3.5" /> New from Template
           </button>
 
           <div className="space-y-4">

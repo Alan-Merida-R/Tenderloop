@@ -2,17 +2,19 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FileText, X, ExternalLink, RefreshCw, Copy, Check, FolderSearch, Eye } from 'lucide-react';
 import { listLinkedForTask, listLinkedForNote, saveMeta, DocMeta } from '../../services/opportunityDocMetaStore';
-import { getRootPathDisplay } from '../../services/opportunityFolderLink';
+import { getRootPathDisplayForRevision } from '../../services/opportunityFolderLink';
+import { openInNativeApp } from '../opportunity-folder/fileOps';
 
 interface Props {
   opportunityId: string;
+  /** The opportunity's current revision — folders are linked per-revision, needed to resolve the right root path. */
+  revision?: string;
   taskId?: string;
   noteId?: string;
   onNavigateToFile?: (fileKey: string) => void;
-  onPreview?: (fileKey: string) => void;
 }
 
-export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId, onNavigateToFile, onPreview }) => {
+export const LinkedDocsList: React.FC<Props> = ({ opportunityId, revision, taskId, noteId, onNavigateToFile }) => {
   const [links, setLinks] = useState<{ fileKey: string; meta: DocMeta }[]>([]);
   const [loading, setLoading] = useState(false);
   const [rootPath, setRootPath] = useState('');
@@ -21,11 +23,11 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId,
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rp = await getRootPathDisplay(opportunityId);
+      const rp = await getRootPathDisplayForRevision(opportunityId, revision);
       setRootPath(rp);
-      const data = taskId 
+      const data = taskId
         ? await listLinkedForTask(opportunityId, taskId)
-        : noteId 
+        : noteId
           ? await listLinkedForNote(opportunityId, noteId)
           : [];
       setLinks(data);
@@ -34,7 +36,7 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId,
     } finally {
       setLoading(false);
     }
-  }, [opportunityId, taskId, noteId]);
+  }, [opportunityId, revision, taskId, noteId]);
 
   useEffect(() => {
     load();
@@ -47,6 +49,18 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId,
     
     await saveMeta(opportunityId, fileKey, meta);
     load();
+  };
+
+  const handleOpen = async (fileKey: string) => {
+    if (!rootPath) {
+      alert('Set the opportunity folder base path in the Folder tab first.');
+      return;
+    }
+    try {
+      await openInNativeApp(rootPath, fileKey.split('/'));
+    } catch (err: any) {
+      alert(err?.message || 'Could not open the file.');
+    }
   };
 
   const handleCopyPath = (fileKey: string) => {
@@ -69,10 +83,10 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId,
         {links.map((link) => (
           <div key={link.fileKey} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 group hover:border-[#3DCD58] hover:shadow-sm transition-all">
             <FileText className="w-3.5 h-3.5 text-gray-400 group-hover:text-[#3DCD58]" />
-            <button 
-              onClick={() => onPreview?.(link.fileKey)}
-              className="text-xs font-bold text-gray-700 max-w-[180px] truncate hover:text-[#3DCD58] transition-colors flex items-center gap-1" 
-              title="Preview"
+            <button
+              onClick={() => handleOpen(link.fileKey)}
+              className="text-xs font-bold text-gray-700 max-w-[180px] truncate hover:text-[#3DCD58] transition-colors flex items-center gap-1"
+              title="Open"
             >
               {link.fileKey.split('/').pop()}
             </button>
@@ -83,9 +97,9 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, taskId, noteId,
             )}
             <div className="flex items-center gap-1 border-l border-gray-100 ml-1 pl-1">
               <button
-                onClick={() => onPreview?.(link.fileKey)}
+                onClick={() => handleOpen(link.fileKey)}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
-                title="Preview"
+                title="Open"
               >
                 <Eye className="w-3.5 h-3.5 text-gray-400 hover:text-blue-500" />
               </button>

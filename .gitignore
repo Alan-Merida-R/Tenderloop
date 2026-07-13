@@ -51,3 +51,8 @@ private/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local AI/editor permissions and generated Windows distribution files
+.claude/settings.local.json
+dev-dist/
+TenderLoop.exe

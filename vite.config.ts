@@ -16,10 +16,23 @@ export default defineConfig(({ mode }) => {
         tailwindcss(),
         VitePWA({
           registerType: 'autoUpdate',
-          // Use public/manifest.json instead of auto-generating one
-          manifest: false,
-          // Include the manifest in the service worker precache list
-          includeAssets: ['icon.svg', 'manifest.json'],
+          manifest: {
+            id: '/',
+            name: 'TenderLoop',
+            short_name: 'TenderLoop',
+            description: 'Local-first tendering manager for Schneider Electric',
+            start_url: '/',
+            scope: '/',
+            display: 'standalone',
+            display_override: ['window-controls-overlay', 'standalone'],
+            background_color: '#ffffff',
+            theme_color: '#3DCD58',
+            icons: [
+              { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+              { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+            ],
+          },
+          includeAssets: ['icon.svg'],
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
             maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
@@ -28,7 +41,11 @@ export default defineConfig(({ mode }) => {
             navigateFallbackDenylist: [/^\/api\//],
           },
           devOptions: {
-            enabled: false,
+            // TenderLoop is distributed as a local Windows application. Enable
+            // the service worker on localhost too, so Edge can install it as a
+            // PWA with the TenderLoop manifest/icon instead of a browser tab.
+            enabled: true,
+            type: 'module',
           },
         }),
       ],

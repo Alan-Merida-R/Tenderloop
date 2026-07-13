@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
-import { createDefaultBackendDb, importBackendDb, isBackendAvailable, openDefaultBackendDb, saveBackendDb } from './services/backendDb';
+import { importBackendDb, isBackendAvailable, openDefaultBackendDb, saveBackendDb } from './services/backendDb';
 import Dashboard from './components/Dashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
 import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
+import { ProcessRadialWidget } from './components/ProcessRadialWidget';
 import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
 import { assignMissingOrders } from './services/taskUtils';
@@ -21,6 +22,42 @@ type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
 type StorageMode = 'backend' | 'file' | null;
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
+
+/**
+ * Creates one compact, lower-cased text index for dashboard searches.  It is
+ * calculated only when an opportunity changes, so searching long rich-text
+ * notes never has to traverse the complete opportunity object while typing.
+ */
+const buildOpportunitySearchIndex = (opportunity: Opportunity): string => {
+  const values: string[] = [];
+  const visited = new WeakSet<object>();
+
+  const collect = (value: unknown) => {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      values.push(String(value));
+      return;
+    }
+    if (typeof value !== 'object') return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      value.forEach(item => collect(item));
+      return;
+    }
+
+    Object.entries(value as Record<string, unknown>).forEach(([childKey, childValue]) => {
+      // Internal cache data is not user-searchable. Version snapshots repeat
+      // the entire opportunity and would needlessly inflate the search index.
+      if (childKey.startsWith('_') || childKey === 'snapshot') return;
+      collect(childValue);
+    });
+  };
+
+  collect(opportunity);
+  return values.join(' ').toLowerCase();
+};
 
 const normalizeHistoryDate = (value?: string | null) => {
   if (!value) return getTodayStr();
@@ -167,6 +204,9 @@ function App() {
   // Detail Overlay State (Notion-like)
   const [selectedOppId, setSelectedOppId] = useState<string | null>(null);
   const [activeDeepLink, setActiveDeepLink] = useState<DeepLink | null>(null);
+  const pendingOpenOpportunityRef = useRef<string | null>(
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('openOpportunity') : null
+  );
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -333,6 +373,18 @@ function App() {
   backendRevisionRef.current = backendRevision;
   const appSettingsRef = useRef(appSettings);
   appSettingsRef.current = appSettings;
+
+  /**
+   * Always resolves against the latest globalContacts, not whatever a given
+   * OpportunityDetail render closed over — otherwise two directory saves fired
+   * close together (or from two mounted instances of the same opportunity)
+   * can race and the second silently overwrites the first.
+   */
+  const applyGlobalContactsUpdate = (update: GlobalContact[] | ((prev: GlobalContact[]) => GlobalContact[])) => {
+    const prev = appSettingsRef.current.globalContacts || [];
+    const next = typeof update === 'function' ? (update as (prev: GlobalContact[]) => GlobalContact[])(prev) : update;
+    handleSaveSettings({ ...appSettingsRef.current, globalContacts: next });
+  };
   const selectedOppIdRef = useRef(selectedOppId);
   selectedOppIdRef.current = selectedOppId;
 
@@ -343,6 +395,7 @@ function App() {
   const stableHolidays = useMemo(() => appSettings.holidays || EMPTY_ARR, [appSettings.holidays]);
   const stableGlobalLabels = useMemo(() => appSettings.globalLabels || EMPTY_ARR, [appSettings.globalLabels]);
   const stableTrackedAreas = useMemo(() => appSettings.trackedAreas || EMPTY_ARR, [appSettings.trackedAreas]);
+  const stableGlobalContacts = useMemo(() => appSettings.globalContacts || EMPTY_ARR, [appSettings.globalContacts]);
   const stableHiddenOpportunityDetailSections = useMemo(() => appSettings.hiddenOpportunityDetailSections || EMPTY_ARR, [appSettings.hiddenOpportunityDetailSections]);
   const stableOpportunityDetailSectionOrder = useMemo(() => appSettings.opportunityDetailSectionOrder || EMPTY_ARR, [appSettings.opportunityDetailSectionOrder]);
   const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
@@ -782,11 +835,18 @@ function App() {
         noteTemplates={appSettings.noteTemplates}
         holidays={stableHolidays}
         trackedAreas={stableTrackedAreas}
+        globalContacts={stableGlobalContacts}
+        onGlobalContactsChange={applyGlobalContactsUpdate}
+        onTrackedAreasChange={(areas) => handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas })}
         globalLabels={stableGlobalLabels}
         emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
+        sowSectionEnabled={appSettings.sowSectionEnabled || false}
         hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
         opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
         userName={appSettings.userName || 'User'}
+        emailComposeSettings={appSettings.emailCompose || null}
+        globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
+        onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
           if (payload) minimizeToDock(payload);
@@ -885,7 +945,8 @@ function App() {
             discountsAndNotes: existingCommercial.discountsAndNotes || '',
             cqaOfficialSellPrice: existingCommercial.cqaOfficialSellPrice || 0,
             cqaOfficialMargin: existingCommercial.cqaOfficialMargin || 0,
-            quickRefs: Array.isArray(existingCommercial.quickRefs) ? existingCommercial.quickRefs : []
+            quickRefs: Array.isArray(existingCommercial.quickRefs) ? existingCommercial.quickRefs : [],
+            internalRevisions: Array.isArray(existingCommercial.internalRevisions) ? existingCommercial.internalRevisions : []
           };
 
           // KPI Initialization
@@ -1075,22 +1136,6 @@ function App() {
     setStatus('loading');
     setErrorMessage(null);
     try {
-      if (backendAvailable) {
-        const snapshot = await createDefaultBackendDb(false);
-        const migratedData = migrateData(snapshot.data);
-        setDb(migratedData);
-        setFileHandle(null);
-        setStorageMode('backend');
-        backendRevisionRef.current = snapshot.status.revision;
-        setBackendRevision(snapshot.status.revision);
-        setBackendName(snapshot.status.name || 'TenderLoop backend DB');
-        setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
-        setIsDbLoaded(true);
-        setStartupHint(null);
-        setStatus('idle');
-        return;
-      }
-
       const result = await createDatabaseFile();
       if (result.error) {
         if (result.error !== 'Creación cancelada.') {
@@ -1264,6 +1309,18 @@ function App() {
         attendees: ''
       })) as any[];
 
+    // Every opportunity gets a built-in SOW (Scope of Work) note by default.
+    // Its content is empty JSON state (filled in by the embedded form on first edit).
+    initialNotes.push({
+      id: crypto.randomUUID(),
+      title: 'SOW - Scope of Work',
+      date: new Date().toISOString().split('T')[0],
+      type: 'Scope',
+      content: '',
+      attendees: '',
+      format: 'sow',
+    } as any);
+
     const newOpp: Opportunity = {
       id: newId,
       title: 'New Opportunity',
@@ -1287,7 +1344,8 @@ function App() {
         cfLink: '',
         discountsAndNotes: '',
         cqaOfficialSellPrice: 0,
-        cqaOfficialMargin: 0
+        cqaOfficialMargin: 0,
+        internalRevisions: []
       },
       links: { bfo: '', internalFolder: '', officialFolder: '', cqaLink: '', ba: '', srLink: '', geet: '' },
       notes: initialNotes,
@@ -1715,13 +1773,9 @@ function App() {
         versions: [], // Strip heavy snapshots
         _originalRef: opp, // Tag for cache-busting
         _isLight: true, // Safety tag to prevent overwriting full records in updateOpportunity
-        // PRE-CALCULATE Search Index: This prevents millions of string concatenations in Dashboard/v5000 filter.
-        _searchIndex: (
-          `${opp.title} ${opp.id} ${opp.customer} ${opp.statusLabel} ${opp.quoteType || ''} ` +
-          `${opp.srId || ''} ${(opp.versions || []).map(v => v.srId || '').filter(Boolean).join(' ')} ` +
-          `${opp.alias || ''} ${(opp.labels || []).map(l => l.text).join(' ')} ` +
-          `${(opp.commercial.customSections || []).map(sec => sec.name).join(' ')}`
-        ).toLowerCase()
+        // Includes every stored field (including rich-text notes) before the
+        // light object removes note content for rendering performance.
+        _searchIndex: buildOpportunitySearchIndex(opp)
       };
       lightCacheRef.current.set(opp.id, light);
       return light;
@@ -1758,6 +1812,22 @@ function App() {
     setActiveDeepLink(dl ? { ...dl, _nonce: ++deepLinkNonceRef.current } : null);
   }, []);
 
+  useEffect(() => {
+    const pendingId = pendingOpenOpportunityRef.current;
+    if (!pendingId || !isDbLoaded) return;
+    if (stableOpportunities.some(opp => opp.id === pendingId)) {
+      pendingOpenOpportunityRef.current = null;
+      handleSelectOpp(pendingId);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('openOpportunity');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+      } catch {
+        // Ignore URL cleanup failures.
+      }
+    }
+  }, [handleSelectOpp, isDbLoaded, stableOpportunities]);
+
   const handleCreateOppAtRoot = useCallback((stage?: ProcessStage) => {
     createOpportunity(stage || '1. Intake');
   }, [createOpportunity]);
@@ -1777,6 +1847,20 @@ function App() {
           <TimerWidget floating />
         </div>
       </TimerProvider>
+    );
+  }
+
+  const isProcessRadialOnlyWindow = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('window') === 'process-radial';
+  if (isProcessRadialOnlyWindow) {
+    return (
+      <div className="h-screen w-screen min-h-0 bg-transparent p-0 overflow-hidden">
+        <ProcessRadialWidget
+          floating
+          opportunities={stableOpportunities}
+          onSelectOpportunity={handleSelectOpp}
+        />
+      </div>
     );
   }
 
@@ -1868,7 +1952,7 @@ function App() {
                   )}
                 </div>
                 <button onClick={handleCreateDB} className="flex items-center gap-2 px-3 py-1.5 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-lg text-sm font-medium transition-colors shadow-sm">
-                  <PlusCircle className="w-4 h-4" /> {backendAvailable ? 'New Backend DB' : 'New DB'}
+                  <PlusCircle className="w-4 h-4" /> New DB
                 </button>
                 {startupHint === '__reopen__' && pendingHandle ? (
                   <button
@@ -1999,7 +2083,7 @@ function App() {
                     <FolderOpen className="w-5 h-5" /> {backendAvailable ? 'Importar JSON' : 'Abrir Base de Datos'}
                   </button>
                   <button onClick={handleCreateDB} className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition-all">
-                    <PlusCircle className="w-5 h-5" /> {backendAvailable ? 'Nueva Base Backend' : 'Nueva Base de Datos'}
+                    <PlusCircle className="w-5 h-5" /> Nueva Base de Datos
                   </button>
                 </div>
               )}
@@ -2036,6 +2120,7 @@ function App() {
                   holidays={stableHolidays}
                   globalLabels={stableGlobalLabels}
                   alarms={appSettings.alarms}
+                  hiddenProposalProcessColumns={appSettings.hiddenProposalProcessColumns}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
                 />
@@ -2078,11 +2163,18 @@ function App() {
                     noteTemplates={appSettings.noteTemplates}
                     holidays={stableHolidays}
                     trackedAreas={stableTrackedAreas}
+                    globalContacts={stableGlobalContacts}
+                    onGlobalContactsChange={applyGlobalContactsUpdate}
+                    onTrackedAreasChange={(areas) => handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas })}
                     globalLabels={stableGlobalLabels}
                     emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
+        sowSectionEnabled={appSettings.sowSectionEnabled || false}
                     hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
                     opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
                     userName={appSettings.userName || 'User'}
+                    emailComposeSettings={appSettings.emailCompose || null}
+                    globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
+                    onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}
                   />
@@ -2100,6 +2192,12 @@ function App() {
           opportunities={stableOpportunities}
         />
         <StickyNotesWidget />
+        {appSettings.processRadialWidgetEnabled && (
+          <ProcessRadialWidget
+            opportunities={stableOpportunities}
+            onSelectOpportunity={handleSelectOpp}
+          />
+        )}
         <TimerWidget onTaskClick={handleTimerTaskClick} />
 
       </div>

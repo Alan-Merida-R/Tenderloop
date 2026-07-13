@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity, Eye, EyeOff } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, DollarSign, Trophy, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
+import { collectSowTeamMembers } from '../services/sowTeamMembers';
+import { ResponsibleTeamPicker } from './OpportunityDetail';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { getNextTask, compareTasksGlobal, getOppStatusWeight, getTaskPriorityWeight } from '../services/taskUtils';
@@ -20,6 +22,7 @@ import { ExecutionScheduleSection } from '../features/schedule/ExecutionSchedule
 import { ScheduleView } from '../features/schedule/ScheduleView';
 
 const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
+const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v1';
 
 const normalizeColumnKeys = (keys: unknown, fallbackKeys: string[]) => {
     if (!Array.isArray(keys)) return fallbackKeys;
@@ -39,13 +42,23 @@ const readGeneralColumnPrefs = (fallbackKeys: string[]) => {
         if (!saved) return { visibleColumns: fallbackKeys, columnOrder: fallbackKeys };
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
+            const visibleColumns = normalizeVisibleColumnKeys(parsed, fallbackKeys);
+            if (!localStorage.getItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY)) {
+                localStorage.setItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY, '1');
+                if (fallbackKeys.includes('saveNote') && !visibleColumns.includes('saveNote')) visibleColumns.push('saveNote');
+            }
             return {
-                visibleColumns: normalizeVisibleColumnKeys(parsed, fallbackKeys),
+                visibleColumns,
                 columnOrder: fallbackKeys,
             };
         }
+        const visibleColumns = normalizeVisibleColumnKeys(parsed?.visibleColumns, fallbackKeys);
+        if (!localStorage.getItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY)) {
+            localStorage.setItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY, '1');
+            if (fallbackKeys.includes('saveNote') && !visibleColumns.includes('saveNote')) visibleColumns.push('saveNote');
+        }
         return {
-            visibleColumns: normalizeVisibleColumnKeys(parsed?.visibleColumns, fallbackKeys),
+            visibleColumns,
             columnOrder: normalizeColumnKeys(parsed?.columnOrder, fallbackKeys),
         };
     } catch (e) {
@@ -134,6 +147,7 @@ interface Props {
     holidays?: string[];
     globalLabels: OpportunityLabel[];
     alarms?: import('../types').AlarmConfig[];
+    hiddenProposalProcessColumns?: string[];
     onMinimize?: (tab: FloatingTab) => void;
     onOpenTaskSubView?: (oppId: string, taskId: string) => void;
 }
@@ -162,6 +176,7 @@ const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'nextStep', label: 'Next Step' },
     { key: 'labels', label: 'Labels' },
     { key: 'quickNote', label: 'Quick Note' },
+    { key: 'saveQuickNote', label: 'Save Quick Note' },
     { key: 'processStatus', label: 'Process Status' },
     { key: 'priority', label: 'Priority' },
     { key: 'expectedDate', label: 'Expected Date' },
@@ -172,8 +187,11 @@ type ProposalCardFieldKey = typeof PROPOSAL_CARD_FIELD_OPTIONS[number]['key'];
 
 const PROPOSAL_CARD_FIELD_STORAGE_KEY = 'tl.proposalCard.visibleFields.v1';
 const PROPOSAL_CARD_QUICK_HIDE_STORAGE_KEY = 'tl.proposalCard.quickHideFields.v1';
+const PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY = 'tl.proposalCard.saveQuickNote.defaultOff.v1';
 const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['opId', 'alias']);
-const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS.map(option => option.key);
+const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS
+    .map(option => option.key)
+    .filter(key => key !== 'saveQuickNote');
 const PROPOSAL_CARD_DEFAULT_QUICK_HIDE_FIELDS: ProposalCardFieldKey[] = ['nextStep', 'quickNote'];
 
 const orderProposalCardFields = (fields: Iterable<ProposalCardFieldKey>, includeRequired = true) => {
@@ -279,6 +297,7 @@ const OpportunityCard = React.memo(({
     handleInlineEdit,
     kanbanMiniNote,
     onNoteChange,
+    onArchiveQuickNote,
     cardFieldVisibility,
     translateStatus,
     alarms
@@ -380,13 +399,24 @@ const OpportunityCard = React.memo(({
                 )}
 
                 {isCardFieldVisible('quickNote') && (
-                    <div className="mt-2" onClick={e => e.stopPropagation()}>
+                    <div className="mt-2 flex items-stretch gap-1.5" onClick={e => e.stopPropagation()}>
                         <OptimizedTextArea
                             placeholder="Quick note..."
                             value={kanbanMiniNote}
                             onChange={(val) => onNoteChange(val, opp.id)}
-                            className="w-full text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 h-12 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
+                            onDraftChange={(val: string) => onNoteChange(val, opp.id, true)}
+                            className="min-w-0 flex-1 text-[10px] text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 h-12 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
                         />
+                        {isCardFieldVisible('saveQuickNote') && (
+                            <button
+                                type="button"
+                                onClick={() => onArchiveQuickNote(opp.id)}
+                                className="shrink-0 self-stretch px-2 text-amber-700 bg-amber-100 border border-amber-200 rounded-lg hover:bg-amber-200 transition-colors"
+                                title="Save quick note to history"
+                            >
+                                <History className="w-3.5 h-3.5" />
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -504,6 +534,21 @@ const TaskCard = React.memo(({
 }) => {
     const { startTimer, timerState } = useTimer();
     const isTimerActive = timerState.taskId === item.id && timerState.isRunning;
+    const isDone = item.status === 'Done';
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [assignOpen, setAssignOpen] = useState(false);
+    const subtasks: Subtask[] = item.subtasks || [];
+    const doneSubtasks = subtasks.filter(s => s.completed).length;
+    const totalSubtasks = subtasks.length;
+    const sowTeamMembers = useMemo(() => collectSowTeamMembers(item.opp.notes), [item.opp.notes]);
+
+    const toggleSubtask = (subtaskId: string) => {
+        const updatedSubtasks = subtasks.map(s => s.id === subtaskId ? { ...s, completed: !s.completed } : s);
+        onUpdate(item.opp.id, item.id, { subtasks: updatedSubtasks });
+        const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(s => s.completed);
+        if (allDone && item.status !== 'Done') onStatusChange(item.opp.id, item.id, 'Done');
+        else if (!allDone && item.status === 'Done') onStatusChange(item.opp.id, item.id, 'In Progress');
+    };
 
     return (
         <div
@@ -533,43 +578,86 @@ const TaskCard = React.memo(({
                     <Trash2 className="w-3.5 h-3.5" />
                 </button>
             </div>
-            <div className="font-medium text-gray-800 mb-1 pr-12">{item.title}</div>
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                    <div className="flex items-center gap-1">
-                        {item.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200" title="Execution Order">#{item.order}</span>}
-                        {item.opp.alias && <span className="bg-[#3DCD58] text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tight shadow-sm border border-[#2db64a]" title={item.opp.title}>{item.opp.alias}</span>}
+
+            <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                {item.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200" title="Execution Order">#{item.order}</span>}
+                {item.opp.alias && <span className="bg-[#3DCD58] text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tight shadow-sm border border-[#2db64a]" title={item.opp.title}>{item.opp.alias}</span>}
+                {(item.opp.labels || []).map((l: OpportunityLabel) => (
+                    <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
+                ))}
+                {isTimerActive && (
+                    <div className="flex items-center gap-1 text-[#3DCD58] animate-pulse">
+                        <Clock className="w-2.5 h-2.5" />
+                        <span className="text-[9px] font-black uppercase">Active</span>
                     </div>
-                    {(item.opp.labels || []).map((l: OpportunityLabel) => (
-                        <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
-                    ))}
-                    {isTimerActive && (
-                        <div className="flex items-center gap-1 text-[#3DCD58] animate-pulse ml-1">
-                            <Clock className="w-2.5 h-2.5" />
-                            <span className="text-[9px] font-black uppercase">Active</span>
-                        </div>
-                    )}
-                    {(item.executionBlocks?.length ?? 0) > 0 && (
-                        <div className="flex items-center gap-0.5 text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1 py-0 ml-1" title={`${item.executionBlocks.length} scheduled block${item.executionBlocks.length === 1 ? '' : 's'}`}>
-                            <CalendarDays className="w-2.5 h-2.5" />
-                            <span className="text-[9px] font-black uppercase">Scheduled</span>
-                        </div>
-                    )}
-                </div>
-                <div className="flex gap-1 items-center">
-                    {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400" />}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const order: TaskPriority[] = ['Low', 'Medium', 'High'];
-                            const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
-                            onUpdate(item.opp.id, item.id, { priority: next });
-                        }}
-                        className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer ${(PRIORITY_COLORS[item.priority as TaskPriority] || '').split(' ')[1] || ''}`}
-                        title={`Priority: ${item.priority} (Click to cycle)`}
-                    ></button>
-                </div>
+                )}
+                {(item.executionBlocks?.length ?? 0) > 0 && (
+                    <div className="flex items-center gap-0.5 text-emerald-600 bg-emerald-50 border border-emerald-200 rounded px-1 py-0" title={`${item.executionBlocks.length} scheduled block${item.executionBlocks.length === 1 ? '' : 's'}`}>
+                        <CalendarDays className="w-2.5 h-2.5" />
+                        <span className="text-[9px] font-black uppercase">Scheduled</span>
+                    </div>
+                )}
             </div>
+
+            <div className="flex items-start gap-2 pr-12">
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onStatusChange(item.opp.id, item.id, isDone ? 'Pending' : 'Done');
+                    }}
+                    className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isDone ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300 hover:border-[#3DCD58]'}`}
+                    title={isDone ? 'Mark as not done' : 'Mark as done'}
+                >
+                    {isDone && <Check className="w-2.5 h-2.5 text-white" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-semibold truncate ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>{item.title}</div>
+                    {item.description && (
+                        <p className={`text-xs mt-0.5 line-clamp-2 ${isDone ? 'text-gray-300' : 'text-gray-500'}`}>{item.description}</p>
+                    )}
+                </div>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        const order: TaskPriority[] = ['Low', 'Medium', 'High'];
+                        const next = order[(order.indexOf(item.priority as TaskPriority) + 1) % 3];
+                        onUpdate(item.opp.id, item.id, { priority: next });
+                    }}
+                    className={`w-2 h-2 rounded-full hover:scale-150 transition-transform cursor-pointer mt-1.5 shrink-0 ${(PRIORITY_COLORS[item.priority as TaskPriority] || '').split(' ')[1] || ''}`}
+                    title={`Priority: ${item.priority} (Click to cycle)`}
+                ></button>
+                {item.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400 mt-1.5 shrink-0" />}
+            </div>
+
+            {totalSubtasks > 0 && (
+                <div className="mt-2 pl-6" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-[#3DCD58] transition-all" style={{ width: `${Math.round(doneSubtasks / totalSubtasks * 100)}%` }} />
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-400 shrink-0">{doneSubtasks}/{totalSubtasks}</span>
+                        <button onClick={() => setIsExpanded(v => !v)} className="text-gray-400 hover:text-gray-600 shrink-0" title={isExpanded ? 'Collapse subtasks' : 'Expand subtasks'}>
+                            {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                    </div>
+                    <div className="mt-1.5 space-y-1">
+                        {(isExpanded ? subtasks : subtasks.slice(0, 2)).map(sub => (
+                            <label key={sub.id} className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={sub.completed}
+                                    onChange={() => toggleSubtask(sub.id)}
+                                    className="w-3 h-3 rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                />
+                                <span className={`text-[10px] truncate ${sub.completed ? 'line-through text-gray-300' : 'text-gray-600'}`}>{sub.title}</span>
+                            </label>
+                        ))}
+                        {!isExpanded && totalSubtasks > 2 && (
+                            <button onClick={() => setIsExpanded(true)} className="text-[9px] font-bold text-gray-400 hover:text-[#3DCD58]">+{totalSubtasks - 2} more</button>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="flex items-center gap-2 mt-2">
                 <select
@@ -582,8 +670,16 @@ const TaskCard = React.memo(({
                 </select>
             </div>
 
-            <div className="flex justify-between mt-2 pt-2 border-t border-gray-50">
-                {(item.externalAreas || []).length > 0 && <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-1 rounded truncate max-w-[100px]">{(item.externalAreas || []).join(', ')}</span>}
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50 flex-wrap gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                    {!!item.responsible && (item.externalAreas || []).length > 0 && <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-1 rounded truncate max-w-[100px]">{(item.externalAreas || []).join(', ')}</span>}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setAssignOpen(v => !v); }}
+                        className="flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100"
+                    >
+                        <User className="w-2.5 h-2.5" /> {item.responsible || 'Assign'}
+                    </button>
+                </div>
                 <input
                     type="date"
                     value={item.dueDate}
@@ -593,7 +689,49 @@ const TaskCard = React.memo(({
                 />
             </div>
 
-            <TaskTimerControls item={item} />
+            {(item.responsibleRequestedDate || item.responsibleDueDate) && (
+                <div className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold mt-1 inline-block" title="Requested / due back from responsible">
+                    {item.responsibleRequestedDate || '?'} → {item.responsibleDueDate || '?'}
+                </div>
+            )}
+
+            {assignOpen && (
+                <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-200 space-y-2" onClick={(e) => e.stopPropagation()}>
+                    <ResponsibleTeamPicker
+                        options={sowTeamMembers}
+                        selected={item.responsibleTeamMemberIds || []}
+                        onChange={(ids) => onUpdate(item.opp.id, item.id, {
+                            responsibleTeamMemberIds: ids,
+                            responsible: ids.map((id: string) => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                            owner: ids.length > 0 ? 'External Area' : item.owner
+                        })}
+                    />
+                    {(item.responsibleTeamMemberIds || []).length > 0 && (
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-500 uppercase">Requested on</label>
+                                <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={item.responsibleRequestedDate || ''} onChange={(e) => onUpdate(item.opp.id, item.id, { responsibleRequestedDate: e.target.value })} />
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={item.responsibleDueDate || ''} onChange={(e) => onUpdate(item.opp.id, item.id, { responsibleDueDate: e.target.value })} />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {isExpanded && (
+                <div onClick={(e) => e.stopPropagation()}>
+                    <LinkedDocsList opportunityId={item.opp.id} revision={item.opp.revision} taskId={item.id} />
+                </div>
+            )}
+
+            {/* isTable variant renders inline (not absolutely positioned) so it can't overlap the
+                assign popover / attachments content below it when the card grows taller. */}
+            <div className="mt-2 pt-2 border-t border-gray-50" onClick={(e) => e.stopPropagation()}>
+                <TaskTimerControls item={item} isTable={true} />
+            </div>
         </div >
     );
 });
@@ -647,7 +785,7 @@ const TaskRow = React.memo(({
                     <div className="flex items-center gap-2">
                         {item.order && <span className="text-xs font-bold text-gray-400 shrink-0">#{item.order}</span>}
                         <span className="text-sm font-bold text-gray-900 truncate" title={item.title}>{item.title}</span>
-                        {(item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
+                        {!!item.responsible && (item.externalAreas || []).length > 0 && <span className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 rounded flex items-center gap-1 shrink-0"><User className="w-3 h-3" /> {(item.externalAreas || []).join(', ')}</span>}
                         {item.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400 shrink-0" />}
                         {(item.executionBlocks?.length ?? 0) > 0 && (
                             <span className="flex items-center gap-0.5 text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 shrink-0" title={`${item.executionBlocks.length} scheduled block${item.executionBlocks.length === 1 ? '' : 's'}`}>
@@ -818,7 +956,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], onMinimize, onOpenTaskSubView }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], onMinimize, onOpenTaskSubView }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -835,7 +973,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const [statusFilters, setStatusFilters] = useState<string[]>([]);
     const [dateFilterStart, setDateFilterStart] = useState('');
     const [dateFilterEnd, setDateFilterEnd] = useState('');
-    const [rankFilter, setRankFilter] = useState('');
     const [detailedStatusFilters, setDetailedStatusFilters] = useState<string[]>([]);
 
     // Column State
@@ -850,7 +987,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'amount', label: 'Amount' },
         { key: 'nextStep', label: 'Next Step' },
         { key: 'waiting', label: 'Waiting On' },
-        { key: 'notes', label: 'Notes' }
+        { key: 'notes', label: 'Notes' },
+        { key: 'saveNote', label: 'Save Quick Note' }
     ], []);
     const allColumnKeys = useMemo(() => allColumns.map(c => c.key), [allColumns]);
     const [visibleColumns, setVisibleColumns] = useState<string[]>(() => readGeneralColumnPrefs(allColumnKeys).visibleColumns);
@@ -884,6 +1022,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     }, [collapsedColumns]);
     
     const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const quickNoteDraftsRef = useRef<Record<string, string>>({});
+    const [historySaveNotice, setHistorySaveNotice] = useState<string | null>(null);
+    const historySaveNoticeTimeoutRef = useRef<number | null>(null);
     const customerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.customer).filter(Boolean))) as string[], [opportunities]);
     const sellerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.seller).filter(Boolean))) as string[], [opportunities]);
     const assignedOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.assigned).filter(Boolean))) as string[], [opportunities]);
@@ -975,6 +1116,16 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     useEffect(() => {
         localStorage.setItem(PROPOSAL_CARD_QUICK_HIDE_STORAGE_KEY, JSON.stringify(proposalQuickHideFields));
     }, [proposalQuickHideFields]);
+
+    useEffect(() => {
+        if (localStorage.getItem(PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY)) return;
+        localStorage.setItem(PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY, '1');
+        setProposalCardVisibleFields(prev => prev.filter(field => field !== 'saveQuickNote'));
+    }, []);
+
+    useEffect(() => () => {
+        if (historySaveNoticeTimeoutRef.current !== null) window.clearTimeout(historySaveNoticeTimeoutRef.current);
+    }, []);
 
     const toggleProposalCardField = useCallback((field: ProposalCardFieldKey) => {
         if (REQUIRED_PROPOSAL_CARD_FIELDS.has(field)) return;
@@ -1149,7 +1300,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setLabelFilters([]);
         setDateFilterStart('');
         setDateFilterEnd('');
-        setRankFilter('');
         
         // Task specific
         setTaskStatusFilters([]);
@@ -1158,6 +1308,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setTaskAreaFilters([]);
         setTaskOppStatusFilters([]);
         setTaskCalendarizedFilter('all');
+        setColumnFilters({});
+        setKpiSoldFilter('all');
+        setOpenDropdown(null);
         setShowNextSteps(false);
     };
 
@@ -1425,6 +1578,21 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (newStatus === 'Done') {
             const opp = opportunities.find(o => o.id === oppId);
             const task = opp?.tasks.find(t => t.id === taskId);
+            if (task?.isAssignment) {
+                const today = new Date().toISOString().split('T')[0];
+                if (task.status === 'Missing Info' && (task.approverTeamMemberIds || []).length > 0) {
+                    onTaskUpdate(oppId, taskId, { status: 'Approval', responsibleDeliveredDate: task.responsibleDeliveredDate || today, approvalRequestedDate: task.approvalRequestedDate || today });
+                    return;
+                }
+                if (task.status === 'Missing Info') {
+                    onTaskUpdate(oppId, taskId, { status: 'Done', responsibleDeliveredDate: task.responsibleDeliveredDate || today });
+                    return;
+                }
+                if (task.status === 'Approval') {
+                    onTaskUpdate(oppId, taskId, { status: 'Done', approvalDeliveredDate: task.approvalDeliveredDate || today });
+                    return;
+                }
+            }
             // Allow checking validation first or assume validation passes?
             if (validateTaskCompletion(oppId, taskId, newStatus)) {
                 if (task) {
@@ -1630,7 +1798,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             Object.keys(groups).forEach(k => groups[k].sort((a, b) => (a.priorityOrder ?? 999) - (b.priorityOrder ?? 999)));
         }
         return groups;
-    }, [filteredOpps, kanbanGroupBy]);
+    }, [filteredOpps, kanbanGroupBy, processColumnOrder]);
+
+    const visibleBoardColumns = useMemo(() => Object.entries(groupedOpps).filter(([columnKey]) => (
+        kanbanGroupBy !== 'detailed' || !hiddenProposalProcessColumns.includes(columnKey)
+    )), [groupedOpps, hiddenProposalProcessColumns, kanbanGroupBy]);
+
+    const boardGridTemplateColumns = useMemo(() => visibleBoardColumns.map(([columnKey]) => (
+        collapsedColumns.includes(columnKey)
+            ? '4rem'
+            : `minmax(${kanbanGroupBy === 'detailed' ? '15rem' : '20rem'}, 1fr)`
+    )).join(' '), [visibleBoardColumns, collapsedColumns, kanbanGroupBy]);
 
 
 
@@ -1720,11 +1898,34 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         onOppUpdate(updated);
     }, [onOppUpdate]);
 
-    const handleKanbanNoteChange = useCallback((val: any, oppId: string) => {
+    const handleKanbanNoteChange = useCallback((val: any, oppId: string, draftOnly = false) => {
+        quickNoteDraftsRef.current[oppId] = String(val ?? '');
+        if (draftOnly) return;
         const opp = (opportunities || []).find(o => o.id === oppId);
         if (opp) {
             onOppUpdate({ ...opp, kanbanNote: val });
         }
+    }, [onOppUpdate, opportunities]);
+
+    const handleArchiveQuickNote = useCallback((oppId: string) => {
+        const opp = (opportunities || []).find(item => item.id === oppId);
+        const content = (quickNoteDraftsRef.current[oppId] ?? opp?.kanbanNote ?? '').trim();
+        if (!opp || !content) return;
+
+        onOppUpdate({
+            ...opp,
+            kanbanNote: '',
+            history: [...(opp.history || []), {
+                id: crypto.randomUUID(),
+                date: new Date().toLocaleDateString('en-CA'),
+                content,
+            }],
+            lastUpdated: new Date().toISOString(),
+        });
+        quickNoteDraftsRef.current[oppId] = '';
+        setHistorySaveNotice('Quick note saved to history');
+        if (historySaveNoticeTimeoutRef.current !== null) window.clearTimeout(historySaveNoticeTimeoutRef.current);
+        historySaveNoticeTimeoutRef.current = window.setTimeout(() => setHistorySaveNotice(null), 2500);
     }, [onOppUpdate, opportunities]);
 
     const updateSelectedTask = (field: keyof Task, value: any) => {
@@ -1924,6 +2125,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>;
             case 'notes':
                 return <th key={key} className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>;
+            case 'saveNote':
+                return <th key={key} className="px-3 py-3 w-12"><span className="sr-only">Save quick note</span></th>;
             default:
                 return null;
         }
@@ -1982,7 +2185,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 {waitingTasks.map(t => (
                                     <div key={t.id} className={`text-[10px] px-1.5 py-0.5 rounded border flex flex-col ${t.status === 'Approval' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`} title={t.title}>
                                         <span className="font-bold truncate max-w-[150px]">{t.status === 'Approval' ? 'Approval: ' : ''}{t.title}</span>
-                                        {(t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
+                                        {!!t.responsible && (t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
                                         {t.responsible && <span className="text-[9px] opacity-80 italic">{t.status === 'Approval' ? 'Approver' : 'Owes info'}: {t.responsible}</span>}
                                     </div>
                                 ))}
@@ -1991,7 +2194,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                     </td>
                 );
             case 'notes':
-                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><EditableCell value={opp.kanbanNote || ''} onChange={(val) => handleInlineEdit(opp, 'kanbanNote', val)} /></td>;
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><OptimizedInput value={opp.kanbanNote || ''} onChange={(val) => handleKanbanNoteChange(val, opp.id)} onDraftChange={(val) => handleKanbanNoteChange(val, opp.id, true)} className="w-full bg-transparent border-none p-0 text-xs text-gray-600 focus:ring-0" placeholder="Quick note..." /></td>;
+            case 'saveNote':
+                return <td key={key} className="px-3 py-3 text-center"><button type="button" onClick={() => handleArchiveQuickNote(opp.id)} className="p-1.5 text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 transition-colors" title="Save quick note to history"><History className="w-3.5 h-3.5" /></button></td>;
             default:
                 return null;
         }
@@ -2002,6 +2207,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
     return (
         <div className="flex flex-col h-full bg-[#f1f3f4] p-6 gap-6 relative">
+            {historySaveNotice && <div role="status" className="absolute right-6 top-6 z-[1000] rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 shadow-sm">{historySaveNotice}</div>}
             {/* Top Bar */}
             <div className="flex flex-wrap items-center gap-4">
                 {/* ... (Existing top bar code unchanged) ... */}
@@ -2047,19 +2253,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         <span className="text-gray-400">-</span>
                         <input type="date" value={dateFilterEnd} onChange={e => setDateFilterEnd(e.target.value)} className="text-xs border-none focus:ring-0 p-1" />
                     </div>
-
-                    {(mode === 'proposals' || mode === 'general') && (
-                        <div className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm mr-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Rank:</label>
-                            <input
-                                type="number"
-                                placeholder="All"
-                                className="w-12 text-xs border-none focus:ring-0 p-0 font-bold text-gray-700 text-center"
-                                value={rankFilter}
-                                onChange={e => setRankFilter(e.target.value)}
-                            />
-                        </div>
-                    )}
 
                     <div className="relative z-20">
                         <OpportunitySearchInput
@@ -2214,29 +2407,31 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         </div>
                     )}
 
-                    {mode !== 'general' && (
-                        <div className="flex items-center gap-2">
-                            <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
-                                <button onClick={() => setViewMode('board')} className={`p-1.5 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
-                                <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
-                                {mode === 'tasks' && (
-                                    <button onClick={() => setViewMode('schedule')} className={`p-1.5 rounded ${viewMode === 'schedule' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Schedule View"><CalendarDays className="w-4 h-4" /></button>
-                                )}
-                            </div>
+                    <div className="flex items-center gap-2">
+                        {mode !== 'general' && (
+                            <>
+                                <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
+                                    <button onClick={() => setViewMode('board')} className={`p-1.5 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
+                                    <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                                    {mode === 'tasks' && (
+                                        <button onClick={() => setViewMode('schedule')} className={`p-1.5 rounded ${viewMode === 'schedule' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Schedule View"><CalendarDays className="w-4 h-4" /></button>
+                                    )}
+                                </div>
 
-                            <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors mr-2">
-                                <Play className="w-4 h-4" /> Start Timer
-                            </button>
+                                <button onClick={() => { setStartTimerData({ oppId: '', taskId: '' }); setShowStartTimerModal(true); }} className="flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors mr-2">
+                                    <Play className="w-4 h-4" /> Start Timer
+                                </button>
+                            </>
+                        )}
 
-                            <button
-                                onClick={handleResetFilters}
-                                className="bg-white hover:bg-orange-50 text-gray-400 hover:text-orange-500 p-2 rounded-lg border border-gray-200 transition-colors shadow-sm"
-                                title="Reset All Filters"
-                            >
-                                <RefreshCw className="w-5 h-5" />
-                            </button>
-                        </div>
-                    )}
+                        <button
+                            onClick={handleResetFilters}
+                            className="bg-white hover:bg-orange-50 text-gray-400 hover:text-orange-500 p-2 rounded-lg border border-gray-200 transition-colors shadow-sm"
+                            title="Reset All Filters"
+                        >
+                            <RefreshCw className="w-5 h-5" />
+                        </button>
+                    </div>
 
                     {mode === 'tracking' && (
                         <div className="flex bg-gray-100/50 p-1 rounded-2xl items-center">
@@ -2416,7 +2611,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-x-auto overflow-hidden min-h-0">
+            <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
 
                 {/* ... General View and Tasks View unchanged ... */}
                 {mode === 'general' && (
@@ -2513,7 +2708,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                 {waitingTasks.map(t => (
                                                                     <div key={t.id} className={`text-[10px] px-1.5 py-0.5 rounded border flex flex-col ${t.status === 'Approval' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`} title={t.title}>
                                                                         <span className="font-bold truncate max-w-[150px]">{t.status === 'Approval' ? '⚠ Approval: ' : ''}{t.title}</span>
-                                                                        {(t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
+                                                                        {!!t.responsible && (t.externalAreas || []).length > 0 && <span className="text-[9px] opacity-80">{(t.externalAreas || []).join(', ')}</span>}
                                                                         {t.responsible && <span className="text-[9px] opacity-80 italic">{t.status === 'Approval' ? 'Approver' : 'Owes info'}: {t.responsible}</span>}
                                                                     </div>
                                                                 ))}
@@ -2537,11 +2732,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 {mode === 'proposals' && (
                     <>
                         {viewMode === 'board' && (
-                            <div className="flex h-full pb-4 px-2 min-w-max items-stretch gap-6">
-                                {Object.entries(groupedOpps).map(([columnKey, opps]: [string, Opportunity[]], index, arr) => (
+                            <div
+                                className="grid h-full min-h-0 min-w-full items-stretch gap-6 overflow-x-auto overflow-y-hidden pb-4 px-2"
+                                style={{ gridTemplateColumns: boardGridTemplateColumns || 'minmax(0, 1fr)' }}
+                            >
+                                {visibleBoardColumns.map(([columnKey, opps]: [string, Opportunity[]]) => (
                                     <div
                                         key={columnKey}
-                                        className={`${collapsedColumns.includes(columnKey) ? 'w-16 min-w-[4rem]' : (kanbanGroupBy === 'detailed' ? 'w-60 min-w-[15rem]' : 'w-80 min-w-[20rem]')} flex flex-col h-full relative group select-none transition-all duration-300`}
+                                        className={`${collapsedColumns.includes(columnKey) ? 'w-16 min-w-[4rem]' : 'min-w-0'} flex flex-col h-full min-h-0 relative group select-none transition-all duration-300`}
                                         onDragOver={handleDragOver}
                                         onDrop={(e) => handleDrop(e, columnKey, 'column')}
                                     >
@@ -2616,7 +2814,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         )}
 
                                         {!collapsedColumns.includes(columnKey) && (
-                                            <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default custom-scrollbar">
+                                            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-2 pb-10 cursor-default custom-scrollbar">
                                                 {opps.slice(0, 30).map(opp => (
                                                 <OpportunityCard
                                                     key={opp.id}
@@ -2626,6 +2824,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     handleInlineEdit={handleInlineEdit}
                                                     kanbanMiniNote={opp.kanbanNote || ''}
                                                     onNoteChange={handleKanbanNoteChange}
+                                                    onArchiveQuickNote={handleArchiveQuickNote}
                                                     cardFieldVisibility={proposalCardFieldVisibility}
                                                     cardFieldVisibilityKey={proposalCardFieldVisibilityKey}
                                                     translateStatus={translateStatus}
@@ -3187,7 +3386,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 isOpen={openDropdown === 'taskExternalAreas'}
                                                 onToggle={() => toggleDropdown('taskExternalAreas')}
                                             />
-                                            <OptimizedInput placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(val: string) => updateSelectedTask('responsible', val)} />
+                                            <input list="dashboard-stakeholders-datalist" placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
+                                            <datalist id="dashboard-stakeholders-datalist">
+                                                {(opportunities.find(o => o.id === selectedTask.oppId)?.stakeholders || []).map(p => <option key={p.id} value={p.name} />)}
+                                            </datalist>
                                         </div>
                                     )}
                                 </div>
@@ -3222,7 +3424,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     <button className="text-[10px] font-bold text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker(true)}>+ Link Doc</button>
                                 </div>
                                 <div className="p-4 bg-gray-50 rounded-2xl">
-                                    <LinkedDocsList key={refreshKey} opportunityId={selectedTask.oppId} taskId={selectedTask.task.id} />
+                                    <LinkedDocsList key={refreshKey} opportunityId={selectedTask.oppId} revision={opportunities.find(o => o.id === selectedTask.oppId)?.revision} taskId={selectedTask.task.id} />
                                 </div>
                             </div>
 
@@ -3403,6 +3605,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         showDocPicker && selectedTask && (
             <DocumentPickerModal
                 opportunityId={selectedTask.oppId}
+                revision={opportunities.find(o => o.id === selectedTask.oppId)?.revision}
                 multi={true}
                 onSelect={handleDocLink}
                 onClose={() => setShowDocPicker(false)}

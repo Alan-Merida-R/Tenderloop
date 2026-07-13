@@ -1,0 +1,405 @@
+<!doctype html>
+<html>
+<head>
+  <meta http-equiv="x-ua-compatible" content="IE=11">
+  <title>TenderLoop Installer</title>
+  <hta:application
+    id="TenderLoopInstaller"
+    applicationname="TenderLoop Installer"
+    border="thin"
+    borderstyle="normal"
+    caption="yes"
+    contextmenu="no"
+    icon="%SystemRoot%\System32\shell32.dll"
+    maximizebutton="no"
+    minimizebutton="yes"
+    scroll="no"
+    showintaskbar="yes"
+    singleinstance="yes"
+    sysmenu="yes"
+    windowstate="normal" />
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #1f2933;
+      background: #f3f3f3;
+    }
+
+    .shell {
+      width: 720px;
+      height: 520px;
+      background: #ffffff;
+      border: 1px solid #c8c8c8;
+      box-sizing: border-box;
+    }
+
+    .header {
+      height: 96px;
+      padding: 20px 28px;
+      box-sizing: border-box;
+      border-bottom: 1px solid #dedede;
+      background: linear-gradient(#ffffff, #f7f7f7);
+    }
+
+    .title {
+      margin: 0 0 6px;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: #5f6b7a;
+      font-size: 13px;
+    }
+
+    .content {
+      padding: 24px 28px 18px;
+      height: 330px;
+      box-sizing: border-box;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .status {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .remaining {
+      color: #5f6b7a;
+      font-size: 12px;
+    }
+
+    .progress {
+      height: 18px;
+      border: 1px solid #b8b8b8;
+      background: #eeeeee;
+      box-shadow: inset 0 1px 1px rgba(0,0,0,.08);
+      margin-bottom: 18px;
+    }
+
+    .bar {
+      height: 100%;
+      width: 0%;
+      background: #0078d4;
+      transition: width .2s ease;
+    }
+
+    .steps {
+      margin-bottom: 18px;
+      font-size: 13px;
+    }
+
+    .step {
+      display: inline-block;
+      width: 48%;
+      margin: 0 1% 8px 0;
+      color: #5f6b7a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .step.done {
+      color: #107c10;
+      font-weight: 600;
+    }
+
+    .step.active {
+      color: #005a9e;
+      font-weight: 600;
+    }
+
+    .log {
+      width: 100%;
+      height: 132px;
+      box-sizing: border-box;
+      resize: none;
+      border: 1px solid #c8c8c8;
+      background: #fbfbfb;
+      color: #2c333a;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      padding: 8px;
+    }
+
+    .footer {
+      height: 94px;
+      padding: 18px 28px;
+      border-top: 1px solid #dedede;
+      box-sizing: border-box;
+      background: #f7f7f7;
+      text-align: right;
+    }
+
+    button {
+      min-width: 104px;
+      height: 32px;
+      margin-left: 8px;
+      border: 1px solid #adadad;
+      background: #ffffff;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: #005a9e;
+      background: #0078d4;
+      color: #ffffff;
+    }
+
+    button:disabled {
+      color: #999999;
+      background: #eeeeee;
+      border-color: #d5d5d5;
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <h1 class="title">TenderLoop Setup</h1>
+      <p class="subtitle">Installing the local Windows app shortcuts and dependencies.</p>
+    </div>
+
+    <div class="content">
+      <div class="status-row">
+        <div id="status" class="status">Ready to install</div>
+        <div id="remaining" class="remaining">5 steps remaining</div>
+      </div>
+      <div class="progress"><div id="bar" class="bar"></div></div>
+
+      <div class="steps">
+        <div id="step1" class="step">1. Check Node.js</div>
+        <div id="step2" class="step">2. Install dependencies</div>
+        <div id="step3" class="step">3. Verify TenderLoop</div>
+        <div id="step4" class="step">4. Create shortcuts</div>
+        <div id="step5" class="step">5. Finish setup</div>
+      </div>
+
+      <textarea id="log" class="log" readonly></textarea>
+    </div>
+
+    <div class="footer">
+      <button id="installBtn" class="primary" onclick="startInstall()">Install</button>
+      <button id="openBtn" class="primary" onclick="openApp()" disabled>Open app</button>
+      <button id="closeBtn" onclick="window.close()" disabled>Close</button>
+    </div>
+  </div>
+
+  <script language="javascript">
+    var shell = new ActiveXObject("WScript.Shell");
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var scriptDir = getScriptDir();
+    var currentExec = null;
+    var pollTimer = null;
+    var stepIndex = 0;
+
+    window.resizeTo(740, 560);
+    window.moveTo((screen.width - 740) / 2, (screen.height - 560) / 2);
+
+    function getScriptDir() {
+      var path = decodeURIComponent(location.pathname);
+      path = path.replace(/^\//, "").replace(/\//g, "\\");
+      return fso.GetParentFolderName(path);
+    }
+
+    function el(id) {
+      return document.getElementById(id);
+    }
+
+    function logLine(text) {
+      el("log").value += text + "\r\n";
+      el("log").scrollTop = el("log").scrollHeight;
+    }
+
+    function setStep(index, text) {
+      stepIndex = index;
+      el("status").innerText = text;
+      el("remaining").innerText = Math.max(5 - index, 0) + " steps remaining";
+      el("bar").style.width = (index * 20) + "%";
+      for (var i = 1; i <= 5; i++) {
+        el("step" + i).className = "step" + (i < index ? " done" : (i === index ? " active" : ""));
+      }
+    }
+
+    function failInstall(message) {
+      if (pollTimer) window.clearInterval(pollTimer);
+      el("status").innerText = "Setup failed";
+      el("remaining").innerText = "Review the message below";
+      logLine("[ERROR] " + message);
+      el("installBtn").disabled = false;
+      el("closeBtn").disabled = false;
+    }
+
+    function runCommand(command, onDone) {
+      logLine("> " + command);
+      var tempDir = fso.GetSpecialFolder(2);
+      var tempName = fso.GetTempName();
+      var logFile = tempDir + "\\" + tempName + ".log";
+      var doneFile = tempDir + "\\" + tempName + ".done";
+
+      var cmdToRun = "cmd.exe /d /c " + command + " > \"" + logFile + "\" 2>&1 & echo %errorlevel% > \"" + doneFile + "\"";
+      shell.Run(cmdToRun, 0, false);
+
+      var lastPos = 0;
+      pollTimer = window.setInterval(function () {
+        if (fso.FileExists(logFile)) {
+          try {
+            var file = fso.OpenTextFile(logFile, 1, false, -2);
+            var content = file.ReadAll();
+            file.Close();
+            if (content.length > lastPos) {
+              var newContent = content.substring(lastPos);
+              var lines = newContent.split(/\r?\n/);
+              for (var i = 0; i < lines.length - 1; i++) {
+                logLine(lines[i]);
+              }
+              lastPos = content.length - lines[lines.length - 1].length;
+            }
+          } catch (e) {}
+        }
+
+        if (fso.FileExists(doneFile)) {
+          window.clearInterval(pollTimer);
+          var exitCode = 0;
+          try {
+            var file = fso.OpenTextFile(doneFile, 1);
+            exitCode = parseInt(file.ReadLine(), 10);
+            file.Close();
+          } catch (e) {}
+
+          if (fso.FileExists(logFile)) {
+            try {
+              var file = fso.OpenTextFile(logFile, 1, false, -2);
+              var content = file.ReadAll();
+              file.Close();
+              if (content.length > lastPos) {
+                var lines = content.substring(lastPos).split(/\r?\n/);
+                for (var i = 0; i < lines.length; i++) {
+                  if (lines[i] || i < lines.length - 1) logLine(lines[i]);
+                }
+              }
+            } catch (e) {}
+          }
+
+          try { fso.DeleteFile(logFile, true); } catch (e) {}
+          try { fso.DeleteFile(doneFile, true); } catch (e) {}
+
+          onDone(exitCode);
+        }
+      }, 250);
+    }
+
+    function createShortcut(path, target, description, hotkey, icon) {
+      var shortcut = shell.CreateShortcut(path);
+      shortcut.TargetPath = target;
+      shortcut.WorkingDirectory = scriptDir;
+      shortcut.Description = description;
+      if (icon) {
+        shortcut.IconLocation = icon;
+      }
+      if (hotkey) {
+        shortcut.Hotkey = hotkey;
+      }
+      shortcut.Save();
+    }
+
+    function hideSupportFile(name) {
+      var path = scriptDir + "\\" + name;
+      if (fso.FileExists(path)) {
+        var file = fso.GetFile(path);
+        file.Attributes = file.Attributes | 2;
+      }
+    }
+
+    function startInstall() {
+      el("installBtn").disabled = true;
+      el("openBtn").disabled = true;
+      el("closeBtn").disabled = true;
+      el("log").value = "";
+
+      setStep(1, "Checking Node.js");
+      runCommand("cmd.exe /d /c where node", function (code) {
+        if (code !== 0) {
+          failInstall("Node.js was not found. Install it from https://nodejs.org/ and run this installer again.");
+          return;
+        }
+
+        setStep(2, "Installing dependencies");
+        if (fso.FolderExists(scriptDir + "\\node_modules")) {
+          logLine("[OK] Dependencies are already installed.");
+          verifyTenderLoop();
+        } else {
+          logLine("[INFO] npm will show download progress here. This can take several minutes.");
+          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm install --no-audit --no-fund", function (npmCode) {
+            if (npmCode !== 0) {
+              failInstall("npm install failed. Check internet connection, proxy, or Node.js version.");
+              return;
+            }
+            verifyTenderLoop();
+          });
+        }
+      });
+    }
+
+    function verifyTenderLoop() {
+      setStep(3, "Verifying TenderLoop files");
+      if (!fso.FileExists(scriptDir + "\\TenderLoop.exe")) {
+        failInstall("TenderLoop.exe was not found in the installer folder.");
+        return;
+      }
+      if (!fso.FileExists(scriptDir + "\\LANZAR_TENDERLOOP.vbs")) {
+        failInstall("LANZAR_TENDERLOOP.vbs was not found in the installer folder.");
+        return;
+      }
+      if (!fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
+        failInstall("Vite was not found after dependency installation.");
+        return;
+      }
+      logLine("[OK] TenderLoop files verified.");
+
+      setStep(4, "Creating shortcuts");
+      var desktop = shell.SpecialFolders("Desktop");
+      var programs = shell.SpecialFolders("Programs");
+      var appFolder = programs + "\\TenderLoop";
+      if (!fso.FolderExists(appFolder)) fso.CreateFolder(appFolder);
+      createShortcut(desktop + "\\TenderLoop.lnk", scriptDir + "\\TenderLoop.exe", "Open TenderLoop", "Ctrl+Alt+T");
+      createShortcut(appFolder + "\\TenderLoop.lnk", scriptDir + "\\TenderLoop.exe", "Open TenderLoop", "Ctrl+Alt+T");
+      createShortcut(appFolder + "\\Uninstall TenderLoop.lnk", scriptDir + "\\DESINSTALAR_TENDERLOOP.vbs", "Remove TenderLoop local files and shortcuts", null, "%SystemRoot%\\System32\\shell32.dll,167");
+      hideSupportFile("INSTALAR_TENDERLOOP.hta");
+      hideSupportFile("DESINSTALAR_TENDERLOOP.hta");
+      hideSupportFile("DESINSTALAR_TENDERLOOP.bat");
+      hideSupportFile("motor_tenderloop.bat");
+      hideSupportFile("_open_browser.bat");
+      hideSupportFile("tenderloop.ico");
+      logLine("[OK] Desktop shortcut created.");
+      logLine("[OK] Start Menu shortcuts created.");
+
+      setStep(5, "Setup complete");
+      el("remaining").innerText = "0 steps remaining";
+      el("bar").style.width = "100%";
+      logLine("[OK] Setup complete. Choose Open app or Close.");
+      el("openBtn").disabled = false;
+      el("closeBtn").disabled = false;
+    }
+
+    function openApp() {
+      shell.Run("\"" + scriptDir + "\\TenderLoop.exe\"", 1, false);
+      window.close();
+    }
+  </script>
+</body>
+</html>

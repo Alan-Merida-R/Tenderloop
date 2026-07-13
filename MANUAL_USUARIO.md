@@ -172,12 +172,12 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 **Para desinstalar correctamente:**
 
-1. Doble clic en `DESINSTALAR.bat` (viene junto a `LANZAR_TENDERLOOP.vbs`).
-2. Confirma con `s` + Enter.
-3. El script hará tres cosas:
-   - Cerrar los procesos que estén usando los puertos 3000, 3003 y 3099.
+1. Doble clic en `DESINSTALAR_TENDERLOOP.vbs` o usa **Uninstall TenderLoop** desde el menú Inicio.
+2. Confirma en la ventana visual.
+3. El desinstalador hará cuatro cosas:
+   - Cerrar los procesos locales de TenderLoop en los puertos 3000 y 3099.
    - Cerrar cualquier `node.exe` que esté ejecutándose desde **esta** carpeta (sin tocar otros Node que tengas para otras cosas).
-   - Borrar `node_modules`, `dist`, `.vite` y `package-lock.json` (lo más pesado y lo que bloquea la eliminación).
+   - Borrar `node_modules`, `dist` y `.vite` (lo más pesado y lo que bloquea la eliminación).
 4. Cuando termine, ya puedes borrar la carpeta completa desde el Explorador sin errores.
 
 **¿Qué NO borra el desinstalador?**
@@ -186,7 +186,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 - Node.js instalado en tu PC → es para otros proyectos también. **No se toca.**
 - Los archivos fuente del proyecto (`App.tsx`, `package.json`, etc.) → para que puedas reinstalar de nuevo si cambias de opinión (simplemente ejecuta `LANZAR_TENDERLOOP.vbs` otra vez y volverá a bajar `node_modules`).
 
-> **¿Quieres borrar TODO incluido el código?** Ejecuta `DESINSTALAR.bat` primero (libera los locks) y luego borra la carpeta completa desde el Explorador.
+> **¿Quieres borrar TODO incluido el código?** Ejecuta `DESINSTALAR_TENDERLOOP.vbs` primero (libera los locks) y luego borra la carpeta completa desde el Explorador.
 
 > **¿El desinstalador dice "No se pudo borrar node_modules por completo"?** Significa que hay procesos de Node con locks que no se pudieron cerrar (a veces antivirus corporativo). Reinicia la PC y vuelve a ejecutar el desinstalador — al arrancar Windows "limpio" ya no habrá nada bloqueando.
 

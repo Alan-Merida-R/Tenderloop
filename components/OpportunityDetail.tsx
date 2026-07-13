@@ -1,12 +1,14 @@
-
+﻿
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye } from 'lucide-react';
+import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
+import { SowFormEmbed } from './SowFormEmbed';
+import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { getRootPathDisplay, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
@@ -23,8 +25,15 @@ import { CopyTasksModal } from './CopyTasksModal';
 import { getNextTask, compareTasksGlobal, reorderTaskStrict } from '../services/taskUtils';
 import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedInput';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
+import { EmailComposeModal } from './EmailComposeModal';
+import { mergeEmailComposeSettings, type EmailComposeSettings } from '../services/emailTemplates';
+import type { GeneratedEmailRecord } from '../types';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
+
+// Once a task is assigned to someone, it can only move through this lifecycle —
+// 'Pending'/'In Progress' don't apply once responsibility has been handed off.
+const ASSIGNED_TASK_STATUSES: TaskStatus[] = ['Missing Info', 'On Hold', 'Approval', 'Done', 'Canceled'];
 
 const normalizeHistoryDate = (value?: string | null) => {
     if (!value) return getTodayStr();
@@ -67,27 +76,41 @@ interface Props {
     noteTemplates?: NoteTemplate[];
     holidays?: string[];
     trackedAreas?: string[];
+    globalContacts?: GlobalContact[];
+    /** Accepts a functional updater (preferred) so concurrent saves never race against a stale snapshot. */
+    onGlobalContactsChange?: (update: GlobalContact[] | ((prev: GlobalContact[]) => GlobalContact[])) => void;
+    onTrackedAreasChange?: (areas: string[]) => void;
     deepLink?: DeepLink;
     globalLabels?: OpportunityLabel[];
     onMinimize?: (tab: FloatingTab) => void;
     onCloseTab?: () => void;
     isSubView?: boolean;
     emailIntegrationEnabled?: boolean;
+    /** Whether the "+ SOW" note-template button shows up in the Notes tab. Off by default. */
+    sowSectionEnabled?: boolean;
     hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
     opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
     /** Global user name inserted in bracketed form when copying History for bFO. */
     userName?: string;
+    /** Email composer settings from AppSettings.emailCompose (merged with defaults internally). */
+    emailComposeSettings?: Partial<EmailComposeSettings> | null;
+    globalSowForm?: { sections: any[]; questions: any[] };
+    onGlobalSowFormChange?: (form: { sections: any[]; questions: any[] }) => void;
 }
 
 export interface RichTextEditorHandle {
     highlightSelection: (id: string, text: string) => void;
     removeMark: (id: string) => void;
+    /** Reads the editor's current DOM content directly, bypassing the typing
+     * debounce. Used to force a synchronous flush right before navigating
+     * away (switching notes/tabs) so in-flight keystrokes are never lost. */
+    getContent: () => string | null;
 }
 
 /**
  * innerHTML does NOT capture live form-field state: an <input>'s typed text
  * lives in its `value` PROPERTY, a checkbox in `checked`, a <select> in
- * `selectedIndex` — none of which serialize. Mirror them into attributes/child
+ * `selectedIndex` â€” none of which serialize. Mirror them into attributes/child
  * nodes right before reading innerHTML so template forms survive save/reload.
  */
 const syncFormFieldValues = (root: HTMLElement) => {
@@ -124,8 +147,8 @@ const prepareEmbeddedFormFields = (root: HTMLElement) => {
     });
 };
 
-export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void, disabled?: boolean }>(
-    ({ content, onChange, onSelection, onLinkClick, onAttach, disabled }, ref) => {
+export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onSelection?: () => void, onLinkClick?: (id: string) => void, onAttach?: () => void, disabled?: boolean, mentionOptions?: Person[] }>(
+    ({ content, onChange, onSelection, onLinkClick, onAttach, disabled, mentionOptions = [] }, ref) => {
         const editorRef = useRef<HTMLDivElement>(null);
         const isInternalUpdate = useRef(false);
         const plainTextPasteRef = useRef(false);
@@ -166,7 +189,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                         onChange(editorRef.current.innerHTML);
                     }
                 }
-            }
+            },
+            getContent: () => editorRef.current ? editorRef.current.innerHTML : null,
         }));
 
         useEffect(() => {
@@ -243,8 +267,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         const handleKeyDown = (e: React.KeyboardEvent) => {
-            // Markdown shortcuts: * or - + Space → bullet list, 1. + Space → numbered list,
-            // --- + Space/Enter → horizontal divider line
+            // Markdown shortcuts: * or - + Space â†’ bullet list, 1. + Space â†’ numbered list,
+            // --- + Space/Enter â†’ horizontal divider line
             if (e.key === ' ' || e.key === 'Enter') {
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0) {
@@ -282,7 +306,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             }
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
                 // Paste as plain text: flag it and let the browser fire the paste
-                // event (keydown has no clipboard access) — handlePaste intercepts.
+                // event (keydown has no clipboard access) â€” handlePaste intercepts.
                 plainTextPasteRef.current = true;
                 window.setTimeout(() => { plainTextPasteRef.current = false; }, 500);
                 return;
@@ -331,7 +355,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         const debounceTimeoutRef = useRef<number | null>(null);
         // DATA-LOSS FIX: mirrors the DOM's innerHTML synchronously on every keystroke.
-        // The unmount cleanup below cannot read editorRef.current — React detaches DOM
+        // The unmount cleanup below cannot read editorRef.current â€” React detaches DOM
         // refs (sets them to null) synchronously during commit, BEFORE useEffect cleanup
         // functions run for unmounting components. Switching notes/tabs remounts this
         // editor (key={currentNote.id}), so any keystroke within the 150ms debounce
@@ -343,7 +367,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             if (disabled) return;
             isInternalUpdate.current = true;
             // Mirror embedded form-field state (input values, checkboxes, selects)
-            // into serializable attributes BEFORE reading innerHTML — typing into a
+            // into serializable attributes BEFORE reading innerHTML â€” typing into a
             // template's <input> bubbles here but only mutates the value property.
             syncFormFieldValues(e.currentTarget);
             const newHtml = e.currentTarget.innerHTML;
@@ -425,7 +449,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
         const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
             if (disabled) return;
-            // Ctrl+Shift+V → insert clipboard TEXT only, discarding formatting.
+            // Ctrl+Shift+V â†’ insert clipboard TEXT only, discarding formatting.
             if (plainTextPasteRef.current) {
                 plainTextPasteRef.current = false;
                 const text = e.clipboardData?.getData('text/plain');
@@ -452,9 +476,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         };
 
         return (
-            <div className={`flex flex-col h-full relative border rounded-lg ${disabled ? 'bg-gray-50 border-gray-100' : 'border-gray-200 shadow-sm'}`}>
+            <div className={`flex flex-1 flex-col h-full min-h-0 relative border rounded-lg ${disabled ? 'bg-gray-50 border-gray-100' : 'border-gray-200 shadow-sm'}`}>
                 {!disabled && (
-                    <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none">
+                    <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none sticky top-0 z-10">
                         <select
                             onChange={(e) => exec('fontName', e.target.value)}
                             className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
@@ -513,6 +537,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
                         <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
+                        {mentionOptions.length > 0 && <select defaultValue="" onChange={e => { const person = mentionOptions.find(p => p.id === e.target.value); if (person) insertHtml(`<span contenteditable="false" data-stakeholder-id="${person.id}" style="color:#2563eb;font-weight:700">@${person.name}</span>&nbsp;`); e.currentTarget.value = ''; }} className="h-7 max-w-36 text-[10px] border-gray-200 rounded bg-white" title="Mention opportunity stakeholder">
+                            <option value="">@ Mention</option>
+                            {mentionOptions.map(p => <option key={p.id} value={p.id}>{p.name} Â· {(p.roles || (p.role ? [p.role] : [])).join(', ')}</option>)}
+                        </select>}
                         
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
                         <div className="flex gap-1 items-center bg-white px-1 rounded border border-gray-200">
@@ -614,8 +642,59 @@ const InlineTaskTextInput = React.memo(({ value, onCommit, disabled, className, 
     );
 });
 
-const MultiSelect = ({ options, selected, onChange, placeholder }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
+/**
+ * Picker for the SOW "Team Involved" people, used to assign task responsibles.
+ * Renders as a plain inline checklist (no absolutely-positioned dropdown) because
+ * these pickers live inside scrollable card lists / modals â€” a floating dropdown
+ * gets clipped by the ancestor's overflow box and silently fails to "drop down".
+ */
+export const ResponsibleTeamPicker = ({ options, selected, onChange, onCreate }: { options: SowTeamMember[], selected: string[], onChange: (ids: string[]) => void, onCreate?: (name: string) => string | undefined }) => {
+    const [search, setSearch] = useState('');
+    const filtered = options.filter(o => `${o.name} ${o.area}`.toLowerCase().includes(search.toLowerCase()));
+    return (
+        <div className="space-y-1.5">
+            <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wide">
+                Opportunity team
+            </div>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search or create contact..." className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-[#3DCD58] focus:border-[#3DCD58]" />
+            {options.length === 0 ? (
+                search.trim() ? <button type="button" onClick={() => { onCreate?.(search.trim()); setSearch(''); }} className="text-[10px] text-blue-600 font-bold p-2 bg-blue-50 rounded border border-blue-200">+ Create "{search}" and involve</button> : <div className="text-[10px] text-gray-400 italic p-2 bg-white rounded border border-dashed border-gray-200">No people involved yet. Search to create one.</div>
+            ) : (
+                <>
+                    <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                        {filtered.map(opt => {
+                            const isSel = selected.includes(opt.id);
+                            return (
+                                <label key={opt.id} className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border cursor-pointer text-[10px] transition-colors ${isSel ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                                    <input
+                                        type="checkbox"
+                                        checked={isSel}
+                                        onChange={() => onChange(isSel ? selected.filter(id => id !== opt.id) : [...selected, opt.id])}
+                                        className="w-3 h-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    {opt.name} — {opt.area}
+                                </label>
+                            );
+                        })}
+                        {filtered.length === 0 && search.trim() && <button type="button" onClick={() => { const id = onCreate?.(search.trim()); if (id) onChange([...selected, id]); setSearch(''); }} className="text-[10px] text-blue-600 font-bold px-2 py-1 border border-blue-200 bg-blue-50 rounded-full">+ Create "{search}" and involve</button>}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
+const MultiSelect = ({ options, selected, onChange, placeholder, onCreate }: { options: string[], selected: string[], onChange: (val: string[]) => void, placeholder: string, onCreate?: (name: string) => void }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [newOption, setNewOption] = useState('');
+    const submitNewOption = () => {
+        const name = newOption.trim();
+        if (!name) return;
+        if (window.confirm(`"${name}" is not one of the default options. Add it and select it?`)) {
+            onCreate?.(name);
+            setNewOption('');
+        }
+    };
     return (
         <div className="relative">
             <button onClick={() => setIsOpen(!isOpen)} className="w-full text-left text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-w-[140px]">
@@ -625,7 +704,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full right-0 w-48 mt-1 bg-white border border-gray-200 shadow-xl z-[500] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="absolute top-full right-0 w-56 mt-1 bg-white border border-gray-200 shadow-xl z-[500] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in slide-in-from-top-2 duration-200">
                         {options.map(opt => (
                             <div key={opt} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded" onClick={() => {
                                 if (selected.includes(opt)) onChange(selected.filter(s => s !== opt));
@@ -637,6 +716,26 @@ const MultiSelect = ({ options, selected, onChange, placeholder }: { options: st
                                 <span className="text-xs">{opt}</span>
                             </div>
                         ))}
+                        {onCreate && (
+                            <div className="flex items-center gap-1 border-t border-gray-100 mt-1 pt-1 px-1">
+                                <input
+                                    value={newOption}
+                                    onChange={(e) => setNewOption(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitNewOption(); } }}
+                                    placeholder="Not listed? Type to add..."
+                                    className="flex-1 min-w-0 text-xs border border-gray-200 rounded px-2 py-1 focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); submitNewOption(); }}
+                                    className="p-1 rounded bg-[#3DCD58] text-white shrink-0"
+                                    title="Add"
+                                >
+                                    <Plus className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </>
             )}
@@ -681,7 +780,7 @@ const HistoryEventsModal = ({
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50">
                     <h3 className="font-black text-gray-800 flex items-center gap-2">
                         <HistoryIcon className="w-5 h-5 text-[#3DCD58]" />
-                        History Events — {date}
+                        History Events â€” {date}
                     </h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
                 </div>
@@ -1593,6 +1692,7 @@ const resetCommercialData = (): Commercial => ({
     cfLink: '',
     discountsAndNotes: '',
     quickRefs: [],
+    internalRevisions: [],
     cqaOfficialSellPrice: 0,
     cqaOfficialMargin: 0
 });
@@ -1779,9 +1879,11 @@ const TaskTimerButtonModal = React.memo(({ task, oppId }: { task: Task, oppId: s
 
 type OpportunityDetailTab = 'overview' | 'commercial' | 'notes' | 'tasks' | 'questions' | 'history' | 'folder' | 'kpi' | 'emails';
 
-const isOpportunityDetailTabVisible = (tab: OpportunityDetailTab, hiddenSections: OpportunityDetailSectionKey[] = [], emailIntegrationEnabled = false) => {
+const isOpportunityDetailTabVisible = (tab: OpportunityDetailTab, hiddenSections: OpportunityDetailSectionKey[] = []) => {
     if (tab === 'overview') return true;
-    if (tab === 'emails' && !emailIntegrationEnabled) return false;
+    // 'emails' used to be gated behind the paused Outlook/Graph conversation connector
+    // (emailIntegrationEnabled). It's always visible now — it hosts the Outlook draft
+    // composer's Generated Emails list, which doesn't depend on that connector.
     return !hiddenSections.includes(tab as OpportunityDetailSectionKey);
 };
 
@@ -1799,18 +1901,18 @@ const renderOpportunityDetailTabIcon = (tab: OpportunityDetailTab) => {
     }
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User' }) => {
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], globalContacts = [], onGlobalContactsChange, onTrackedAreasChange, deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, sowSectionEnabled = false, hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User', emailComposeSettings = null, globalSowForm = { sections: [], questions: [] }, onGlobalSowFormChange }) => {
     const { getTimerState, confirmStop } = useTimerActions();
     const requestedTab = (deepLink?.tab || 'overview') as OpportunityDetailTab;
-    const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? requestedTab : 'overview';
+    const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections) ? requestedTab : 'overview';
     const [activeTab, setActiveTab] = useState<OpportunityDetailTab>(initialTab);
     const [isDeferring, setIsDeferring] = useState(false);
-    const isTabVisible = useCallback((tab: OpportunityDetailTab) => isOpportunityDetailTabVisible(tab, hiddenOpportunityDetailSections, emailIntegrationEnabled), [hiddenOpportunityDetailSections, emailIntegrationEnabled]);
-    const orderedDetailTabs = useMemo(() => normalizeOpportunityDetailSectionOrder(opportunityDetailSectionOrder).filter((tab) => isOpportunityDetailTabVisible(tab as OpportunityDetailTab, hiddenOpportunityDetailSections, emailIntegrationEnabled)) as OpportunityDetailTab[], [opportunityDetailSectionOrder, hiddenOpportunityDetailSections, emailIntegrationEnabled]);
+    const isTabVisible = useCallback((tab: OpportunityDetailTab) => isOpportunityDetailTabVisible(tab, hiddenOpportunityDetailSections), [hiddenOpportunityDetailSections]);
+    const orderedDetailTabs = useMemo(() => normalizeOpportunityDetailSectionOrder(opportunityDetailSectionOrder).filter((tab) => isOpportunityDetailTabVisible(tab as OpportunityDetailTab, hiddenOpportunityDetailSections)) as OpportunityDetailTab[], [opportunityDetailSectionOrder, hiddenOpportunityDetailSections]);
 
     useEffect(() => {
         if (!isTabVisible(activeTab)) {
-            setActiveTab('overview');
+            setActiveTabSafe('overview');
         }
     }, [activeTab, isTabVisible]);
 
@@ -1866,17 +1968,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     useEffect(() => {
         if (deepLink?.tab) {
             const nextTab = deepLink.tab as OpportunityDetailTab;
-            setActiveTab(isOpportunityDetailTabVisible(nextTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? nextTab : 'overview');
+            setActiveTabSafe(isOpportunityDetailTabVisible(nextTab, hiddenOpportunityDetailSections) ? nextTab : 'overview');
         }
-    }, [deepLink?.tab, hiddenOpportunityDetailSections, emailIntegrationEnabled]);
+    }, [deepLink?.tab, hiddenOpportunityDetailSections]);
 
     const lastScrolledTaskId = useRef<string | null>(null);
     const focusTaskInTasksList = useCallback((taskId: string) => {
         if (!isTabVisible('tasks')) {
-            setActiveTab('overview');
+            setActiveTabSafe('overview');
             return;
         }
-        setActiveTab('tasks');
+        setActiveTabSafe('tasks');
         setTaskViewMode('list');
         setTaskFilter('');
         setTaskStatusFilters(Object.keys(TASK_STATUS_COLORS));
@@ -1976,7 +2078,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // while the user types (to avoid re-rendering this 6000-line component per
     // keystroke) and never calls setActiveNoteHtml. But this component re-renders for
     // countless unrelated reasons (any tab, any field, any timer). Mirroring on every
-    // render — including the render triggered by clicking a different note — overwrote
+    // render â€” including the render triggered by clicking a different note â€” overwrote
     // the freshly-typed content with the stale activeNoteHtml state milliseconds before
     // the note-switch flush read it, so the flush saw "no change" and silently dropped
     // the edit. Only resync when activeNoteHtml itself legitimately changes (i.e. when
@@ -2028,8 +2130,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 // line that cleanup would save the pre-flush notes and overwrite the content
                 // we just pushed via onUpdateRef.
                 localOppRef.current = updated;
-                // DATA-LOSS FIX: write the crash-recovery backup FIRST — before
-                // any async hop — so an exception or window close in the next
+                // DATA-LOSS FIX: write the crash-recovery backup FIRST â€” before
+                // any async hop â€” so an exception or window close in the next
                 // line can't skip it. Cleared after saveToDisk succeeds.
                 try {
                     localStorage.setItem(
@@ -2053,7 +2155,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // DATA-LOSS FIX: the typing debounce above (handleNoteContentChange) waits up to 1.5s
     // before flushing to localOpp/localStorage. The note-switch/tab-switch cleanup covers
     // most cases, but it never runs if the user closes the tab/window or backgrounds the app
-    // while still inside that 1.5s window — the keystroke is lost with no backup written.
+    // while still inside that 1.5s window â€” the keystroke is lost with no backup written.
     // These listeners force the same flush on tab hide/close so it always lands first.
     useEffect(() => {
         const flushNow = () => { if (flushNoteRef.current) flushNoteRef.current(); };
@@ -2068,9 +2170,32 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         };
     }, []);
 
+    // DATA-LOSS FIX: the flush above relies on activeNoteHtmlRef, which is only
+    // as fresh as the editor's own internal 150ms debounce (or its unmount
+    // cleanup, whose ordering relative to this component's own effects isn't
+    // guaranteed). Reading the DOM directly via the imperative handle — right
+    // here, synchronously, BEFORE the note/tab actually changes — sidesteps
+    // that entirely: at this exact moment the editor for the note being left
+    // is still mounted and live, so this is always the freshest possible copy.
+    const flushActiveNoteNow = () => {
+        if (selectedNoteId) {
+            const fresh = noteEditorRef.current?.getContent();
+            if (fresh != null) activeNoteHtmlRef.current = fresh;
+        }
+        if (flushNoteRef.current) flushNoteRef.current();
+    };
+    const setSelectedNoteIdSafe = (id: string | null) => {
+        flushActiveNoteNow();
+        setSelectedNoteId(id);
+    };
+    const setActiveTabSafe = (tab: OpportunityDetailTab) => {
+        flushActiveNoteNow();
+        setActiveTab(tab);
+    };
+
     // Handle note content changes with local debouncing (UI only)
     const handleNoteContentChange = (val: string) => {
-        // Do NOT call setActiveNoteHtml here — that state is only needed when switching notes
+        // Do NOT call setActiveNoteHtml here â€” that state is only needed when switching notes
         // to initialize NoteEditorWrapper. Calling it during typing triggers a full re-render
         // of the 6000-line OpportunityDetail component on every debounce cycle (TASK-034 fix).
         activeNoteHtmlRef.current = val;
@@ -2086,7 +2211,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // AUTO-SELECT: If no note is selected but we have notes, pick the first one (usually latest)
         // This fixes the "empty editor" issue on old opportunities.
         if (!selectedNoteId && localOpp.notes.length > 0) {
-            setSelectedNoteId(localOpp.notes[0].id);
+            setSelectedNoteIdSafe(localOpp.notes[0].id);
             return;
         }
 
@@ -2103,7 +2228,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     }, [selectedNoteId]); // Note: We removed localOpp.notes from dependency to prevent typing wipe-out
 
     // STALE-EDITOR FIX: when the user LEAVES the notes tab, the cleanup above
-    // flushes the typed content into localOpp.notes — but activeNoteHtml (the
+    // flushes the typed content into localOpp.notes â€” but activeNoteHtml (the
     // editor's initial content) still holds the html from when the note was
     // first loaded. Returning to the tab remounts NoteEditorWrapper from that
     // stale state, so the user's latest edits seemed lost until they switched
@@ -2120,7 +2245,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [textSelection, setTextSelection] = useState<string | null>(null);
     const [showQuestionsSplit, setShowQuestionsSplit] = useState(false);
     const [selectedTaskForEdit, setSelectedTaskForEdit] = useState<{ task: Task } | null>(null);
-    const [taskViewMode, setTaskViewMode] = useState<'list' | 'calendar'>('list');
+    const [taskViewMode, setTaskViewMode] = useState<'list' | 'calendar' | 'kanban'>('list');
     const [taskFilter, setTaskFilter] = useState('');
     const filterKey = `opportunityTasksFilters:${opportunity.id}`;
     const [taskStatusFilters, setTaskStatusFilters] = useState<string[]>(() => {
@@ -2153,7 +2278,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
     const [taskSort, setTaskSort] = useState<'none' | 'dueDate' | 'order'>('order');
+    const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+    const [expandedSubtaskIds, setExpandedSubtaskIds] = useState<Set<string>>(new Set());
+    const [assignPopoverTaskId, setAssignPopoverTaskId] = useState<string | null>(null);
+    const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
+    const [currentFolderPath, setCurrentFolderPath] = useState<string[]>([]);
     const [showLabelMenu, setShowLabelMenu] = useState(false);
     const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
 
@@ -2193,7 +2323,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 return;
             }
             if (viewingVersionId) { setViewingVersionId(null); handled(); return; }
-            if (activeTab !== 'overview') { setActiveTab('overview'); handled(); return; }
+            if (activeTab !== 'overview') { setActiveTabSafe('overview'); handled(); return; }
 
             onBack();
             handled();
@@ -2232,7 +2362,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // Only sync from props if ID changed (navigation) or versions changed (external update/restore)
         // This prevents overwriting local state while typing Title/ID due to parent re-renders.
         // OR if lastUpdated changed (syncing from other tabs or background timer)
-        // LOCK: never replace localOpp while viewing a snapshot — it would discard snapshot data
+        // LOCK: never replace localOpp while viewing a snapshot â€” it would discard snapshot data
         if (viewingVersionId) return;
         if (opportunity.id !== localOpp.id || (opportunity.versions?.length !== localOpp.versions?.length)) {
             setLocalOpp(opportunity);
@@ -2248,7 +2378,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const kpiInitializedForOppRef = useRef<string | null>(null);
 
     useEffect(() => {
-        // Lazy KPI Migration / Initialization — intentionally separated from the sync effect
+        // Lazy KPI Migration / Initialization â€” intentionally separated from the sync effect
         // to avoid the loop: setLocalOpp -> onUpdate -> lastUpdated -> re-trigger -> repeat
         if (activeTab !== 'kpi') return;
 
@@ -2292,10 +2422,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (lastProcessedDeepLink.current === deepLinkKey) return;
             lastProcessedDeepLink.current = deepLinkKey;
 
-            if (deepLink.tab) setActiveTab(deepLink.tab as any);
+            if (deepLink.tab) setActiveTabSafe(deepLink.tab as any);
 
             if (deepLink.tab === 'notes' && deepLink.noteId) {
-                setSelectedNoteId(deepLink.noteId);
+                setSelectedNoteIdSafe(deepLink.noteId);
             }
 
             if (deepLink.tab === 'tasks' && deepLink.taskId) {
@@ -2354,6 +2484,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 autoFields.statusLabel = 'In Progress';
             }
         }
+        if (field === 'dates' && value?.requested !== localOpp.dates?.requested) {
+            autoFields.kpis = {
+                ...localOpp.kpis,
+                timeline: {
+                    ...localOpp.kpis?.timeline,
+                    receivedAt: value?.requested || '',
+                },
+            } as KPIs;
+        }
 
         const nextStatusLabel = (field === 'statusLabel' ? value : autoFields.statusLabel || localOpp.statusLabel) as OpportunityStatus;
         if (localOpp.statusLabel !== nextStatusLabel) {
@@ -2395,7 +2534,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             syncToParentNow(updated);
         } else {
             // 300ms keeps rapid typing debounced while still pushing changes to the parent
-            // within half a second — important for commercial/CQA fields that users expect
+            // within half a second â€” important for commercial/CQA fields that users expect
             // to persist quickly after blur. The previous 1s delay combined with the inner
             // 500ms onUpdate wrapper (1.5s total) made quick-click-away sometimes lose data.
             if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
@@ -2412,7 +2551,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 window.clearTimeout(saveToParentTimeoutRef.current);
             }
             // PERSISTENCE GUARANTEE: Force save on unmount, but NOT when viewing a snapshot
-            // — saving snapshot content would overwrite the current live version.
+            // â€” saving snapshot content would overwrite the current live version.
             if (!viewingVersionIdRef.current) {
                 onUpdate(localOppRef.current, opportunity.id);
             }
@@ -2427,8 +2566,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const normalizedQuickLinks = useMemo(() => normalizeQuickLinks(localOpp.links), [localOpp.links]);
 
-    // All default quick links — locked (SRLink, BFO, CQA) and unlocked (Folder, BA, GEET)
-    // alike — render in the single manual order stored in quickLinksOrder. Any link not yet
+    // All default quick links â€” locked (SRLink, BFO, CQA) and unlocked (Folder, BA, GEET)
+    // alike â€” render in the single manual order stored in quickLinksOrder. Any link not yet
     // present there (e.g. newly added to DEFAULT_QUICK_LINKS) is appended in its built-in order.
     const orderedDefaultLinks = useMemo(() => {
         const storedOrder = localOpp.quickLinksOrder || [];
@@ -2441,7 +2580,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     }, [localOpp.quickLinksOrder]);
 
     // A default quick link the user hid (e.g. an empty locked SRLink/BFO/CQA) is
-    // kept out of the overview list but its URL is never dropped — unhiding brings it back.
+    // kept out of the overview list but its URL is never dropped â€” unhiding brings it back.
     const hiddenQuickLinkIds = useMemo(() => new Set(localOpp.hiddenQuickLinks || []), [localOpp.hiddenQuickLinks]);
     const visibleDefaultLinks = useMemo(() => orderedDefaultLinks.filter(l => !hiddenQuickLinkIds.has(l.id)), [orderedDefaultLinks, hiddenQuickLinkIds]);
     const hiddenDefaultLinks = useMemo(() => orderedDefaultLinks.filter(l => hiddenQuickLinkIds.has(l.id)), [orderedDefaultLinks, hiddenQuickLinkIds]);
@@ -2450,7 +2589,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         [localOpp.quickLinkLabels]
     );
     // Icon shown for a default quick link: locked ones are always the padlock; unlocked
-    // ones use the user's override if set, else the built-in default (Folder → folder icon).
+    // ones use the user's override if set, else the built-in default (Folder â†’ folder icon).
     const getQuickLinkIcon = useCallback((link: { id: string; locked: boolean }): React.ComponentType<{ className?: string; title?: string }> => {
         if (link.locked) return Lock;
         const override = localOpp.quickLinkIcons?.[link.id];
@@ -2545,6 +2684,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             date: today,
             content: `Auto-filled from SR email${prefill.srId ? ` (${prefill.srId})` : ''}`
         };
+        const requestedDate = prefill.requestedDate || localOpp.dates.requested;
         const updated: Opportunity = {
             ...localOpp,
             id: prefill.opId?.trim() || localOpp.id,
@@ -2557,13 +2697,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             description: prefill.comments?.trim() || localOpp.description,
             dates: {
                 ...localOpp.dates,
-                requested: prefill.requestedDate || localOpp.dates.requested,
+                requested: requestedDate,
                 expected: prefill.expectedDate || localOpp.dates.expected
             },
             // Amount lands in BOTH linked fields: KPI Proposal Amount and CQA Official Sell Price
-            kpis: prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD)
-                ? { ...localOpp.kpis, proposalAmountUSD: prefill.proposalAmountUSD }
-                : localOpp.kpis,
+            kpis: {
+                ...localOpp.kpis,
+                ...(prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD)
+                    ? { proposalAmountUSD: prefill.proposalAmountUSD }
+                    : {}),
+                timeline: { ...localOpp.kpis?.timeline, receivedAt: requestedDate },
+            } as KPIs,
             commercial: prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD)
                 ? { ...localOpp.commercial, cqaOfficialSellPrice: prefill.proposalAmountUSD }
                 : localOpp.commercial,
@@ -2617,6 +2761,55 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const updateEmailsData = (next: OpportunityEmailsData) => {
         handleFieldChange('emails', next, true);
+    };
+
+    // --- Email composer (Outlook draft generator) ---
+    const mergedEmailComposeSettings = useMemo(() => mergeEmailComposeSettings(emailComposeSettings), [emailComposeSettings]);
+    const [emailComposeState, setEmailComposeState] = useState<{ open: boolean; templateId?: string; taskIds?: string[] }>({ open: false });
+    const openEmailCompose = (templateId?: string, taskIds?: string[]) => setEmailComposeState({ open: true, templateId, taskIds });
+    /** Task ids already covered by a previously generated assignment email (shows the "Informed" badge). */
+    const informedTaskIds = useMemo(() => {
+        const ids = new Set<string>();
+        for (const rec of emailsData.generatedEmails || []) {
+            if (rec.kind === 'task_assignment') for (const id of rec.relatedTaskIds || []) ids.add(id);
+        }
+        return ids;
+    }, [emailsData.generatedEmails]);
+
+    /** "(Status Report) - OP-..." -> "Status Report" — the bit between the first parentheses of the subject. */
+    const emailTopicFromSubject = (subject: string): string => subject.match(/\(([^)]*)\)/)?.[1]?.trim() || subject;
+
+    /** "Envié un correo a Luis / a Luis y María / al equipo ..." for the History event. */
+    const EMAIL_HISTORY_ACTION: Record<string, string> = {
+        task_assignment: 'pidiendo apoyo con una tarea',
+        info_request: 'pidiendo información',
+        price_approval: 'pidiendo una aprobación',
+        proposal_approval: 'pidiendo una aprobación',
+        reminder: 'haciendo un seguimiento',
+        status_report: 'compartiendo el estatus',
+        meeting_recap: 'con los acuerdos de la junta',
+    };
+
+    /** Saves the record in emails.generatedEmails AND logs a History event, in one combined update. */
+    const handleEmailGenerated = (record: GeneratedEmailRecord) => {
+        const names = record.toNames?.length ? record.toNames : record.to.map(e => e.split('@')[0]);
+        const who = names.length >= 3 ? 'al equipo'
+            : names.length === 2 ? `a ${names[0]} y ${names[1]}`
+            : `a ${names[0] || '—'}`;
+        const action = EMAIL_HISTORY_ACTION[record.kind] || '';
+        const historyEntry: HistoryEntry = {
+            id: crypto.randomUUID(),
+            date: getTodayStr(),
+            content: `Envié un correo ${who}${action ? ` ${action}` : ''} - ${emailTopicFromSubject(record.subject)}`,
+        };
+        const updated: Opportunity = {
+            ...localOpp,
+            emails: { ...emailsData, generatedEmails: [...(emailsData.generatedEmails || []), record] },
+            history: [...(localOpp.history || []), historyEntry],
+            lastUpdated: new Date().toISOString(),
+        };
+        setLocalOpp(updated);
+        syncToParentNow(updated);
     };
 
     const addEmailGhostFolder = () => {
@@ -2772,7 +2965,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <button
                                 key={conv.id}
                                 onClick={() => {
-                                    setActiveTab('emails');
+                                    setActiveTabSafe('emails');
                                     setSelectedEmailConversationId(conv.id);
                                 }}
                                 className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-gray-700 hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors"
@@ -2852,6 +3045,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 cqaOfficialSellPrice: Number(value)
             };
         }
+        if (path === 'timeline.receivedAt') {
+            updatedOpp.dates = { ...localOpp.dates, requested: value || '' };
+        }
 
         setLocalOpp(updatedOpp);
         onUpdate(updatedOpp, opportunity.id);
@@ -2860,7 +3056,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // PERF: Defer the heavy arrays so React treats list re-renders as low-priority,
     // interruptible work. When the user is typing or clicking rapidly (modal fields,
     // inline tasks, filter inputs), keystrokes get priority and the task/note list
-    // rebuild is scheduled in the idle slice after the input commit — avoiding the
+    // rebuild is scheduled in the idle slice after the input commit â€” avoiding the
     // "browser freezes on every change" symptom on large opportunities.
     const deferredTasks = React.useDeferredValue(localOpp.tasks);
     const deferredNotes = React.useDeferredValue(localOpp.notes);
@@ -2943,6 +3139,50 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }));
     }, [localOpp.versions]);
 
+    const commercialInternalRevisions = useMemo(() => {
+        return [...(localOpp.commercial.internalRevisions || [])]
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }, [localOpp.commercial.internalRevisions]);
+
+    const getCommercialRevisionBase = () => {
+        const match = (localOpp.revision || 'R0').match(/R?(\d+)/i);
+        return `R${match ? Number(match[1]) : 0}`;
+    };
+
+    const getNextCommercialInternalRevision = () => {
+        const base = getCommercialRevisionBase();
+        const maxInternal = (localOpp.commercial.internalRevisions || [])
+            .map(rev => {
+                const match = rev.revision.match(new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(\\d+)$`, 'i'));
+                return match ? Number(match[1]) : 0;
+            })
+            .reduce((max, value) => Math.max(max, value), 0);
+        return `${base}.${maxInternal + 1}`;
+    };
+
+    const createCommercialInternalRevision = () => {
+        if (isSnapshot) return;
+        const revision = getNextCommercialInternalRevision();
+        const note = window.prompt(`Commercial internal revision ${revision}\n\nWhat changed in prices/margins?`, '') || '';
+        const nextRevision = {
+            id: crypto.randomUUID(),
+            revision,
+            createdAt: new Date().toISOString(),
+            createdBy: userName || 'User',
+            note: note.trim(),
+            customSections: JSON.parse(JSON.stringify(localOpp.commercial.customSections || [])),
+            discountsAndNotes: localOpp.commercial.discountsAndNotes || '',
+            cqaOfficialSellPrice: localOpp.commercial.cqaOfficialSellPrice || 0,
+            cqaOfficialMargin: localOpp.commercial.cqaOfficialMargin || 0,
+            calculatedFinalPrice: commercialTotals.finalPrice || 0,
+            calculatedMargin: String(commercialTotals.margin || '0'),
+        };
+        handleFieldChange('commercial', {
+            ...localOpp.commercial,
+            internalRevisions: [nextRevision, ...(localOpp.commercial.internalRevisions || [])],
+        }, true);
+    };
+
     const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
     const totalMargin = commercialTotals.margin;
 
@@ -3007,6 +3247,144 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     };
 
+    const addStakeholder = () => {
+        const newPerson: Person = { id: crypto.randomUUID(), name: '', email: '', role: '', roles: [], roleContexts: {} };
+        handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), newPerson], true);
+    };
+    const addStakeholderFromDirectory = (directoryId: string) => {
+        const contact = globalContacts.find(c => c.id === directoryId);
+        if (!contact || (localOpp.stakeholders || []).some(p => p.directoryContactId === directoryId || (!!p.email && p.email.toLowerCase() === contact.email.toLowerCase()))) return;
+        const person: Person = { id: crypto.randomUUID(), directoryContactId: contact.id, name: contact.name, email: contact.email, roles: [], roleContexts: {} };
+        handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
+    };
+    const updateStakeholder = (id: string, field: keyof Person, value: any) => {
+        const updated = (localOpp.stakeholders || []).map(p => p.id === id ? { ...p, [field]: value } : p);
+        handleFieldChange('stakeholders', updated);
+    };
+    const saveStakeholderToDirectory = (person: Person) => {
+        if (!person.name.trim()) return;
+        const email = person.email.trim();
+        const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : []);
+        // Functional updater: resolves "existing vs. new" against the freshest directory at
+        // apply time, so saving several stakeholders in quick succession never clobbers a
+        // previous save with a stale snapshot (the root cause of contacts "disappearing").
+        onGlobalContactsChange?.(prev => {
+            const existing = prev.find(c => email && c.email.toLowerCase() === email.toLowerCase());
+            return existing
+                ? prev.map(c => c.id === existing.id ? { ...c, name: person.name, email, availableRoles: Array.from(new Set([...(c.availableRoles || []), ...roles])) } : c)
+                : [...prev, { id: crypto.randomUUID(), name: person.name, email, availableRoles: roles }];
+        });
+    };
+    const removeStakeholder = (id: string) => {
+        handleFieldChange('stakeholders', (localOpp.stakeholders || []).filter(p => p.id !== id), true);
+    };
+    // Opens the native New Contact modal instead of chained window.prompt() dialogs.
+    // Callers historically expected a synchronous id back, but since contact creation
+    // is now async (waits for the modal), they all already discard the return value.
+    const createContactAndInvolve = (suggestedName = ''): undefined => {
+        setNewContactModal({ name: suggestedName, email: '', area: '' });
+        return undefined;
+    };
+    const submitNewContactModal = () => {
+        if (!newContactModal) return;
+        const name = newContactModal.name.trim();
+        if (!name) return;
+        const email = newContactModal.email.trim();
+        const areaInput = newContactModal.area.trim();
+        let role: string | undefined;
+        if (areaInput) {
+            const existingArea = trackedAreas.find(a => a.toLowerCase() === areaInput.toLowerCase());
+            if (existingArea) {
+                role = existingArea;
+            } else {
+                if (!window.confirm(`"${areaInput}" is not a tracked area yet. Create it and assign it to ${name}?`)) return;
+                onTrackedAreasChange?.([...trackedAreas, areaInput]);
+                role = areaInput;
+            }
+        }
+        const existing = globalContacts.find(c => c.name.toLowerCase() === name.toLowerCase() || (!!email && c.email.toLowerCase() === email.toLowerCase()));
+        if (existing) {
+            const involved = (localOpp.stakeholders || []).find(p => p.directoryContactId === existing.id);
+            if (involved) {
+                if (role && !(involved.roles || []).includes(role)) updateStakeholder(involved.id, 'roles', [...(involved.roles || []), role]);
+            } else {
+                const person: Person = { id: crypto.randomUUID(), directoryContactId: existing.id, name: existing.name, email: existing.email, roles: role ? [role] : [], roleContexts: {} };
+                handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
+            }
+            if (role && !(existing.availableRoles || []).some(r => r.toLowerCase() === role!.toLowerCase())) {
+                onGlobalContactsChange?.(prev => prev.map(c => c.id === existing.id ? { ...c, availableRoles: [...(c.availableRoles || []), role!] } : c));
+            }
+        } else {
+            const contact: GlobalContact = { id: crypto.randomUUID(), name, email, availableRoles: role ? [role] : [] };
+            onGlobalContactsChange?.(prev => [...prev, contact]);
+            const person: Person = { id: crypto.randomUUID(), directoryContactId: contact.id, name, email, roles: role ? [role] : [], roleContexts: {} };
+            handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
+        }
+        setNewContactModal(null);
+    };
+    const createTrackedArea = () => {
+        const area = (window.prompt('New tracked area / role:') || '').trim();
+        if (!area) return;
+        if (!trackedAreas.some(a => a.toLowerCase() === area.toLowerCase())) onTrackedAreasChange?.([...trackedAreas, area]);
+    };
+    const renderTeamPanelButton = () => (
+        <button
+            type="button"
+            onClick={() => setTeamPanelOpen(true)}
+            className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left transition-all ${teamPanelOpen ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+        >
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#3DCD58]/10 text-[#3DCD58] text-[10px] font-black shrink-0">I</span>
+            <div className="min-w-0 flex-1">
+                <span className="font-bold text-xs text-gray-900 truncate block">Stakeholders</span>
+                <span className="text-[10px] text-gray-400">{(localOpp.stakeholders || []).length} people</span>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+        </button>
+    );
+
+    const renderOpportunityTeamPanel = () => (
+        <>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50 shrink-0">
+                <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Opportunity team</p>
+                    <p className="font-black text-lg text-gray-800">Stakeholders</p>
+                </div>
+                <button type="button" onClick={() => setTeamPanelOpen(false)} className="p-2 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 shrink-0" title="Close"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-gray-500">Fixed section for the opportunity. It cannot be deleted.</p>
+                    <div className="flex shrink-0 gap-2">
+                        <button type="button" onClick={createTrackedArea} className="rounded border border-gray-200 bg-white px-2 py-1 text-[10px] font-bold text-gray-700">+ Area</button>
+                        <button type="button" onClick={() => createContactAndInvolve()} className="rounded bg-[#3DCD58] px-2 py-1 text-[10px] font-bold text-white">+ Contact</button>
+                    </div>
+                </div>
+                {renderDirectorySearch()}
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {(localOpp.stakeholders || []).map(person => {
+                        const personRoles = person.roles || (person.role ? [person.role] : []);
+                        const addNewAreaForPerson = (area: string) => {
+                            if (!trackedAreas.some(a => a.toLowerCase() === area.toLowerCase())) onTrackedAreasChange?.([...trackedAreas, area]);
+                            if (!personRoles.some(r => r.toLowerCase() === area.toLowerCase())) updateStakeholder(person.id, 'roles', [...personRoles, area]);
+                            if (person.directoryContactId) {
+                                const contactId = person.directoryContactId;
+                                onGlobalContactsChange?.(prev => {
+                                    const contact = prev.find(c => c.id === contactId);
+                                    if (!contact || (contact.availableRoles || []).some(r => r.toLowerCase() === area.toLowerCase())) return prev;
+                                    return prev.map(c => c.id === contactId ? { ...c, availableRoles: [...(c.availableRoles || []), area] } : c);
+                                });
+                            }
+                        };
+                        return (
+                            <div key={person.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2"><div className="flex items-center gap-2"><span className="flex-1 truncate text-xs font-bold">{person.name || 'Unnamed'}</span><span className={`text-[9px] ${person.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{person.email || 'Email required for mail'}</span><button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500"><X className="h-3 w-3" /></button></div><MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select roles / areas" /><input value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onChange={e => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(e.target.value.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context, e.g. TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /></div>
+                        );
+                    })}
+                    {(localOpp.stakeholders || []).length === 0 && <div className="text-xs italic text-gray-400">No involved people yet.</div>}
+                </div>
+            </div>
+        </>
+    );
+
     const addNote = (templateTitle?: string, content?: string, parentId?: string, folderId?: string) => {
         const newNote: MeetingNote = {
             id: crypto.randomUUID(),
@@ -3022,11 +3400,41 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // DATA-LOSS FIX: immediate=true skips handleFieldChange's startTransition.
         // Without it, setSelectedNoteId (synchronous) could commit and select the new
         // note's id in a render where the transitioned localOpp.notes update hasn't
-        // landed yet — the lazy-load effect would then read the note as missing,
+        // landed yet â€” the lazy-load effect would then read the note as missing,
         // latch activeNoteHtml to '', and never re-sync once the transition resolves,
         // permanently dropping any template content the note was created with.
         handleFieldChange('notes', [newNote, ...localOpp.notes], true);
-        setSelectedNoteId(newNote.id);
+        setSelectedNoteIdSafe(newNote.id);
+    };
+
+    const addGeneratedSowNote = (note: { title?: string; content?: string }) => {
+        const newNote: MeetingNote = {
+            id: crypto.randomUUID(),
+            title: note.title || 'KOM - Information Capture',
+            date: getTodayStr(),
+            type: 'General',
+            attendees: '',
+            content: note.content || '',
+            inlineTasks: [],
+        };
+        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
+        setSelectedNoteIdSafe(newNote.id);
+    };
+
+    // Older opportunities predate the auto-created SOW note (only new ones get it â€” see App.tsx
+    // createOpportunity). This lets the user add one manually to any existing opportunity.
+    const addSowNote = () => {
+        const newNote: MeetingNote = {
+            id: crypto.randomUUID(),
+            title: 'SOW - Scope of Work',
+            date: getTodayStr(),
+            type: 'Scope',
+            attendees: '',
+            content: '',
+            format: 'sow',
+        };
+        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
+        setSelectedNoteIdSafe(newNote.id);
     };
 
     const deleteNote = (noteId: string) => {
@@ -3039,7 +3447,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
         const updatedNotes = localOpp.notes.filter(n => !idsToDelete.has(n.id));
         handleFieldChange('notes', updatedNotes, true);
-        if (selectedNoteId && idsToDelete.has(selectedNoteId)) setSelectedNoteId(null);
+        if (selectedNoteId && idsToDelete.has(selectedNoteId)) setSelectedNoteIdSafe(null);
     };
 
     const addFolder = (parentFolderId?: string) => {
@@ -3075,6 +3483,92 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [draggedNoteId, setDraggedNoteId] = useState<string | null>(null);
     const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
     const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+    const [teamPanelOpen, setTeamPanelOpen] = useState(false);
+    const [newContactModal, setNewContactModal] = useState<{ name: string; email: string; area: string } | null>(null);
+    useEffect(() => { if (selectedNoteId) setTeamPanelOpen(false); }, [selectedNoteId]);
+
+    // Friendlier typeahead for adding stakeholders from the global directory (replaces the plain <select>)
+    const [directorySearch, setDirectorySearch] = useState('');
+    const [directorySearchOpen, setDirectorySearchOpen] = useState(false);
+    const directorySearchRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (directorySearchRef.current && !directorySearchRef.current.contains(event.target as Node)) {
+                setDirectorySearchOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    const directoryMatches = useMemo(() => {
+        const term = directorySearch.trim().toLowerCase();
+        const already = (localOpp.stakeholders || []);
+        const pool = globalContacts.filter(c => !already.some(p => p.directoryContactId === c.id || (!!p.email && !!c.email && p.email.toLowerCase() === c.email.toLowerCase())));
+        if (!term) return pool.slice(0, 8);
+        return pool.filter(c =>
+            c.name.toLowerCase().includes(term) ||
+            (c.email || '').toLowerCase().includes(term) ||
+            (c.availableRoles || []).some(r => r.toLowerCase().includes(term))
+        ).slice(0, 8);
+    }, [globalContacts, localOpp.stakeholders, directorySearch]);
+    const renderDirectorySearch = () => (
+        <div ref={directorySearchRef} className="relative mb-3">
+            <div className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm focus-within:ring-2 focus-within:ring-[#3DCD58]/40 focus-within:border-[#3DCD58] transition-all">
+                <Search className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <input
+                    type="text"
+                    value={directorySearch}
+                    onChange={(e) => { setDirectorySearch(e.target.value); setDirectorySearchOpen(true); }}
+                    onFocus={() => setDirectorySearchOpen(true)}
+                    placeholder="Add from directory: name, email or role..."
+                    className="flex-1 min-w-0 bg-transparent border-none outline-none text-xs placeholder:text-gray-400 focus:ring-0 p-0"
+                />
+                {directorySearch && (
+                    <button type="button" onClick={() => setDirectorySearch('')} className="text-gray-300 hover:text-gray-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                )}
+            </div>
+            {directorySearchOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-10 bg-white rounded-lg shadow-xl border border-gray-100 overflow-y-auto max-h-64 animate-in slide-in-from-top-2 duration-150">
+                    {directoryMatches.length > 0 ? (
+                        <div className="p-1.5 grid gap-1">
+                            {directoryMatches.map(c => (
+                                <button
+                                    type="button"
+                                    key={c.id}
+                                    onClick={() => { addStakeholderFromDirectory(c.id); setDirectorySearch(''); setDirectorySearchOpen(false); }}
+                                    className="flex items-center gap-2 text-left px-2 py-1.5 rounded-lg hover:bg-[#3DCD58]/10 transition-colors group"
+                                >
+                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#3DCD58]/10 text-[#3DCD58] text-[10px] font-black shrink-0">
+                                        {(c.name || '?').trim().charAt(0).toUpperCase()}
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-xs font-bold text-gray-800 truncate group-hover:text-[#3DCD58]">{c.name}</div>
+                                        <div className={`text-[10px] truncate ${c.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{c.email || 'email missing'}</div>
+                                    </div>
+                                    {(c.availableRoles || []).length > 0 && (
+                                        <span className="text-[9px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase truncate max-w-[90px] shrink-0">{c.availableRoles[0]}</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    ) : directorySearch.trim() ? (
+                        <button
+                            type="button"
+                            onClick={() => { createContactAndInvolve(directorySearch.trim()); setDirectorySearch(''); setDirectorySearchOpen(false); }}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2.5 hover:bg-[#3DCD58]/10 transition-colors group"
+                        >
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#3DCD58]/10 text-[#3DCD58] shrink-0"><Plus className="w-3.5 h-3.5" /></span>
+                            <span className="text-xs text-gray-600">
+                                No matches. <span className="font-bold text-[#3DCD58] group-hover:underline">Create "{directorySearch.trim()}"</span>
+                            </span>
+                        </button>
+                    ) : (
+                        <div className="p-3 text-center text-[11px] text-gray-400 italic">No more contacts in the directory</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 
     const handleDropNoteOnNote = (targetNote: MeetingNote) => {
         if (!draggedNoteId || draggedNoteId === targetNote.id) return;
@@ -3112,7 +3606,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             // exists only in activeNoteHtmlRef (the 1.5s flush hasn't run yet).
             // Building the update from localOpp.notes alone captured STALE content,
             // and handleFieldChange's 300ms debounced save then overwrote the
-            // flushed content — deleted text reappeared or fresh text vanished
+            // flushed content â€” deleted text reappeared or fresh text vanished
             // when renaming. Always carry the live content along with the rename.
             const updatedNotes = localOpp.notes.map(n => n.id === selectedNoteId
                 ? { ...n, [field]: value, content: activeNoteHtmlRef.current ?? n.content }
@@ -3250,7 +3744,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         console.debug("[History] deleteHistoryEntry done");
     };
     const copyHistoryToClipboard = () => {
-        // Sort descending: Newest (most recent/cercana) to Oldest (más lejana)
+        // Sort descending: Newest (most recent/cercana) to Oldest (mÃ¡s lejana)
         const sortedHistory = sortHistoryEntries(localOpp.history || []);
         const text = sortedHistory.map(h => {
             const normalizedDate = normalizeHistoryDate(h.date);
@@ -3377,7 +3871,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return Array.from(suggestedDates);
     };
 
-    // Validation value for Business Days elapsed (workable time) — safe access for null kpis
+    // Validation value for Business Days elapsed (workable time) â€” safe access for null kpis
     const totalElapsedBusinessDays = (kpisTimeline?.deliveredAt
         ? countBusinessDays(kpisTimeline.receivedAt || getTodayStr(), kpisTimeline.deliveredAt, holidays)
         : countBusinessDays(kpisTimeline?.receivedAt || getTodayStr(), getTodayStr(), holidays)) + 1;
@@ -3448,8 +3942,169 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return true;
     };
 
-    const updateTaskInModal = (field: keyof Task, value: any) => {
+    const syncAssignmentKpi = (opp: Opportunity, task: Task): Opportunity => {
+        if (!task.isAssignment) return opp;
+        const today = getTodayStr();
+        const people = opp.stakeholders || [];
+        const idsForPhase = task.status === 'Approval' ? (task.approverTeamMemberIds || []) : (task.responsibleTeamMemberIds || []);
+        const selectedPeople = people.filter(p => idsForPhase.includes(p.id));
+        const areas = Array.from(new Set([
+            ...(task.externalAreas || []),
+            ...selectedPeople.flatMap(p => p.roles?.length ? p.roles : (p.role ? [p.role] : []))
+        ])).filter(Boolean);
+        const baseKpis = opp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
+        let nextAreas = [...(baseKpis.areasInvolved || [])];
+        areas.forEach(areaName => {
+            if (!nextAreas.some(a => a.area === areaName)) nextAreas.push({ id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} });
+        });
+        const start = task.status === 'Approval' ? task.approvalRequestedDate : task.responsibleRequestedDate;
+        const end = task.status === 'Approval' ? (task.approvalDeliveredDate || today) : (task.responsibleDeliveredDate || today);
+        if (start && end) {
+            const dates: string[] = [];
+            for (let d = new Date(`${start}T00:00:00`), last = new Date(`${end}T00:00:00`); d <= last; d.setDate(d.getDate() + 1)) {
+                const ds = d.toISOString().split('T')[0];
+                if (d.getDay() !== 0 && d.getDay() !== 6 && !holidays.includes(ds)) dates.push(ds);
+            }
+            nextAreas = nextAreas.map(area => {
+                const shouldWork = areas.includes(area.area);
+                const shouldWait = area.area === 'Tendering' && !shouldWork;
+                if (!shouldWork && !shouldWait) return area;
+                const calendar = { ...(area.calendar || {}) };
+                dates.forEach(ds => { if (!calendar[ds]) calendar[ds] = { type: shouldWork ? 'Worked' : 'Waiting' }; });
+                const daysSpent = Object.values(calendar).filter(r => r.type === 'Worked' && (area.area !== 'Tendering' || ((r.hours || 1) + (r.minutes || 0) / 60 >= 1))).length;
+                const waitingDays = Object.values(calendar).filter(r => r.type === 'Waiting').length;
+                return { ...area, calendar, daysSpent, waitingDays };
+            });
+        }
+        return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
+    };
+
+    /**
+     * Board-level task patcher (checkbox toggles, subtask toggles, quick-assign) that works
+     * without the task-detail modal being open. Mirrors updateTaskInModal's status side effects
+     * (dependency block, timer stop, doneDate/worked-day bookkeeping, inline-task sync) but applies
+     * the whole patch atomically so a status change bundled with e.g. a subtasks change can't clobber
+     * each other from two separate setState calls reading the same stale `localOpp`.
+     */
+    const applyTaskFieldsDirect = (taskId: string, patch: Partial<Task>) => {
+        const task = localOpp.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const finalPatch: Partial<Task> = { ...patch };
+        if (finalPatch.status === 'Done' && task.isAssignment) {
+            const today = getTodayStr();
+            if (task.status === 'Missing Info' && (task.approverTeamMemberIds || []).length > 0) {
+                finalPatch.status = 'Approval';
+                finalPatch.responsibleDeliveredDate = task.responsibleDeliveredDate || today;
+                finalPatch.approvalRequestedDate = task.approvalRequestedDate || today;
+            } else if (task.status === 'Missing Info') {
+                finalPatch.responsibleDeliveredDate = task.responsibleDeliveredDate || today;
+            } else if (task.status === 'Approval') {
+                finalPatch.approvalDeliveredDate = task.approvalDeliveredDate || today;
+            }
+        }
+        if (finalPatch.status === 'Missing Info' && task.isAssignment && task.status === 'Approval') {
+            const today = getTodayStr();
+            finalPatch.assignmentCycles = [...(task.assignmentCycles || []), { id: crypto.randomUUID(), executionRequested: task.responsibleRequestedDate, executionRequired: task.responsibleDueDate, executionDelivered: task.responsibleDeliveredDate, approvalRequested: task.approvalRequestedDate, approvalRequired: task.approvalDueDate, changesRequestedAt: today }];
+            finalPatch.responsibleRequestedDate = today;
+            finalPatch.responsibleDeliveredDate = '';
+            finalPatch.approvalRequestedDate = '';
+            finalPatch.approvalDeliveredDate = '';
+        }
+        const isStatusChange = finalPatch.status !== undefined && finalPatch.status !== task.status;
+
+        if (isStatusChange) {
+            const newStatus = finalPatch.status as TaskStatus;
+            const currentTimerState = getTimerState();
+            if (newStatus === 'Done' && currentTimerState.taskId === taskId && currentTimerState.isRunning) {
+                confirmStop('Done');
+                if (selectedTaskForEdit?.task.id === taskId) setSelectedTaskForEdit(null);
+                return;
+            }
+            if (!validateTaskCompletion(taskId, newStatus)) return;
+            if (newStatus === 'Done' && !task.dueDate && !finalPatch.dueDate) {
+                finalPatch.dueDate = getTodayStr();
+            }
+        }
+
+        const updatedTaskData: Task = { ...task, ...finalPatch };
+        const updatedTasks = localOpp.tasks.map(t => t.id === taskId ? updatedTaskData : t);
+
+        let updatedNotes = localOpp.notes;
+        if (finalPatch.status !== undefined || finalPatch.title !== undefined) {
+            updatedNotes = localOpp.notes.map(note => {
+                if (!note.inlineTasks) return note;
+                const hasUpdates = note.inlineTasks.some(it => it.linkedTaskId === taskId);
+                if (!hasUpdates) return note;
+                const newInlineTasks = note.inlineTasks.map(it => it.linkedTaskId !== taskId ? it : {
+                    ...it,
+                    isDone: finalPatch.status !== undefined ? finalPatch.status === 'Done' : it.isDone,
+                    text: finalPatch.title !== undefined ? finalPatch.title : it.text
+                });
+                return { ...note, inlineTasks: newInlineTasks };
+            });
+        }
+
+        let newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
+        if (finalPatch.status === 'Missing Info' && task.isAssignment && task.status === 'Approval') {
+            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Changes requested during approval for "${task.title}".` }, ...(newOpp.history || [])]) };
+        }
+        newOpp = syncAssignmentKpi(newOpp, updatedTaskData);
+        if (isStatusChange && finalPatch.status === 'Done') {
+            newOpp = withTenderingWorkedDay(newOpp, updatedTaskData.dueDate || getTodayStr());
+        }
+        setLocalOpp(newOpp);
+        onUpdate(newOpp);
+        if (selectedTaskForEdit?.task.id === taskId) setSelectedTaskForEdit({ task: updatedTaskData });
+    };
+
+    const toggleTaskDoneDirect = (task: Task) => {
+        applyTaskFieldsDirect(task.id, { status: task.status === 'Done' ? 'Pending' : 'Done' });
+    };
+
+    const toggleSubtaskDirect = (task: Task, subtaskId: string) => {
+        const updatedSubtasks = task.subtasks.map(s => s.id === subtaskId ? { ...s, completed: !s.completed } : s);
+        const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(s => s.completed);
+        const patch: Partial<Task> = { subtasks: updatedSubtasks };
+        if (allDone && task.status !== 'Done') patch.status = 'Done';
+        else if (!allDone && task.status === 'Done') patch.status = 'In Progress';
+        applyTaskFieldsDirect(task.id, patch);
+    };
+
+    const toggleTaskExpanded = (taskId: string) => {
+        setExpandedTaskIds(prev => {
+            const next = new Set(prev);
+            next.has(taskId) ? next.delete(taskId) : next.add(taskId);
+            return next;
+        });
+    };
+
+    const toggleSubtasksExpanded = (taskId: string) => {
+        setExpandedSubtaskIds(prev => {
+            const next = new Set(prev);
+            next.has(taskId) ? next.delete(taskId) : next.add(taskId);
+            return next;
+        });
+    };
+
+    const updateTaskInModal = (field: keyof Task, value: any, extraPatch?: Partial<Task>) => {
         if (!selectedTaskForEdit) return;
+
+        if (field === 'status' && value === 'Done' && selectedTaskForEdit.task.isAssignment) {
+            const today = getTodayStr();
+            if (selectedTaskForEdit.task.status === 'Missing Info' && (selectedTaskForEdit.task.approverTeamMemberIds || []).length > 0) {
+                value = 'Approval';
+                extraPatch = { ...extraPatch, responsibleDeliveredDate: selectedTaskForEdit.task.responsibleDeliveredDate || today, approvalRequestedDate: selectedTaskForEdit.task.approvalRequestedDate || today };
+            } else if (selectedTaskForEdit.task.status === 'Missing Info') {
+                extraPatch = { ...extraPatch, responsibleDeliveredDate: selectedTaskForEdit.task.responsibleDeliveredDate || today };
+            } else if (selectedTaskForEdit.task.status === 'Approval') {
+                extraPatch = { ...extraPatch, approvalDeliveredDate: selectedTaskForEdit.task.approvalDeliveredDate || today };
+            }
+        }
+        if (field === 'status' && value === 'Missing Info' && selectedTaskForEdit.task.isAssignment && selectedTaskForEdit.task.status === 'Approval') {
+            const today = getTodayStr();
+            extraPatch = { ...extraPatch, assignmentCycles: [...(selectedTaskForEdit.task.assignmentCycles || []), { id: crypto.randomUUID(), executionRequested: selectedTaskForEdit.task.responsibleRequestedDate, executionRequired: selectedTaskForEdit.task.responsibleDueDate, executionDelivered: selectedTaskForEdit.task.responsibleDeliveredDate, approvalRequested: selectedTaskForEdit.task.approvalRequestedDate, approvalRequired: selectedTaskForEdit.task.approvalDueDate, changesRequestedAt: today }], responsibleRequestedDate: today, responsibleDeliveredDate: '', approvalRequestedDate: '', approvalDeliveredDate: '' };
+        }
 
         // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
         const currentTimerState = getTimerState();
@@ -3470,11 +4125,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             ? (selectedTaskForEdit.task.dueDate || getTodayStr())
             : '';
 
-        // Optimistically update selected task in modal — this is the ONLY update that
+        // Optimistically update selected task in modal â€” this is the ONLY update that
         // needs to be synchronous (it drives the immediate visual feedback in the modal).
         const updatedTaskData: Task = {
             ...selectedTaskForEdit.task,
             [field]: value,
+            ...extraPatch,
             // Auto-assign today as dueDate when marking Done without a date
             ...(isMarkingDone && !selectedTaskForEdit.task.dueDate
                 ? { dueDate: doneDate }
@@ -3509,6 +4165,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // setSelectedTaskForEdit above; the task list + other tabs behind the modal can
         // re-render at low priority without freezing the UI on rapid edits.
         let newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
+        if (field === 'status' && value === 'Missing Info' && selectedTaskForEdit.task.isAssignment && selectedTaskForEdit.task.status === 'Approval') {
+            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Changes requested during approval for "${selectedTaskForEdit.task.title}".` }, ...(newOpp.history || [])]) };
+        }
+        newOpp = syncAssignmentKpi(newOpp, updatedTaskData);
         if (isMarkingDone) {
             newOpp = withTenderingWorkedDay(newOpp, doneDate);
         }
@@ -3602,7 +4262,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             text = text.replace(/<h3>/g, '\n\n### ').replace(/<\/h3>/g, '\n');
             text = text.replace(/<p>/g, '\n').replace(/<\/p>/g, '\n');
             text = text.replace(/<br\s*\/?>/g, '\n');
-            text = text.replace(/<li>/g, '\n• ').replace(/<\/li>/g, '');
+            text = text.replace(/<li>/g, '\nâ€¢ ').replace(/<\/li>/g, '');
             text = text.replace(/<[^>]*>/g, '');
             const txt = document.createElement('textarea');
             txt.innerHTML = text;
@@ -4062,18 +4722,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             : '-';
 
         const text = [
-            `EXECUTIVE SUMMARY - ${s.id} ${s.revision || ''}`.trim(),
+            `EXECUTIVE SUMMARY - ${s.title || '-'}`,
             '',
-            `Opportunity: ${s.title || '-'}`,
-            `Customer: ${s.customer || '-'}`,
-            `QLK: ${s.qlk || '-'}`,
-            `Standard Status: ${s.statusLabel || '-'}`,
-            `Process Status: ${s.detailedStatus || '-'}`,
             `Requested Date: ${requestedDate}`,
             `Expected Completion Date: ${expectedDate}`,
-            '',
-            'Request Overview',
-            s.description || '-',
             '',
             'Executive Notes',
             s.presentation?.executiveSummary || '-',
@@ -4103,7 +4755,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const navigateToFile = (fileKey: string) => {
         setFolderNavTarget(fileKey);
-        setActiveTab('folder');
+        setActiveTabSafe('folder');
     };
 
     const updateTaskDetails = (taskId: string, updates: Partial<Task>) => {
@@ -4329,7 +4981,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         });
 
         try {
-            // Dynamic import — xlsx is already a project dependency (used in tender-flow and previews)
+            // Dynamic import â€” xlsx is already a project dependency (used in tender-flow and previews)
             const XLSX = await import('xlsx');
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.json_to_sheet(rows);
@@ -4344,7 +4996,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
             XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
 
-            // Filename: [OP_ID]_Tasks_[OpportunityTitle].xlsx — sanitize invalid chars
+            // Filename: [OP_ID]_Tasks_[OpportunityTitle].xlsx â€” sanitize invalid chars
             const sanitize = (s: string) => s.replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_');
             const fileName = `${sanitize(localOpp.id)}_Tasks_${sanitize(localOpp.title)}.xlsx`;
 
@@ -4362,6 +5014,36 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
+
+    const sowTeamMembers = React.useMemo(() => {
+        const fromSow = collectSowTeamMembers(localOpp.notes);
+        const fromStakeholders = (localOpp.stakeholders || []).flatMap(person => {
+            const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : ['Stakeholder']);
+            return roles.map(role => ({ id: person.id, name: person.name, area: person.roleContexts?.[role] ? `${role} · ${person.roleContexts[role]}` : role }));
+        }).filter(m => m.name);
+        const seen = new Set<string>();
+        return [...fromStakeholders, ...fromSow].filter(m => !seen.has(m.id) && !!seen.add(m.id));
+    }, [localOpp.notes, localOpp.stakeholders]);
+
+    useEffect(() => {
+        if (!localOpp.kpis) return;
+        const normalized = Array.from(new Set(sowTeamMembers.map(m => {
+            if (/^TSC\b/i.test(m.area)) return 'TSC';
+            if (/^Sales|CSE/i.test(m.area)) return 'Sales CSE';
+            if (/Tender/i.test(m.area)) return 'Tendering';
+            if (/FoxMass/i.test(m.area)) return 'FoxMass';
+            if (/Supply Chain/i.test(m.area)) return 'Supply Chain';
+            if (/Delivery/i.test(m.area)) return 'Delivery';
+            if (/Field Services/i.test(m.area)) return 'Field Services';
+            return m.area.split(' · ')[0];
+        }).filter(Boolean)));
+        const existing = new Set((localOpp.kpis.areasInvolved || []).map(a => a.area));
+        const missing = normalized.filter(area => !existing.has(area));
+        if (!missing.length) return;
+        const updated = { ...localOpp, kpis: { ...localOpp.kpis, areasInvolved: [...(localOpp.kpis.areasInvolved || []), ...missing.map(area => ({ id: crypto.randomUUID(), area, daysSpent: 0, waitingDays: 0, calendar: {} }))] } };
+        setLocalOpp(updated);
+        onUpdate(updated);
+    }, [sowTeamMembers]);
 
     const myWorkStats = React.useMemo(() => {
         const tendering = localOpp.kpis?.areasInvolved.find(a => a.area === 'Tendering');
@@ -4403,8 +5085,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     /**
      * WYSIWYG note export: renders the note's actual HTML (same styles as the
      * editor) through jsPDF's doc.html/html2canvas pipeline, so the PDF looks
-     * like the note on screen — fonts, colors, tables, highlights, checkboxes,
-     * embedded images — instead of the flattened text-only rendering.
+     * like the note on screen â€” fonts, colors, tables, highlights, checkboxes,
+     * embedded images â€” instead of the flattened text-only rendering.
      */
     const handleExportNotePDF = async (note: MeetingNote) => {
         if (!note) return;
@@ -4439,7 +5121,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             <div style="background:#3DCD58;color:#ffffff;padding:14px 18px;font-weight:bold;font-size:15px;">Meeting Note Output</div>
             <div style="padding:18px 4px 0;">
                 <div style="font-size:22px;font-weight:800;color:#111827;margin-bottom:6px;">${esc(note.title || 'Untitled Note')}</div>
-                <div style="font-size:11px;color:#6b7280;">${esc(localOpp.id)} — ${esc(localOpp.title)}</div>
+                <div style="font-size:11px;color:#6b7280;">${esc(localOpp.id)} â€” ${esc(localOpp.title)}</div>
                 <div style="font-size:11px;color:#6b7280;margin-bottom:10px;">Date: ${esc(note.date || 'N/A')}</div>
                 <hr style="border:none;border-top:2px solid #e5e7eb;margin:10px 0 16px;" />
                 <div class="pdf-note">${note.content || '<p style="color:#9ca3af;font-style:italic;">(Empty note)</p>'}</div>
@@ -4640,7 +5322,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
 
     const handleNavigateToHistory = (eventId: string) => {
-        setActiveTab('history');
+        setActiveTabSafe('history');
         setTimeout(() => {
             const el = document.getElementById(`history-entry-${eventId}`);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -4844,7 +5526,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const handleUpdateSnapshotMeta = (vId: string, updates: Partial<OpportunityVersion>) => {
-        // Exclude snapshot from meta updates — snapshots are immutable once created
+        // Exclude snapshot from meta updates â€” snapshots are immutable once created
         const { snapshot: _ignored, ...safeMeta } = updates as any;
         const updatedVersions = (localOpp.versions || []).map(v => v.id === vId ? { ...v, ...safeMeta } : v);
         handleFieldChange('versions', updatedVersions, true);
@@ -4905,7 +5587,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     {isSubView ? (
                                         <div className="flex flex-col">
                                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{deepLink?.tab === 'tasks' ? 'Task Sub View' : 'Note Sub View'}</span>
-                                            <span className="text-xs font-bold text-gray-600 truncate max-w-[200px]">{opportunity.id} {opportunity.alias ? `— ${opportunity.alias}` : ''}</span>
+                                            <span className="text-xs font-bold text-gray-600 truncate max-w-[200px]">{opportunity.id} {opportunity.alias ? `â€” ${opportunity.alias}` : ''}</span>
                                         </div>
                                     ) : (
                                         <>
@@ -5001,7 +5683,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                     </div>
                                                                                     <div className="flex items-center gap-2 text-[9px] text-gray-400 mb-1.5">
                                                                                         <span className="font-mono text-blue-500 font-bold">{v.srId}</span>
-                                                                                        <span>•</span>
+                                                                                        <span>â€¢</span>
                                                                                         <span>{new Date(v.createdAt).toLocaleString()}</span>
                                                                                     </div>
                                                                                     <div className="flex flex-wrap gap-1 mb-2">
@@ -5154,6 +5836,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
+                                    {!isSnapshot && (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Emails</span>
+                                            <button
+                                                onClick={() => openEmailCompose()}
+                                                title="Generate an email draft in Outlook (Status Report, approvals, reminders...)"
+                                                className="flex items-center gap-1.5 text-[10px] font-bold px-3 py-1 rounded border border-[#3DCD58]/40 bg-[#3DCD58]/10 text-[#2db64a] hover:bg-[#3DCD58]/20 shadow-sm uppercase tracking-wider"
+                                            >
+                                                <Mail className="w-3.5 h-3.5" /> Email
+                                            </button>
+                                        </div>
+                                    )}
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Principal Status</span>
                                         <select disabled={isSnapshot} value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
@@ -5175,11 +5869,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 {!isSubView && (
                     <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
                         <div className="w-full px-4 flex">
-                            <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
+                            <button onClick={() => setActiveTabSafe('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
                             {orderedDetailTabs.map(tab => {
                                 const section = OPPORTUNITY_DETAIL_SECTIONS.find(item => item.key === tab);
                                 return (
-                                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>
+                                    <button key={tab} onClick={() => setActiveTabSafe(tab)} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>
                                         {renderOpportunityDetailTabIcon(tab)}
                                         {section?.label || tab}
                                     </button>
@@ -5200,7 +5894,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="flex-1 flex flex-col min-h-0">
                                         {currentNote ? (
                                             <>
-                                                <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
+                                                {currentNote.format !== 'sow' && <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
                                                     <div className="flex justify-between items-center">
                                                         <input disabled={isSnapshot} value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0 disabled:opacity-70" placeholder="Note Title" />
                                                         {textSelection && !isSnapshot && (
@@ -5212,18 +5906,42 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             </button>
                                                         )}
                                                     </div>
-                                                </div>
-                                                <div className="flex-1 overflow-hidden">
-                                                    <RichTextEditor
-                                                        key={currentNote.id}
-                                                        ref={noteEditorRef}
-                                                        content={currentNote.content}
-                                                        disabled={isSnapshot}
-                                                        onChange={(val) => updateSelectedNote('content', val)}
-                                                        onSelection={handleSelection}
-                                                        onLinkClick={handleLinkClick}
-                                                        onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
-                                                    />
+                                                </div>}
+                                                <div className="flex-1 flex flex-col min-h-0">
+                                                    {currentNote.format === 'sow' ? (
+                                                        <SowFormEmbed
+                                                            key={currentNote.id}
+                                                            content={currentNote.content}
+                                                            people={localOpp.stakeholders || []}
+                                                            areas={trackedAreas}
+                                                            prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.srId || localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm / Bid to buy' : localOpp.quoteType === 'Budgetary' ? 'Budgetary' : '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
+                                                            globalForm={globalSowForm}
+                                                            onGlobalFormChange={onGlobalSowFormChange}
+                                                            onOpportunitySync={(fields) => {
+                                                                const proposalType = String(fields.proposal_type ?? '');
+                                                                const updated = { ...localOpp, title: String(fields.op_name ?? localOpp.title), alias: String(fields.alias ?? localOpp.alias ?? ''), qlk: String(fields.sr_qlk ?? localOpp.qlk ?? ''), customer: String(fields.customer ?? localOpp.customer), seller: String(fields.team_cse ?? localOpp.seller ?? ''), customerAddress: String(fields.site ?? localOpp.customerAddress ?? ''), description: String(fields.objective ?? localOpp.description ?? ''), quoteType: proposalType.includes('Budgetary') ? 'Budgetary' : proposalType.includes('Firm') ? 'Firm' : undefined, dates: { ...localOpp.dates, expected: String(fields.proposal_delivery ?? localOpp.dates?.expected ?? '') }, commercial: { ...localOpp.commercial, cqaOfficialSellPrice: Number(fields.commercialSell ?? localOpp.commercial?.cqaOfficialSellPrice ?? 0), cqaOfficialMargin: Number(fields.commercialMargin ?? localOpp.commercial?.cqaOfficialMargin ?? 0), discountsAndNotes: String(fields.commercialNotes ?? localOpp.commercial?.discountsAndNotes ?? '') }, lastUpdated: new Date().toISOString() };
+                                                                setLocalOpp(updated); syncToParentNow(updated);
+                                                            }}
+                                                            onGeneratedNote={addGeneratedSowNote}
+                                                            disabled={isSnapshot}
+                                                            onChange={(json: string) => {
+                                                                const updatedNotes = localOpp.notes.map(n => n.id === currentNote.id ? { ...n, content: json } : n);
+                                                                handleFieldChange('notes', updatedNotes, true);
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <RichTextEditor
+                                                            key={currentNote.id}
+                                                            ref={noteEditorRef}
+                                                            content={currentNote.content}
+                                                            disabled={isSnapshot}
+                                                            onChange={(val) => updateSelectedNote('content', val)}
+                                                            onSelection={handleSelection}
+                                                            onLinkClick={handleLinkClick}
+                                                            onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
+                                                            mentionOptions={localOpp.stakeholders || []}
+                                                        />
+                                                    )}
                                                 </div>
                                             </>
                                         ) : (
@@ -5260,6 +5978,25 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <TaskTimerButtonModal task={selectedTaskForEdit.task} oppId={opportunity.id} />
+                                            <button
+                                                onClick={() => openEmailCompose('task_assignment', [selectedTaskForEdit.task.id])}
+                                                title="Generate an email for this task (assignment, reminder or info request)"
+                                                className="flex items-center gap-1 text-xs font-bold bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                                            >
+                                                <Mail className="w-3 h-3" /> Email
+                                            </button>
+                                            {(selectedTaskForEdit.task.isAssignment || (selectedTaskForEdit.task.approverTeamMemberIds?.length ?? 0) > 0) && (
+                                                <button
+                                                    onClick={() => openEmailCompose('reminder', [selectedTaskForEdit.task.id])}
+                                                    title="Send a friendly reminder about this assignment/approval"
+                                                    className="flex items-center gap-1 text-xs font-bold bg-amber-50 text-amber-600 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors"
+                                                >
+                                                    <Mail className="w-3 h-3" /> Remind
+                                                </button>
+                                            )}
+                                            {informedTaskIds.has(selectedTaskForEdit.task.id) && (
+                                                <span title="An assignment email was already generated for this task" className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded uppercase">✓ Informed</span>
+                                            )}
                                             <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                                 <Copy className="w-3 h-3" /> Summary
                                             </button>
@@ -5283,7 +6020,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div className="grid grid-cols-3 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
+                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s}>{s}</option>)}</select>
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -5303,6 +6040,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                         <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                            <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info', responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                             <div className="flex gap-4 items-center">
                                                 <select className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2" value={selectedTaskForEdit.task.owner} onChange={(e) => updateTaskInModal('owner', e.target.value)} >
                                                     <option value="Me">Me</option>
@@ -5310,11 +6048,42 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </select>
                                                 {selectedTaskForEdit.task.owner === 'External Area' && (
                                                     <div className="flex gap-2 flex-1 flex-col">
-                                                        <MultiSelect placeholder="Select Areas" options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']} selected={selectedTaskForEdit.task.externalAreas || []} onChange={(vals) => updateTaskInModal('externalAreas', vals)} />
-                                                        <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
+                                                        <ResponsibleTeamPicker
+                                                            options={sowTeamMembers}
+                                                            onCreate={(name) => { createContactAndInvolve(name); return undefined; }}
+                                                            selected={selectedTaskForEdit.task.responsibleTeamMemberIds || []}
+                                                            onChange={(ids) => updateTaskInModal('responsibleTeamMemberIds', ids, {
+                                                                responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                                                                externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                                ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(selectedTaskForEdit.task.status) ? { status: 'Missing Info' as TaskStatus } : {}),
+                                                                // Clear the (now hidden) requested/due-back/delivered dates when there's no one assigned anymore.
+                                                                ...(ids.length === 0 ? { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' } : {})
+                                                            })}
+                                                        />
                                                     </div>
                                                 )}
                                             </div>
+                                            {selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 && (
+                                                <div className="grid grid-cols-2 gap-3 mt-3">
+                                                    <div className="space-y-1">
+                                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Requested on</label>
+                                                        <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleRequestedDate || ''} onChange={(e) => updateTaskInModal('responsibleRequestedDate', e.target.value)} />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                                        <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleDueDate || ''} onChange={(e) => updateTaskInModal('responsibleDueDate', e.target.value)} />
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {selectedTaskForEdit.task.isAssignment && <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-200 pt-3">
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids)} /></div>
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Execution delivered</label><input type="date" value={selectedTaskForEdit.task.responsibleDeliveredDate || ''} onChange={e => updateTaskInModal('responsibleDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval required</label><input type="date" value={selectedTaskForEdit.task.approvalDueDate || ''} onChange={e => updateTaskInModal('approvalDueDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval requested</label><input type="date" value={selectedTaskForEdit.task.approvalRequestedDate || ''} onChange={e => updateTaskInModal('approvalRequestedDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approved</label><input type="date" value={selectedTaskForEdit.task.approvalDeliveredDate || ''} onChange={e => updateTaskInModal('approvalDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            </div>}
                                         </div>
 
                                         <div className="space-y-4">
@@ -5351,7 +6120,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
                                             </div>
                                             <div className="p-4 bg-gray-50 rounded-2xl">
-                                                <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                                <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} revision={localOpp.revision} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
                                                 {renderLinkedEmailsForTarget({ type: 'task', id: selectedTaskForEdit.task.id })}
                                             </div>
                                         </div>
@@ -5500,6 +6269,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 ) : (
                     <div className="w-full px-2 md:px-6">
                         {activeTab === 'overview' && (
+                            <>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
@@ -5858,7 +6628,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         ))}
 
-                                        {/* Hidden links — always LAST, below defaults and custom links */}
+                                        {/* Hidden links â€” always LAST, below defaults and custom links */}
                                         {!isSnapshot && hiddenDefaultLinks.length > 0 && (
                                             <div className="flex flex-wrap items-center gap-1.5 pt-2 mt-1 border-t border-gray-100">
                                                 <span className="text-[9px] font-black uppercase tracking-wider text-gray-300">Hidden</span>
@@ -5877,6 +6647,35 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     </div>
                                 </div>
                             </div>
+                            <div className="hidden bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                                <div className="flex justify-between items-center mb-1">
+                                    <h3 className="text-sm font-semibold flex items-center gap-2"><User className="w-4 h-4 text-gray-400" /> Stakeholders</h3>
+                                    {!isSnapshot && <button onClick={addStakeholder} className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Stakeholder"><Plus className="w-4 h-4" /></button>}
+                                </div>
+                                <p className="text-xs text-gray-400 mb-3">Who's involved in this specific opportunity â€” suggested when picking who a task is waiting on.</p>
+                                {!isSnapshot && <select defaultValue="" onChange={e => { addStakeholderFromDirectory(e.target.value); e.currentTarget.value = ''; }} className="w-full mb-3 border-gray-200 rounded-lg text-xs bg-white">
+                                    <option value="">Add from global directory...</option>
+                                    {globalContacts.filter(c => !(localOpp.stakeholders || []).some(p => p.directoryContactId === c.id || (!!p.email && p.email.toLowerCase() === c.email.toLowerCase()))).map(c => <option key={c.id} value={c.id}>{c.name} Â· {c.email || 'email missing'} Â· {(c.availableRoles || []).join(', ')}</option>)}
+                                </select>}
+                                <div className="space-y-2">
+                                    {(localOpp.stakeholders || []).map(person => (
+                                        <div key={person.id} className="bg-gray-50 rounded-lg p-2 border border-gray-100 space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <input disabled={isSnapshot} value={person.name} onChange={(e) => updateStakeholder(person.id, 'name', e.target.value)} placeholder="Name" className="flex-1 min-w-0 text-sm border-none bg-transparent focus:ring-0 font-medium p-0" />
+                                                <input disabled={isSnapshot} type="email" value={person.email} onChange={(e) => updateStakeholder(person.id, 'email', e.target.value)} placeholder="Email" className="flex-1 min-w-0 text-sm border-none bg-transparent focus:ring-0 text-gray-500 p-0" />
+                                                {!isSnapshot && <button onClick={() => saveStakeholderToDirectory(person)} className="text-[9px] font-bold text-blue-600">DIRECTORY</button>}
+                                                {!isSnapshot && <button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>}
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <input disabled={isSnapshot} value={(person.roles || (person.role ? [person.role] : [])).join(', ')} onChange={(e) => updateStakeholder(person.id, 'roles', e.target.value.split(',').map(v => v.trim()).filter(Boolean))} placeholder="Roles: TSC, Delivery..." className="text-xs border-gray-200 rounded bg-white" />
+                                                <input disabled={isSnapshot} value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onChange={(e) => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(e.target.value.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context: TSC: Foxboro" className="text-xs border-gray-200 rounded bg-white" />
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {(localOpp.stakeholders || []).length === 0 && <div className="text-center text-gray-300 text-xs italic py-3">No stakeholders yet.</div>}
+                                </div>
+                            </div>
+                            </>
                         )}
 
                         {activeTab === 'kpi' && localOpp.kpis && (
@@ -5968,7 +6767,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Received At</label>
+                                                <label className="block text-[10px] font-bold text-gray-400 uppercase">Requested / Received At</label>
                                                 <input disabled={isSnapshot} type="date" value={localOpp.kpis.timeline?.receivedAt || ''} onChange={(e) => updateKpiField('timeline.receivedAt', e.target.value)} className="w-full border-gray-200 rounded text-sm mt-1 disabled:bg-gray-50" />
                                             </div>
                                             <div>
@@ -6128,7 +6927,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         {activeTab === 'commercial' && (
                             <div className="flex flex-col gap-6">
                                 {/* Historical Snapshots Summary */}
-                                {commercialRevisionHistory.length > 0 && (
+                                {(commercialRevisionHistory.length > 0 || commercialInternalRevisions.length > 0) && (
                                      <div className="order-2 bg-blue-50 border border-blue-100 p-4 rounded-xl shadow-sm">
                                          <div className="flex items-center gap-3 mb-4">
                                              <div className="bg-blue-100 p-2 rounded-lg"><HistoryIcon className="w-5 h-5 text-blue-600" /></div>
@@ -6184,11 +6983,58 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                      )}
                                                  </div>
                                              ))}
+                                             {commercialInternalRevisions.map(revision => (
+                                                 <div key={revision.id} className="bg-white border border-emerald-100 rounded-xl p-3 shadow-sm">
+                                                     <div className="flex justify-between gap-3 mb-3">
+                                                         <div>
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">Internal Rev</div>
+                                                             <div className="text-sm font-black text-emerald-700">{revision.revision}</div>
+                                                         </div>
+                                                         <div className="text-right text-[10px] text-emerald-500 font-bold">
+                                                             {new Date(revision.createdAt).toLocaleDateString()}
+                                                         </div>
+                                                     </div>
+                                                     <div className="grid grid-cols-2 gap-3">
+                                                         <div>
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">CQA Sell</div>
+                                                             <div className="text-sm font-black text-gray-700">${(revision.cqaOfficialSellPrice || 0).toLocaleString()}</div>
+                                                         </div>
+                                                         <div className="text-right">
+                                                             <div className="text-[10px] font-bold text-gray-400 uppercase">CQA GM</div>
+                                                             <div className="text-sm font-black text-emerald-700">{revision.cqaOfficialMargin || 0}%</div>
+                                                         </div>
+                                                     </div>
+                                                     {(revision.note || revision.discountsAndNotes)?.trim() && (
+                                                         <div className="mt-3 pt-3 border-t border-emerald-50">
+                                                             <button
+                                                                 type="button"
+                                                                 onClick={() => {
+                                                                     setExpandedCommercialRevisionNotes(prev => {
+                                                                         const next = new Set(prev);
+                                                                         next.has(revision.id) ? next.delete(revision.id) : next.add(revision.id);
+                                                                         return next;
+                                                                     });
+                                                                 }}
+                                                                 className="flex items-center gap-1.5 text-[10px] font-black uppercase text-emerald-600 hover:text-emerald-800"
+                                                             >
+                                                                 {expandedCommercialRevisionNotes.has(revision.id) ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                                                 {expandedCommercialRevisionNotes.has(revision.id) ? 'Hide notes' : 'Show notes'}
+                                                             </button>
+                                                             {expandedCommercialRevisionNotes.has(revision.id) && (
+                                                                 <div className="mt-2 rounded-lg bg-emerald-50/70 border border-emerald-100 px-3 py-2 text-xs text-emerald-900 whitespace-pre-wrap space-y-2">
+                                                                     {revision.note?.trim() && <p><b>Change:</b> {revision.note}</p>}
+                                                                     {revision.discountsAndNotes?.trim() && <p><b>Commercial notes:</b> {revision.discountsAndNotes}</p>}
+                                                                 </div>
+                                                             )}
+                                                         </div>
+                                                     )}
+                                                 </div>
+                                             ))}
                                          </div>
                                      </div>
                                 )}
 
-                                {/* Quick References — files & links for fast access */}
+                                {/* Quick References â€” files & links for fast access */}
                                 <div className="order-5 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
                                     <div className="flex justify-between items-center mb-4">
                                         <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -6413,12 +7259,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 )}
                                                 {!isSnapshot && (
-                                                    <button
-                                                        onClick={() => setShowAddSectionModal(true)}
-                                                        className="px-3 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-lg shadow-sm hover:bg-[#2db64a] transition-all flex items-center gap-1.5"
-                                                    >
-                                                        <Plus className="w-3.5 h-3.5" /> Add Line
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            onClick={createCommercialInternalRevision}
+                                                            className="px-2.5 py-1.5 bg-white border border-emerald-200 text-emerald-700 text-[10px] font-black uppercase rounded-lg shadow-sm hover:bg-emerald-50 transition-all flex items-center gap-1.5"
+                                                            title={`Save internal commercial revision ${getNextCommercialInternalRevision()}`}
+                                                        >
+                                                            <GitBranch className="w-3.5 h-3.5" /> {getNextCommercialInternalRevision()}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setShowAddSectionModal(true)}
+                                                            className="px-3 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded-lg shadow-sm hover:bg-[#2db64a] transition-all flex items-center gap-1.5"
+                                                        >
+                                                            <Plus className="w-3.5 h-3.5" /> Add Line
+                                                        </button>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -6525,7 +7380,47 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             </div>
                         )}
 
-                        {activeTab === 'emails' && emailIntegrationEnabled && (() => {
+                        {activeTab === 'emails' && (
+                            <div className="space-y-4">
+                                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-[#3DCD58]" /> Generated Emails</h4>
+                                        {!isSnapshot && <button onClick={() => openEmailCompose()} className="text-[10px] font-bold text-[#3DCD58] hover:underline uppercase">+ New Email</button>}
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        {(emailsData.generatedEmails || []).length === 0 && (
+                                            <p className="text-xs italic text-gray-400 py-2">No emails generated yet for this opportunity.</p>
+                                        )}
+                                        {[...(emailsData.generatedEmails || [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).map(rec => (
+                                            <div key={rec.id} className="flex items-center gap-2 bg-gray-50/60 border border-gray-100 rounded-lg px-3 py-2 text-xs">
+                                                <span className="flex-1 truncate text-gray-700" title={rec.subject}>
+                                                    Mandé un correo <b>({emailTopicFromSubject(rec.subject)})</b> para {rec.to.join(', ')}
+                                                </span>
+                                                {rec.attachments.length > 0 && <span className="flex items-center gap-0.5 text-gray-400 shrink-0"><Paperclip className="w-3 h-3" />{rec.attachments.length}</span>}
+                                                <span className="text-gray-300 shrink-0">{(rec.createdAt || '').slice(0, 10)}</span>
+                                                {!isSnapshot && (
+                                                    <button
+                                                        title="Re-open this email in Outlook"
+                                                        onClick={async () => {
+                                                            const { composeOutlookDraft } = await import('../services/emailDraftService');
+                                                            const result = await composeOutlookDraft({
+                                                                to: rec.to, cc: rec.cc, bcc: rec.bcc, subject: rec.subject,
+                                                                htmlBody: rec.bodyHtml,
+                                                                attachments: rec.attachments.map(a => a.absolutePath),
+                                                                mode: mergedEmailComposeSettings.outlookMode,
+                                                            });
+                                                            if (!result.ok) alert(result.error || 'Could not open the email in Outlook.');
+                                                        }}
+                                                        className="p-1 hover:bg-emerald-50 rounded text-gray-400 hover:text-[#3DCD58] shrink-0"
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                {emailIntegrationEnabled && (() => {
                             const visibleConversations = emailConversations.filter(conv => {
                                 if (selectedEmailFolderId === 'all') return true;
                                 if (selectedEmailFolderId === 'unfiled') return !conv.folderId;
@@ -6694,7 +7589,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             <div className="space-y-1">
                                                                 {(activeConversation.linkedNoteIds || []).map(noteId => {
                                                                     const note = localOpp.notes.find(n => n.id === noteId);
-                                                                    return note ? <button key={note.id} onClick={() => { setActiveTab('notes'); setSelectedNoteId(note.id); }} className="w-full text-left px-2 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold truncate">{note.title}</button> : null;
+                                                                    return note ? <button key={note.id} onClick={() => { setActiveTabSafe('notes'); setSelectedNoteIdSafe(note.id); }} className="w-full text-left px-2 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold truncate">{note.title}</button> : null;
                                                                 })}
                                                                 {!(activeConversation.linkedNoteIds || []).length && <p className="text-[10px] text-gray-300 italic">None</p>}
                                                             </div>
@@ -6712,6 +7607,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                             );
                         })()}
+                            </div>
+                        )}
 
                         {editingAreaCalendar && (() => {
                             const area = localOpp.kpis?.areasInvolved.find(a => a.id === editingAreaCalendar);
@@ -6736,11 +7633,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         })()}
 
                         {activeTab === 'folder' && (
-                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} isSnapshot={isSnapshot} />
+                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} isSnapshot={isSnapshot} onPathChange={setCurrentFolderPath} />
                         )}
 
                         {activeTab === 'notes' && (
-                            <div className={`flex h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : ''}`}>
+                            <div className={`flex min-h-[calc(100vh-190px)] h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6 min-h-0' : ''}`}>
                                 {!isNoteFullScreen && (
                                     <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto border-r border-gray-100 pr-4">
                                         {/* Search Bar for Notes */}
@@ -6765,8 +7662,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </button>
                                             ))}
                                             <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
+                                            {sowSectionEnabled && <button onClick={addSowNote} className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-blue-600" title="Add the Scope of Work guided form to this opportunity"><ListChecks className="w-3 h-3" /> SOW</button>}
                                             <button onClick={() => addFolder()} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
+                                        {renderTeamPanelButton()}
                                         {filteredNotes.length === 0 && searchTerm && (
                                             <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                         )}
@@ -6800,7 +7699,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDropNoteOnNote(note); setDraggedNoteId(null); setDropTargetId(null); }}
                                                             style={{ marginLeft: indent * 14 }}
                                                             className={`p-2.5 rounded-lg border relative group transition-all ${isSearching ? 'cursor-pointer' : 'cursor-grab'} ${isSelected ? 'bg-[#3DCD58]/10 border-[#3DCD58]/30 ring-1 ring-[#3DCD58]/20 shadow-md' : isDropTarget ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
-                                                            onClick={() => setSelectedNoteId(note.id)}
+                                                            onClick={() => setSelectedNoteIdSafe(note.id)}
                                                         >
                                                             <div className="flex items-center gap-1 pr-14">
                                                                 {hasChildren ? (
@@ -6808,7 +7707,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                         {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                                                     </button>
                                                                 ) : indent > 0 ? (
-                                                                    <span className="w-3 shrink-0 text-gray-300 text-[8px] leading-none mt-0.5">└</span>
+                                                                    <span className="w-3 shrink-0 text-gray-300 text-[8px] leading-none mt-0.5">â””</span>
                                                                 ) : null}
                                                                 <span className="font-bold text-xs text-gray-900 truncate">{note.title}</span>
                                                             </div>
@@ -6907,10 +7806,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         })()}
                                     </div>
                                 )}
-                                <div className="flex-1 flex gap-4 min-h-0 bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col shadow-sm">
-                                    {currentNote ? (
+                                <div className={`flex-1 flex gap-4 min-h-0 bg-white overflow-hidden flex flex-col ${currentNote?.format === 'sow' ? '' : 'rounded-xl border border-gray-200 shadow-sm'}`}>
+                                    {teamPanelOpen ? (
+                                        renderOpportunityTeamPanel()
+                                    ) : currentNote ? (
                                         <>
-                                            <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
+                                            {currentNote.format !== 'sow' && <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
                                                 <div className="flex justify-between items-center">
                                                     <input value={currentNote.title} onChange={(e) => updateSelectedNote('title', e.target.value)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
                                                     <div className="flex items-center gap-2">
@@ -6926,15 +7827,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-3">
-                                                    {textSelection && <button className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1" onClick={() => addQuestion(currentNote.id, textSelection)}><HelpCircle className="w-3 h-3" /> Ask Question</button>}
-                                                    <button
+                                                    {currentNote.format !== 'sow' && textSelection && <button className="text-xs bg-[#3DCD58] text-white px-3 py-1.5 rounded-lg font-bold shadow-md shadow-[#3DCD58]/20 animate-bounce flex items-center gap-1" onClick={() => addQuestion(currentNote.id, textSelection)}><HelpCircle className="w-3 h-3" /> Ask Question</button>}
+                                                    {currentNote.format !== 'sow' && <button
                                                         onClick={() => setShowQuestionsSplit(!showQuestionsSplit)}
                                                         className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${showQuestionsSplit ? 'bg-[#3DCD58]/10 border-[#3DCD58]/20 text-[#3DCD58]' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
                                                         title="Open Questions"
                                                     >
                                                         <SplitSquareHorizontal className="w-3 h-3" />
                                                         Open Questions
-                                                    </button>
+                                                    </button>}
                                                     <button
                                                         onClick={() => {
                                                             onMinimize?.({
@@ -6944,31 +7845,54 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 color: '#F59E0B',
                                                                 data: { oppId: opportunity.id, deepLink: { tab: 'notes', noteId: currentNote.id } }
                                                             });
-                                                            setSelectedNoteId(null);
+                                                            setSelectedNoteIdSafe(null);
                                                         }}
                                                         className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-1"
                                                         title="Minimizar Nota"
                                                     >
                                                         <Minus className="w-4 h-4 text-gray-400" />
                                                     </button>
-                                                    <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>
+                                                    {currentNote.format !== 'sow' && <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>}
                                                     <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
                                                 </div>
-                                            </div>
+                                            </div>}
                                             {/* Editor Container with Vertical Flex */}
-                                            <div className="flex-1 flex flex-col min-h-0">
-                                                <NoteEditorWrapper
-                                                    key={currentNote.id}
-                                                    ref={noteEditorRef}
-                                                    initialContent={activeNoteHtml}
-                                                    onChange={(val: string) => updateSelectedNote('content', val)}
-                                                    onSelection={handleSelection}
-                                                    onLinkClick={handleLinkClick}
-                                                    onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
-                                                />
+                                            <div className="flex-1 flex flex-col min-h-0 relative">
+                                                {currentNote.format === 'sow' ? (
+                                                    <><button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="absolute left-3 bottom-3 z-10 p-2 bg-white/90 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50" title={isNoteFullScreen ? 'Exit full screen' : 'Full screen'}>{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-600" /> : <Maximize2 className="w-4 h-4 text-gray-600" />}</button><SowFormEmbed
+                                                        key={currentNote.id}
+                                                        content={currentNote.content}
+                                                        people={localOpp.stakeholders || []}
+                                                        areas={trackedAreas}
+                                                        prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.srId || localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm / Bid to buy' : localOpp.quoteType === 'Budgetary' ? 'Budgetary' : '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
+                                                        globalForm={globalSowForm}
+                                                        onGlobalFormChange={onGlobalSowFormChange}
+                                                        onOpportunitySync={(fields) => {
+                                                            const proposalType = String(fields.proposal_type ?? '');
+                                                            const updated = { ...localOpp, title: String(fields.op_name ?? localOpp.title), alias: String(fields.alias ?? localOpp.alias ?? ''), qlk: String(fields.sr_qlk ?? localOpp.qlk ?? ''), customer: String(fields.customer ?? localOpp.customer), seller: String(fields.team_cse ?? localOpp.seller ?? ''), customerAddress: String(fields.site ?? localOpp.customerAddress ?? ''), description: String(fields.objective ?? localOpp.description ?? ''), quoteType: proposalType.includes('Budgetary') ? 'Budgetary' : proposalType.includes('Firm') ? 'Firm' : undefined, dates: { ...localOpp.dates, expected: String(fields.proposal_delivery ?? localOpp.dates?.expected ?? '') }, commercial: { ...localOpp.commercial, cqaOfficialSellPrice: Number(fields.commercialSell ?? localOpp.commercial?.cqaOfficialSellPrice ?? 0), cqaOfficialMargin: Number(fields.commercialMargin ?? localOpp.commercial?.cqaOfficialMargin ?? 0), discountsAndNotes: String(fields.commercialNotes ?? localOpp.commercial?.discountsAndNotes ?? '') }, lastUpdated: new Date().toISOString() };
+                                                            setLocalOpp(updated); syncToParentNow(updated);
+                                                        }}
+                                                        onGeneratedNote={addGeneratedSowNote}
+                                                        onChange={(json: string) => {
+                                                            const updatedNotes = localOpp.notes.map(n => n.id === currentNote.id ? { ...n, content: json } : n);
+                                                            handleFieldChange('notes', updatedNotes, true);
+                                                        }}
+                                                    /></>
+                                                ) : (
+                                                    <NoteEditorWrapper
+                                                        key={currentNote.id}
+                                                        ref={noteEditorRef}
+                                                        initialContent={activeNoteHtml}
+                                                        onChange={(val: string) => updateSelectedNote('content', val)}
+                                                        onSelection={handleSelection}
+                                                        onLinkClick={handleLinkClick}
+                                                        onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
+                                                        mentionOptions={localOpp.stakeholders || []}
+                                                    />
+                                                )}
 
-                                                {/* Tasks in this note section */}
-                                                <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0 flex flex-col max-h-[300px]">
+                                                {/* Tasks in this note section â€” not applicable to the embedded SOW form */}
+                                                {currentNote.format !== 'sow' && <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0 flex flex-col max-h-[300px]">
                                                     <div className="px-6 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0">
                                                         <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tasks in this note</h3>
                                                         <button
@@ -7035,7 +7959,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             );
                                                         })}
                                                     </div>
-                                                </div>
+                                                </div>}
                                             </div>
 
                                             {/* Linked Items Container (Scrollable) */}
@@ -7043,9 +7967,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <LinkedDocsList
                                                     key={refreshKey}
                                                     opportunityId={opportunity.id}
+                                                    revision={localOpp.revision}
                                                     noteId={currentNote.id}
                                                     onNavigateToFile={navigateToFile}
-                                                    onPreview={() => { }}
                                                 />
                                                 {renderLinkedEmailsForTarget({ type: 'note', id: currentNote.id })}
 
@@ -7059,7 +7983,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                     <CheckSquare className="w-3.5 h-3.5 text-gray-400" />
                                                                     <span className="text-xs font-medium text-gray-700">{t.title}</span>
                                                                     <button
-                                                                        onClick={() => { setActiveTab('tasks'); setSelectedTaskForEdit({ task: t }); }}
+                                                                        onClick={() => { setActiveTabSafe('tasks'); setSelectedTaskForEdit({ task: t }); }}
                                                                         className="ml-2 text-[10px] font-bold text-[#3DCD58] hover:underline uppercase"
                                                                     >
                                                                         Open
@@ -7109,6 +8033,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
                                             <button onClick={() => setTaskViewMode('list')} className={`p-1.5 rounded ${taskViewMode === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="List View"><ListIcon className="w-4 h-4" /></button>
                                             <button onClick={() => setTaskViewMode('calendar')} className={`p-1.5 rounded ${taskViewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
+                                            <button onClick={() => setTaskViewMode('kanban')} className={`p-1.5 rounded ${taskViewMode === 'kanban' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Kanban View"><LayoutGrid className="w-4 h-4" /></button>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -7124,6 +8049,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             placeholder="All Status"
                                         />
                                         <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
+                                        <button
+                                            onClick={() => {
+                                                const today = getTodayStr();
+                                                const remindable = (localOpp.tasks || []).filter(t =>
+                                                    (t.isAssignment || (t.approverTeamMemberIds?.length ?? 0) > 0)
+                                                    && t.status !== 'Done' && t.status !== 'Canceled'
+                                                    && (t.status === 'Pending' || (!!t.dueDate && t.dueDate < today))
+                                                );
+                                                openEmailCompose('reminder', remindable.map(t => t.id));
+                                            }}
+                                            title="Email a reminder for pending or overdue tasks"
+                                            className="text-xs font-bold bg-white border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:border-amber-400 hover:bg-amber-50 shadow-sm flex items-center gap-2"
+                                        >
+                                            <Mail className="w-4 h-4" /> Remind
+                                        </button>
                                         <button onClick={exportTasksToExcel} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2 text-green-700 border-green-200 hover:border-green-400" title="Export all tasks to Excel (.xlsx)"><FileSpreadsheet className="w-4 h-4" /> Export to Excel</button>
                                         {!isSnapshot && (
                                             <>
@@ -7150,92 +8090,323 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <ArrowUpDown className="w-3 h-3" /> Sort by order
                                             </button>
                                         </div>
+                                        {filteredTasks.length > 0 && (() => {
+                                            const doneCount = filteredTasks.filter(t => t.status === 'Done').length;
+                                            const pct = Math.round(doneCount / filteredTasks.length * 100);
+                                            return (
+                                                <div className="flex items-center gap-2 min-w-[160px]">
+                                                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-[#3DCD58] transition-all" style={{ width: `${pct}%` }} />
+                                                    </div>
+                                                    <span className="text-[10px] font-bold text-gray-500 shrink-0">{doneCount}/{filteredTasks.length} done</span>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 )}
 
                                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                                     {taskViewMode === 'list' ? (
-                                        <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+                                        <div className="flex-1 overflow-y-auto p-6 space-y-2.5 custom-scrollbar">
                                             {filteredTasks.length === 0 ? (
                                                 <div className="py-20 text-center text-gray-400 opacity-20"><ListChecks className="w-20 h-20 mx-auto mb-2" /><p className="font-bold">No tasks found with these filters</p></div>
-                                            ) : filteredTasks.map(task => (
-                                                <div key={task.id} id={`task-${task.id}`} className={`group border p-4 rounded-xl flex items-center justify-between cursor-pointer transition-all ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : 'border-gray-100 hover:bg-gray-50 hover:border-[#3DCD58]/30 hover:shadow-md'}`} onClick={() => setSelectedTaskForEdit({ task })}>
-                                                    <div className="flex items-center gap-4">
+                                            ) : (() => {
+                                                const renderTaskCard = (task: Task) => {
+                                                    const isDone = task.status === 'Done';
+                                                    const doneSubtasks = task.subtasks.filter(s => s.completed).length;
+                                                    const totalSubtasks = task.subtasks.length;
+                                                    const isExpanded = expandedTaskIds.has(task.id);
+                                                    const subtasksExpanded = expandedSubtaskIds.has(task.id);
+
+                                                    return (
                                                         <div
-                                                           className={`text-xs font-bold text-gray-300 w-8 flex flex-col items-center gap-0.5 ${isSnapshot ? 'opacity-50 pointer-events-none' : ''}`}
-                                                           onClick={(e) => e.stopPropagation()}
-                                                           title="Execution Order"
-                                                       >
-                                                           {!isSnapshot && (
-                                                               <button 
-                                                                   onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) - 1)); }}
-                                                                   className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
-                                                               >
-                                                                   <ChevronUp className="w-3 h-3" />
-                                                               </button>
-                                                           )}
-                                                            <input
-                                                               disabled={isSnapshot}
-                                                               type="number"
-                                                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold h-4 disabled:opacity-50"
-                                                               placeholder="#"
-                                                               key={`order-${task.order}`}
-                                                               defaultValue={task.order || ''}
-                                                               onBlur={(e) => {
-                                                                   if (isSnapshot) return;
-                                                                   if (e.target.value) {
-                                                                       const newOrder = parseInt(e.target.value);
-                                                                       if (newOrder !== task.order) {
-                                                                           handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, newOrder));
-                                                                       }
-                                                                   }
-                                                                }}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter') e.currentTarget.blur();
-                                                                }}
-                                                            />
-                                                            <button 
-                                                                onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) + 1)); }}
-                                                                className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
-                                                            >
-                                                                <ChevronDown className="w-3 h-3" />
-                                                            </button>
-                                                        </div>
-                                                        <div className={`w-2 h-2 rounded-full mt-1 shrink-0 ${task.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="font-bold text-gray-900 group-hover:text-[#3DCD58] transition-colors">{task.title}</div>
-                                                                {opportunity.alias && <span className="text-[9px] bg-[#3DCD58]/10 text-[#3DCD58] px-1.5 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
-                                                            </div>
-                                                            <div className="text-[10px] font-black uppercase mt-1 flex items-center gap-2">
-                                                                <User className="w-3 h-3" /> {task.owner}
-                                                                <span className="text-gray-300">|</span>
-                                                                <Clock className="w-3 h-3" /> {task.dueDate}
-                                                                {(task.externalAreas || []).map(a => <span key={a} className="bg-emerald-50 text-emerald-600 px-1.5 rounded">{a}</span>)}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {/* Action Buttons (visible on hover) */}
-                                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity mr-2 flex items-center gap-1">
-                                                            <TaskTimerButtonList task={task} oppId={localOpp.id} />
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); copyTask(task); }}
-                                                                className="p-1 hover:bg-gray-200 rounded text-gray-500 hover:text-blue-500"
-                                                                title="Duplicate Task"
-                                                            >
-                                                                <Copy className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
+                                                            key={task.id}
+                                                            id={`task-${task.id}`}
+                                                            draggable={!isSnapshot}
+                                                            onDragStart={(e) => { e.stopPropagation(); setDraggedTaskId(task.id); e.dataTransfer.effectAllowed = 'move'; }}
+                                                            onDragOver={(e) => { if (draggedTaskId && draggedTaskId !== task.id) e.preventDefault(); }}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                if (draggedTaskId && draggedTaskId !== task.id) {
+                                                                    handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, draggedTaskId, task.order || 0));
+                                                                }
+                                                                setDraggedTaskId(null);
+                                                            }}
+                                                            onDragEnd={() => setDraggedTaskId(null)}
+                                                            className={`group border rounded-xl transition-all cursor-pointer ${draggedTaskId === task.id ? 'opacity-40' : ''} ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : `bg-white hover:shadow-md ${isDone ? 'border-gray-100' : 'border-gray-100 hover:border-[#3DCD58]/30'}`}`}
+                                                            onClick={() => setSelectedTaskForEdit({ task })}
+                                                        >
+                                                            <div className="p-3 flex gap-3">
+                                                                <div
+                                                                    className={`text-[10px] font-bold text-gray-300 w-6 flex flex-col items-center gap-0.5 shrink-0 ${isSnapshot ? 'opacity-50 pointer-events-none' : ''}`}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    title="Execution Order"
+                                                                >
+                                                                    {!isSnapshot && (
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) - 1)); }}
+                                                                            className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
+                                                                        >
+                                                                            <ChevronUp className="w-3 h-3" />
+                                                                        </button>
+                                                                    )}
+                                                                    <input
+                                                                        disabled={isSnapshot}
+                                                                        type="number"
+                                                                        className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-gray-400 font-bold h-4 disabled:opacity-50"
+                                                                        placeholder="#"
+                                                                        key={`order-${task.order}`}
+                                                                        defaultValue={task.order || ''}
+                                                                        onBlur={(e) => {
+                                                                            if (isSnapshot) return;
+                                                                            if (e.target.value) {
+                                                                                const newOrder = parseInt(e.target.value);
+                                                                                if (newOrder !== task.order) {
+                                                                                    handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, newOrder));
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                                                    />
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); handleFieldChange('tasks', reorderTaskStrict(localOpp.tasks, task.id, (task.order || 0) + 1)); }}
+                                                                        className="text-gray-300 hover:text-gray-500 rounded p-0.5 cursor-pointer leading-none transition-colors"
+                                                                    >
+                                                                        <ChevronDown className="w-3 h-3" />
+                                                                    </button>
+                                                                </div>
 
-                                                        {task.calendarized && <div title="Calendarized" className="text-purple-500"><CalendarDays className="w-4 h-4" /></div>}
-                                                        {task.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400" />}
+                                                                {/* Planner-style completion checkbox */}
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); toggleTaskDoneDirect(task); }}
+                                                                    className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isDone ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300 hover:border-[#3DCD58]'}`}
+                                                                    title={isDone ? 'Mark as not done' : 'Mark as done'}
+                                                                >
+                                                                    {isDone && <Check className="w-3 h-3 text-white" />}
+                                                                </button>
 
-                                                        <div className={`text-[9px] px-2 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{task.priority || 'Medium'}</div>
-                                                        <div className={`text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-sm ${TASK_STATUS_COLORS[task.status]}`}>{task.status}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className={`text-sm font-semibold transition-colors truncate ${isDone ? 'line-through text-gray-400' : 'text-gray-900 group-hover:text-[#3DCD58]'}`}>{task.title}</div>
+                                                                    {task.description && (
+                                                                        <p className={`text-xs mt-1 whitespace-pre-wrap ${isDone ? 'text-gray-300' : 'text-gray-500'}`}>{task.description}</p>
+                                                                    )}
+
+                                                                    {totalSubtasks > 0 && (
+                                                                        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                                                            <button
+                                                                                onClick={() => toggleSubtasksExpanded(task.id)}
+                                                                                className="flex items-center gap-2 w-full"
+                                                                                title={subtasksExpanded ? 'Collapse subtasks' : 'Expand subtasks'}
+                                                                            >
+                                                                                {subtasksExpanded ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
+                                                                                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                                                    <div className="h-full bg-[#3DCD58] transition-all" style={{ width: `${Math.round(doneSubtasks / totalSubtasks * 100)}%` }} />
+                                                                                </div>
+                                                                                <span className="text-[10px] font-bold text-gray-400 shrink-0">{doneSubtasks}/{totalSubtasks} subtareas</span>
+                                                                            </button>
+                                                                            {/* Collapsed by default: nothing else renders here until expanded. */}
+                                                                            {subtasksExpanded && (
+                                                                                <div className="mt-1.5 pl-5 space-y-1">
+                                                                                    {task.subtasks.map(sub => (
+                                                                                        <label key={sub.id} className="flex items-center gap-2 cursor-pointer">
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={sub.completed}
+                                                                                                onChange={() => toggleSubtaskDirect(task, sub.id)}
+                                                                                                className="w-3.5 h-3.5 rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58] shrink-0"
+                                                                                            />
+                                                                                            <span className={`text-xs ${sub.completed ? 'line-through text-gray-300' : 'text-gray-600'}`}>{sub.title}</span>
+                                                                                        </label>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+
+                                                                    <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-gray-50 flex-wrap gap-y-1.5 gap-x-2">
+                                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                                            {task.dueDate && (
+                                                                                <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400"><Clock className="w-3 h-3" />{task.dueDate}</span>
+                                                                            )}
+                                                                            {Array.from(new Set((task.responsibleTeamMemberIds || []).map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))).map(a => <span key={a} className="text-[9px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded font-bold">{a}</span>)}
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); setAssignPopoverTaskId(assignPopoverTaskId === task.id ? null : task.id); }}
+                                                                                className="flex items-center gap-1 text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100"
+                                                                            >
+                                                                                <User className="w-3 h-3" /> {task.responsible || 'Assign'}
+                                                                            </button>
+                                                                            {(task.responsibleRequestedDate || task.responsibleDueDate) && (
+                                                                                <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold" title="Requested / due back from responsible">
+                                                                                    {task.responsibleRequestedDate || '?'} → {task.responsibleDueDate || '?'}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                                            <button onClick={() => toggleTaskExpanded(task.id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 shrink-0" title={isExpanded ? 'Hide attachments' : 'Show attachments'}>
+                                                                                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                                                            </button>
+                                                                            <button onClick={() => setShowDocPicker({ type: 'task', id: task.id })} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-blue-500 shrink-0" title="Attach file from folder">
+                                                                                <Paperclip className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                            {(task.isAssignment || (task.approverTeamMemberIds?.length ?? 0) > 0) && informedTaskIds.has(task.id) && (
+                                                                                <span title="An assignment email was already generated for this task" className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded uppercase shrink-0">✓ Informed</span>
+                                                                            )}
+                                                                            {(task.isAssignment || (task.approverTeamMemberIds?.length ?? 0) > 0) && (
+                                                                                <button onClick={() => openEmailCompose('reminder', [task.id])} className="p-1 hover:bg-amber-50 rounded text-gray-400 hover:text-amber-500 shrink-0" title="Send a friendly reminder about this assignment/approval">
+                                                                                    <Mail className="w-3.5 h-3.5" />
+                                                                                </button>
+                                                                            )}
+                                                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                                                                <TaskTimerButtonList task={task} oppId={localOpp.id} />
+                                                                                <button onClick={() => copyTask(task)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-blue-500" title="Duplicate Task">
+                                                                                    <Copy className="w-3.5 h-3.5" />
+                                                                                </button>
+                                                                            </div>
+                                                                            {task.calendarized && <div title="Calendarized" className="text-purple-500"><CalendarDays className="w-4 h-4" /></div>}
+                                                                            {task.blockDoneUntilDependenciesDone && <Lock className="w-3 h-3 text-gray-400" />}
+                                                                            <div className={`text-[9px] px-2 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{task.priority || 'Medium'}</div>
+                                                                            <select
+                                                                                value={task.status}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                onChange={(e) => applyTaskFieldsDirect(task.id, { status: e.target.value as TaskStatus })}
+                                                                                className={`text-[10px] font-black uppercase pl-2 pr-1 py-1 rounded-full shadow-sm border-none cursor-pointer ${TASK_STATUS_COLORS[task.status]}`}
+                                                                            >
+                                                                                {(task.owner === 'External Area' && (task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {assignPopoverTaskId === task.id && (
+                                                                        <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                                            <ResponsibleTeamPicker
+                                                                                options={sowTeamMembers}
+                                                                                onCreate={(name) => { createContactAndInvolve(name); return undefined; }}
+                                                                                selected={task.responsibleTeamMemberIds || []}
+                                                                                onChange={(ids) => applyTaskFieldsDirect(task.id, {
+                                                                                    responsibleTeamMemberIds: ids,
+                                                                                    responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                                                                                    owner: ids.length > 0 ? 'External Area' : task.owner,
+                                                                                    externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                                                    ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(task.status) ? { status: 'Missing Info' as TaskStatus } : {})
+                                                                                })}
+                                                                            />
+                                                                            {(task.responsibleTeamMemberIds || []).length > 0 && (
+                                                                                <div className="grid grid-cols-2 gap-2">
+                                                                                    <div>
+                                                                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Requested on</label>
+                                                                                        <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={task.responsibleRequestedDate || ''} onChange={(e) => applyTaskFieldsDirect(task.id, { responsibleRequestedDate: e.target.value })} />
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                                                                        <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={task.responsibleDueDate || ''} onChange={(e) => applyTaskFieldsDirect(task.id, { responsibleDueDate: e.target.value })} />
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {isExpanded && (
+                                                                        <div onClick={(e) => e.stopPropagation()}>
+                                                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} revision={localOpp.revision} taskId={task.id} onNavigateToFile={navigateToFile} />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                };
+
+                                                const activeTasks = filteredTasks.filter(t => t.status !== 'Done' && t.status !== 'Canceled');
+                                                const canceledTasks = filteredTasks.filter(t => t.status === 'Canceled');
+                                                const doneTasks = filteredTasks.filter(t => t.status === 'Done');
+
+                                                return (
+                                                    <>
+                                                        <div className="space-y-2.5">
+                                                            {activeTasks.map(renderTaskCard)}
+                                                        </div>
+                                                        {/* Canceled/Done always render (never hidden behind a toggle) but sink to the bottom, dimmed, so they don't compete visually with active work. */}
+                                                        {canceledTasks.length > 0 && (
+                                                            <div className="pt-3">
+                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-300 mb-2">Canceled ({canceledTasks.length})</div>
+                                                                <div className="space-y-2.5 opacity-60">
+                                                                    {canceledTasks.map(renderTaskCard)}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {doneTasks.length > 0 && (
+                                                            <div className="pt-3">
+                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-400 mb-2">Completed ({doneTasks.length})</div>
+                                                                <div className="space-y-2.5 opacity-80">
+                                                                    {doneTasks.map(renderTaskCard)}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    ) : taskViewMode === 'kanban' ? (
+                                        <div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar">
+                                            <div className="flex gap-4 h-full">
+                                                {(Object.keys(TASK_STATUS_COLORS) as TaskStatus[]).map(status => {
+                                                    const columnTasks = filteredTasks.filter(t => t.status === status);
+                                                    return (
+                                                        <div
+                                                            key={status}
+                                                            className="w-64 shrink-0 flex flex-col bg-gray-50 rounded-xl border border-gray-100"
+                                                            onDragOver={(e) => e.preventDefault()}
+                                                            onDrop={(e) => {
+                                                                e.preventDefault();
+                                                                const taskId = e.dataTransfer.getData('id');
+                                                                if (taskId) applyTaskFieldsDirect(taskId, { status });
+                                                            }}
+                                                        >
+                                                            <div className="p-3 border-b border-gray-200 flex items-center justify-between shrink-0">
+                                                                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${TASK_STATUS_COLORS[status]}`}>{status}</span>
+                                                                <span className="text-[10px] font-bold text-gray-400">{columnTasks.length}</span>
+                                                            </div>
+                                                            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                                                                {columnTasks.map(task => {
+                                                                    const doneSubtasks = task.subtasks.filter(s => s.completed).length;
+                                                                    const totalSubtasks = task.subtasks.length;
+                                                                    return (
+                                                                        <div
+                                                                            key={task.id}
+                                                                            draggable={!isSnapshot}
+                                                                            onDragStart={(e) => e.dataTransfer.setData('id', task.id)}
+                                                                            onClick={() => setSelectedTaskForEdit({ task })}
+                                                                            className="bg-white border border-gray-200 rounded-lg p-2.5 shadow-sm hover:shadow-md hover:border-[#3DCD58]/30 cursor-grab active:cursor-grabbing transition-all"
+                                                                        >
+                                                                            <div className="flex items-start gap-2">
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); toggleTaskDoneDirect(task); }}
+                                                                                    className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${task.status === 'Done' ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300 hover:border-[#3DCD58]'}`}
+                                                                                >
+                                                                                    {task.status === 'Done' && <Check className="w-2.5 h-2.5 text-white" />}
+                                                                                </button>
+                                                                                <span className={`text-xs font-semibold flex-1 min-w-0 truncate ${task.status === 'Done' ? 'line-through text-gray-400' : 'text-gray-800'}`} title={task.title}>{task.title}</span>
+                                                                            </div>
+                                                                            <div className="flex items-center justify-between mt-2 pl-6">
+                                                                                <span className="text-[9px] font-bold text-gray-400">#{task.order || '?'}</span>
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    {totalSubtasks > 0 && <span className="text-[9px] font-bold text-gray-400">{doneSubtasks}/{totalSubtasks}</span>}
+                                                                                    {task.dueDate && <span className="text-[9px] font-bold text-gray-400 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{task.dueDate}</span>}
+                                                                                    <span className={`text-[8px] px-1 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{(task.priority || 'Medium')[0]}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {columnTasks.length === 0 && (
+                                                                    <div className="text-center py-8 text-gray-300 text-[10px] font-bold">No tasks</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     ) : (
                                         <div className="flex flex-1 min-h-0 h-full overflow-hidden">
@@ -7337,6 +8508,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => openEmailCompose('task_assignment', [selectedTaskForEdit.task.id])}
+                                            title="Generate an email for this task (assignment, reminder or info request)"
+                                            className="flex items-center gap-1 text-xs font-bold bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                                        >
+                                            <Mail className="w-3 h-3" /> Email
+                                        </button>
                                         <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                             <Copy className="w-3 h-3" /> Summary
                                         </button>
@@ -7376,7 +8554,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="grid grid-cols-3 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{Object.keys(TASK_STATUS_COLORS).map(s => <option key={s}>{s}</option>)}</select>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s}>{s}</option>)}</select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -7396,6 +8574,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                     <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                        <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info', responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                         <div className="flex gap-4 items-center">
                                             <select
                                                 className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
@@ -7407,16 +8586,41 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </select>
                                             {selectedTaskForEdit.task.owner === 'External Area' && (
                                                 <div className="flex gap-2 flex-1 flex-col">
-                                                    <MultiSelect
-                                                        placeholder="Select Areas"
-                                                        options={['Delivery', 'SCM', 'Sales', 'Legal', 'Finance', 'TSC', 'Other']}
-                                                        selected={selectedTaskForEdit.task.externalAreas || []}
-                                                        onChange={(vals) => updateTaskInModal('externalAreas', vals)}
+                                                    <ResponsibleTeamPicker
+                                                        options={sowTeamMembers}
+                                                        onCreate={(name) => { createContactAndInvolve(name); return undefined; }}
+                                                        selected={selectedTaskForEdit.task.responsibleTeamMemberIds || []}
+                                                        onChange={(ids) => updateTaskInModal('responsibleTeamMemberIds', ids, {
+                                                            responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                                                            externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                            ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(selectedTaskForEdit.task.status) ? { status: 'Missing Info' as TaskStatus } : {}),
+                                                            ...(ids.length === 0 ? { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' } : {})
+                                                        })}
                                                     />
-                                                    <input placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white p-2" value={selectedTaskForEdit.task.responsible || ''} onChange={(e) => updateTaskInModal('responsible', e.target.value)} />
                                                 </div>
                                             )}
                                         </div>
+                                        {selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 && (
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
+                                                <div className="space-y-1">
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">Requested on</label>
+                                                    <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleRequestedDate || ''} onChange={(e) => updateTaskInModal('responsibleRequestedDate', e.target.value)} />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                                    <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleDueDate || ''} onChange={(e) => updateTaskInModal('responsibleDueDate', e.target.value)} />
+                                                </div>
+                                            </div>
+                                        )}
+                                        {selectedTaskForEdit.task.isAssignment && <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-200 pt-3">
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids)} /></div>
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Execution delivered</label><input type="date" value={selectedTaskForEdit.task.responsibleDeliveredDate || ''} onChange={e => updateTaskInModal('responsibleDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval required</label><input type="date" value={selectedTaskForEdit.task.approvalDueDate || ''} onChange={e => updateTaskInModal('approvalDueDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval requested</label><input type="date" value={selectedTaskForEdit.task.approvalRequestedDate || ''} onChange={e => updateTaskInModal('approvalRequestedDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approved</label><input type="date" value={selectedTaskForEdit.task.approvalDeliveredDate || ''} onChange={e => updateTaskInModal('approvalDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                        </div>}
                                     </div>
 
                                     {/* Dependency Section */}
@@ -7520,7 +8724,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <button className="text-[10px] font-black text-[#3DCD58] uppercase hover:underline" onClick={() => setShowDocPicker({ type: 'task', id: selectedTaskForEdit.task.id })}>+ Link Doc</button>
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-2xl">
-                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
+                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} revision={localOpp.revision} taskId={selectedTaskForEdit.task.id} onNavigateToFile={navigateToFile} />
                                             {renderLinkedEmailsForTarget({ type: 'task', id: selectedTaskForEdit.task.id })}
                                         </div>
                                     </div>
@@ -7586,7 +8790,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <button
-                                                                onClick={() => { setSelectedTaskForEdit(null); setActiveTab('notes'); setSelectedNoteId(note.id); }}
+                                                                onClick={() => { setSelectedTaskForEdit(null); setActiveTabSafe('notes'); setSelectedNoteIdSafe(note.id); }}
                                                                 className="text-[10px] font-bold text-gray-500 hover:text-[#3DCD58] uppercase px-2 py-1 bg-gray-50 rounded"
                                                             >
                                                                 Open Note
@@ -7661,6 +8865,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             key={splitViewNoteId}
                                             content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
                                             onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
+                                            onAttach={() => setShowDocPicker({ type: 'note', id: splitViewNoteId })}
                                         />
                                     </div>
                                 </div>
@@ -7671,13 +8876,83 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
 
             {
+                newContactModal && (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setNewContactModal(null)}>
+                        <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
+                            <div className="p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-lg font-black text-gray-900">New Contact</h3>
+                                    <button onClick={() => setNewContactModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                                </div>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Name</label>
+                                        <input
+                                            autoFocus
+                                            value={newContactModal.name}
+                                            onChange={(e) => setNewContactModal({ ...newContactModal, name: e.target.value })}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') submitNewContactModal(); }}
+                                            placeholder="Contact name"
+                                            className="w-full text-sm border-gray-200 rounded-xl focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email <span className="normal-case font-medium text-gray-300">(optional)</span></label>
+                                        <input
+                                            type="email"
+                                            value={newContactModal.email}
+                                            onChange={(e) => setNewContactModal({ ...newContactModal, email: e.target.value })}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') submitNewContactModal(); }}
+                                            placeholder="name@company.com"
+                                            className="w-full text-sm border-gray-200 rounded-xl focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Role / Area <span className="normal-case font-medium text-gray-300">(optional)</span></label>
+                                        <input
+                                            list="new-contact-area-suggestions"
+                                            value={newContactModal.area}
+                                            onChange={(e) => setNewContactModal({ ...newContactModal, area: e.target.value })}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') submitNewContactModal(); }}
+                                            placeholder="Start typing to see existing areas..."
+                                            className="w-full text-sm border-gray-200 rounded-xl focus:ring-[#3DCD58] focus:border-[#3DCD58]"
+                                        />
+                                        <datalist id="new-contact-area-suggestions">
+                                            {trackedAreas.map(a => <option key={a} value={a} />)}
+                                        </datalist>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-1">
+                                    <button
+                                        onClick={() => setNewContactModal(null)}
+                                        className="flex-1 py-2.5 px-4 rounded-2xl border border-gray-100 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={submitNewContactModal}
+                                        disabled={!newContactModal.name.trim()}
+                                        className="flex-[1.5] py-2.5 px-4 rounded-2xl font-black text-[10px] uppercase tracking-widest text-white shadow-lg bg-[#3DCD58] hover:bg-[#34b34c] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                    >
+                                        Create & Involve
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {
                 showDocPicker && (
                     <DocumentPickerModal
                         opportunityId={opportunity.id}
+                        revision={localOpp.revision}
                         multi={true}
                         onSelect={handleDocSelect}
                         onClose={() => setShowDocPicker(null)}
                         title={`Link documents to ${showDocPicker.type}`}
+                        initialPath={currentFolderPath}
                     />
                 )
             }
@@ -7686,6 +8961,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 showQuickRefFilePicker && (
                     <DocumentPickerModal
                         opportunityId={opportunity.id}
+                        revision={localOpp.revision}
                         multi={true}
                         onSelect={handleAddFileQuickRef}
                         onClose={() => setShowQuickRefFilePicker(false)}
@@ -7879,6 +9155,25 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         sourceOpp={localOpp}
                         opportunities={opportunities || []}
                         onCopy={handleCopyTasks}
+                    />
+                )
+            }
+            {
+                emailComposeState.open && (
+                    <EmailComposeModal
+                        isOpen={emailComposeState.open}
+                        onClose={() => setEmailComposeState({ open: false })}
+                        opportunity={localOpp}
+                        emailSettings={mergedEmailComposeSettings}
+                        userName={userName}
+                        globalContacts={globalContacts}
+                        initialTemplateId={emailComposeState.templateId}
+                        initialTaskIds={emailComposeState.taskIds}
+                        onGenerated={handleEmailGenerated}
+                        onRequestAssignTask={(taskId) => {
+                            const task = localOpp.tasks.find(t => t.id === taskId);
+                            if (task) { setEmailComposeState({ open: false }); setSelectedTaskForEdit({ task }); }
+                        }}
                     />
                 )
             }
