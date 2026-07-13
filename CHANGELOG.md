@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- The uninstaller no longer uses the WMI process query that could hang indefinitely on some Windows installations. It now closes TenderLoop's local services by their reserved ports and shows a visible timeout after 45 seconds instead of waiting forever.
 - Before starting the newly installed app, the installer now silently clears TenderLoop's reserved local ports (`3000` and `3099`) and records that cleanup in its visible log. This prevents a previous TenderLoop engine from blocking the new version.
 - The launcher no longer treats a partially present `node_modules` folder as a completed installation. It requires Vite and a completion marker, otherwise it opens the visible installer.
 - The installer now keeps the setup window open after starting TenderLoop, checks that the local application responds within 30 seconds, confirms the launch visibly, and reports unexpected interface errors instead of failing silently.
