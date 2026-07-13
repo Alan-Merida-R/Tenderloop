@@ -412,18 +412,32 @@
 
     function openApp() {
       var launcher = scriptDir + "\\LANZAR_TENDERLOOP.vbs";
+      var closer = scriptDir + "\\CERRAR_TENDERLOOP.bat";
       if (!fso.FileExists(launcher)) {
         failInstall("LANZAR_TENDERLOOP.vbs was not found after setup.");
         return;
       }
+      if (!fso.FileExists(closer)) {
+        failInstall("CERRAR_TENDERLOOP.bat was not found after setup.");
+        return;
+      }
       el("openBtn").disabled = true;
       el("closeBtn").disabled = true;
-      setStep(5, "Starting TenderLoop");
-      el("remaining").innerText = "Checking the local application";
-      logLine("[INFO] Starting TenderLoop in the background. No terminal window is needed.");
-      shell.Run("wscript.exe \"" + launcher + "\"", 1, false);
-      launchAttempt = 0;
-      window.setTimeout(checkAppStarted, 1000);
+      setStep(5, "Closing previous TenderLoop version");
+      el("remaining").innerText = "Freeing local TenderLoop ports";
+      logLine("[INFO] Closing any previous TenderLoop engine on ports 3000 and 3099. No terminal window is needed.");
+      runCommand("cmd.exe /d /c call \"" + closer + "\" SILENT", function (closeCode) {
+        if (closeCode !== 0) {
+          failInstall("The previous TenderLoop engine could not be stopped. See the log above and retry.");
+          return;
+        }
+        setStep(5, "Starting TenderLoop");
+        el("remaining").innerText = "Checking the local application";
+        logLine("[INFO] Starting the new TenderLoop version in the background.");
+        shell.Run("wscript.exe \"" + launcher + "\"", 1, false);
+        launchAttempt = 0;
+        window.setTimeout(checkAppStarted, 1000);
+      });
     }
 
     function checkAppStarted() {

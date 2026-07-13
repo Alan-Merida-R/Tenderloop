@@ -1,9 +1,14 @@
 @echo off
-title Cerrar TenderLoop
-color 0C
-echo ==========================================
-echo    DETENIENDO TENDERLOOP...
-echo ==========================================
+setlocal EnableExtensions
+set "SILENT=%~1"
+
+if /i not "%SILENT%"=="SILENT" (
+    title Cerrar TenderLoop
+    color 0C
+    echo ==========================================
+    echo    DETENIENDO TENDERLOOP...
+    echo ==========================================
+)
 
 :: Matar solo el proceso de Loop (puerto 3000) para no tocar Flow (3003)
 set LOOP_PID=
@@ -27,5 +32,5 @@ if defined HELPER_PID (
 )
 
 echo ==========================================
-timeout /t 3 >nul
-exit
+if /i not "%SILENT%"=="SILENT" timeout /t 3 >nul
+exit /b 0
