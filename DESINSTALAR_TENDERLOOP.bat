@@ -19,6 +19,6 @@ if defined PROGRAM_DIR rd "%PROGRAM_DIR%" >nul 2>&1
 echo [OK] TenderLoop shortcuts removed.
 
 echo [3/3] Ready to remove the complete TenderLoop folder.
-echo [OK] Close this window with the final button to start complete removal.
+echo [OK] Select "Remove folder now" in the uninstaller to start complete removal.
 echo [INFO] Node.js itself is not removed. Local TenderLoop data inside this folder will be removed.
 exit /b 0
