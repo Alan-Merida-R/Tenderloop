@@ -1,6 +1,6 @@
 Option Explicit
 
-Dim WshShell, fso, scriptDir, batPath, installerUi, viteLauncher, setupMarker
+Dim WshShell, fso, scriptDir, batPath, installerUi, viteLauncher
 
 Set WshShell = CreateObject("Wscript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -9,11 +9,12 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 batPath = scriptDir & "\motor_tenderloop.bat"
 installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
 viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
-setupMarker = scriptDir & "\.tenderloop-setup-complete"
 WshShell.Environment("PROCESS")("TENDERLOOP_ROOT") = scriptDir
 
-If fso.FileExists(viteLauncher) And fso.FileExists(setupMarker) Then
-    ' Normal run: hidden console, only the app window is visible.
+If fso.FileExists(viteLauncher) Then
+    ' Normal run: if Vite exists, TenderLoop is ready to start. Do not
+    ' require an installer marker, since a previous interrupted setup must
+    ' never prevent an otherwise working local application from opening.
     WshShell.Run """" & batPath & """ HIDDEN", 0, False
 Else
     ' First run or an incomplete installation: always show the Windows-style
