@@ -39,6 +39,15 @@ if not errorlevel 1 (
     timeout /t 1 /nobreak >nul
 )
 
+:: A listener that does not answer HTTP is also a stale/incomplete local
+:: TenderLoop process. Clear the reserved ports before the strict-port checks
+:: below so a hung Vite process cannot block the new application forever.
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do (
+    if not "%MODE%"=="HIDDEN" echo [INFO] Clearing a non-responsive TenderLoop process on port 3000.
+    call "%~dp0CERRAR_TENDERLOOP.bat" SILENT
+    timeout /t 1 /nobreak >nul
+)
+
 if "%MODE%"=="VISIBLE" echo [1/5] Checking local ports... 4 steps remaining.
 if "%MODE%"=="INSTALL" echo [1/5] Checking local ports... 4 steps remaining.
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do (

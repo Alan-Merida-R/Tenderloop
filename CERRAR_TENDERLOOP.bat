@@ -10,27 +10,16 @@ if /i not "%SILENT%"=="SILENT" (
     echo ==========================================
 )
 
-:: Matar solo el proceso de Loop (puerto 3000) para no tocar Flow (3003)
-set LOOP_PID=
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000') do set LOOP_PID=%%a
-
-if defined LOOP_PID (
-    taskkill /f /pid %LOOP_PID% >nul 2>&1
-    echo.
-    echo [OK] TenderLoop (puerto 3000) detenido.
-) else (
-    echo.
-    echo [!] No se detecto TenderLoop activo en el puerto 3000.
+:: Close exactly the processes LISTENING on TenderLoop's reserved local ports.
+:: Get-NetTCPConnection is reliable here; parsing netstat text could select a
+:: client connection instead of the listener and leave an old Vite process up.
+powershell.exe -NoProfile -Command "$ports = @(3000,3099); $connections = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }); $processIds = @($connections | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($processId in $processIds) { try { Stop-Process -Id $processId -Force -ErrorAction Stop; Write-Output ('[OK] Closed TenderLoop local process ' + $processId) } catch { Write-Output ('[WARN] Could not close process ' + $processId) } }; Start-Sleep -Milliseconds 400; $remaining = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }); if ($remaining.Count -gt 0) { exit 1 }"
+if errorlevel 1 (
+    echo [WARN] A process is still using TenderLoop port 3000 or 3099.
+    if /i not "%SILENT%"=="SILENT" pause
+    exit /b 1
 )
 
-:: Matar tambien el helper de apertura de archivos (puerto 3099)
-set HELPER_PID=
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3099') do set HELPER_PID=%%a
-if defined HELPER_PID (
-    taskkill /f /pid %HELPER_PID% >nul 2>&1
-    echo [OK] Helper de archivos (puerto 3099) detenido.
-)
-
-echo ==========================================
-if /i not "%SILENT%"=="SILENT" timeout /t 3 >nul
+echo [OK] TenderLoop local ports are free.
+if /i not "%SILENT%"=="SILENT" timeout /t 2 >nul
 exit /b 0

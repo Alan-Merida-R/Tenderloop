@@ -358,20 +358,36 @@
           return;
         }
 
-        setStep(2, "Installing dependencies");
-        if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
-          logLine("[OK] Dependencies are already installed.");
-          verifyTenderLoop();
-        } else {
-          logLine("[INFO] Installing or repairing dependencies. npm will show progress here; this can take several minutes.");
-          runCommand("cd /d \"" + scriptDir + "\" && npm.cmd ci --include=dev --no-audit --no-fund", function (npmCode) {
-            if (npmCode !== 0) {
-              failInstall("npm ci failed. Check internet connection, proxy, or Node.js version.");
-              return;
-            }
-            verifyTenderLoop();
-          });
+        setStep(2, "Preparing local TenderLoop services");
+        var closer = scriptDir + "\\CERRAR_TENDERLOOP.bat";
+        if (!fso.FileExists(closer)) {
+          failInstall("CERRAR_TENDERLOOP.bat was not found in the installer folder.");
+          return;
         }
+        runCommand("call \"" + closer + "\" SILENT", function (closeCode) {
+          if (closeCode !== 0) {
+            failInstall("A previous TenderLoop process is still using a local port. Close that TenderLoop window and choose Install to retry.");
+            return;
+          }
+          setStep(2, "Installing dependencies");
+          if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
+            logLine("[OK] Dependencies are already installed.");
+            verifyTenderLoop();
+          } else {
+            logLine("[INFO] Installing or repairing dependencies. This can take several minutes and needs normal internet access to npm.");
+            // `npm install` repairs a partial dependency folder in place. Unlike
+            // npm ci it does not first delete every native binary, which avoids
+            // common EPERM failures from corporate antivirus scanners. The
+            // committed lockfile still pins the reviewed dependency versions.
+            runCommand("cd /d \"" + scriptDir + "\" && npm.cmd install --include=dev --no-audit --no-fund", function (npmCode) {
+              if (npmCode !== 0) {
+                failInstall("npm could not repair dependencies. Check the log for a corporate proxy, antivirus file lock, or Node.js issue; no administrator permission is required. Close other TenderLoop windows and choose Install to retry.");
+                return;
+              }
+              verifyTenderLoop();
+            });
+          }
+        });
       });
     }
 
