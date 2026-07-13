@@ -26,7 +26,8 @@ if defined PROGRAM_DIR if exist "%PROGRAM_DIR%\Uninstall TenderLoop.lnk" del /q 
 if defined PROGRAM_DIR rd "%PROGRAM_DIR%" >nul 2>&1
 echo [OK] TenderLoop shortcuts removed.
 
-echo [4/4] Keeping your data safe...
-echo [OK] Your database, Node.js installation, launcher, and TenderLoop source files were not changed.
+echo [4/4] Preparing complete folder removal...
+echo [OK] Your database and Node.js installation are not changed.
+echo [OK] The uninstaller window will close, then the complete TenderLoop folder will be removed.
 if "%FAILED%"=="1" exit /b 2
 exit /b 0
