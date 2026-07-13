@@ -53,6 +53,14 @@ private/
 .env.production.local
 
 # Local AI/editor permissions and generated Windows distribution files
+.ai/
+.agents/
 .claude/settings.local.json
+.claude/
+.gemini/
+AGENTS.md
+CLAUDE.md
+CODEX.md
+GEMINI.md
 dev-dist/
 TenderLoop.exe
