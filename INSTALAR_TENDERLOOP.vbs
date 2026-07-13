@@ -1,6 +1,6 @@
 Option Explicit
 
-Dim shell, fso, scriptDir, installerUi, setupMarker, exitCode
+Dim shell, fso, scriptDir, installerUi, setupMarker, exitCode, startedAt, setupCompleted
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -16,10 +16,14 @@ If Not fso.FileExists(installerUi) Then
 End If
 
 On Error Resume Next
-If fso.FileExists(setupMarker) Then fso.DeleteFile setupMarker, True
+startedAt = Now
 exitCode = shell.Run("mshta.exe """ & installerUi & """", 1, True)
+setupCompleted = False
+If fso.FileExists(setupMarker) Then
+    setupCompleted = (fso.GetFile(setupMarker).DateLastModified >= startedAt)
+End If
 
-If Err.Number <> 0 Or Not fso.FileExists(setupMarker) Then
+If Err.Number <> 0 Or Not setupCompleted Then
     MsgBox "TenderLoop setup did not finish." & vbCrLf & vbCrLf & _
         "No TenderLoop data was deleted." & vbCrLf & _
         "Your corporate security policy may have blocked the setup window (mshta.exe) or npm." & vbCrLf & vbCrLf & _
