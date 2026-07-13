@@ -22,77 +22,38 @@ function startUninstall(){
     return;
   }
   
-  var tempDir = fso.GetSpecialFolder(2);
-  var tempName = fso.GetTempName();
-  var logFile = tempDir + "\\" + tempName + ".log";
-  var doneFile = tempDir + "\\" + tempName + ".done";
-  var runnerFile = tempDir + "\\TenderLoop-uninstall-" + tempName + ".cmd";
-
-  var runner = fso.CreateTextFile(runnerFile, true);
-  runner.WriteLine("@echo off");
-  runner.WriteLine("call \"" + engine + "\" \"" + desktop + "\" \"" + menu + "\" > \"" + logFile + "\" 2>&1");
-  runner.WriteLine("set \"TL_EXIT=%errorlevel%\"");
-  runner.WriteLine("> \"" + doneFile + "\" echo %TL_EXIT%");
-  runner.Close();
-  shell.Run("cmd.exe /d /c \"\"" + runnerFile + "\"\"", 0, false);
+  // WScript.Shell.Exec exposes the process status directly. Do not use a
+  // second temporary "done" file: some Windows shells never created it,
+  // leaving the UI stuck even though the batch process had already finished.
+  var cleanupProcess;
+  try {
+    cleanupProcess = shell.Exec("cmd.exe /d /c call \"" + engine + "\" \"" + desktop + "\" \"" + menu + "\"");
+  } catch (err) {
+    log("[ERROR] Could not start cleanup: " + err.message);
+    done(false);
+    return;
+  }
   uninstallStartedAt = new Date().getTime();
 
-  var lastPos = 0;
   poll = window.setInterval(function(){
-    if (fso.FileExists(logFile)) {
-      try {
-        var file = fso.OpenTextFile(logFile, 1, false, -2);
-        var content = file.ReadAll();
-        file.Close();
-        if (content.length > lastPos) {
-          var newContent = content.substring(lastPos);
-          var lines = newContent.split(/\r?\n/);
-          for (var i = 0; i < lines.length - 1; i++) {
-            log(lines[i]);
-          }
-          lastPos = content.length - lines[lines.length - 1].length;
-        }
-      } catch (e) {}
-    }
-
-    if (fso.FileExists(doneFile)) {
+    if (cleanupProcess.Status !== 0) {
       window.clearInterval(poll);
-      var exitCode = 0;
       try {
-        var file = fso.OpenTextFile(doneFile, 1);
-        exitCode = parseInt(file.ReadLine(), 10);
-        file.Close();
+        var output = cleanupProcess.StdOut.ReadAll();
+        var lines = output.split(/\r?\n/);
+        for (var i = 0; i < lines.length; i++) if (lines[i]) log(lines[i]);
       } catch (e) {}
-
-      if (fso.FileExists(logFile)) {
-        try {
-          var file = fso.OpenTextFile(logFile, 1, false, -2);
-          var content = file.ReadAll();
-          file.Close();
-          if (content.length > lastPos) {
-            var lines = content.substring(lastPos).split(/\r?\n/);
-            for (var i = 0; i < lines.length; i++) {
-              if (lines[i] || i < lines.length - 1) log(lines[i]);
-            }
-          }
-        } catch (e) {}
-      }
-
-      try { fso.DeleteFile(logFile, true); } catch (e) {}
-      try { fso.DeleteFile(doneFile, true); } catch (e) {}
-      try { fso.DeleteFile(runnerFile, true); } catch (e) {}
-
       step(3,"Final checks complete");
-      done(exitCode === 0);
-      if(exitCode === 0) log("[INFO] Review this result, then select 'Close and remove'.");
-    } else if ((new Date().getTime() - uninstallStartedAt) > 45000) {
+      done(cleanupProcess.ExitCode === 0);
+      if(cleanupProcess.ExitCode === 0) log("[INFO] Review this result, then select 'Close and remove'.");
+    } else if ((new Date().getTime() - uninstallStartedAt) > 15000) {
       window.clearInterval(poll);
-      log("[ERROR] Cleanup did not return within 45 seconds. It was stopped to avoid waiting indefinitely.");
+      log("[ERROR] Cleanup did not return within 15 seconds. Close this window and try again after closing any remaining TenderLoop window.");
       e("status").innerText="Cleanup needs attention";
       e("remaining").innerText="Review the log, then close this window";
       e("close").innerText="Close";
       e("close").disabled=false;
-    } else if (e("log").value.length > 80) {
+    } else {
       step(2,"Removing TenderLoop files");
     }
   }, 250);

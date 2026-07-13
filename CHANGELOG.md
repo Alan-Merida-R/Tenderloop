@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- The uninstaller now monitors the cleanup batch process directly instead of waiting for a completion file. This removes the remaining false timeout at step 2; it reports the batch output when it finishes and times out visibly after 15 seconds only if that actual process is still running.
 - Installer and uninstaller command execution now uses temporary command runners with explicit log and completion files. This fixes the broken nested command redirection that could install dependencies in the wrong directory (leaving Vite missing) or leave the uninstaller stuck on a remaining-steps message.
 - The normal launcher now rejects a stale frontend on port `3000` unless the current TenderLoop helper also responds on `3099`; it closes that old instance and starts the installed version.
 - The uninstaller no longer uses the WMI process query that could hang indefinitely on some Windows installations. It now closes TenderLoop's local services by their reserved ports and shows a visible timeout after 45 seconds instead of waiting forever.
