@@ -44,10 +44,11 @@ export default defineConfig(({ mode }) => {
             navigateFallbackDenylist: [/^\/api\//],
           },
           devOptions: {
-            // TenderLoop is distributed as a local Windows application. Enable
-            // the service worker on localhost too, so Edge can install it as a
-            // PWA with the TenderLoop manifest/icon instead of a browser tab.
-            enabled: true,
+            // TenderLoop's Windows launcher uses Vite's development server.
+            // A development service worker with autoUpdate causes repeated
+            // reloads as Vite regenerates files. Keep it off here; production
+            // builds still generate and register the PWA service worker.
+            enabled: false,
             type: 'module',
           },
         }),

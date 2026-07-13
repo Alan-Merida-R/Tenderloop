@@ -67,6 +67,10 @@ The backend work is now part of `main` and is the base for this beta:
 - The installer uses the lockfile through `npm ci`.
 - PDF and transitive dependency vulnerabilities identified by npm audit were updated. See `docs/security.md` for the remaining `xlsx` export-only advisory and security boundaries.
 
+## Stability
+
+- The PWA service worker is disabled while running the local Vite development server used by the Windows launcher. This prevents automatic development updates from repeatedly reloading the application; production builds still include the PWA service worker.
+
 ## Publishing rules
 
 This branch includes the source code, scripts, documentation and `TenderLoop.exe` required by the Windows installer. It deliberately excludes local editor permissions (`.claude/settings.local.json`) and generated development artifacts (`dev-dist/`).
