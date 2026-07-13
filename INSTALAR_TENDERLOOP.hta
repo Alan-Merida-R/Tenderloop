@@ -259,29 +259,61 @@
       var tempDir = fso.GetSpecialFolder(2);
       var tempName = fso.GetTempName();
       var logFile = tempDir + "\\" + tempName + ".log";
+      var doneFile = tempDir + "\\" + tempName + ".done";
       var runnerFile = tempDir + "\\TenderLoop-install-" + tempName + ".cmd";
 
-      // Run through a temporary .cmd file, but monitor that process directly.
-      // A separate .done file was unreliable on locked-down Windows systems
-      // and made the installer appear to wait forever after a command ended.
+      // Run commands hidden so npm never opens a distracting terminal window.
+      // The temporary runner writes its own exit code; the HTA remains visible
+      // and keeps reporting progress while the background work continues.
       var runner = fso.CreateTextFile(runnerFile, true);
       runner.WriteLine("@echo off");
       runner.WriteLine("(");
       runner.WriteLine(command);
       runner.WriteLine(") > \"" + logFile + "\" 2>&1");
-      runner.WriteLine("exit /b %errorlevel%");
+      runner.WriteLine("> \"" + doneFile + "\" echo %errorlevel%");
       runner.Close();
-      var commandProcess;
       try {
-        commandProcess = shell.Exec("cmd.exe /d /c \"\"" + runnerFile + "\"\"");
+        shell.Run("cmd.exe /d /c \"\"" + runnerFile + "\"\"", 0, false);
       } catch (err) {
         failInstall("Could not start a setup step: " + err.message);
         return;
       }
 
+      var lastPos = 0;
+      var startedAt = new Date().getTime();
       pollTimer = window.setInterval(function () {
-        if (commandProcess.Status !== 0) {
+        if (fso.FileExists(logFile)) {
+          try {
+            var progressFile = fso.OpenTextFile(logFile, 1, false, -2);
+            var progress = progressFile.ReadAll();
+            progressFile.Close();
+            if (progress.length > lastPos) {
+              var newLines = progress.substring(lastPos).split(/\r?\n/);
+              for (var j = 0; j < newLines.length - 1; j++) if (newLines[j]) logLine(newLines[j]);
+              lastPos = progress.length - newLines[newLines.length - 1].length;
+            }
+          } catch (e) {}
+        }
+
+        var elapsedSeconds = Math.floor((new Date().getTime() - startedAt) / 1000);
+        if (elapsedSeconds > 0 && elapsedSeconds % 5 === 0) {
+          el("remaining").innerText = "Still working (" + elapsedSeconds + " seconds)";
+        }
+
+        if (elapsedSeconds >= 900) {
           window.clearInterval(pollTimer);
+          failInstall("This setup step did not finish within 15 minutes. The log above shows the last response; check for a corporate proxy, antivirus lock, or blocked npm access.");
+          return;
+        }
+
+        if (fso.FileExists(doneFile)) {
+          window.clearInterval(pollTimer);
+          var exitCode = 1;
+          try {
+            var done = fso.OpenTextFile(doneFile, 1);
+            exitCode = parseInt(done.ReadLine(), 10);
+            done.Close();
+          } catch (e) {}
           if (fso.FileExists(logFile)) {
             try {
               var file = fso.OpenTextFile(logFile, 1, false, -2);
@@ -293,9 +325,10 @@
           }
 
           try { fso.DeleteFile(logFile, true); } catch (e) {}
+          try { fso.DeleteFile(doneFile, true); } catch (e) {}
           try { fso.DeleteFile(runnerFile, true); } catch (e) {}
 
-          onDone(commandProcess.ExitCode);
+          onDone(exitCode);
         }
       }, 250);
     }
@@ -379,7 +412,7 @@
       var desktop = shell.SpecialFolders("Desktop");
       var programs = shell.SpecialFolders("Programs");
       var appFolder = programs + "\\TenderLoop";
-      var launcherPath = scriptDir + "\\LANZAR_TENDERLOOP.vbs";
+      var launcherPath = scriptDir + "\\ABRIR_TENDERLOOP.vbs";
       if (!fso.FolderExists(appFolder)) fso.CreateFolder(appFolder);
       // Use the VBS launcher directly. Some corporate EDR products quarantine
       // unsigned helper EXEs that only start scripts; this launcher opens the
