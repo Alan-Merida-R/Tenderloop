@@ -58,9 +58,7 @@ private/
 .claude/settings.local.json
 .claude/
 .gemini/
-AGENTS.md
 CLAUDE.md
 CODEX.md
 GEMINI.md
 dev-dist/
-TenderLoop.exe

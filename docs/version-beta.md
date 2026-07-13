@@ -62,4 +62,4 @@ The backend work is now part of `main` and is the base for this beta:
 
 ## Publishing rules
 
-This branch includes source code, scripts, documentation and project state needed to reproduce the beta. It deliberately excludes local editor permissions (`.claude/settings.local.json`) and generated distribution artifacts (`dev-dist/`, `TenderLoop.exe`), which are not source-of-truth project files.
+This branch includes the source code, scripts, documentation and `TenderLoop.exe` required by the Windows installer. It deliberately excludes local editor permissions (`.claude/settings.local.json`) and generated development artifacts (`dev-dist/`).
