@@ -1,15 +1,22 @@
+Option Explicit
+
+Dim WshShell, fso, scriptDir, batPath, installerUi, viteLauncher, setupMarker
+
 Set WshShell = CreateObject("Wscript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 batPath = scriptDir & "\motor_tenderloop.bat"
 installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
+viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
+setupMarker = scriptDir & "\.tenderloop-setup-complete"
 
-If fso.FolderExists(scriptDir & "\node_modules") Then
+If fso.FileExists(viteLauncher) And fso.FileExists(setupMarker) Then
     ' Normal run: hidden console, only the app window is visible.
     WshShell.Run """" & batPath & """ HIDDEN", 0, False
 Else
-    ' First run: show the Windows-style installer.
+    ' First run or an incomplete installation: always show the Windows-style
+    ' installer instead of silently attempting to launch a broken app.
     If fso.FileExists(installerUi) Then
         WshShell.Run "mshta.exe """ & installerUi & """", 1, False
     Else

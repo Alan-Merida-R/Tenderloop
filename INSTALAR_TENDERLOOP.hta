@@ -206,6 +206,14 @@
     var currentExec = null;
     var pollTimer = null;
     var stepIndex = 0;
+    var launchAttempt = 0;
+
+    window.onerror = function (message, url, line) {
+      var detail = "Setup encountered an unexpected error. Please keep this window open and report: " + message + " (line " + line + ")";
+      try { logLine("[ERROR] " + detail); } catch (ignore) {}
+      alert(detail);
+      return true;
+    };
 
     window.resizeTo(740, 560);
     window.moveTo((screen.width - 740) / 2, (screen.height - 560) / 2);
@@ -388,6 +396,12 @@
       logLine("[OK] Desktop shortcut created.");
       logLine("[OK] Start Menu shortcuts created.");
 
+      // The launcher requires this marker in addition to Vite. It prevents a
+      // partial node_modules folder from bypassing this visible setup flow.
+      var marker = fso.CreateTextFile(scriptDir + "\\.tenderloop-setup-complete", true);
+      marker.WriteLine("TenderLoop setup completed successfully.");
+      marker.Close();
+
       setStep(5, "Setup complete");
       el("remaining").innerText = "0 steps remaining";
       el("bar").style.width = "100%";
@@ -397,11 +411,48 @@
     }
 
     function openApp() {
-      shell.Run("\"" + scriptDir + "\\TenderLoop.exe\"", 1, false);
-      el("status").innerText = "TenderLoop was opened";
-      el("remaining").innerText = "You may close this setup window";
-      logLine("[OK] TenderLoop was started. Setup stays open so you can confirm the result.");
+      var launcher = scriptDir + "\\LANZAR_TENDERLOOP.vbs";
+      if (!fso.FileExists(launcher)) {
+        failInstall("LANZAR_TENDERLOOP.vbs was not found after setup.");
+        return;
+      }
       el("openBtn").disabled = true;
+      el("closeBtn").disabled = true;
+      setStep(5, "Starting TenderLoop");
+      el("remaining").innerText = "Checking the local application";
+      logLine("[INFO] Starting TenderLoop in the background. No terminal window is needed.");
+      shell.Run("wscript.exe \"" + launcher + "\"", 1, false);
+      launchAttempt = 0;
+      window.setTimeout(checkAppStarted, 1000);
+    }
+
+    function checkAppStarted() {
+      var started = false;
+      try {
+        var request = new ActiveXObject("MSXML2.XMLHTTP");
+        request.open("GET", "http://127.0.0.1:3000", false);
+        request.send();
+        started = request.status >= 200 && request.status < 500;
+      } catch (ignore) {}
+
+      if (started) {
+        el("status").innerText = "TenderLoop started successfully";
+        el("remaining").innerText = "You may close this setup window";
+        el("bar").style.width = "100%";
+        logLine("[OK] TenderLoop is running. The application window should now be open.");
+        alert("TenderLoop started successfully. You can now close this setup window.");
+        el("closeBtn").disabled = false;
+        return;
+      }
+
+      launchAttempt++;
+      if (launchAttempt >= 30) {
+        failInstall("TenderLoop did not start within 30 seconds. No terminal is required: use the log above to identify the failed step, then choose Install to retry.");
+        return;
+      }
+
+      el("remaining").innerText = "Waiting for TenderLoop to start (" + launchAttempt + "/30)";
+      window.setTimeout(checkAppStarted, 1000);
     }
   </script>
 </body>
