@@ -5,6 +5,7 @@ Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 uninstallerUi = scriptDir & "\DESINSTALAR_TENDERLOOP.hta"
+shell.Environment("PROCESS")("TENDERLOOP_ROOT") = scriptDir
 
 If Not fso.FileExists(uninstallerUi) Then
     MsgBox "DESINSTALAR_TENDERLOOP.hta was not found in this folder." & vbCrLf & scriptDir, vbCritical, "TenderLoop Uninstaller"

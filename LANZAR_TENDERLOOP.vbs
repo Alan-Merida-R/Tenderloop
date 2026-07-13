@@ -10,6 +10,7 @@ batPath = scriptDir & "\motor_tenderloop.bat"
 installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
 viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
 setupMarker = scriptDir & "\.tenderloop-setup-complete"
+WshShell.Environment("PROCESS")("TENDERLOOP_ROOT") = scriptDir
 
 If fso.FileExists(viteLauncher) And fso.FileExists(setupMarker) Then
     ' Normal run: hidden console, only the app window is visible.

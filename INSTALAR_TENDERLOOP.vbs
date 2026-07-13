@@ -7,6 +7,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
+shell.Environment("PROCESS")("TENDERLOOP_ROOT") = scriptDir
 
 If Not fso.FileExists(installerUi) Then
     MsgBox "INSTALAR_TENDERLOOP.hta was not found in this folder." & vbCrLf & scriptDir, vbCritical, "TenderLoop Installer"
