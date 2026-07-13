@@ -339,12 +339,12 @@
         }
 
         setStep(2, "Installing dependencies");
-        if (fso.FolderExists(scriptDir + "\\node_modules")) {
+        if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
           logLine("[OK] Dependencies are already installed.");
           verifyTenderLoop();
         } else {
-          logLine("[INFO] npm will show download progress here. This can take several minutes.");
-          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm install --no-audit --no-fund", function (npmCode) {
+          logLine("[INFO] Installing or repairing dependencies. npm will show progress here; this can take several minutes.");
+          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm install --include=dev --no-audit --no-fund", function (npmCode) {
             if (npmCode !== 0) {
               failInstall("npm install failed. Check internet connection, proxy, or Node.js version.");
               return;

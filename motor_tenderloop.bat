@@ -60,11 +60,15 @@ if %errorlevel% neq 0 (
 :: --- Install dependencies if needed ---
 if "%MODE%"=="VISIBLE" echo [3/5] Checking dependencies... 2 steps remaining.
 if "%MODE%"=="INSTALL" echo [3/5] Checking dependencies... 2 steps remaining.
-if not exist node_modules (
+:: A partially installed node_modules folder is not usable. Check the launcher
+:: that TenderLoop actually needs instead of treating the folder as success.
+if not exist "node_modules\.bin\vite.cmd" (
     if not "%MODE%"=="HIDDEN" echo.
-    echo [INFO] Installing dependencies for the first time. This can take several minutes.
+    echo [INFO] Installing or repairing dependencies. This can take several minutes.
     if not "%MODE%"=="HIDDEN" echo [INFO] npm will show download progress below. After this, 2 setup steps remain.
-    call npm install --no-audit --no-fund
+    :: Vite is required to run the local application. --include=dev keeps it
+    :: available even when a corporate PC has NODE_ENV=production configured.
+    call npm install --include=dev --no-audit --no-fund
     if errorlevel 1 (
         if not "%MODE%"=="HIDDEN" (
             echo.
