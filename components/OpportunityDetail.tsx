@@ -2566,6 +2566,37 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onUpdate(updated, opportunity.id, true); // true = immediate
     };
 
+    /**
+     * Adds a note and selects it as one synchronous operation.  Creating the
+     * note through handleFieldChange and immediately selecting it used two
+     * independent React updates.  On a busy render the selection could win,
+     * making the editor look up an id that was not in its local notes yet.
+     * That is why templates and the SOW needed a second click.
+     */
+    const addAndSelectNote = (newNote: MeetingNote) => {
+        if (viewingVersionId) return;
+
+        // Preserve the note the user is leaving before replacing its selection.
+        flushActiveNoteNow();
+
+        // flushActiveNoteNow can synchronously update the ref, so use it as the
+        // source of truth rather than the render's possibly older localOpp.
+        const base = localOppRef.current;
+        const updated: Opportunity = {
+            ...base,
+            notes: [newNote, ...base.notes],
+            lastUpdated: new Date().toISOString(),
+        };
+
+        // Keep both the state and its synchronous companion ref aligned.  The
+        // selection effect can therefore always find the newly-created note on
+        // the first click, even before React completes its next render.
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+        setSelectedNoteId(newNote.id);
+    };
+
     const normalizedQuickLinks = useMemo(() => normalizeQuickLinks(localOpp.links), [localOpp.links]);
 
     // All default quick links â€” locked (SRLink, BFO, CQA) and unlocked (Folder, BA, GEET)
@@ -3399,14 +3430,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             ...(parentId ? { parentId } : {}),
             ...(folderId ? { folderId } : {}),
         };
-        // DATA-LOSS FIX: immediate=true skips handleFieldChange's startTransition.
-        // Without it, setSelectedNoteId (synchronous) could commit and select the new
-        // note's id in a render where the transitioned localOpp.notes update hasn't
-        // landed yet â€” the lazy-load effect would then read the note as missing,
-        // latch activeNoteHtml to '', and never re-sync once the transition resolves,
-        // permanently dropping any template content the note was created with.
-        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
-        setSelectedNoteIdSafe(newNote.id);
+        addAndSelectNote(newNote);
     };
 
     const addGeneratedSowNote = (note: { title?: string; content?: string }) => {
@@ -3419,8 +3443,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             content: note.content || '',
             inlineTasks: [],
         };
-        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
-        setSelectedNoteIdSafe(newNote.id);
+        addAndSelectNote(newNote);
     };
 
     // Older opportunities predate the auto-created SOW note (only new ones get it â€” see App.tsx
@@ -3435,8 +3458,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             content: '',
             format: 'sow',
         };
-        handleFieldChange('notes', [newNote, ...localOpp.notes], true);
-        setSelectedNoteIdSafe(newNote.id);
+        addAndSelectNote(newNote);
     };
 
     const deleteNote = (noteId: string) => {
@@ -5092,11 +5114,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
      */
     const handleExportNotePDF = async (note: MeetingNote) => {
         if (!note) return;
+        // Capture a just-typed character or form-field change before building
+        // the PDF. The editor deliberately buffers edits for responsiveness,
+        // so the note received by this click handler can otherwise be older
+        // than what is visibly on screen.
+        flushActiveNoteNow();
+        const noteToExport = localOppRef.current.notes.find(n => n.id === note.id) || note;
         const { jsPDF } = await loadPdfLibs();
         const doc = new jsPDF({ unit: 'pt', format: 'a4' });
         const pageWidthPt = doc.internal.pageSize.getWidth();
         const opportunityName = localOpp.title.replace(/[/\\?%*:|"<>]/g, '-');
-        const noteTitle = note.title.replace(/[/\\?%*:|"<>]/g, '-');
+        const noteTitle = noteToExport.title.replace(/[/\\?%*:|"<>]/g, '-');
         const fileName = `Note_${opportunityName}_${noteTitle}.pdf`;
 
         // Offscreen container replicating the editor's look (see .editor-content
@@ -5114,19 +5142,26 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 .pdf-note a { color: #3b82f6; text-decoration: underline; }
                 .pdf-note table { border-collapse: collapse; width: 100%; margin: 1em 0; border: 1px solid #ccc; }
                 .pdf-note td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
+                .pdf-note th { border: 1px solid #ccc; padding: 8px; min-width: 50px; font-weight: bold; background: #f9fafb; }
                 .pdf-note h1 { font-size: 1.5em; font-weight: bold; margin: 0.5em 0 0.25em; }
+                .pdf-note h2 { font-size: 1.3em; font-weight: bold; margin: 0.75em 0 0.3em; }
+                .pdf-note h3 { font-size: 1.15em; font-weight: bold; margin: 0.7em 0 0.25em; }
                 .pdf-note hr { border: none; border-top: 2px solid #e5e7eb; margin: 1.25em 0; }
                 .pdf-note img { max-width: 100%; height: auto; }
+                .pdf-note blockquote { border-left: 3px solid #d1d5db; color: #4b5563; margin: 0.75em 0; padding-left: 1em; }
+                .pdf-note pre { background: #f3f4f6; border-radius: 4px; overflow-wrap: anywhere; padding: 0.75em; white-space: pre-wrap; }
+                .pdf-note input[type="checkbox"] { appearance: auto; margin-right: 0.35em; vertical-align: middle; }
+                .pdf-note input, .pdf-note textarea, .pdf-note select { font: inherit; max-width: 100%; }
                 .pdf-note .question-highlight { border-bottom: 2px solid #3DCD58; background-color: rgba(61,205,88,0.1); font-weight: 500; }
                 .pdf-note p { margin: 0.35em 0; }
             </style>
             <div style="background:#3DCD58;color:#ffffff;padding:14px 18px;font-weight:bold;font-size:15px;">Meeting Note Output</div>
             <div style="padding:18px 4px 0;">
-                <div style="font-size:22px;font-weight:800;color:#111827;margin-bottom:6px;">${esc(note.title || 'Untitled Note')}</div>
+                <div style="font-size:22px;font-weight:800;color:#111827;margin-bottom:6px;">${esc(noteToExport.title || 'Untitled Note')}</div>
                 <div style="font-size:11px;color:#6b7280;">${esc(localOpp.id)} â€” ${esc(localOpp.title)}</div>
-                <div style="font-size:11px;color:#6b7280;margin-bottom:10px;">Date: ${esc(note.date || 'N/A')}</div>
+                <div style="font-size:11px;color:#6b7280;margin-bottom:10px;">Date: ${esc(noteToExport.date || 'N/A')}</div>
                 <hr style="border:none;border-top:2px solid #e5e7eb;margin:10px 0 16px;" />
-                <div class="pdf-note">${note.content || '<p style="color:#9ca3af;font-style:italic;">(Empty note)</p>'}</div>
+                <div class="pdf-note">${sanitizeHtml(noteToExport.content) || '<p>(Empty note)</p>'}</div>
             </div>`;
         document.body.appendChild(container);
 
