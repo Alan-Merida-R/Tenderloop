@@ -314,14 +314,6 @@
       shortcut.Save();
     }
 
-    function hideSupportFile(name) {
-      var path = scriptDir + "\\" + name;
-      if (fso.FileExists(path)) {
-        var file = fso.GetFile(path);
-        file.Attributes = file.Attributes | 2;
-      }
-    }
-
     function startInstall() {
       el("installBtn").disabled = true;
       el("openBtn").disabled = true;
@@ -395,12 +387,6 @@
       createShortcut(desktop + "\\TenderLoop.lnk", launcherPath, "Open TenderLoop", "Ctrl+Alt+T", scriptDir + "\\tenderloop.ico");
       createShortcut(appFolder + "\\TenderLoop.lnk", launcherPath, "Open TenderLoop", "Ctrl+Alt+T", scriptDir + "\\tenderloop.ico");
       createShortcut(appFolder + "\\Uninstall TenderLoop.lnk", scriptDir + "\\DESINSTALAR_TENDERLOOP.vbs", "Remove TenderLoop local files and shortcuts", null, "%SystemRoot%\\System32\\shell32.dll,167");
-      hideSupportFile("INSTALAR_TENDERLOOP.hta");
-      hideSupportFile("DESINSTALAR_TENDERLOOP.hta");
-      hideSupportFile("DESINSTALAR_TENDERLOOP.bat");
-      hideSupportFile("motor_tenderloop.bat");
-      hideSupportFile("_open_browser.bat");
-      hideSupportFile("tenderloop.ico");
       logLine("[OK] Desktop shortcut created.");
       logLine("[OK] Start Menu shortcuts created.");
 
