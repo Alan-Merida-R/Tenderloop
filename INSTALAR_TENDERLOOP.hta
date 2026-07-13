@@ -257,68 +257,43 @@
       var tempDir = fso.GetSpecialFolder(2);
       var tempName = fso.GetTempName();
       var logFile = tempDir + "\\" + tempName + ".log";
-      var doneFile = tempDir + "\\" + tempName + ".done";
       var runnerFile = tempDir + "\\TenderLoop-install-" + tempName + ".cmd";
 
-      // Run the command through a temporary .cmd file. Nested `cmd /c`, `&&`
-      // and redirection previously made npm run from the wrong folder and
-      // sometimes prevented the completion file from being written at all.
+      // Run through a temporary .cmd file, but monitor that process directly.
+      // A separate .done file was unreliable on locked-down Windows systems
+      // and made the installer appear to wait forever after a command ended.
       var runner = fso.CreateTextFile(runnerFile, true);
       runner.WriteLine("@echo off");
       runner.WriteLine("(");
       runner.WriteLine(command);
       runner.WriteLine(") > \"" + logFile + "\" 2>&1");
-      runner.WriteLine("set \"TL_EXIT=%errorlevel%\"");
-      runner.WriteLine("> \"" + doneFile + "\" echo %TL_EXIT%");
+      runner.WriteLine("exit /b %errorlevel%");
       runner.Close();
-      shell.Run("cmd.exe /d /c \"\"" + runnerFile + "\"\"", 0, false);
+      var commandProcess;
+      try {
+        commandProcess = shell.Exec("cmd.exe /d /c \"\"" + runnerFile + "\"\"");
+      } catch (err) {
+        failInstall("Could not start a setup step: " + err.message);
+        return;
+      }
 
-      var lastPos = 0;
       pollTimer = window.setInterval(function () {
-        if (fso.FileExists(logFile)) {
-          try {
-            var file = fso.OpenTextFile(logFile, 1, false, -2);
-            var content = file.ReadAll();
-            file.Close();
-            if (content.length > lastPos) {
-              var newContent = content.substring(lastPos);
-              var lines = newContent.split(/\r?\n/);
-              for (var i = 0; i < lines.length - 1; i++) {
-                logLine(lines[i]);
-              }
-              lastPos = content.length - lines[lines.length - 1].length;
-            }
-          } catch (e) {}
-        }
-
-        if (fso.FileExists(doneFile)) {
+        if (commandProcess.Status !== 0) {
           window.clearInterval(pollTimer);
-          var exitCode = 0;
-          try {
-            var file = fso.OpenTextFile(doneFile, 1);
-            exitCode = parseInt(file.ReadLine(), 10);
-            file.Close();
-          } catch (e) {}
-
           if (fso.FileExists(logFile)) {
             try {
               var file = fso.OpenTextFile(logFile, 1, false, -2);
               var content = file.ReadAll();
               file.Close();
-              if (content.length > lastPos) {
-                var lines = content.substring(lastPos).split(/\r?\n/);
-                for (var i = 0; i < lines.length; i++) {
-                  if (lines[i] || i < lines.length - 1) logLine(lines[i]);
-                }
-              }
+              var lines = content.split(/\r?\n/);
+              for (var i = 0; i < lines.length; i++) if (lines[i]) logLine(lines[i]);
             } catch (e) {}
           }
 
           try { fso.DeleteFile(logFile, true); } catch (e) {}
-          try { fso.DeleteFile(doneFile, true); } catch (e) {}
           try { fso.DeleteFile(runnerFile, true); } catch (e) {}
 
-          onDone(exitCode);
+          onDone(commandProcess.ExitCode);
         }
       }, 250);
     }

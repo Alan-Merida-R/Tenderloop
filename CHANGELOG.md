@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- The installer now monitors each setup command process directly, just like the repaired uninstaller. It no longer relies on a temporary completion file that could fail to appear and leave setup waiting indefinitely; command output is shown when the step completes.
 - The port cleanup now uses Windows' local listener API rather than parsing `netstat`, and correctly avoids PowerShell's reserved `$PID` variable. It closes only the processes listening on TenderLoop ports `3000` and `3099`, without administrator rights.
 - Before repairing dependencies, the installer clears those TenderLoop ports. It now uses in-place `npm install` recovery rather than a destructive `npm ci`, which is more resilient to corporate antivirus locks on native package files while still validating that Vite was created.
 - The uninstaller now monitors the cleanup batch process directly instead of waiting for a completion file. This removes the remaining false timeout at step 2; it reports the batch output when it finishes and times out visibly after 15 seconds only if that actual process is still running.
