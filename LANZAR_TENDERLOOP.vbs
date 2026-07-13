@@ -18,8 +18,8 @@ If fso.FileExists(viteLauncher) And fso.FileExists(setupMarker) Then
 Else
     ' First run or an incomplete installation: always show the Windows-style
     ' installer instead of silently attempting to launch a broken app.
-    If fso.FileExists(installerUi) Then
-        WshShell.Run "mshta.exe """ & installerUi & """", 1, False
+    If fso.FileExists(scriptDir & "\INSTALAR_TENDERLOOP.vbs") Then
+        WshShell.Run "wscript.exe """ & scriptDir & "\INSTALAR_TENDERLOOP.vbs""", 1, False
     Else
         WshShell.Run """" & batPath & """ VISIBLE", 1, False
     End If

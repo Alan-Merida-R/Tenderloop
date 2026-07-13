@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- The VBS installer now waits for setup to complete and verifies its completion marker. If the HTA setup window is blocked or closes prematurely, it shows a clear corporate-security diagnostic instead of failing silently; the normal launcher routes incomplete setups through this verified path.
 - Setup no longer marks its installer, uninstaller or launcher support files as hidden. They remain visible in Explorer so a completed installation cannot look like files were deleted.
 - Installer and uninstaller windows now receive the real folder path from their VBS launchers instead of relying solely on the HTA virtual path. This prevents shortcuts from being created with an invalid sandbox-like path.
 - Desktop and Start Menu shortcuts now launch `LANZAR_TENDERLOOP.vbs` directly rather than depending on the optional unsigned helper EXE. This keeps the no-terminal experience working when corporate security software quarantines that helper.
