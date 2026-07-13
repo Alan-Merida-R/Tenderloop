@@ -13,16 +13,19 @@
   },
   "dependencies": {
     "@kenjiuno/msgreader": "^1.28.0",
+    "@xmldom/xmldom": "0.8.13",
     "@xyflow/react": "^12.10.2",
     "buffer": "^6.0.3",
     "docx": "^9.6.1",
+    "dompurify": "^3.4.12",
     "express": "^5.2.1",
-    "jspdf": "2.5.1",
-    "jspdf-autotable": "3.8.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.561.0",
     "mammoth": "^1.12.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "underscore": "1.13.8",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

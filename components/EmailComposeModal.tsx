@@ -14,6 +14,7 @@ import {
 } from '../services/emailComposer';
 import type { ComposeManualFields, EmailRecipient } from '../services/emailComposer';
 import { composeOutlookDraft } from '../services/emailDraftService';
+import { sanitizeHtml } from '../services/sanitizeHtml';
 import { getFolderHandleForRevision, getRootPathDisplayForRevision } from '../services/opportunityFolderLink';
 import { listDirectory, toAbsolutePath } from '../features/opportunity-folder/fileOps';
 import type { FileItem } from '../features/opportunity-folder/types';
@@ -591,7 +592,7 @@ export const EmailComposeModal: React.FC<Props> = ({
     useEffect(() => {
         if (!bodyRef.current) return;
         if (!bodyDirty) {
-            bodyRef.current.innerHTML = draft.bodyHtml;
+            bodyRef.current.innerHTML = sanitizeHtml(draft.bodyHtml);
             snapshotBlockBaselines();
         } else {
             syncBlocks(draft.bodyHtml);
@@ -615,7 +616,7 @@ export const EmailComposeModal: React.FC<Props> = ({
         setBodyDirty(false);
         setSubjectDirty(false);
         setRegenCounter(c => c + 1);
-        if (bodyRef.current) bodyRef.current.innerHTML = draft.bodyHtml;
+        if (bodyRef.current) bodyRef.current.innerHTML = sanitizeHtml(draft.bodyHtml);
     };
 
     const handleOpenInOutlook = async () => {

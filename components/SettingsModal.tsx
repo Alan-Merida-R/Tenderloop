@@ -5,6 +5,7 @@ import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLOR
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
 import { playSound } from '../services/soundService';
+import { sanitizeHtml } from '../services/sanitizeHtml';
 import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
 import {
   mergeEmailComposeSettings, resolveTemplates, variablesForKind,
@@ -1475,7 +1476,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                       <label className="text-[9px] font-bold text-gray-400 uppercase">Preview (raw variables)</label>
                       <div
                         className="mt-1 bg-white border border-gray-200 rounded-lg p-3 text-xs max-h-48 overflow-y-auto"
-                        dangerouslySetInnerHTML={{ __html: selectedEmailTemplate.bodyHtml }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedEmailTemplate.bodyHtml) }}
                       />
                     </div>
                   </div>

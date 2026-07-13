@@ -4,6 +4,7 @@ import { X, FileText, CheckSquare, ChevronRight, ArrowLeft, Calendar, User, Tag,
 import { Opportunity, Task, MeetingNote } from '../../types';
 import { DocMeta } from '../../services/opportunityDocMetaStore';
 import { TASK_STATUS_COLORS } from '../../types';
+import { sanitizeHtml } from '../../services/sanitizeHtml';
 
 interface Props {
   opportunity: Opportunity;
@@ -93,7 +94,7 @@ export const LinkedItemsPanel: React.FC<Props> = ({ opportunity, meta, fileKey, 
         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Content (Read-only view for preview)</label>
         <div 
           className="bg-white border border-gray-100 rounded-2xl p-4 overflow-y-auto h-full prose prose-sm max-w-none text-gray-700"
-          dangerouslySetInnerHTML={{ __html: note.content }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(note.content) }}
         />
       </div>
       <div className="bg-emerald-50 p-3 rounded-xl flex items-center gap-2 border border-emerald-100">

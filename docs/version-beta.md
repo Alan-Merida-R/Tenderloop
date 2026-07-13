@@ -60,6 +60,13 @@ The backend work is now part of `main` and is the base for this beta:
 - This beta will be checked with the production build and server TypeScript validation before publication.
 - Manual UI validation remains appropriate for: the six Outlook draft flows, custom templates, SOW global-library synchronization, folder permissions and the Windows install/uninstall experience.
 
+## Security hardening
+
+- The local application and backend are restricted to loopback and trusted TenderLoop browser origins.
+- HTML rendered from imported or user-provided content is sanitized.
+- The installer uses the lockfile through `npm ci`.
+- PDF and transitive dependency vulnerabilities identified by npm audit were updated. See `docs/security.md` for the remaining `xlsx` export-only advisory and security boundaries.
+
 ## Publishing rules
 
 This branch includes the source code, scripts, documentation and `TenderLoop.exe` required by the Windows installer. It deliberately excludes local editor permissions (`.claude/settings.local.json`) and generated development artifacts (`dev-dist/`).

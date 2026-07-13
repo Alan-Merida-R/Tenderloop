@@ -9,7 +9,10 @@ export default defineConfig(({ mode }) => {
     return {
       server: {
         port: 3000,
-        host: '0.0.0.0',
+        // TenderLoop is a single-user local application. Do not expose the
+        // development/PWA server to the local network.
+        host: '127.0.0.1',
+        allowedHosts: ['localhost', '127.0.0.1'],
       },
       plugins: [
         react(),

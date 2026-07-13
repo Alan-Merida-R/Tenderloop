@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Mail, UploadCloud, ClipboardPaste, X, AlertTriangle, CheckCircle, FileText, ArrowLeft, Sparkles } from 'lucide-react';
 import { parseSrEmail, buildSrPrefill, isSrEmail, SrPrefill } from '../services/srEmailParser';
 import { readEmailFile } from '../services/emailFileReader';
+import { sanitizeHtml } from '../services/sanitizeHtml';
 
 interface Props {
     isOpen: boolean;
@@ -259,7 +260,7 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
                                     <span className="text-[10px] text-gray-400 font-bold">{showNotePreview ? 'Hide' : 'Preview'}</span>
                                 </button>
                                 {showNotePreview && (
-                                    <div className="p-3 text-xs text-gray-600 max-h-48 overflow-y-auto prose prose-xs" dangerouslySetInnerHTML={{ __html: prefill.noteHtml }} />
+                                    <div className="p-3 text-xs text-gray-600 max-h-48 overflow-y-auto prose prose-xs" dangerouslySetInnerHTML={{ __html: sanitizeHtml(prefill.noteHtml) }} />
                                 )}
                             </div>
 

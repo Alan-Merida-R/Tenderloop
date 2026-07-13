@@ -344,9 +344,9 @@
           verifyTenderLoop();
         } else {
           logLine("[INFO] Installing or repairing dependencies. npm will show progress here; this can take several minutes.");
-          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm install --include=dev --no-audit --no-fund", function (npmCode) {
+          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm ci --include=dev --no-audit --no-fund", function (npmCode) {
             if (npmCode !== 0) {
-              failInstall("npm install failed. Check internet connection, proxy, or Node.js version.");
+              failInstall("npm ci failed. Check internet connection, proxy, or Node.js version.");
               return;
             }
             verifyTenderLoop();

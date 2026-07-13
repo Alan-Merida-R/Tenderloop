@@ -27,6 +27,7 @@ import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedIn
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { EmailComposeModal } from './EmailComposeModal';
 import { mergeEmailComposeSettings, type EmailComposeSettings } from '../services/emailTemplates';
+import { sanitizeHtml } from '../services/sanitizeHtml';
 import type { GeneratedEmailRecord } from '../types';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
@@ -206,8 +207,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 const isFocused = el === document.activeElement || el.contains(document.activeElement);
                 const currentHTML = el.innerHTML;
                 if (content !== currentHTML && !isInternalUpdate.current && !isFocused) {
-                    el.innerHTML = content || '';
-                    latestHtmlRef.current = content || '';
+                    const safeContent = sanitizeHtml(content);
+                    el.innerHTML = safeContent;
+                    latestHtmlRef.current = safeContent;
                     prepareEmbeddedFormFields(el);
                 }
             }

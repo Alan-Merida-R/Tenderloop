@@ -11,15 +11,30 @@ import { dbRepository } from './db/repository';
 
 const app = express();
 app.disable('x-powered-by');
-// DB payloads can be several MB of JSON (Phase 2).
-app.use(express.json({ limit: '100mb' }));
+// A local DB can be several MB, but accepting 100 MB requests made the helper
+// unnecessarily easy to exhaust from a browser on the same machine.
+app.use(express.json({ limit: '20mb' }));
 
-// Permissive CORS (localhost-only server). Kept for direct-port calls during
-// the migration window; same-origin /api proxying makes it a no-op later.
+const TRUSTED_ORIGINS = new Set([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]);
+
+// The helper can open files, copy folders and access TenderLoop's local data.
+// Enforce the local TenderLoop origin server-side: merely omitting a CORS
+// header would still allow a hostile page to trigger simple GET requests.
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.get('origin');
+    if (!origin || !TRUSTED_ORIGINS.has(origin)) {
+        return res.status(403).json({ error: 'Requests are restricted to the local TenderLoop application.' });
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Cache-Control', 'no-store');
     if (req.method === 'OPTIONS') return res.status(204).end();
     next();
 });

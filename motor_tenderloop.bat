@@ -68,11 +68,13 @@ if not exist "node_modules\.bin\vite.cmd" (
     if not "%MODE%"=="HIDDEN" echo [INFO] npm will show download progress below. After this, 2 setup steps remain.
     :: Vite is required to run the local application. --include=dev keeps it
     :: available even when a corporate PC has NODE_ENV=production configured.
-    call npm install --include=dev --no-audit --no-fund
+    :: Use the committed lockfile so every installation receives the reviewed
+    :: dependency tree instead of resolving newer semver-compatible packages.
+    call npm ci --include=dev --no-audit --no-fund
     if errorlevel 1 (
         if not "%MODE%"=="HIDDEN" (
             echo.
-            echo [ERROR] npm install failed. Possible causes:
+            echo [ERROR] npm ci failed. Possible causes:
             echo   - No internet connection
             echo   - Corporate proxy blocking npm
             echo   - Outdated Node.js
@@ -111,7 +113,9 @@ if "%MODE%"=="VISIBLE" echo [4/5] Starting local engine... 1 step remaining.
 if exist "server\index.ts" (
     start "" /B node_modules\.bin\tsx.cmd server\index.ts
 ) else (
-    if exist "server\openHelper.js" start "" /B node server\openHelper.js
+    echo [ERROR] TenderLoop server files are missing.
+    if not "%MODE%"=="HIDDEN" pause
+    exit /b 1
 )
 
 :: --- Open browser in app mode when Vite is ready ---
