@@ -103,13 +103,21 @@ const scoreCandidate = (dir: string, hints: string[]): number => {
 const pickBest = (rawCandidates: string[], hints: string[]): string | null => {
     let best: string | null = null;
     let bestScore = -1;
+    let ties = 0;
     const candidates = rawCandidates.map(c => path.normalize(String(c).trim())).filter(Boolean);
     for (const dir of candidates) {
         const score = scoreCandidate(dir, hints);
-        if (score > bestScore) { best = dir; bestScore = score; }
+        if (score > bestScore) {
+            best = dir;
+            bestScore = score;
+            ties = 1;
+        } else if (score === bestScore) {
+            ties++;
+        }
     }
-    // Ambiguity guard: several same-named folders and none matched a hint.
-    if (best && hints.length > 0 && bestScore === 0 && candidates.length > 1) return null;
+    // Never guess. Identical folder names and top-level entries must not map
+    // to the first result, because that points native actions at another job.
+    if (!best || ties !== 1) return null;
     return best;
 };
 
@@ -133,8 +141,8 @@ const userRoots = (extra: string[] = []): string[] => {
  * Find a directory's absolute path by NAME + child-name hints.
  * 1) Windows Search index via System.ItemUrl — NEVER ItemPathDisplay, which
  *    returns localized paths ("C:\Usuarios\...") that don't exist on disk.
- * 2) Fallback: bounded-depth scan of prioritised user roots, excluding
- *    AppData/node_modules/recycle bin (an unbounded walk never finishes).
+ * Automatic resolution uses only the Windows Search index. Recursive drive
+ * scans can freeze the UI and may find an unrelated folder.
  */
 export const findDirByName = async (name: string, hints: string[]): Promise<FindDirResult | null> => {
     try {
@@ -145,11 +153,15 @@ export const findDirByName = async (name: string, hints: string[]): Promise<Find
             `$c=New-Object System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows'");` +
             `$c.Open();$q=$c.CreateCommand();$q.CommandText=$sql;` +
             `$r=$q.ExecuteReader();while($r.Read()){[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\'};$c.Close()`,
-            10000
+            1500
         );
         const found = pickBest((out || '').split(/\r?\n/).filter(l => l.trim()), hints);
         if (found) return { path: found, source: 'index' };
     } catch { /* index unavailable — fall through to scan */ }
+
+    // Never fall back to a recursive drive scan. It can take minutes and has
+    // no reliable way to distinguish folders with the same name.
+    return null;
 
     for (const root of userRoots()) {
         try {
@@ -161,7 +173,7 @@ export const findDirByName = async (name: string, hints: string[]): Promise<Find
                 12000
             );
             const found = pickBest((out || '').split(/\r?\n/).filter(l => l.trim()), hints);
-            if (found) return { path: found, source: 'scan', searchedRoot: root };
+            if (found) return { path: found!, source: 'scan' as const, searchedRoot: root };
         } catch { /* try next root */ }
     }
     return null;
@@ -183,13 +195,17 @@ export const locateByMarker = async (marker: string): Promise<{ path: string; se
             `$p=[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\';` +
             `Split-Path -LiteralPath $p -Parent` +
             `};$c.Close()`,
-            5000
+            1500
         );
         const firstLine = (out || '').split(/\r?\n/).map(l => l.trim()).find(Boolean);
         if (firstLine && existsSync(path.join(firstLine, marker))) {
             return { path: firstLine, searchedRoot: 'index' };
         }
     } catch { /* index unavailable â€” fall back to scan */ }
+
+    // A marker that is not indexed yet is preferable to an incorrect path.
+    // Do not recursively scan all local drives from the UI request.
+    return null;
 
     const home = process.env.USERPROFILE || process.env.HOMEPATH || 'C:\\Users';
     const roots: string[] = [];
