@@ -24,12 +24,19 @@ if "%MODE%"=="INSTALL" (
     echo.
 )
 
-:: --- Reuse TenderLoop when it is already running. Never terminate a process
-:: automatically: ports can belong to another approved corporate application.
+:: --- Reuse TenderLoop only when BOTH the frontend and the current local
+:: TenderLoop helper are responding. A frontend alone may be a stale version
+:: left behind by an earlier installation, so do not open it by mistake.
 curl.exe -s -o nul --max-time 2 http://127.0.0.1:3000 >nul 2>&1
 if not errorlevel 1 (
-    start "" /B cmd /c call "%~dp0_open_browser.bat"
-    exit /b 0
+    curl.exe -f -s -o nul --max-time 2 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/health >nul 2>&1
+    if not errorlevel 1 (
+        start "" /B cmd /c call "%~dp0_open_browser.bat"
+        exit /b 0
+    )
+    if not "%MODE%"=="HIDDEN" echo [INFO] An older or incomplete TenderLoop instance was found. Restarting it now.
+    call "%~dp0CERRAR_TENDERLOOP.bat" SILENT
+    timeout /t 1 /nobreak >nul
 )
 
 if "%MODE%"=="VISIBLE" echo [1/5] Checking local ports... 4 steps remaining.

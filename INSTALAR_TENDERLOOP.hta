@@ -258,9 +258,20 @@
       var tempName = fso.GetTempName();
       var logFile = tempDir + "\\" + tempName + ".log";
       var doneFile = tempDir + "\\" + tempName + ".done";
+      var runnerFile = tempDir + "\\TenderLoop-install-" + tempName + ".cmd";
 
-      var cmdToRun = "cmd.exe /d /c " + command + " > \"" + logFile + "\" 2>&1 & echo %errorlevel% > \"" + doneFile + "\"";
-      shell.Run(cmdToRun, 0, false);
+      // Run the command through a temporary .cmd file. Nested `cmd /c`, `&&`
+      // and redirection previously made npm run from the wrong folder and
+      // sometimes prevented the completion file from being written at all.
+      var runner = fso.CreateTextFile(runnerFile, true);
+      runner.WriteLine("@echo off");
+      runner.WriteLine("(");
+      runner.WriteLine(command);
+      runner.WriteLine(") > \"" + logFile + "\" 2>&1");
+      runner.WriteLine("set \"TL_EXIT=%errorlevel%\"");
+      runner.WriteLine("> \"" + doneFile + "\" echo %TL_EXIT%");
+      runner.Close();
+      shell.Run("cmd.exe /d /c \"\"" + runnerFile + "\"\"", 0, false);
 
       var lastPos = 0;
       pollTimer = window.setInterval(function () {
@@ -305,6 +316,7 @@
 
           try { fso.DeleteFile(logFile, true); } catch (e) {}
           try { fso.DeleteFile(doneFile, true); } catch (e) {}
+          try { fso.DeleteFile(runnerFile, true); } catch (e) {}
 
           onDone(exitCode);
         }
@@ -340,7 +352,7 @@
       el("log").value = "";
 
       setStep(1, "Checking Node.js");
-      runCommand("cmd.exe /d /c where node", function (code) {
+      runCommand("where node", function (code) {
         if (code !== 0) {
           failInstall("Node.js was not found. Install it from https://nodejs.org/ and run this installer again.");
           return;
@@ -352,7 +364,7 @@
           verifyTenderLoop();
         } else {
           logLine("[INFO] Installing or repairing dependencies. npm will show progress here; this can take several minutes.");
-          runCommand("cmd.exe /d /c cd /d \"" + scriptDir + "\" && npm ci --include=dev --no-audit --no-fund", function (npmCode) {
+          runCommand("cd /d \"" + scriptDir + "\" && npm.cmd ci --include=dev --no-audit --no-fund", function (npmCode) {
             if (npmCode !== 0) {
               failInstall("npm ci failed. Check internet connection, proxy, or Node.js version.");
               return;
@@ -426,7 +438,7 @@
       setStep(5, "Closing previous TenderLoop version");
       el("remaining").innerText = "Freeing local TenderLoop ports";
       logLine("[INFO] Closing any previous TenderLoop engine on ports 3000 and 3099. No terminal window is needed.");
-      runCommand("cmd.exe /d /c call \"" + closer + "\" SILENT", function (closeCode) {
+      runCommand("call \"" + closer + "\" SILENT", function (closeCode) {
         if (closeCode !== 0) {
           failInstall("The previous TenderLoop engine could not be stopped. See the log above and retry.");
           return;
