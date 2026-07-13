@@ -293,8 +293,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setPath([]);
         setHistory([{ handle, path: [] }]);
         setHistoryIdx(0);
-        // Auto-fill the base path in the background if it was never resolved.
-        if (!rp) detectPathSilently(handle);
+        // Revalidate even a previously stored path in the background. Older
+        // versions could save the first similarly named folder returned by a
+        // broad scan; a proven exact match safely replaces that legacy value.
+        detectPathSilently(handle);
       } else {
         setPendingPermHandle(handle);
       }
