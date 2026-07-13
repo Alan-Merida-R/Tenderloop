@@ -398,7 +398,10 @@
 
     function openApp() {
       shell.Run("\"" + scriptDir + "\\TenderLoop.exe\"", 1, false);
-      window.close();
+      el("status").innerText = "TenderLoop was opened";
+      el("remaining").innerText = "You may close this setup window";
+      logLine("[OK] TenderLoop was started. Setup stays open so you can confirm the result.");
+      el("openBtn").disabled = true;
     }
   </script>
 </body>
