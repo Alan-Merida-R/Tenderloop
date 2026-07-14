@@ -416,16 +416,23 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
    * prompt only if the helper cannot locate it. Shared by "link existing" and the
    * template flow.
    */
-  const resolveExactFolderPath = async (handle: FileSystemDirectoryHandle, fallbackToNameSearch = true): Promise<string> => {
+  const resolveExactFolderPath = async (handle: FileSystemDirectoryHandle, fallbackToMarker = true): Promise<string> => {
+    // Name + child-name hints (findDirByName / locateFolderPath) needs no write into
+    // the target folder, so it's tried first. SharePoint/OneDrive-synced folders can
+    // treat a write as a change to sync, and the marker file races the Windows Search
+    // index before it's had a chance to pick up a file that was just created — both of
+    // which made the old marker-first order unreliable (and browser-dependent, since
+    // each browser's File System Access implementation flushes writes to disk on a
+    // different schedule). The marker strategy is now only a fallback.
     try {
-      const exact = await locateFolderPathWithMarker(handle);
-      if (exact) return exact;
+      const byName = await locateFolderPath(handle);
+      if (byName) return byName;
     } catch (err) {
-      console.warn('Exact folder path detection failed', err);
+      console.warn('Folder path detection by name failed', err);
     }
-    if (fallbackToNameSearch) {
+    if (fallbackToMarker) {
       try {
-        return (await locateFolderPath(handle)) || '';
+        return (await locateFolderPathWithMarker(handle)) || '';
       } catch {
         return '';
       }

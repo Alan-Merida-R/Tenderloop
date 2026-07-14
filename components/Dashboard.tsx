@@ -174,6 +174,7 @@ const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'title', label: 'Title' },
     { key: 'customer', label: 'Customer' },
     { key: 'nextStep', label: 'Next Step' },
+    { key: 'lastHistoryEvent', label: 'Last History Event' },
     { key: 'labels', label: 'Labels' },
     { key: 'quickNote', label: 'Quick Note' },
     { key: 'saveQuickNote', label: 'Save Quick Note' },
@@ -191,7 +192,7 @@ const PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY = 'tl.proposalCard.saveQuickN
 const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['opId', 'alias']);
 const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS
     .map(option => option.key)
-    .filter(key => key !== 'saveQuickNote');
+    .filter(key => key !== 'saveQuickNote' && key !== 'lastHistoryEvent');
 const PROPOSAL_CARD_DEFAULT_QUICK_HIDE_FIELDS: ProposalCardFieldKey[] = ['nextStep', 'quickNote'];
 
 const orderProposalCardFields = (fields: Iterable<ProposalCardFieldKey>, includeRequired = true) => {
@@ -304,6 +305,11 @@ const OpportunityCard = React.memo(({
 }: any) => {
     const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
     const isCardFieldVisible = useCallback((field: ProposalCardFieldKey) => cardFieldVisibility?.[field] !== false, [cardFieldVisibility]);
+    const latestHistoryContent = useMemo(() => {
+        const list = opp.history || [];
+        if (!list.length) return '';
+        return [...list].sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))[0]?.content || '';
+    }, [opp.history]);
     const isBlockedStale = useMemo(() => {
         if ((nextTask?.status === 'Missing Info' || nextTask?.status === 'Approval') && nextTask?.dueDate) {
             const hrs = (Date.now() - new Date(nextTask.dueDate).getTime()) / 3600000;
@@ -385,6 +391,19 @@ const OpportunityCard = React.memo(({
                                 </span>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {isCardFieldVisible('lastHistoryEvent') && (latestHistoryContent || opp.lastHistoryEventOverride) && (
+                    <div className="mt-1 flex items-start gap-1.5 p-1.5 rounded-lg bg-gray-50 border border-gray-100" onClick={e => e.stopPropagation()}>
+                        <History className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />
+                        <OptimizedInput
+                            value={opp.lastHistoryEventOverride || latestHistoryContent}
+                            onChange={(val: string) => handleInlineEdit(opp, 'lastHistoryEventOverride', val)}
+                            placeholder="Last event..."
+                            title="Last history event (editable — overrides what's shown on the card)"
+                            className="min-w-0 flex-1 bg-transparent border-none p-0 text-[10px] text-gray-500 focus:ring-0 truncate"
+                        />
                     </div>
                 )}
 
@@ -1030,10 +1049,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const assignedOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.assigned).filter(Boolean))) as string[], [opportunities]);
     const idOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.id).filter(Boolean))) as string[], [opportunities]);
     const titleOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.title).filter(Boolean))) as string[], [opportunities]);
-    const statusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.statusLabel).filter(Boolean))) as string[], [opportunities]);
+    // The Process Status column displays detailedStatus, not the main opportunity status.
+    const statusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.detailedStatus || 'Working on it'))) as string[], [opportunities]);
+    const mainStatusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.statusLabel).filter(Boolean))) as string[], [opportunities]);
     const expectedOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.dates?.expected).filter(Boolean))) as string[], [opportunities]);
-    const amountOptions = useMemo(() => Array.from(new Set(opportunities.map(o => (o.kpis?.proposalAmountUSD || 0).toString()).filter(Boolean))) as string[], [opportunities]);
-    const waitingOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.waitingOn).filter(Boolean))) as string[], [opportunities]);
+    const waitingOptions = useMemo(() => Array.from(new Set(opportunities.map(getWaitingOnAreas).filter(Boolean))) as string[], [opportunities]);
 
     // KPI Filter State
     const [kpiSoldFilter, setKpiSoldFilter] = useState<'all' | 'sold' | 'not-sold'>('all');
@@ -1372,10 +1392,26 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             if (columnFilters.assigned?.length > 0 && (!opp.assigned || !columnFilters.assigned.includes(opp.assigned))) continue;
             if (columnFilters.id?.length > 0 && (!opp.id || !columnFilters.id.includes(opp.id))) continue;
             if (columnFilters.title?.length > 0 && (!opp.title || !columnFilters.title.includes(opp.title))) continue;
-            if (columnFilters.status?.length > 0 && (!opp.statusLabel || !columnFilters.status.includes(opp.statusLabel))) continue;
+            if (columnFilters.status?.length > 0) {
+                const statusValue = mode === 'general' ? (opp.detailedStatus || 'Working on it') : opp.statusLabel;
+                if (!columnFilters.status.includes(statusValue)) continue;
+            }
             if (columnFilters.expected?.length > 0 && (!opp.dates?.expected || !columnFilters.expected.includes(opp.dates.expected))) continue;
-            if (columnFilters.amount?.length > 0 && (!columnFilters.amount.includes((opp.kpis?.proposalAmountUSD || 0).toString()))) continue;
-            if (columnFilters.waiting?.length > 0 && (!opp.waitingOn || !columnFilters.waiting.includes(opp.waitingOn))) continue;
+            if (columnFilters.amount?.length > 0) {
+                const [operator, rawValue] = columnFilters.amount[0].split(':');
+                const filterValue = Number(rawValue);
+                const amount = getSellPrice(opp);
+                const matchesAmount = Number.isFinite(filterValue) && (
+                    (operator === 'lt' && amount < filterValue) ||
+                    (operator === 'lte' && amount <= filterValue) ||
+                    (operator === 'gt' && amount > filterValue) ||
+                    (operator === 'gte' && amount >= filterValue) ||
+                    (operator === 'eq' && amount === filterValue) ||
+                    (operator === 'neq' && amount !== filterValue)
+                );
+                if (!matchesAmount) continue;
+            }
+            if (columnFilters.waiting?.length > 0 && !columnFilters.waiting.includes(getWaitingOnAreas(opp) || '')) continue;
 
             // 6. Multi-term Search (Ultra Optimized v5000)
             if (booleanMatcher) {
@@ -1764,7 +1800,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         return filteredOpps.filter(o => o.statusLabel === 'Won').reduce((sum, opp) => sum + getSellPrice(opp), 0);
     }, [filteredOpps]);
 
-    const getWaitingOnAreas = (opp: Opportunity) => {
+    function getWaitingOnAreas(opp: Opportunity) {
         if (opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled') return null;
 
         const externalPending = (opp.tasks || []).filter(t => t.owner === 'External Area' && t.status !== 'Done');
@@ -1772,7 +1808,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
         const areas = Array.from(new Set(externalPending.flatMap(t => t.externalAreas || [])));
         return areas.join(', ');
-    };
+    }
 
     // --- Grouping (Dynamic: Status or Stage or Detailed) ---
     const groupedOpps = useMemo(() => {
@@ -2118,7 +2154,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             case 'expected':
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>;
             case 'amount':
-                return <th key={key} className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>;
+                return <th key={key} className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={[]} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} numeric /></div></th>;
             case 'nextStep':
                 return <th key={key} className="px-6 py-3">Next Step</th>;
             case 'waiting':
@@ -2863,10 +2899,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 {visibleColumns.includes('title') && <th className="px-6 py-3"><div className="flex items-center">Title<ColumnFilter options={titleOptions} selected={columnFilters.title || []} onChange={v => setColumnFilters(p => ({...p, title: v}))} /></div></th>}
                                                 {visibleColumns.includes('customer') && <th className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>}
                                                 {visibleColumns.includes('seller') && <th className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>}
-                                                {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Status<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>}
+                                                {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Status<ColumnFilter options={mainStatusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} /></div></th>}
                                                 {visibleColumns.includes('assigned') && <th className="px-6 py-3"><div className="flex items-center">Assigned<ColumnFilter options={assignedOptions} selected={columnFilters.assigned || []} onChange={v => setColumnFilters(p => ({...p, assigned: v}))} /></div></th>}
                                                 {visibleColumns.includes('expected') && <th className="px-6 py-3"><div className="flex items-center">Expected Date<ColumnFilter options={expectedOptions} selected={columnFilters.expected || []} onChange={v => setColumnFilters(p => ({...p, expected: v}))} /></div></th>}
-                                                {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={amountOptions} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} /></div></th>}
+                                                {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={[]} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} numeric /></div></th>}
                                                 {visibleColumns.includes('waiting') && <th className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>}
                                             </tr>
                                         </thead>

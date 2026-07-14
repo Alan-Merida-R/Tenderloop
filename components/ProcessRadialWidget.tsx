@@ -1,6 +1,7 @@
 import React from 'react';
-import { Activity, ExternalLink, X } from 'lucide-react';
+import { Activity, ExternalLink, History, X, Zap } from 'lucide-react';
 import { Opportunity } from '../types';
+import { getNextTask } from '../services/taskUtils';
 
 const CHANNEL_NAME = 'tenderloop_process_radial_widget';
 const WINDOW_SIZE_KEY = 'tenderloop_process_radial_window_v1';
@@ -36,21 +37,43 @@ const daysBetween = (from: Date, to: Date) => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+const getScreenBounds = () => {
+  try {
+    return {
+      width: window.screen?.availWidth || 1280,
+      height: window.screen?.availHeight || 800,
+    };
+  } catch {
+    return { width: 1280, height: 800 };
+  }
+};
+
 const getWindowSize = () => {
+  const screen = getScreenBounds();
+  // Clamp to the actual screen, not an arbitrary small box, so the user can
+  // resize the popup to literally whatever size they want (the resize itself
+  // is unrestricted; this only bounds what gets restored from a saved size).
+  const maxWidth = Math.max(320, screen.width - 24);
+  const maxHeight = Math.max(320, screen.height - 24);
   try {
     const saved = JSON.parse(localStorage.getItem(WINDOW_SIZE_KEY) || 'null');
     const width = Number(saved?.width);
     const height = Number(saved?.height);
     if (Number.isFinite(width) && Number.isFinite(height)) {
       return {
-        width: clamp(width, 180, 760),
-        height: clamp(height, 180, 820),
+        width: clamp(width, 260, maxWidth),
+        height: clamp(height, 260, maxHeight),
       };
     }
   } catch {
     // Ignore malformed window size.
   }
-  return { width: 320, height: 440 };
+  // Default to a generous chunk of the screen (not a cramped fixed box) so the
+  // widget doesn't open wasting most of the window on empty background.
+  return {
+    width: Math.round(clamp(screen.width * 0.55, 480, maxWidth)),
+    height: Math.round(clamp(screen.height * 0.65, 520, maxHeight)),
+  };
 };
 
 const saveWindowSize = () => {
@@ -91,7 +114,10 @@ const buildMetric = (opp: Opportunity) => {
   const requested = parseLocalDate(opp.dates?.requested) || parseLocalDate(opp.dates?.assigned) || today;
   const expected = parseLocalDate(opp.dates?.expected) || new Date(requested.getTime() + 30 * 86400000);
   const totalDays = Math.max(1, daysBetween(requested, expected));
-  const elapsedDays = clamp(daysBetween(requested, today), 0, totalDays);
+  // Total calendar days elapsed since the opportunity was requested, uncapped by
+  // the expected-completion window — this is the "how long has this been going"
+  // metric used to sort the widget (oldest-running opportunities first).
+  const elapsedDays = Math.max(0, daysBetween(requested, today));
   const remainingDays = daysBetween(today, expected);
   const remainingRatio = clamp(remainingDays / totalDays, 0, 1);
   const tasks = opp.tasks || [];
@@ -196,7 +222,8 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
     return sourceOpportunities
       .filter(opp => opp.statusLabel === 'In Progress' || opp.statusLabel === 'On Hold')
       .map(opp => ({ opp, metric: buildMetric(opp) }))
-      .sort((a, b) => a.metric.remainingDays - b.metric.remainingDays);
+      // Longest-running opportunities (most calendar days elapsed) first.
+      .sort((a, b) => b.metric.elapsedDays - a.metric.elapsedDays);
   }, [sourceOpportunities, tick]);
 
   const displayMode = !floating
@@ -205,7 +232,11 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
       ? 'tiny'
       : windowSize.width < 420 || windowSize.height < 430
         ? 'compact'
-        : 'normal';
+        // Plenty of room: switch to a richer card that also surfaces the last
+        // history event and next step instead of leaving the extra space blank.
+        : windowSize.width >= 640 && windowSize.height >= 560
+          ? 'expanded'
+          : 'normal';
 
   const handleOpenWindow = () => {
     openProcessRadialWidgetWindow();
@@ -280,7 +311,9 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
                 ? 'grid-cols-[repeat(auto-fit,minmax(58px,1fr))] gap-1.5'
                 : displayMode === 'compact'
                   ? 'grid-cols-[repeat(auto-fit,minmax(90px,1fr))] gap-2'
-                  : 'grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3'
+                  : displayMode === 'expanded'
+                    ? 'grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4'
+                    : 'grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3'
             }`}>
               {activeOpps.map(({ opp, metric }) => (
                 <RadialOpportunityButton
@@ -329,6 +362,7 @@ const RadialOpportunityButton = ({
 }) => {
   const isTiny = mode === 'tiny';
   const isCompact = mode === 'compact';
+  const isExpanded = mode === 'expanded';
   const radius = isTiny ? 44 : 42;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - metric.taskProgressRatio);
@@ -336,6 +370,10 @@ const RadialOpportunityButton = ({
     ? `${Math.abs(metric.remainingDays)}d late`
     : `${metric.remainingDays}d left`;
   const alias = (opportunity.alias || opportunity.id || opportunity.title).trim();
+  const lastHistoryEvent = isExpanded
+    ? [...(opportunity.history || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]?.content
+    : undefined;
+  const nextTask = isExpanded ? getNextTask(opportunity.tasks || []) : undefined;
 
   return (
     <button
@@ -423,8 +461,27 @@ const RadialOpportunityButton = ({
         />
       </div>}
       {!isTiny && !isCompact && <p className="mt-1.5 truncate text-[9px] font-bold uppercase tracking-[0.12em] text-white/35">
-        {opportunity.statusLabel}
+        {opportunity.statusLabel} - {metric.elapsedDays}d elapsed
         </p>}
+      {isExpanded && (nextTask || lastHistoryEvent) && (
+        <div className="mt-2.5 space-y-1.5 border-t border-white/10 pt-2 text-left">
+          {nextTask && (
+            <div className="flex items-start gap-1.5">
+              <Zap className="mt-0.5 h-3 w-3 shrink-0 text-blue-300" />
+              <p className="min-w-0 flex-1 text-[10px] leading-snug text-white/70">
+                <span className="font-black uppercase tracking-wide text-white/40">Next: </span>
+                <span className="line-clamp-2">{nextTask.title}</span>
+              </p>
+            </div>
+          )}
+          {lastHistoryEvent && (
+            <div className="flex items-start gap-1.5">
+              <History className="mt-0.5 h-3 w-3 shrink-0 text-white/40" />
+              <p className="min-w-0 flex-1 text-[10px] leading-snug text-white/55 line-clamp-2">{lastHistoryEvent}</p>
+            </div>
+          )}
+        </div>
+      )}
     </button>
   );
 };

@@ -183,12 +183,25 @@ export interface ColumnFilterProps {
     options: string[];
     selected: string[];
     onChange: (val: string[]) => void;
+    numeric?: boolean;
 }
 
-export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, onChange }) => {
+const AMOUNT_OPERATORS = [
+    { value: 'lt', label: '< Less than' },
+    { value: 'lte', label: '≤ Less or equal' },
+    { value: 'gt', label: '> Greater than' },
+    { value: 'gte', label: '≥ Greater or equal' },
+    { value: 'eq', label: '= Equal to' },
+    { value: 'neq', label: '≠ Different from' },
+];
+
+export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, onChange, numeric = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const ref = useRef<HTMLDivElement>(null);
+    const numericFilter = selected[0]?.match(/^(lt|lte|gt|gte|eq|neq):(-?\d+(?:\.\d+)?)$/);
+    const [numericOperator, setNumericOperator] = useState(numericFilter?.[1] || 'gte');
+    const [numericValue, setNumericValue] = useState(numericFilter?.[2] || '');
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -210,6 +223,12 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
         onChange(Array.from(new Set([...selected, ...visibleOptions])));
     };
 
+    const applyNumericFilter = () => {
+        const value = Number(numericValue);
+        if (!Number.isFinite(value)) return;
+        onChange([`${numericOperator}:${value}`]);
+    };
+
     return (
         <div className="relative inline-block ml-1" ref={ref}>
             <button
@@ -221,6 +240,26 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
             </button>
             {isOpen && (
                 <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded shadow-xl z-50 p-2 font-normal text-gray-700 cursor-default">
+                    {numeric ? (
+                        <div className="flex flex-col gap-2">
+                            <select value={numericOperator} onChange={e => setNumericOperator(e.target.value)} className="w-full text-xs p-1 border border-gray-200 rounded outline-none focus:border-[#3DCD58]">
+                                {AMOUNT_OPERATORS.map(operator => <option key={operator.value} value={operator.value}>{operator.label}</option>)}
+                            </select>
+                            <input
+                                autoFocus
+                                type="number"
+                                step="any"
+                                placeholder="Amount"
+                                value={numericValue}
+                                onChange={e => setNumericValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') applyNumericFilter(); }}
+                                className="w-full text-xs p-1 border border-gray-200 rounded outline-none focus:border-[#3DCD58]"
+                            />
+                            <button type="button" onClick={applyNumericFilter} disabled={!numericValue.trim()} className="w-full rounded bg-[#3DCD58] px-2 py-1 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">
+                                Apply
+                            </button>
+                        </div>
+                    ) : <>
                     <input
                         autoFocus
                         placeholder="Search..."
@@ -260,6 +299,7 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
                             </label>
                         ))}
                     </div>
+                    </>}
                     {selected.length > 0 && (
                         <button
                             onClick={() => { onChange([]); setIsOpen(false); }}

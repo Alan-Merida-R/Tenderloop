@@ -374,7 +374,10 @@ const buildExecutiveSummaryHtml = (opp: Opportunity, paCost: string): string => 
     ? `${opp.commercial.cqaOfficialMargin}%`
     : '-';
   return [
-    `<p ${P_STYLE}><b>Requested Date:</b> ${escapeHtml(opp.dates?.requested || '-')} &nbsp;|&nbsp; <b>Expected Completion Date:</b> ${escapeHtml(opp.dates?.expected || '-')}</p>`,
+    // "Requested Date" here means the date this approval is being requested — i.e. today,
+    // the day the email is composed/sent — not the opportunity's original commercial
+    // request date (opp.dates.requested), which could be weeks/months in the past.
+    `<p ${P_STYLE}><b>Requested Date:</b> ${escapeHtml(todayIso())} &nbsp;|&nbsp; <b>Expected Completion Date:</b> ${escapeHtml(opp.dates?.expected || '-')}</p>`,
     `<p ${SUMMARY_H}>Executive Notes</p>`,
     `<p ${P_STYLE}>${nl2br(opp.presentation?.executiveSummary || '-')}</p>`,
     `<p ${SUMMARY_H}>Commercial Information</p>`,

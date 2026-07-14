@@ -257,6 +257,20 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             }
         };
 
+        // Native CSS `resize` handles on <img> (see .editor-content img rule below) let the
+        // user drag-resize images, but that drag doesn't fire a DOM 'input' event, so the
+        // resized width/height would never reach onChange without this explicit sync on
+        // mouseup (when the resize drag ends).
+        const handleMouseUp = () => {
+            if (disabled || !editorRef.current) return;
+            const newHtml = editorRef.current.innerHTML;
+            if (newHtml !== latestHtmlRef.current) {
+                latestHtmlRef.current = newHtml;
+                isInternalUpdate.current = true;
+                onChange(newHtml);
+            }
+        };
+
         const insertDividerFromText = (range: Range) => {
             const del = range.cloneRange();
             del.setStart(range.startContainer, 0);
@@ -566,6 +580,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     onPaste={handlePaste}
                     onClick={handleClick}
                     onKeyDown={handleKeyDown}
+                    onMouseUp={handleMouseUp}
                     suppressContentEditableWarning={true}
                 />
                 <style>{`
@@ -579,6 +594,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                     .editor-content td { border: 1px solid #ccc; padding: 8px; min-width: 50px; }
                     .editor-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 0.5em; margin-bottom: 0.25em; }
                     .editor-content hr { border: none; border-top: 2px solid #e5e7eb; margin: 1.25em 0; }
+                    .editor-content img { resize: both; overflow: hidden; display: inline-block; max-width: 100%; cursor: nwse-resize; }
                 `}</style>
             </div>
         );
@@ -683,6 +699,31 @@ export const ResponsibleTeamPicker = ({ options, selected, onChange, onCreate }:
                 </>
             )}
         </div>
+    );
+};
+
+// Keeps raw keystrokes (including spaces) in local draft state and only parses/commits
+// the delimited value on blur, so a live trim()+split() re-render can't eat spaces mid-typing.
+const DelimitedListInput: React.FC<{
+    value: string;
+    onCommit: (raw: string) => void;
+    placeholder?: string;
+    className?: string;
+    disabled?: boolean;
+}> = ({ value, onCommit, placeholder, className, disabled }) => {
+    const [draft, setDraft] = useState(value);
+    const [focused, setFocused] = useState(false);
+    useEffect(() => { if (!focused) setDraft(value); }, [value, focused]);
+    return (
+        <input
+            disabled={disabled}
+            value={draft}
+            placeholder={placeholder}
+            className={className}
+            onFocus={() => setFocused(true)}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={() => { setFocused(false); onCommit(draft); }}
+        />
     );
 };
 
@@ -2812,31 +2853,42 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     /** "(Status Report) - OP-..." -> "Status Report" — the bit between the first parentheses of the subject. */
     const emailTopicFromSubject = (subject: string): string => subject.match(/\(([^)]*)\)/)?.[1]?.trim() || subject;
 
-    /** "Envié un correo a Luis / a Luis y María / al equipo ..." for the History event. */
+    /** "I sent an email to Luis / to Luis and Maria / to the team ..." for the History event. */
     const EMAIL_HISTORY_ACTION: Record<string, string> = {
-        task_assignment: 'pidiendo apoyo con una tarea',
-        info_request: 'pidiendo información',
-        price_approval: 'pidiendo una aprobación',
-        proposal_approval: 'pidiendo una aprobación',
-        reminder: 'haciendo un seguimiento',
-        status_report: 'compartiendo el estatus',
-        meeting_recap: 'con los acuerdos de la junta',
+        task_assignment: 'asking for help with a task',
+        info_request: 'asking for information',
+        price_approval: 'requesting an approval',
+        proposal_approval: 'requesting an approval',
+        reminder: 'following up',
+        status_report: 'sharing the status',
+        meeting_recap: 'with the meeting agreements',
     };
 
     /** Saves the record in emails.generatedEmails AND logs a History event, in one combined update. */
     const handleEmailGenerated = (record: GeneratedEmailRecord) => {
         const names = record.toNames?.length ? record.toNames : record.to.map(e => e.split('@')[0]);
-        const who = names.length >= 3 ? 'al equipo'
-            : names.length === 2 ? `a ${names[0]} y ${names[1]}`
-            : `a ${names[0] || '—'}`;
+        const who = names.length >= 3 ? 'to the team'
+            : names.length === 2 ? `to ${names[0]} and ${names[1]}`
+            : `to ${names[0] || '—'}`;
         const action = EMAIL_HISTORY_ACTION[record.kind] || '';
         const historyEntry: HistoryEntry = {
             id: crypto.randomUUID(),
             date: getTodayStr(),
-            content: `Envié un correo ${who}${action ? ` ${action}` : ''} - ${emailTopicFromSubject(record.subject)}`,
+            content: `I sent an email ${who}${action ? ` ${action}` : ''} - ${emailTopicFromSubject(record.subject)}`,
         };
+        // A task is only actually "requested" from its responsible/approver once the
+        // assignment email is truly sent — not the moment someone ticks "Track as
+        // assignment" in the editor. So responsibleRequestedDate is stamped here, with
+        // this email's send date, instead of at checkbox-toggle time.
+        const relatedTaskIds = new Set(record.kind === 'task_assignment' ? (record.relatedTaskIds || []) : []);
+        const tasksWithRequestDate = relatedTaskIds.size
+            ? (localOpp.tasks || []).map(t => relatedTaskIds.has(t.id) && !t.responsibleRequestedDate
+                ? { ...t, responsibleRequestedDate: getTodayStr() }
+                : t)
+            : localOpp.tasks;
         const updated: Opportunity = {
             ...localOpp,
+            tasks: tasksWithRequestDate,
             emails: { ...emailsData, generatedEmails: [...(emailsData.generatedEmails || []), record] },
             history: [...(localOpp.history || []), historyEntry],
             lastUpdated: new Date().toISOString(),
@@ -3409,7 +3461,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             }
                         };
                         return (
-                            <div key={person.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2"><div className="flex items-center gap-2"><span className="flex-1 truncate text-xs font-bold">{person.name || 'Unnamed'}</span><span className={`text-[9px] ${person.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{person.email || 'Email required for mail'}</span><button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500"><X className="h-3 w-3" /></button></div><MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select roles / areas" /><input value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onChange={e => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(e.target.value.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context, e.g. TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /></div>
+            <div key={person.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2"><div className="flex items-center gap-2"><span className="flex-1 truncate text-xs font-bold">{person.name || 'Unnamed'}</span><span className={`text-[9px] ${person.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{person.email || 'Email required for mail'}</span><button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500"><X className="h-3 w-3" /></button></div><MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select roles / areas" /><DelimitedListInput value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onCommit={raw => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context, e.g. TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /></div>
                         );
                     })}
                     {(localOpp.stakeholders || []).length === 0 && <div className="text-xs italic text-gray-400">No involved people yet.</div>}
@@ -6077,7 +6129,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                         <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
-                                            <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info', responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
+                                            <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info' } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                             <div className="flex gap-4 items-center">
                                                 <select className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2" value={selectedTaskForEdit.task.owner} onChange={(e) => updateTaskInModal('owner', e.target.value)} >
                                                     <option value="Me">Me</option>
@@ -6116,9 +6168,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids)} /></div>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Execution delivered</label><input type="date" value={selectedTaskForEdit.task.responsibleDeliveredDate || ''} onChange={e => updateTaskInModal('responsibleDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                {/* No approvers assigned yet: an approval date isn't meaningful without someone to approve it. */}
+                                                {(selectedTaskForEdit.task.approverTeamMemberIds?.length ?? 0) > 0 && <>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval required</label><input type="date" value={selectedTaskForEdit.task.approvalDueDate || ''} onChange={e => updateTaskInModal('approvalDueDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval requested</label><input type="date" value={selectedTaskForEdit.task.approvalRequestedDate || ''} onChange={e => updateTaskInModal('approvalRequestedDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approved</label><input type="date" value={selectedTaskForEdit.task.approvalDeliveredDate || ''} onChange={e => updateTaskInModal('approvalDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                </>}
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                             </div>}
                                         </div>
@@ -6704,8 +6759,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 {!isSnapshot && <button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>}
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
-                                                <input disabled={isSnapshot} value={(person.roles || (person.role ? [person.role] : [])).join(', ')} onChange={(e) => updateStakeholder(person.id, 'roles', e.target.value.split(',').map(v => v.trim()).filter(Boolean))} placeholder="Roles: TSC, Delivery..." className="text-xs border-gray-200 rounded bg-white" />
-                                                <input disabled={isSnapshot} value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onChange={(e) => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(e.target.value.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context: TSC: Foxboro" className="text-xs border-gray-200 rounded bg-white" />
+                                                <DelimitedListInput disabled={isSnapshot} value={(person.roles || (person.role ? [person.role] : [])).join(', ')} onCommit={raw => updateStakeholder(person.id, 'roles', raw.split(',').map(v => v.trim()).filter(Boolean))} placeholder="Roles: TSC, Delivery..." className="text-xs border-gray-200 rounded bg-white" />
+                                                <DelimitedListInput disabled={isSnapshot} value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onCommit={raw => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context: TSC: Foxboro" className="text-xs border-gray-200 rounded bg-white" />
                                             </div>
                                         </div>
                                     ))}
@@ -7364,6 +7419,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                         {activeTab === 'history' && (
                             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+                                {(normalizedQuickLinks.defaultUrls.srLink || normalizedQuickLinks.defaultUrls.bfo) && (
+                                    <div className="flex items-center justify-between gap-3 rounded-lg border border-[#3DCD58]/30 bg-[#3DCD58]/5 px-4 py-2.5">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <LinkIcon className="w-4 h-4 text-[#3DCD58] shrink-0" />
+                                            <span className="text-xs font-bold text-gray-700 shrink-0">bFO SR:</span>
+                                            <span className="text-xs text-gray-500 truncate">{normalizedQuickLinks.defaultUrls.srLink || normalizedQuickLinks.defaultUrls.bfo}</span>
+                                        </div>
+                                        <div className="flex gap-2 shrink-0">
+                                            <button onClick={() => window.open(normalizedQuickLinks.defaultUrls.srLink || normalizedQuickLinks.defaultUrls.bfo, '_blank', 'noopener,noreferrer')} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">Open SR</button>
+                                            <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-100 rounded-lg transition-colors">Copy History</button>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-center">
                                     <h3 className="font-bold text-gray-800">Change Log / Events</h3>
                                     <div className="flex gap-2">
@@ -8086,21 +8154,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             placeholder="All Status"
                                         />
                                         <button onClick={getStatusSummary} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Get Status</button>
-                                        <button
-                                            onClick={() => {
-                                                const today = getTodayStr();
-                                                const remindable = (localOpp.tasks || []).filter(t =>
-                                                    (t.isAssignment || (t.approverTeamMemberIds?.length ?? 0) > 0)
-                                                    && t.status !== 'Done' && t.status !== 'Canceled'
-                                                    && (t.status === 'Pending' || (!!t.dueDate && t.dueDate < today))
-                                                );
-                                                openEmailCompose('reminder', remindable.map(t => t.id));
-                                            }}
-                                            title="Email a reminder for pending or overdue tasks"
-                                            className="text-xs font-bold bg-white border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:border-amber-400 hover:bg-amber-50 shadow-sm flex items-center gap-2"
-                                        >
-                                            <Mail className="w-4 h-4" /> Remind
-                                        </button>
                                         <button onClick={exportTasksToExcel} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2 text-green-700 border-green-200 hover:border-green-400" title="Export all tasks to Excel (.xlsx)"><FileSpreadsheet className="w-4 h-4" /> Export to Excel</button>
                                         {!isSnapshot && (
                                             <>
@@ -8289,11 +8342,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                             {(task.isAssignment || (task.approverTeamMemberIds?.length ?? 0) > 0) && informedTaskIds.has(task.id) && (
                                                                                 <span title="An assignment email was already generated for this task" className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded uppercase shrink-0">✓ Informed</span>
                                                                             )}
-                                                                            {(task.isAssignment || (task.approverTeamMemberIds?.length ?? 0) > 0) && (
-                                                                                <button onClick={() => openEmailCompose('reminder', [task.id])} className="p-1 hover:bg-amber-50 rounded text-gray-400 hover:text-amber-500 shrink-0" title="Send a friendly reminder about this assignment/approval">
-                                                                                    <Mail className="w-3.5 h-3.5" />
-                                                                                </button>
-                                                                            )}
                                                                             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                                                                                 <TaskTimerButtonList task={task} oppId={localOpp.id} />
                                                                                 <button onClick={() => copyTask(task)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-blue-500" title="Duplicate Task">
@@ -8408,30 +8456,100 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 {columnTasks.map(task => {
                                                                     const doneSubtasks = task.subtasks.filter(s => s.completed).length;
                                                                     const totalSubtasks = task.subtasks.length;
+                                                                    const isDone = task.status === 'Done';
                                                                     return (
                                                                         <div
                                                                             key={task.id}
                                                                             draggable={!isSnapshot}
                                                                             onDragStart={(e) => e.dataTransfer.setData('id', task.id)}
                                                                             onClick={() => setSelectedTaskForEdit({ task })}
-                                                                            className="bg-white border border-gray-200 rounded-lg p-2.5 shadow-sm hover:shadow-md hover:border-[#3DCD58]/30 cursor-grab active:cursor-grabbing transition-all"
+                                                                            className="group bg-white border border-gray-200 rounded-lg p-2.5 shadow-sm hover:shadow-md hover:border-[#3DCD58]/30 cursor-grab active:cursor-grabbing transition-all"
                                                                         >
+                                                                            <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                                                                                {task.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200" title="Execution Order">#{task.order}</span>}
+                                                                                {task.calendarized && <div title="Calendarized" className="text-purple-500"><CalendarDays className="w-3 h-3" /></div>}
+                                                                                {(task.isAssignment || (task.approverTeamMemberIds?.length ?? 0) > 0) && informedTaskIds.has(task.id) && (
+                                                                                    <span title="An assignment email was already generated for this task" className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded uppercase shrink-0">✓ Informed</span>
+                                                                                )}
+                                                                            </div>
                                                                             <div className="flex items-start gap-2">
                                                                                 <button
                                                                                     onClick={(e) => { e.stopPropagation(); toggleTaskDoneDirect(task); }}
-                                                                                    className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${task.status === 'Done' ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300 hover:border-[#3DCD58]'}`}
+                                                                                    className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isDone ? 'bg-[#3DCD58] border-[#3DCD58]' : 'border-gray-300 hover:border-[#3DCD58]'}`}
                                                                                 >
-                                                                                    {task.status === 'Done' && <Check className="w-2.5 h-2.5 text-white" />}
+                                                                                    {isDone && <Check className="w-2.5 h-2.5 text-white" />}
                                                                                 </button>
-                                                                                <span className={`text-xs font-semibold flex-1 min-w-0 truncate ${task.status === 'Done' ? 'line-through text-gray-400' : 'text-gray-800'}`} title={task.title}>{task.title}</span>
-                                                                            </div>
-                                                                            <div className="flex items-center justify-between mt-2 pl-6">
-                                                                                <span className="text-[9px] font-bold text-gray-400">#{task.order || '?'}</span>
-                                                                                <div className="flex items-center gap-1.5">
-                                                                                    {totalSubtasks > 0 && <span className="text-[9px] font-bold text-gray-400">{doneSubtasks}/{totalSubtasks}</span>}
-                                                                                    {task.dueDate && <span className="text-[9px] font-bold text-gray-400 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{task.dueDate}</span>}
-                                                                                    <span className={`text-[8px] px-1 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{(task.priority || 'Medium')[0]}</span>
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <div className={`text-xs font-semibold truncate ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`} title={task.title}>{task.title}</div>
+                                                                                    {task.description && (
+                                                                                        <p className={`text-[10px] mt-0.5 line-clamp-2 ${isDone ? 'text-gray-300' : 'text-gray-500'}`}>{task.description}</p>
+                                                                                    )}
                                                                                 </div>
+                                                                                {task.blockDoneUntilDependenciesDone && <Lock className="w-2.5 h-2.5 text-gray-400 mt-1 shrink-0" />}
+                                                                            </div>
+
+                                                                            {totalSubtasks > 0 && (
+                                                                                <div className="mt-2 pl-6 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                                                                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                                                        <div className="h-full bg-[#3DCD58] transition-all" style={{ width: `${Math.round(doneSubtasks / totalSubtasks * 100)}%` }} />
+                                                                                    </div>
+                                                                                    <span className="text-[9px] font-bold text-gray-400 shrink-0">{doneSubtasks}/{totalSubtasks}</span>
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div className="flex items-center gap-1.5 flex-wrap mt-2 pl-6">
+                                                                                {task.dueDate && <span className="text-[9px] font-bold text-gray-400 flex items-center gap-0.5"><Clock className="w-2.5 h-2.5" />{task.dueDate}</span>}
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); setAssignPopoverTaskId(assignPopoverTaskId === task.id ? null : task.id); }}
+                                                                                    className="flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded hover:bg-blue-100"
+                                                                                >
+                                                                                    <User className="w-2.5 h-2.5" /> {task.responsible || 'Assign'}
+                                                                                </button>
+                                                                                <span className={`text-[8px] px-1 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{task.priority || 'Medium'}</span>
+                                                                            </div>
+                                                                            {(task.responsibleRequestedDate || task.responsibleDueDate) && (
+                                                                                <div className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold mt-1.5 ml-6 inline-block" title="Requested / due back from responsible">
+                                                                                    {task.responsibleRequestedDate || '?'} → {task.responsibleDueDate || '?'}
+                                                                                </div>
+                                                                            )}
+
+                                                                            {assignPopoverTaskId === task.id && (
+                                                                                <div className="mt-2 p-2 bg-gray-50 rounded-lg border border-gray-200 space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                                                    <ResponsibleTeamPicker
+                                                                                        options={sowTeamMembers}
+                                                                                        onCreate={(name) => { createContactAndInvolve(name); return undefined; }}
+                                                                                        selected={task.responsibleTeamMemberIds || []}
+                                                                                        onChange={(ids) => applyTaskFieldsDirect(task.id, {
+                                                                                            responsibleTeamMemberIds: ids,
+                                                                                            responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                                                                                            owner: ids.length > 0 ? 'External Area' : task.owner,
+                                                                                            externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                                                            ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(task.status) ? { status: 'Missing Info' as TaskStatus } : {})
+                                                                                        })}
+                                                                                    />
+                                                                                    {(task.responsibleTeamMemberIds || []).length > 0 && (
+                                                                                        <div className="grid grid-cols-2 gap-2">
+                                                                                            <div>
+                                                                                                <label className="text-[9px] font-bold text-gray-500 uppercase">Requested on</label>
+                                                                                                <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={task.responsibleRequestedDate || ''} onChange={(e) => applyTaskFieldsDirect(task.id, { responsibleRequestedDate: e.target.value })} />
+                                                                                            </div>
+                                                                                            <div>
+                                                                                                <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                                                                                <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={task.responsibleDueDate || ''} onChange={(e) => applyTaskFieldsDirect(task.id, { responsibleDueDate: e.target.value })} />
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div className="flex items-center justify-end gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                                                                <TaskTimerButtonList task={task} oppId={localOpp.id} />
+                                                                                <button onClick={() => setShowDocPicker({ type: 'task', id: task.id })} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-blue-500 shrink-0" title="Attach file from folder">
+                                                                                    <Paperclip className="w-3 h-3" />
+                                                                                </button>
+                                                                                <button onClick={() => copyTask(task)} className="p-1 hover:bg-gray-200 rounded text-gray-400 hover:text-blue-500" title="Duplicate Task">
+                                                                                    <Copy className="w-3 h-3" />
+                                                                                </button>
                                                                             </div>
                                                                         </div>
                                                                     );
@@ -8611,7 +8729,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                     <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
-                                        <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info', responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
+                                        <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area', status: 'Missing Info' } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                         <div className="flex gap-4 items-center">
                                             <select
                                                 className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2"
@@ -8653,9 +8771,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids)} /></div>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Execution delivered</label><input type="date" value={selectedTaskForEdit.task.responsibleDeliveredDate || ''} onChange={e => updateTaskInModal('responsibleDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            {(selectedTaskForEdit.task.approverTeamMemberIds?.length ?? 0) > 0 && <>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval required</label><input type="date" value={selectedTaskForEdit.task.approvalDueDate || ''} onChange={e => updateTaskInModal('approvalDueDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approval requested</label><input type="date" value={selectedTaskForEdit.task.approvalRequestedDate || ''} onChange={e => updateTaskInModal('approvalRequestedDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approved</label><input type="date" value={selectedTaskForEdit.task.approvalDeliveredDate || ''} onChange={e => updateTaskInModal('approvalDeliveredDate', e.target.value)} className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            </>}
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                         </div>}
                                     </div>
@@ -9211,6 +9331,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             const task = localOpp.tasks.find(t => t.id === taskId);
                             if (task) { setEmailComposeState({ open: false }); setSelectedTaskForEdit({ task }); }
                         }}
+                        sowTeamMembers={sowTeamMembers}
+                        onAssignTask={(taskId, ids) => applyTaskFieldsDirect(taskId, {
+                            isAssignment: true,
+                            responsibleTeamMemberIds: ids,
+                            responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+                            owner: ids.length > 0 ? 'External Area' : 'Me',
+                            externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                            status: 'Missing Info',
+                        })}
                     />
                 )
             }

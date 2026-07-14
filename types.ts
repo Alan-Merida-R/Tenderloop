@@ -509,6 +509,8 @@ export interface Opportunity {
   tasks: Task[];
   questions: Question[]; 
   history: HistoryEntry[];
+  /** Optional override for the "Last History Event" dashboard card field — when unset, the card shows the most recent history entry's content verbatim. */
+  lastHistoryEventOverride?: string;
   presentation: PrdPresentation;
   tags: string[]; // Keep for legacy
   labels: OpportunityLabel[]; // New colored labels

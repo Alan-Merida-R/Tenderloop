@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Mail, X, Paperclip, Folder as FolderIcon, FileText, ChevronRight, Search,
-    AlertTriangle, AlertCircle, RefreshCw, Trash2, ArrowLeft, Loader2
+    AlertTriangle, AlertCircle, RefreshCw, Trash2, ArrowLeft, Loader2, Link as LinkIcon
 } from 'lucide-react';
 import type { Opportunity, Task, Person, GlobalContact, GeneratedEmailRecord, GeneratedEmailKind } from '../types';
+import type { SowTeamMember } from '../services/sowTeamMembers';
 import type { EmailComposeSettings, EmailTemplate } from '../services/emailTemplates';
 import { resolveTemplates } from '../services/emailTemplates';
 import {
@@ -40,6 +41,10 @@ interface Props {
     onGenerated: (record: GeneratedEmailRecord) => void;
     /** Called when the user wants to turn a regular task into an assignment — closes this modal and opens the task editor. */
     onRequestAssignTask?: (taskId: string) => void;
+    /** SOW team members available to assign a task to, for the inline "assign without leaving the composer" picker. */
+    sowTeamMembers?: SowTeamMember[];
+    /** Turns a regular task into a tracked assignment in place (responsible, owner, status) without leaving the composer. */
+    onAssignTask?: (taskId: string, teamMemberIds: string[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +368,10 @@ const DUE_DATE_CHIPS: { label: string; iso: () => string }[] = [
 export const EmailComposeModal: React.FC<Props> = ({
     isOpen, onClose, opportunity, emailSettings, userName,
     globalContacts = [], initialTemplateId, initialTaskIds, onGenerated, onRequestAssignTask,
+    sowTeamMembers = [], onAssignTask,
 }) => {
+    const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
+    const [assignPickIds, setAssignPickIds] = useState<string[]>([]);
     const templates = useMemo(() => resolveTemplates(emailSettings), [emailSettings]);
     const [templateId, setTemplateId] = useState(initialTemplateId || 'status_report');
     const [to, setTo] = useState<string[]>([]);
@@ -398,17 +406,17 @@ export const EmailComposeModal: React.FC<Props> = ({
     const tone = toneForKind(kind);
 
     const stakeholders: Person[] = opportunity.stakeholders || [];
+    // Recipient suggestions are scoped to people already involved in this opportunity
+    // (its stakeholders), not the entire global contacts directory — the user can still
+    // type any other address by hand, this only limits what the dropdown suggests.
     const people: EmailRecipient[] = useMemo(() => {
         const out: EmailRecipient[] = [];
         const seen = new Set<string>();
         for (const p of stakeholders) {
             if (p.email && !seen.has(p.email.toLowerCase())) { seen.add(p.email.toLowerCase()); out.push({ name: p.name || p.email, email: p.email }); }
         }
-        for (const c of globalContacts) {
-            if (c.email && !seen.has(c.email.toLowerCase())) { seen.add(c.email.toLowerCase()); out.push({ name: c.name || c.email, email: c.email }); }
-        }
         return out;
-    }, [stakeholders, globalContacts]);
+    }, [stakeholders]);
 
     const tasks = opportunity.tasks || [];
     const selectedTasks = useMemo(() => tasks.filter(t => selectedTaskIds.includes(t.id)), [tasks, selectedTaskIds]);
@@ -603,6 +611,21 @@ export const EmailComposeModal: React.FC<Props> = ({
 
     /** The DOM is the source of truth once rendered (it may contain per-block user edits). */
     const currentBodyHtml = () => (bodyRef.current ? bodyRef.current.innerHTML : draft.bodyHtml);
+
+    /** Inserts a clickable link at the cursor in the body preview. */
+    const insertLinkIntoBody = () => {
+        const root = bodyRef.current;
+        if (!root) return;
+        const url = window.prompt('Link URL:', 'https://')?.trim();
+        if (!url) return;
+        const selectedText = window.getSelection()?.toString();
+        const label = selectedText?.trim() || window.prompt('Link text:', url)?.trim() || url;
+        root.focus();
+        const escaped = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const escapedLabel = label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        document.execCommand('insertHTML', false, `<a href="${escaped}" target="_blank" rel="noopener noreferrer">${escapedLabel}</a>`);
+        setBodyDirty(true);
+    };
 
     const validation = useMemo(() => validateComposedEmail({
         to, cc, bcc, subject,
@@ -820,18 +843,56 @@ export const EmailComposeModal: React.FC<Props> = ({
                                 {kind === 'task_assignment' && otherAssignableTasks.length > 0 && (
                                     <div className="mt-2 border border-dashed border-gray-200 rounded-lg p-2 bg-gray-50/60">
                                         <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Want to assign a different task?</p>
-                                        <div className="max-h-28 overflow-y-auto space-y-1">
+                                        <div className="max-h-44 overflow-y-auto space-y-1">
                                             {otherAssignableTasks.map(t => (
-                                                <div key={t.id} className="flex items-center gap-2 text-xs px-1.5 py-1 rounded hover:bg-white">
-                                                    <span className="flex-1 truncate text-gray-600" title={t.title}>{t.title}</span>
-                                                    <button
-                                                        onClick={() => onRequestAssignTask?.(t.id)}
-                                                        disabled={!onRequestAssignTask}
-                                                        title="Open this task to fill in responsible, dates, priority and approvers before assigning it"
-                                                        className="text-[10px] font-bold text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline shrink-0"
-                                                    >
-                                                        Open task to assign
-                                                    </button>
+                                                <div key={t.id} className="text-xs px-1.5 py-1 rounded hover:bg-white">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="flex-1 truncate text-gray-600" title={t.title}>{t.title}</span>
+                                                        {sowTeamMembers.length > 0 && onAssignTask ? (
+                                                            <button
+                                                                onClick={() => { setAssigningTaskId(assigningTaskId === t.id ? null : t.id); setAssignPickIds(t.responsibleTeamMemberIds || []); }}
+                                                                title="Pick who this is assigned to, right here"
+                                                                className="text-[10px] font-bold text-blue-600 hover:underline shrink-0"
+                                                            >
+                                                                {assigningTaskId === t.id ? 'Cancel' : 'Assign'}
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => onRequestAssignTask?.(t.id)}
+                                                                disabled={!onRequestAssignTask}
+                                                                title="Open this task to fill in responsible, dates, priority and approvers before assigning it"
+                                                                className="text-[10px] font-bold text-blue-600 hover:underline disabled:opacity-40 disabled:no-underline shrink-0"
+                                                            >
+                                                                Open task to assign
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {assigningTaskId === t.id && (
+                                                        <div className="mt-1.5 p-2 bg-white border border-gray-200 rounded-lg space-y-1.5" onClick={e => e.stopPropagation()}>
+                                                            {sowTeamMembers.map(m => (
+                                                                <label key={m.id} className="flex items-center gap-2 cursor-pointer">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={assignPickIds.includes(m.id)}
+                                                                        onChange={() => setAssignPickIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                                                                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                                    />
+                                                                    <span className="text-xs text-gray-700">{m.name}{m.area ? ` · ${m.area}` : ''}</span>
+                                                                </label>
+                                                            ))}
+                                                            <button
+                                                                onClick={() => {
+                                                                    onAssignTask?.(t.id, assignPickIds);
+                                                                    setSelectedTaskIds(prev => prev.includes(t.id) ? prev : [...prev, t.id]);
+                                                                    setAssigningTaskId(null);
+                                                                }}
+                                                                disabled={assignPickIds.length === 0}
+                                                                className="w-full mt-1 rounded-lg bg-[#3DCD58] px-2 py-1 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                                            >
+                                                                Assign & use this task
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -1103,7 +1164,12 @@ export const EmailComposeModal: React.FC<Props> = ({
                                 <RefreshCw className="w-3.5 h-3.5" /> Reset
                             </button>
                         </div>
-                        <label className="text-[9px] font-bold text-gray-500 uppercase">Body (editable preview)</label>
+                        <div className="flex items-center justify-between">
+                            <label className="text-[9px] font-bold text-gray-500 uppercase">Body (editable preview)</label>
+                            <button onClick={insertLinkIntoBody} title="Insert a link at the cursor" className="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-[#3DCD58]">
+                                <LinkIcon className="w-3.5 h-3.5" /> Insert Link
+                            </button>
+                        </div>
                         <div
                             key={`preview-${regenCounter}`}
                             ref={bodyRef}
