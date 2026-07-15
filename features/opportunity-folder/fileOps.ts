@@ -342,6 +342,57 @@ export const revealInExplorer = async (rootPathDisplay: string, relativePath: st
 };
 
 /**
+ * Check whether an absolute path still exists on disk via the local helper.
+ * 'helper-offline' means the helper couldn't be reached (or predates the
+ * /check-path endpoint) — treat it as UNKNOWN, never as missing.
+ */
+export const checkOsPath = async (absPath: string): Promise<'ok' | 'missing' | 'helper-offline'> => {
+  const qs = new URLSearchParams({ path: absPath }).toString();
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/check-path?${qs}`);
+  } catch {
+    return 'helper-offline';
+  }
+  if (resp.ok) return 'ok';
+  if (resp.status === 404) return 'missing';
+  return 'helper-offline';
+};
+
+export interface OsDirEntry {
+  name: string;
+  kind: 'file' | 'directory';
+  size: number;
+  mtime: number;
+}
+
+/**
+ * List a directory's entries by absolute path via the local helper — lets the
+ * folder tab browse (read-only) without a FileSystemDirectoryHandle, e.g. in a
+ * browser that never linked the folder.
+ */
+export const listDirByPath = async (rootPathDisplay: string, relativePath: string[]): Promise<OsDirEntry[]> => {
+  const absolute = relativePath.length
+    ? buildAbsolutePath(rootPathDisplay, relativePath)
+    : (rootPathDisplay || '').trim().replace(/[\/\\]+$/, '');
+  if (!absolute) throw new Error('Base path is not set.');
+  const qs = new URLSearchParams({ path: absolute }).toString();
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/list-dir?${qs}`);
+  } catch {
+    throw new Error('Could not connect to the local helper (port 3099). Open TenderLoop with LANZAR_TENDERLOOP.');
+  }
+  if (!resp.ok) {
+    let msg = `Error ${resp.status}`;
+    try { const b = await resp.json(); if (b?.error) msg = b.error; } catch {}
+    throw new Error(`Could not list "${absolute}": ${msg}`);
+  }
+  const body = await resp.json().catch(() => ({}));
+  return Array.isArray(body?.entries) ? body.entries : [];
+};
+
+/**
  * Auto-resolve the absolute path of a just-linked folder WITHOUT asking the user
  * to type it — and WITHOUT writing anything into the folder. The folder's name
  * plus the names of a few entries inside it (as disambiguation hints) are sent

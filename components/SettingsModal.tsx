@@ -63,6 +63,39 @@ export const normalizeOpportunityDetailSectionOrder = (order?: OpportunityDetail
   return [...ordered, ...missing];
 };
 
+export type AppViewKey = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard' | 'indicators-dashboard';
+
+export const APP_VIEWS: { key: AppViewKey; label: string }[] = [
+  { key: 'general-dashboard', label: 'General' },
+  { key: 'proposals-dashboard', label: 'Proposals' },
+  { key: 'tasks-dashboard', label: 'Tasks' },
+  { key: 'indicators-dashboard', label: 'Indicators' },
+];
+
+export type OpportunityHeaderFieldKey =
+  | 'address' | 'seller' | 'nextStep' | 'quoteType' | 'alias' | 'labels'
+  | 'emailButton' | 'exportImport' | 'revisions' | 'exportPdf' | 'copySummary' | 'autoFillEmail' | 'delete'
+  | 'principalStatus' | 'processStatus' | 'priority';
+
+export const OPPORTUNITY_HEADER_FIELDS: { key: OpportunityHeaderFieldKey; label: string }[] = [
+  { key: 'address', label: 'Address' },
+  { key: 'seller', label: 'Seller' },
+  { key: 'nextStep', label: 'Next Step badge' },
+  { key: 'quoteType', label: 'Quote type badge' },
+  { key: 'alias', label: 'Alias badge' },
+  { key: 'labels', label: 'Labels' },
+  { key: 'emailButton', label: 'Email button' },
+  { key: 'exportImport', label: 'Export / Import buttons' },
+  { key: 'revisions', label: 'Revisions button' },
+  { key: 'exportPdf', label: 'Export PDF button' },
+  { key: 'copySummary', label: 'Copy Summary button' },
+  { key: 'autoFillEmail', label: 'Auto-fill from Email button' },
+  { key: 'delete', label: 'Delete button' },
+  { key: 'principalStatus', label: 'Principal Status' },
+  { key: 'processStatus', label: 'Process Status' },
+  { key: 'priority', label: 'Priority' },
+];
+
 export type SoundType =
   | 'beep'
   | 'chime'
@@ -98,8 +131,20 @@ export interface AppSettings {
   hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
   opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
   processRadialWidgetEnabled?: boolean;
+  /** The top-level view shown when the app opens. */
+  defaultStartView?: AppViewKey;
+  /** Top-level views hidden from the main navigation. At least one view must stay visible. */
+  hiddenViews?: AppViewKey[];
+  /** Sections hidden within the Indicators view. */
+  hiddenIndicatorSections?: Array<'financial' | 'monthly' | 'duration' | 'productivity' | 'longestTasks'>;
+  /** Header fields hidden from the top of every opportunity detail. */
+  hiddenOpportunityHeaderFields?: OpportunityHeaderFieldKey[];
+  /** Whether the "Stakeholders" team button is available in the Notes tab. Off by default. */
+  stakeholdersSectionEnabled?: boolean;
   /** Process board buckets hidden from the dashboard. Temporary minimization stays local to the board. */
   hiddenProposalProcessColumns?: string[];
+  /** Custom colors for Process board buckets, keyed by detailed status. */
+  processBoardColors?: Record<string, string>;
   /** Global variables usable across the app (e.g. the user name stamped when copying History). */
   userName?: string;
   globalContacts?: GlobalContact[];
@@ -112,6 +157,10 @@ export const DEFAULT_STAKEHOLDER_ROLES = ['CSE', 'Tender Engineer', 'TSC', 'Deli
 export const DEFAULT_TRACKED_AREAS = [
   "Tendering", "Sales CSE", "TSC", "Manager", "Supply Chain", "Delivery", "Engineering of Site"
 ];
+const DEFAULT_PROCESS_BOARD_COLORS: Record<string, string> = {
+  'Working on it': '#3DCD58', 'Review': '#4D61FF', 'Info Needed': '#FF4D4D', 'Paused': '#FF8A00',
+  'Approval': '#8B5CF6', 'Meeting': '#06B6D4', 'Completed': '#10B981', 'Canceled': '#6B7280',
+};
 
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -148,10 +197,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timerSound: 'beep',
   emailIntegrationEnabled: false,
   sowSectionEnabled: false,
+  stakeholdersSectionEnabled: false,
   hiddenOpportunityDetailSections: [],
   opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
   processRadialWidgetEnabled: false,
+  defaultStartView: 'general-dashboard',
+  hiddenViews: ['indicators-dashboard'],
+  hiddenIndicatorSections: [],
+  hiddenOpportunityHeaderFields: [],
   hiddenProposalProcessColumns: [],
+  processBoardColors: {},
   userName: 'User',
   globalContacts: [],
   globalSowForm: { sections: [], questions: [] },
@@ -499,6 +554,64 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2"><LayoutList className="w-4 h-4 text-[#3DCD58]" /> Views</h3>
+                <p className="text-xs text-gray-500 max-w-2xl mb-4">Choose which top-level views appear in the main navigation and which one opens by default when the app starts. At least one view must stay visible.</p>
+
+                <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Startup view</label>
+                <select
+                  value={(settings.hiddenViews || []).includes(settings.defaultStartView || 'general-dashboard') ? (APP_VIEWS.find(v => !(settings.hiddenViews || []).includes(v.key))?.key || 'general-dashboard') : (settings.defaultStartView || 'general-dashboard')}
+                  onChange={(e) => setSettings(prev => ({ ...prev, defaultStartView: e.target.value as AppViewKey }))}
+                  className="w-full mt-1 mb-4 border-gray-200 rounded-lg text-sm p-2.5 focus:border-[#3DCD58] focus:ring-0"
+                >
+                  {APP_VIEWS.filter(v => !(settings.hiddenViews || []).includes(v.key)).map(v => (
+                    <option key={v.key} value={v.key}>{v.label}</option>
+                  ))}
+                </select>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {APP_VIEWS.map(v => {
+                    const hiddenViews = settings.hiddenViews || [];
+                    const isHidden = hiddenViews.includes(v.key);
+                    const isLastVisible = !isHidden && hiddenViews.length === APP_VIEWS.length - 1;
+                    return (
+                      <label key={v.key} className={`flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 ${isLastVisible ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`} title={isLastVisible ? 'At least one view must stay visible' : undefined}>
+                        <input
+                          type="checkbox"
+                          checked={!isHidden}
+                          disabled={isLastVisible}
+                          onChange={() => setSettings(prev => {
+                            const hidden = new Set(prev.hiddenViews || []);
+                            if (hidden.has(v.key)) hidden.delete(v.key); else hidden.add(v.key);
+                            const nextHidden = [...hidden];
+                            const nextDefault = nextHidden.includes(prev.defaultStartView || 'general-dashboard')
+                              ? APP_VIEWS.find(view => !nextHidden.includes(view.key))?.key
+                              : prev.defaultStartView;
+                            return { ...prev, hiddenViews: nextHidden, defaultStartView: nextDefault };
+                          })}
+                          className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                        />
+                        <span>{v.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {!(settings.hiddenViews || []).includes('indicators-dashboard') && (
+                  <>
+                    <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wide mt-5 mb-2">Indicators sections</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        ['financial', 'Financial summary'], ['monthly', 'Monthly SRs'], ['duration', 'Opportunity duration'], ['productivity', 'Productivity'], ['longestTasks', 'Longest timer tasks'],
+                      ].map(([key, label]) => {
+                        const isHidden = (settings.hiddenIndicatorSections || []).includes(key as any);
+                        return <label key={key} className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50"><input type="checkbox" checked={!isHidden} onChange={() => setSettings(prev => { const hidden = new Set(prev.hiddenIndicatorSections || []); if (hidden.has(key as any)) hidden.delete(key as any); else hidden.add(key as any); return { ...prev, hiddenIndicatorSections: [...hidden] as AppSettings['hiddenIndicatorSections'] }; })} className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"/><span>{label}</span></label>;
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
@@ -526,7 +639,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2"><LayoutList className="w-4 h-4 text-[#3DCD58]" /> Process Board Columns</h3>
-                <p className="text-xs text-gray-500 mb-4">Choose the process buckets to hide from the Proposals dashboard. Hidden buckets remain available in the data and can be restored here. The collapse control inside the dashboard is unchanged.</p>
+                <p className="text-xs text-gray-500 mb-4">Choose the process buckets to hide and customize their header colors in the Proposals dashboard. Hidden buckets remain available in the data and can be restored here.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {Object.keys(DETAILED_STATUS_COLORS).filter(status => !['No Status', 'Waiting'].includes(status)).map(status => {
                     const isHidden = (settings.hiddenProposalProcessColumns || []).includes(status);
@@ -543,7 +656,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           })}
                           className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
                         />
-                        <span>Hide {status}</span>
+                        <span className="flex-1">Hide {status}</span>
+                        <input
+                          type="color"
+                          value={(settings.processBoardColors || {})[status] || DEFAULT_PROCESS_BOARD_COLORS[status] || '#6B7280'}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => setSettings(prev => ({ ...prev, processBoardColors: { ...(prev.processBoardColors || {}), [status]: event.target.value } }))}
+                          className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
+                          title={`Color for ${status}`}
+                        />
                       </label>
                     );
                   })}
@@ -772,6 +893,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   <input type="email" value={contact.email} onChange={e => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, email: e.target.value } : c) }))} placeholder="Email (unique)" className="border-gray-200 rounded-lg text-sm" />
                   <div className="flex gap-1"><div className="flex-1"><SimpleMultiSelect options={trackedAreasText.split('\n').map(v => v.trim()).filter(Boolean).map(area => ({ id: area, label: area }))} selected={contact.availableRoles || []} onChange={roles => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, availableRoles: roles } : c) }))} placeholder="Select roles / areas" /></div><button type="button" onClick={() => { const area = prompt('New tracked area / role:')?.trim(); if (!area) return; const current = trackedAreasText.split('\n').map(v => v.trim()).filter(Boolean); if (!current.some(v => v.toLowerCase() === area.toLowerCase())) setTrackedAreasText([...current, area].join('\n')); setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, availableRoles: Array.from(new Set([...(c.availableRoles || []), area])) } : c) })); }} className="px-2 rounded border border-gray-200 bg-white text-blue-600 font-bold" title="Create tracked area">+</button></div>
                   <button type="button" onClick={() => setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).filter(c => c.id !== contact.id) }))} className="p-2 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <input key={`aliases-${contact.id}`} defaultValue={(contact.aliases || []).join('; ')} onBlur={e => { const aliases = e.target.value.split(';').map(v => v.trim()).filter(Boolean); setSettings(prev => ({ ...prev, globalContacts: (prev.globalContacts || []).map(c => c.id === contact.id ? { ...c, aliases } : c) })); }} placeholder="Aliases (semicolon-separated), e.g. Bob; Roberto GM" className="border-gray-200 rounded-lg text-xs md:col-span-4" />
                 </div>
               ))}
               {(settings.globalContacts || []).length === 0 && <div className="text-center text-xs text-gray-400 py-8">No contacts yet.</div>}
@@ -899,6 +1021,46 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   })}
                 </div>
               </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <LayoutList className="w-4 h-4 text-[#3DCD58]" /> Header Fields
+                    </h3>
+                    <p className="text-xs text-gray-500 max-w-2xl">
+                      Choose which fields and buttons appear at the top of every opportunity (Overview header). Hidden fields free up space and the remaining ones re-flow automatically.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, hiddenOpportunityHeaderFields: [] }))}
+                    className="text-[10px] font-bold text-gray-400 hover:text-[#3DCD58] uppercase flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-emerald-50 shrink-0"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Show all
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {OPPORTUNITY_HEADER_FIELDS.map(field => {
+                    const isHidden = (settings.hiddenOpportunityHeaderFields || []).includes(field.key);
+                    return (
+                      <label key={field.key} className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={!isHidden}
+                          onChange={() => setSettings(prev => {
+                            const hidden = new Set(prev.hiddenOpportunityHeaderFields || []);
+                            if (hidden.has(field.key)) hidden.delete(field.key); else hidden.add(field.key);
+                            return { ...prev, hiddenOpportunityHeaderFields: [...hidden] };
+                          })}
+                          className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                        />
+                        <span>{field.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1009,6 +1171,22 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     type="checkbox"
                     checked={settings.sowSectionEnabled || false}
                     onChange={e => setSettings(prev => ({ ...prev, sowSectionEnabled: e.target.checked }))}
+                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
+                  />
+                  <span className="text-xs font-medium text-gray-600">Enabled</span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
+                <div>
+                  <p className="text-sm font-bold text-gray-800">Stakeholders</p>
+                  <p className="text-xs text-gray-500">Show the "Stakeholders" button next to the note templates so users can open the opportunity team panel.</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.stakeholdersSectionEnabled || false}
+                    onChange={e => setSettings(prev => ({ ...prev, stakeholdersSectionEnabled: e.target.checked }))}
                     className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
                   />
                   <span className="text-xs font-medium text-gray-600">Enabled</span>

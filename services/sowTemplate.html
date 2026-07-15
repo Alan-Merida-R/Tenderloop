@@ -229,6 +229,15 @@
   .question-grid,.custom-question-container{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:9px;align-items:start}
   .question-card{position:relative;background:#fff;border:1px solid #dfe5ee;border-radius:8px;padding:8px 10px;margin:0;min-width:0;transition:.15s}
   .question-card:hover{border-color:#b8c7dc}
+  .question-card.flagged{border-color:#f04438;background:#fff8f7;box-shadow:0 0 0 2px #f0443820}
+  body.flag-filtering .question-card:not(.flagged){display:none}
+  .question-flag{margin-left:auto;border:0;background:transparent;color:#98a2b3;cursor:pointer;padding:2px 4px;border-radius:6px;font-size:17px;line-height:1}
+  .question-flag:hover,.question-flag.active{color:#e5484d;background:#fff0f0}
+  .terminal-tag.tbd{color:#fbbf24}
+  .nav-panel{position:fixed;z-index:75;inset:0 auto 0 0;width:min(390px,92vw);background:#fff;border-right:1px solid #d8dee8;box-shadow:12px 0 32px #0f172a2b;display:none;flex-direction:column}.nav-panel.open{display:flex}
+  /* Push the document instead of overlaying it, so the panel never covers content the user is trying to read/edit. */
+  body{transition:padding-left .15s ease}
+  body.nav-panel-open{padding-left:min(390px,92vw)}.nav-head{padding:16px;border-bottom:1px solid #e4e7ec;display:flex;gap:8px;align-items:center}.nav-head b{font-size:13px;flex:1}.nav-search{margin:12px;width:calc(100% - 24px);padding:10px 12px;border:1px solid #cfd7e3;border-radius:8px;font:inherit}.nav-results{overflow:auto;padding:0 12px 18px}.nav-section{border-bottom:1px solid #eef2f6}.nav-section>summary{padding:11px 5px;cursor:pointer;font-weight:700;font-size:13px;color:#172033}.nav-subsection{margin-left:14px;border-left:2px solid #eef2f6;padding-left:8px}.nav-subsection>summary{padding:8px 5px;cursor:pointer;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#8a94a6}.nav-question{display:flex;align-items:flex-start;gap:7px;padding:7px 8px;margin:3px 0;border-radius:7px;font-size:12px;color:#475467;cursor:pointer}.nav-question:hover,.nav-question.match{background:#fff6cc}.nav-flag{color:#e5484d;font-size:14px}.nav-snippet{display:block;color:#667085;font-size:11px;line-height:1.3;margin-top:2px}
   .question-card.missing{border-color:#f04438!important;background:#fff7f6!important}
   .question-header{display:flex;gap:8px;align-items:flex-start;margin-bottom:5px}
   .question-title{font-size:12px;font-weight:700;line-height:1.3;flex:1}
@@ -282,11 +291,12 @@
 <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
 <span class="progress-text" id="progressText">0% complete</span>
 </div>
-<button aria-pressed="false" class="btn" id="designerModeBtn" type="button">Design questions</button><button class="btn builder-only" id="addSectionBtn" type="button">+ New section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" type="button">Meeting mode</button><button class="btn" id="generateMeetingNoteBtn" type="button">Generate meeting note</button><button class="btn" id="reviewGapsBtn" type="button">Review gaps</button><button class="btn" id="overviewBtn" type="button">Overview</button>
+<button aria-pressed="false" class="btn" id="designerModeBtn" type="button">Design questions</button><button class="btn builder-only" id="addSectionBtn" type="button">+ New section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" type="button">Meeting mode</button><button class="btn" id="generateMeetingNoteBtn" type="button">Generate meeting note</button><button class="btn" id="reviewGapsBtn" type="button">Review gaps</button><button class="btn" id="flaggedBtn" type="button">🚩 Flagged questions</button><button class="btn" id="navigationBtn" type="button">☰ Navigation</button><button class="btn" id="overviewBtn" type="button">Overview</button>
 <button class="btn primary" id="printBtn" type="button">Print / PDF</button>
 </div>
 </div>
 <aside class="terminal-overview" id="terminalOverview"><div class="terminal-head"><b>▣ OVERVIEW / CAPTURED INFORMATION</b><button class="btn" id="closeOverviewBtn" type="button">Close</button></div><div class="terminal-filters"><input class="terminal-search" id="overviewSearch" placeholder="Search BOM, scope, delivery..."/><select class="terminal-section-filter" id="overviewSectionFilter"><option value="">All sections</option></select></div><div class="terminal-body" id="overviewBody"></div></aside>
+<aside class="nav-panel" id="navigationPanel"><div class="nav-head"><b>Navigation panel</b><button class="btn" id="closeNavigationBtn" type="button">Close</button></div><input class="nav-search" id="navigationSearch" placeholder="Search in document (like Word)"/><div class="nav-results" id="navigationResults"></div></aside>
 <div class="card">
 <h1>Define Scope</h1>
 <div class="subtitle">Complete project, commercial, technical, execution and handover definition for Modicon PLC, Triconex SIS and EcoStruxure Foxboro DCS opportunities.</div>
@@ -299,11 +309,16 @@
 <div class="field"><label>End user</label><input data-key="end_user" type="text"/></div>
 <div class="field"><label>Site / plant location</label><input data-key="site" type="text"/></div>
 <div class="field"><label>Seller / CSE</label><input data-key="team_cse" type="text"/></div>
-<div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option>Firm / Bid to buy</option><option>Budgetary</option></select></div>
+<div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option>Firm / Bid to buy</option><option>Bid to bid</option><option>Budgetary</option><option>Non-binding budgetary</option><option>Change order / Revision</option></select></div>
 </div>
 <div class="field" id="expedienteObjective" style="margin-top:13px">
 <label>Objective <span class="required-mark">*</span></label>
 <div class="editable" contenteditable="true" data-key="objective" data-placeholder="What outcome must this proposal and project achieve?" data-required=""></div>
+</div>
+<div class="field" style="margin-top:13px">
+<label>Scope (Alcance)</label>
+<textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
+<div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
 </div></section>
 <div class="field" style="margin-top:13px">
 <label>Platforms included in this opportunity <span class="required-mark">*</span></label>
@@ -1035,6 +1050,7 @@
   const $$ = (s, r=document) => [...r.querySelectorAll(s)];
   let guidedMode = true;
   let designerMode = false;
+  let flaggedQuestions = new Set();
   let syncing = false;
   let customForm = {sections:[], questions:[]};
   let globalForm = {sections:[], questions:[]};
@@ -1089,7 +1105,7 @@
   function restoreFieldValues(data){ if(!data) return; fields().forEach(el => { if(Object.prototype.hasOwnProperty.call(data,el.dataset.key)) setValue(el,data[el.dataset.key]); }); }
 
   function collectState(){
-    const data = {version:3, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), ui:{guidedMode}, savedAt:new Date().toISOString()};
+    const data = {version:4, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), flags:[...flaggedQuestions], ui:{guidedMode}, savedAt:new Date().toISOString()};
     $$('.dynamic-table').forEach(t => data.tables[t.dataset.key] = serializeTable(t));
     return data;
   }
@@ -1105,6 +1121,7 @@
   function applyState(data){
     if(!data) return;
     customForm = mergeGlobalForm(data.customForm);
+    flaggedQuestions = new Set(Array.isArray(data.flags) ? data.flags : []);
     if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
     rebuildCustomForm(null, false);
     restoreFieldValues(data.fields || {});
@@ -1134,9 +1151,9 @@
     const filter=$('#overviewSectionFilter'); const sections=[...new Set(allRows.map(row=>row.section))].sort();
     if(filter){const current=filter.value;filter.innerHTML='<option value="">All sections</option>'+sections.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join('');filter.value=sections.includes(current)?current:'';}
     const selected=filter?.value||'';
-    const rows=allRows.filter(row=>filledValue(row.value)&&(!selected||row.section===selected)).filter(row=>`${row.label} ${row.section} ${Array.isArray(row.value)?row.value.join(' '):typeof row.value==='object'?Object.values(row.value).join(' '):row.value}`.toLowerCase().includes(query));
+    const rows=allRows.filter(row=>(filledValue(row.value)||flaggedQuestions.has(row.key))&&(!selected||row.section===selected)).filter(row=>`${row.label} ${row.section} ${Array.isArray(row.value)?row.value.join(' '):typeof row.value==='object'?Object.values(row.value).join(' '):row.value}`.toLowerCase().includes(query));
     const displayValue=value=>value===true?'Yes':value===false?'No':Array.isArray(value)?value.join(', '):typeof value==='object'?Object.values(value).filter(Boolean).map(v=>v===true?'Yes':v===false?'No':v).join(' — '):String(value).replace(/<[^>]*>/g,' ');
-    body.innerHTML=rows.length?rows.map(row=>`<div class="terminal-line"><div class="terminal-question">${esc(row.section)} · ${esc(row.label)}</div><div><span class="terminal-tag">[CONFIRMED]</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}">${esc(displayValue(row.value))}</textarea></div>`).join(''):'<div class="terminal-line">No captured information matches this search.</div>';
+    body.innerHTML=rows.length?rows.map(row=>{const tbd=flaggedQuestions.has(row.key);return `<div class="terminal-line"><div class="terminal-question">${esc(row.section)} · ${esc(row.label)}</div><div><span class="terminal-tag ${tbd?'tbd':''}">[${tbd?'TBD 🚩':'CONFIRMED'}]</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}">${esc(displayValue(row.value))}</textarea></div>`;}).join(''):'<div class="terminal-line">No captured information matches this search.</div>';
     $$('.overview-edit',body).forEach(input=>input.addEventListener('change',()=>{const el=keyEl(input.dataset.overviewKey);if(!el)return;const raw=input.value.trim();if(el.type==='checkbox')setValue(el,/^(yes|true|1)$/i.test(raw));else if(el.classList.contains('multi-choice'))setValue(el,raw.split(',').map(v=>v.trim()).filter(Boolean));else setValue(el,raw);syncChangedKey(el.dataset.key);updateConditionalVisibility();persistNow();}));
   }
   function fieldLabel(el){
@@ -1177,6 +1194,28 @@
     else alert('All required fields currently applicable to this scope are complete.');
   }
 
+  function renderNavigation(){
+    const host=$('#navigationResults'); if(!host)return;
+    const query=String($('#navigationSearch')?.value||'').trim().toLowerCase();
+    const groups=new Map();
+    $$('.question-card').forEach(card=>{
+      const field=$('[data-key]',card); if(!field)return;
+      const section=sectionLabel(field), subsection=card.querySelector('.question-meta span:nth-child(3)')?.textContent || 'Questions';
+      const label=card.dataset.questionLabel||fieldLabel(field), answer=String(getValue(field)??'').replace(/<[^>]*>/g,' ');
+      const haystack=`${section} ${subsection} ${label} ${answer}`.toLowerCase();
+      if(query&&!haystack.includes(query))return;
+      if(!groups.has(section))groups.set(section,new Map());
+      const children=groups.get(section); if(!children.has(subsection))children.set(subsection,[]);
+      children.get(subsection).push({key:field.dataset.key,label,answer,flagged:flaggedQuestions.has(field.dataset.key)});
+    });
+    host.innerHTML='';
+    if(!groups.size){host.innerHTML='<p class="help">No section, question or answer matches this search.</p>';return;}
+    groups.forEach((subsections,section)=>{const sectionEl=document.createElement('details');sectionEl.className='nav-section';sectionEl.open=!!query;sectionEl.innerHTML=`<summary>${esc(section)}</summary>`;subsections.forEach((questions,subsection)=>{const sub=document.createElement('details');sub.className='nav-subsection';sub.open=!!query;sub.innerHTML=`<summary>${esc(subsection)}</summary>`;questions.forEach(q=>{const row=document.createElement('div');row.className=`nav-question ${query?'match':''}`;row.dataset.navigateKey=q.key;row.innerHTML=`${q.flagged?'<span class="nav-flag">⚑</span>':''}<span><b>${esc(q.label)}</b>${q.answer?`<span class="nav-snippet">${esc(q.answer.slice(0,120))}</span>`:''}</span>`;sub.appendChild(row);});sectionEl.appendChild(sub);});host.appendChild(sectionEl);});
+  }
+  function openNavigation(){ $('#navigationPanel').classList.add('open'); document.body.classList.add('nav-panel-open'); renderNavigation(); $('#navigationSearch').focus(); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-open'},'*');}catch(e){} }
+  function closeNavigation(){ $('#navigationPanel').classList.remove('open'); document.body.classList.remove('nav-panel-open'); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-close'},'*');}catch(e){} }
+  function toggleFlag(key){ if(flaggedQuestions.has(key))flaggedQuestions.delete(key);else flaggedQuestions.add(key); const card=$(`.question-card[data-question-id="${key}"]`);if(card){card.classList.toggle('flagged',flaggedQuestions.has(key));const btn=$('[data-flag-question]',card);if(btn){btn.classList.toggle('active',flaggedQuestions.has(key));btn.title=flaggedQuestions.has(key)?'Remove follow-up flag':'Mark for follow-up';}}renderOverview();renderNavigation();persistNow(); }
+
   function renderAnswerControl(def){
     const key=def.key, req=def.required?' data-required=""':'', labelAttr=` data-question-label="${esc(def.label)}"`;
     const options=Array.isArray(def.options)?def.options:[];
@@ -1197,6 +1236,7 @@
     const card=document.createElement('div');
     card.className=`question-card ${kind==='custom'?'custom-question-card':''}`;
     card.dataset.questionId=def.key; card.dataset.questionLabel=def.label;
+    card.classList.toggle('flagged', flaggedQuestions.has(def.key));
     if(def.logic){ card.classList.add('dependency-node'); card.dataset.logic=JSON.stringify(def.logic); }
     const controls=kind==='custom'?`<div class="custom-question-controls builder-only"><button class="icon-btn edit-custom-question" data-question-id="${esc(def.key)}" type="button">Edit</button><button class="icon-btn danger delete-custom-question" data-question-id="${esc(def.key)}" type="button">Delete</button></div>`:`<div class="custom-question-controls builder-only"><button class="icon-btn edit-flow-question" data-question-id="${esc(def.key)}" type="button">Edit</button></div>`;
     const badges=[];
@@ -1206,7 +1246,7 @@
     if(def.repeatableContext) badges.push(`<span>Context: ${esc(def.repeatableContext)}</span>`);
     if(def.required) badges.push('<span style="background:#fee4e2;color:#b42318">Required</span>');
     if(def.logic) badges.push('<span style="background:#ecfdf3;color:#027a48">Conditional</span>');
-    card.innerHTML=`<div class="question-header"><span class="question-id">${esc(def.id || 'CUSTOM')}</span><div class="question-title">${esc(def.label)}${def.required?' <span class="required-mark">*</span>':''}</div>${controls}</div><div class="question-meta">${badges.join('')}</div><div style="margin-top:9px">${renderAnswerControl(def)}</div>${(def.help||def.purpose||def.output)?`<div class="question-help">${esc(def.help || def.purpose || '')}${def.output?` • Used for: ${esc(def.output)}`:''}</div>`:''}`;
+    card.innerHTML=`<div class="question-header"><span class="question-id">${esc(def.id || 'CUSTOM')}</span><div class="question-title">${esc(def.label)}${def.required?' <span class="required-mark">*</span>':''}</div><button class="question-flag ${flaggedQuestions.has(def.key)?'active':''}" data-flag-question="${esc(def.key)}" title="${flaggedQuestions.has(def.key)?'Remove follow-up flag':'Mark for follow-up'}" type="button" aria-label="Flag question">⚑</button>${controls}</div><div class="question-meta">${badges.join('')}</div><div style="margin-top:9px">${renderAnswerControl(def)}</div>${(def.help||def.purpose||def.output)?`<div class="question-help">${esc(def.help || def.purpose || '')}${def.output?` • Used for: ${esc(def.output)}`:''}</div>`:''}`;
     return card;
   }
 
@@ -1215,6 +1255,13 @@
     {id:'C013',key:'flow_C013',section:'Commercial',subsection:'CQA Commercials',label:'Expected CCO margin',type:'number',options:[],required:false,owner:'Tender',purpose:'Linked to Commercial CCO margin',output:'Commercial section'},
     {id:'C014',key:'flow_C014',section:'Commercial',subsection:'CQA Commercials',label:'Commercial notes',type:'long_text',options:[],required:false,owner:'Tender',purpose:'Linked to Commercial notes',output:'Commercial section'}
   ];
+  // Retired from the standard questionnaire. Existing saved answers are kept
+  // in the note for backwards compatibility, but the question is not rendered.
+  const REMOVED_FLOW_QUESTIONS=new Set(['flow_C011']);
+  const FLOW_COPY_OVERRIDES={
+    flow_C001:'What are we offering to the customer?',
+    flow_T001:'Which automation platform(s) are part of the proposed architecture?'
+  };
   function renderFlow(){
     const host=$('#flowStepsContainer'); host.innerHTML='';
     FLOW_DATA.steps.forEach((step,index)=>{
@@ -1224,7 +1271,7 @@
       const summary=document.createElement('summary'); summary.innerHTML=`<span>Step ${esc(step.Step)} — ${esc(step.Section)}</span><span class="flow-count"></span>`;
       body.innerHTML=`<div class="flow-step-goal"><b>Goal:</b> ${esc(step.Goal)}${step.Notes?`<br/><b>Design note:</b> ${esc(step.Notes)}`:''}</div>`;
       const baseDataAlreadyShown=new Set(['flow_B001','flow_B002','flow_B003','flow_B005','flow_B006','flow_B007']);
-      const qs=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].map(q=>customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q).filter(q=>q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
+      const qs=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
       let current='', subsection, grid;
       qs.forEach(q=>{
         if(q.subsection!==current){
@@ -1406,6 +1453,8 @@
   document.addEventListener('input',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility(); save(); } });
   document.addEventListener('change',e=>{ if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();save(); } });
   document.addEventListener('click',e=>{
+    const flag=e.target.closest('[data-flag-question]');if(flag){toggleFlag(flag.dataset.flagQuestion);return;}
+    const navigate=e.target.closest('[data-navigate-key]');if(navigate){const target=keyEl(navigate.dataset.navigateKey);let parent=target?.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}target?.scrollIntoView({behavior:'smooth',block:'center'});return;}
     const add=e.target.closest('.add-row');if(add){addTableRow(document.getElementById(add.dataset.table));save();return;}
     const remove=e.target.closest('.remove-row');if(remove){const tbody=remove.closest('tbody');if(tbody.rows.length>1)remove.closest('tr').remove();else $$('td',remove.closest('tr')).slice(0,-1).forEach(td=>td.innerHTML='');save();return;}
     const openQ=e.target.closest('.open-add-question');if(openQ){openQuestionDialog(openQ.dataset.sectionId);return;}
@@ -1421,6 +1470,10 @@
   $('#addSectionBtn').addEventListener('click',()=>openSectionDialog());
   $('#guidedModeBtn').addEventListener('click',()=>{guidedMode=!guidedMode;updateGuidedButton();updateConditionalVisibility();save();});
   $('#reviewGapsBtn').addEventListener('click',reviewGaps);
+  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'Show all questions':'🚩 Flagged questions';if(active){const first=$('.question-card.flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
+  $('#navigationBtn').addEventListener('click',openNavigation);
+  $('#closeNavigationBtn').addEventListener('click',closeNavigation);
+  $('#navigationSearch').addEventListener('input',renderNavigation);
   $('#generateMeetingNoteBtn').addEventListener('click',generateMeetingNote);
   function closeOverview(){ $('#terminalOverview').classList.remove('open');try{window.parent.postMessage({source:'tenderloop-sow',type:'overview-close'},'*');}catch(e){} }
   $('#overviewBtn').addEventListener('click',()=>{try{window.parent.postMessage({source:'tenderloop-sow',type:'overview-open'},'*');}catch(e){ $('#terminalOverview').classList.add('open');renderOverview(); } });
@@ -1459,8 +1512,10 @@
     const areas=Array.isArray(config?.areas)?config.areas:[];
     let peopleList=$('#tenderloopPeopleOptions');
     if(!peopleList){peopleList=document.createElement('datalist');peopleList.id='tenderloopPeopleOptions';document.body.appendChild(peopleList);}
-    peopleList.innerHTML=people.map(p=>`<option value="${esc(p.name||'')}" label="${esc([p.role,p.email].filter(Boolean).join(' - '))}"></option>`).join('');
+    peopleList.innerHTML=people.flatMap(p=>[p.name,...(Array.isArray(p.aliases)?p.aliases:[])].filter(Boolean).map(name=>`<option value="${esc(name)}" label="${esc([p.role,p.email].filter(Boolean).join(' - '))}"></option>`)).join('');
     $$('input[data-key^="team_"]').forEach(input=>input.setAttribute('list','tenderloopPeopleOptions'));
+    const seller=keyEl('team_cse');
+    if(seller&&!seller.dataset.directoryCheck){seller.dataset.directoryCheck='1';seller.addEventListener('blur',()=>{const name=String(getValue(seller)||'').trim().toLowerCase();if(!name)return;const found=people.some(p=>[p.name,...(Array.isArray(p.aliases)?p.aliases:[])].some(candidate=>String(candidate||'').trim().toLowerCase()===name));if(!found)try{window.parent.postMessage({source:'tenderloop-sow',type:'seller-contact-missing',name:String(getValue(seller)).trim()},'*');}catch(e){}});}
     const areaSelect=$('#teamPrimaryArea');
     if(areaSelect){const current=areaSelect.value;areaSelect.innerHTML='<option value=""></option>'+areas.map(area=>`<option value="${esc(area)}">${esc(area)}</option>`).join('');areaSelect.value=current;}
     const trackedAreasList=$('#trackedAreasOptions'); if(trackedAreasList)trackedAreasList.innerHTML=areas.map(area=>`<option value="${esc(area)}"></option>`).join('');
@@ -1476,7 +1531,9 @@
   function applyLinkedPrefill(prefill){
     if(!prefill || typeof prefill!=='object') return;
     const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C012','flow_C013','flow_C014']);
-    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el)setValue(el,val ?? '');});
+    // A parent rerender may carry an empty legacy value. Never let that erase
+    // a value just selected in the SOW (notably Proposal type and Seller).
+    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el&&val!==undefined&&val!==null&&val!=='')setValue(el,val);});
     updateConditionalVisibility(); persistNow();
   }
   window.addEventListener('message', (e) => {

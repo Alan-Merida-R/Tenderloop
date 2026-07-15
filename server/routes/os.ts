@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard,
@@ -123,6 +123,49 @@ osRouter.get('/find-dir', async (req: Request, res: Response) => {
     const found = await findDirByName(name, hints);
     if (found) return res.json({ ok: true, ...found });
     return res.status(404).json({ error: 'Directory not found', name });
+});
+
+// --- Check whether an absolute path exists (used to validate persisted folder paths) ---
+osRouter.get('/check-path', (req: Request, res: Response) => {
+    const raw = q(req, 'path');
+    if (!raw) return res.status(400).json({ error: 'Missing "path" query param' });
+    const target = path.normalize(raw);
+    if (!existsSync(target)) return res.status(404).json({ error: 'Path does not exist', exists: false, path: target });
+    try {
+        const kind = statSync(target).isDirectory() ? 'directory' : 'file';
+        return res.json({ ok: true, exists: true, kind, path: target });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || String(err), path: target });
+    }
+});
+
+// --- List a directory's entries by absolute path (path-mode browsing without a handle) ---
+osRouter.get('/list-dir', (req: Request, res: Response) => {
+    const raw = q(req, 'path');
+    if (!raw) return res.status(400).json({ error: 'Missing "path" query param' });
+    const target = path.normalize(raw);
+    try {
+        if (!existsSync(target) || !statSync(target).isDirectory()) {
+            return res.status(404).json({ error: 'Directory does not exist', path: target });
+        }
+        const entries = readdirSync(target, { withFileTypes: true }).flatMap(d => {
+            try {
+                const st = statSync(path.join(target, d.name));
+                return [{
+                    name: d.name,
+                    kind: d.isDirectory() ? 'directory' as const : 'file' as const,
+                    size: d.isFile() ? st.size : 0,
+                    mtime: st.mtimeMs,
+                }];
+            } catch {
+                // Locked files / OneDrive cloud-only placeholders: skip, never abort the listing.
+                return [];
+            }
+        });
+        return res.json({ ok: true, path: target, entries });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || String(err), path: target });
+    }
 });
 
 // --- Open an email DRAFT in Outlook (classic via COM, new via .eml) — never sends ---

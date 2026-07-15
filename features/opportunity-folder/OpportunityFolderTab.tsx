@@ -42,7 +42,7 @@ import {
   Download
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle } from '../../services/opportunityFolderLink';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -123,8 +123,15 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [currentHandle, setCurrentHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [path, setPath] = useState<string[]>([]);
   const [items, setItems] = useState<FileItem[]>([]);
-  const [history, setHistory] = useState<{ handle: FileSystemDirectoryHandle, path: string[] }[]>([]);
+  const [history, setHistory] = useState<{ handle: FileSystemDirectoryHandle | null, path: string[] }[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+
+  // Path mode (no handle available in this browser, but the shared DB knows the
+  // absolute path and the local helper confirmed it exists): browse read-only
+  // by path via the helper. Write ops require linking the folder (picker).
+  const [pathMode, setPathMode] = useState(false);
+  const [helperOffline, setHelperOffline] = useState(false);
+  const [missingPath, setMissingPath] = useState('');
 
   useEffect(() => { onPathChange?.(path); }, [path, onPathChange]);
 
@@ -224,6 +231,23 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     getPins(storageKey).then(setPins).catch(() => setPins([]));
   }, [storageKey]);
 
+  // Latest opportunity/onUpdate without re-creating the callbacks that persist paths.
+  const oppRef = useRef({ opportunity, onUpdate, isSnapshot: !!isSnapshot, revision });
+  useEffect(() => { oppRef.current = { opportunity, onUpdate, isSnapshot: !!isSnapshot, revision }; });
+
+  /**
+   * Write-through of the resolved absolute path into the shared JSON DB
+   * (opportunity.folderPaths, keyed by revision) so any other browser/machine
+   * can browse/operate by path without re-linking.
+   */
+  const persistFolderPath = useCallback((p: string) => {
+    const { opportunity: opp, onUpdate: update, isSnapshot: snap, revision: rev } = oppRef.current;
+    if (snap || !p) return;
+    const current = opp.folderPaths || {};
+    if (current[rev] === p) return;
+    update({ ...opp, folderLinked: true, folderPaths: { ...current, [rev]: p } });
+  }, []);
+
   const loadMetas = useCallback(async (fileItems: FileItem[]) => {
     const newMetas: Record<string, DocMeta> = {};
     for (const item of fileItems) {
@@ -237,10 +261,30 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   }, [opportunityId]);
 
   const loadCurrentDirectory = useCallback(async () => {
-    if (!currentHandle) return;
+    if (!currentHandle && !(pathMode && rootPathDisplay)) return;
     setIsLoading(true);
     try {
-      const contents = await listDirectory(currentHandle, path);
+      let contents: FileItem[];
+      if (currentHandle) {
+        contents = await listDirectory(currentHandle, path);
+      } else {
+        // Path mode: list via the local helper by absolute path (read-only).
+        const entries = await listDirByPath(rootPathDisplay, path);
+        contents = entries
+          .map((en): FileItem => ({
+            name: en.name,
+            kind: en.kind,
+            pathOnly: true,
+            extension: en.kind === 'file' ? en.name.split('.').pop()?.toLowerCase() : undefined,
+            size: en.kind === 'file' ? en.size : undefined,
+            lastModified: en.mtime,
+            relativePath: [...path, en.name],
+          }))
+          .sort((a, b) => {
+            if (a.kind === b.kind) return a.name.localeCompare(b.name);
+            return a.kind === 'directory' ? -1 : 1;
+          });
+      }
       setItems(contents);
       await loadMetas(contents);
       // Re-validate selection: if selected item is no longer in list, clear it.
@@ -250,7 +294,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     } finally {
       setIsLoading(false);
     }
-  }, [currentHandle, path, loadMetas]);
+  }, [currentHandle, path, loadMetas, pathMode, rootPathDisplay]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,9 +320,35 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       const handle = await getFolderHandleForRevision(opportunityId, revision);
       const rp = await getRootPathDisplayForRevision(opportunityId, revision);
       if (cancelled) return;
-      setRootPathDisplayVal(rp);
+      // Shared-DB fallback: another browser/machine resolved the path before.
+      const dbPaths = opportunity.folderPaths || {};
+      const dbPath = dbPaths[revision] || (revision ? '' : dbPaths['']) || '';
+      const effectivePath = rp || dbPath;
+      setRootPathDisplayVal(effectivePath);
+      if (!rp && dbPath) {
+        // Heal this browser's IndexedDB from the shared DB.
+        try { await setRootPathDisplay(storageKey, dbPath); } catch { /* non-critical */ }
+      }
       setPendingPermHandle(null);
+      setPathMode(false);
+      setHelperOffline(false);
+      setMissingPath('');
       if (!handle) {
+        // No handle in this browser. If the shared DB knows the path and it still
+        // exists, browse read-only by path; only a truly missing path prompts a re-pick.
+        if (effectivePath) {
+          const status = await checkOsPath(effectivePath);
+          if (cancelled) return;
+          if (status === 'ok') {
+            setPathMode(true);
+            setHistory([{ handle: null, path: [] }]);
+            setHistoryIdx(0);
+          } else if (status === 'missing') {
+            setMissingPath(effectivePath);
+          } else {
+            setHelperOffline(true);
+          }
+        }
         setIsResolvingRoot(false);
         return;
       }
@@ -465,7 +535,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
     // Don't mutate the live record while viewing a snapshot — the link is
     // already persisted per-revision in IndexedDB above.
-    if (!isSnapshot) onUpdate({ ...opportunity, folderLinked: true });
+    if (!isSnapshot) {
+      const currentPaths = opportunity.folderPaths || {};
+      onUpdate({
+        ...opportunity,
+        folderLinked: true,
+        ...(resolved ? { folderPaths: { ...currentPaths, [revision]: resolved } } : {}),
+      });
+    }
+    setPathMode(false);
+    setMissingPath('');
     setRootHandle(handle);
     navigateTo(handle, [], true);
   };
@@ -689,7 +768,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     }
   };
 
-  const navigateTo = (handle: FileSystemDirectoryHandle, newPath: string[], isNew = true) => {
+  const navigateTo = (handle: FileSystemDirectoryHandle | null, newPath: string[], isNew = true) => {
     setCurrentHandle(handle);
     setPath(newPath);
     setSelectedItem(null);
@@ -1202,8 +1281,17 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   // Boilerplate navigation logic
   const handleGoBack = () => { if (historyIdx > 0) { const e = history[historyIdx - 1]; setHistoryIdx(historyIdx - 1); setCurrentHandle(e.handle); setPath(e.path); setSelectedItem(null); } };
   const handleGoForward = () => { if (historyIdx < history.length - 1) { const e = history[historyIdx + 1]; setHistoryIdx(historyIdx + 1); setCurrentHandle(e.handle); setPath(e.path); setSelectedItem(null); } };
-  const handleGoUp = async () => { if (path.length > 0 && rootHandle) { let t = rootHandle; const np = path.slice(0, -1); for (const s of np) t = await t.getDirectoryHandle(s); navigateTo(t, np); } };
-  const handleBreadcrumbClick = async (idx: number) => { if (!rootHandle) return; let t = rootHandle; const np = path.slice(0, idx + 1); for (const s of np) t = await t.getDirectoryHandle(s); navigateTo(t, np); };
+  const handleGoUp = async () => {
+    if (path.length === 0) return;
+    const np = path.slice(0, -1);
+    if (!rootHandle) { if (pathMode) navigateTo(null, np); return; }
+    let t = rootHandle; for (const s of np) t = await t.getDirectoryHandle(s); navigateTo(t, np);
+  };
+  const handleBreadcrumbClick = async (idx: number) => {
+    const np = path.slice(0, idx + 1);
+    if (!rootHandle) { if (pathMode) navigateTo(null, np); return; }
+    let t = rootHandle; for (const s of np) t = await t.getDirectoryHandle(s); navigateTo(t, np);
+  };
 
   // Helpers
   const handleCopyPath = async () => {

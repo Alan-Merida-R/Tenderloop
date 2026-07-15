@@ -1,13 +1,14 @@
 ﻿
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact } from '../types';
+import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, Question, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, HelpCircle, GripVertical, Maximize2, Minimize2, MessageCircle, SplitSquareHorizontal, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip } from 'lucide-react';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
 import { SowFormEmbed } from './SowFormEmbed';
+import ScopeQuickViewModal from './ScopeQuickViewModal';
 import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { getRootPathDisplay, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -89,6 +90,10 @@ interface Props {
     emailIntegrationEnabled?: boolean;
     /** Whether the "+ SOW" note-template button shows up in the Notes tab. Off by default. */
     sowSectionEnabled?: boolean;
+    /** Whether the "Stakeholders" team panel button shows up in the Notes tab. Off by default. */
+    stakeholdersSectionEnabled?: boolean;
+    /** Header fields hidden from the top of the opportunity overview. */
+    hiddenOpportunityHeaderFields?: import('./SettingsModal').OpportunityHeaderFieldKey[];
     hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
     opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
     /** Global user name inserted in bracketed form when copying History for bFO. */
@@ -321,7 +326,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 }
             }
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
-                // Paste as plain text: flag it and let the browser fire the paste
+                // Paste as plain text. Some browsers don't fire a paste event for
+                // Ctrl+Shift+V on contentEditable, so read the clipboard directly
+                // when the async Clipboard API is available.
+                if (navigator.clipboard?.readText) {
+                    e.preventDefault();
+                    navigator.clipboard.readText()
+                        .then(text => { if (text) document.execCommand('insertText', false, text); })
+                        .catch(() => {
+                            // Permission denied: arm the legacy flag so an immediate
+                            // Ctrl+V is stripped to plain text by handlePaste.
+                            plainTextPasteRef.current = true;
+                            window.setTimeout(() => { plainTextPasteRef.current = false; }, 1500);
+                        });
+                    return;
+                }
+                // No Clipboard API: flag it and let the browser fire the paste
                 // event (keydown has no clipboard access) â€” handlePaste intercepts.
                 plainTextPasteRef.current = true;
                 window.setTimeout(() => { plainTextPasteRef.current = false; }, 500);
@@ -1944,7 +1964,7 @@ const renderOpportunityDetailTabIcon = (tab: OpportunityDetailTab) => {
     }
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], globalContacts = [], onGlobalContactsChange, onTrackedAreasChange, deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, sowSectionEnabled = false, hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User', emailComposeSettings = null, globalSowForm = { sections: [], questions: [] }, onGlobalSowFormChange }) => {
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], holidays = [], trackedAreas = [], globalContacts = [], onGlobalContactsChange, onTrackedAreasChange, deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, sowSectionEnabled = false, stakeholdersSectionEnabled = false, hiddenOpportunityHeaderFields = [], hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User', emailComposeSettings = null, globalSowForm = { sections: [], questions: [] }, onGlobalSowFormChange }) => {
     const { getTimerState, confirmStop } = useTimerActions();
     const requestedTab = (deepLink?.tab || 'overview') as OpportunityDetailTab;
     const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections) ? requestedTab : 'overview';
@@ -1963,11 +1983,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
+    const hiddenHeaderFields = useMemo(() => new Set(hiddenOpportunityHeaderFields), [hiddenOpportunityHeaderFields]);
 
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
     const isSnapshot = !!viewingVersionId;
     const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
     const [showAddSectionModal, setShowAddSectionModal] = useState(false);
+    const [scopeModalOpen, setScopeModalOpen] = useState(false);
     const [expandedCommercialRevisionNotes, setExpandedCommercialRevisionNotes] = useState<Set<string>>(new Set());
     const [newSectionName, setNewSectionName] = useState('');
 
@@ -2024,7 +2046,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         setActiveTabSafe('tasks');
         setTaskViewMode('list');
         setTaskFilter('');
-        setTaskStatusFilters(Object.keys(TASK_STATUS_COLORS));
+        setTaskStatusFilters(TASK_STATUS_ORDER);
         setHighlightTaskId(taskId);
 
         const scrollToTask = (attempt = 0) => {
@@ -2285,6 +2307,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     }, [activeTab]);
     const [isNoteFullScreen, setIsNoteFullScreen] = useState(false);
+    const [sowNavigationOpen, setSowNavigationOpen] = useState(false);
     const [textSelection, setTextSelection] = useState<string | null>(null);
     const [showQuestionsSplit, setShowQuestionsSplit] = useState(false);
     const [selectedTaskForEdit, setSelectedTaskForEdit] = useState<{ task: Task } | null>(null);
@@ -2294,8 +2317,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [taskStatusFilters, setTaskStatusFilters] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem(filterKey);
-            return saved ? JSON.parse(saved) : Object.keys(TASK_STATUS_COLORS);
-        } catch (e) { return Object.keys(TASK_STATUS_COLORS); }
+            return saved ? JSON.parse(saved) : TASK_STATUS_ORDER;
+        } catch (e) { return TASK_STATUS_ORDER; }
     });
     const [highlightedQuestionId, setHighlightedQuestionId] = useState<string | null>(null);
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
@@ -3339,7 +3362,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const addStakeholderFromDirectory = (directoryId: string) => {
         const contact = globalContacts.find(c => c.id === directoryId);
         if (!contact || (localOpp.stakeholders || []).some(p => p.directoryContactId === directoryId || (!!p.email && p.email.toLowerCase() === contact.email.toLowerCase()))) return;
-        const person: Person = { id: crypto.randomUUID(), directoryContactId: contact.id, name: contact.name, email: contact.email, roles: [], roleContexts: {} };
+        const person: Person = { id: crypto.randomUUID(), directoryContactId: contact.id, name: contact.name, email: contact.email, roles: [], roleContexts: {}, aliases: contact.aliases || [] };
         handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
     };
     const updateStakeholder = (id: string, field: keyof Person, value: any) => {
@@ -3356,8 +3379,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         onGlobalContactsChange?.(prev => {
             const existing = prev.find(c => email && c.email.toLowerCase() === email.toLowerCase());
             return existing
-                ? prev.map(c => c.id === existing.id ? { ...c, name: person.name, email, availableRoles: Array.from(new Set([...(c.availableRoles || []), ...roles])) } : c)
-                : [...prev, { id: crypto.randomUUID(), name: person.name, email, availableRoles: roles }];
+                ? prev.map(c => c.id === existing.id ? { ...c, name: person.name, email, availableRoles: Array.from(new Set([...(c.availableRoles || []), ...roles])), aliases: Array.from(new Set([...(c.aliases || []), ...(person.aliases || [])])) } : c)
+                : [...prev, { id: crypto.randomUUID(), name: person.name, email, availableRoles: roles, aliases: person.aliases || [] }];
         });
     };
     const removeStakeholder = (id: string) => {
@@ -3387,13 +3410,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 role = areaInput;
             }
         }
-        const existing = globalContacts.find(c => c.name.toLowerCase() === name.toLowerCase() || (!!email && c.email.toLowerCase() === email.toLowerCase()));
+        const existing = globalContacts.find(c => c.name.toLowerCase() === name.toLowerCase() || (!!email && c.email.toLowerCase() === email.toLowerCase()) || (c.aliases || []).some(a => a.toLowerCase() === name.toLowerCase()));
         if (existing) {
             const involved = (localOpp.stakeholders || []).find(p => p.directoryContactId === existing.id);
             if (involved) {
                 if (role && !(involved.roles || []).includes(role)) updateStakeholder(involved.id, 'roles', [...(involved.roles || []), role]);
             } else {
-                const person: Person = { id: crypto.randomUUID(), directoryContactId: existing.id, name: existing.name, email: existing.email, roles: role ? [role] : [], roleContexts: {} };
+                const person: Person = { id: crypto.randomUUID(), directoryContactId: existing.id, name: existing.name, email: existing.email, roles: role ? [role] : [], roleContexts: {}, aliases: existing.aliases || [] };
                 handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
             }
             if (role && !(existing.availableRoles || []).some(r => r.toLowerCase() === role!.toLowerCase())) {
@@ -3461,7 +3484,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             }
                         };
                         return (
-            <div key={person.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2"><div className="flex items-center gap-2"><span className="flex-1 truncate text-xs font-bold">{person.name || 'Unnamed'}</span><span className={`text-[9px] ${person.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{person.email || 'Email required for mail'}</span><button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500"><X className="h-3 w-3" /></button></div><MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select roles / areas" /><DelimitedListInput value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onCommit={raw => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context, e.g. TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /></div>
+            <div key={person.id} className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2"><div className="flex items-center gap-2"><span className="flex-1 truncate text-xs font-bold">{person.name || 'Unnamed'}</span><span className={`text-[9px] ${person.email ? 'text-gray-400' : 'font-bold text-amber-600'}`}>{person.email || 'Email required for mail'}</span><button onClick={() => removeStakeholder(person.id)} className="text-gray-300 hover:text-red-500"><X className="h-3 w-3" /></button></div><MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select roles / areas" /><DelimitedListInput value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onCommit={raw => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="Context, e.g. TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /><DelimitedListInput value={(person.aliases || []).join('; ')} onCommit={raw => { const aliases = raw.split(';').map(v => v.trim()).filter(Boolean); updateStakeholder(person.id, 'aliases', aliases); if (person.directoryContactId) { const contactId = person.directoryContactId; onGlobalContactsChange?.(prev => prev.map(c => c.id === contactId ? { ...c, aliases } : c)); } }} placeholder="Aliases, e.g. Bob; Roberto GM" className="w-full rounded border-gray-200 text-[10px]" /></div>
                         );
                     })}
                     {(localOpp.stakeholders || []).length === 0 && <div className="text-xs italic text-gray-400">No involved people yet.</div>}
@@ -3511,6 +3534,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             format: 'sow',
         };
         addAndSelectNote(newNote);
+    };
+
+    const sowNote = useMemo(() => (localOpp.notes || []).find(n => n.format === 'sow') ?? null, [localOpp.notes]);
+
+    // Patches fields inside the SOW note's serialized JSON (used by the Overview
+    // SCOPE quick-view modal). Also refreshes the SowFormEmbed localStorage backup
+    // so a stale backup can never resurrect pre-patch values.
+    const saveScopeFields = (patch: Record<string, unknown>) => {
+        if (!sowNote || isSnapshot) return;
+        let parsed: any = null;
+        try { parsed = sowNote.content ? JSON.parse(sowNote.content) : null; } catch { parsed = null; }
+        const base = parsed && typeof parsed === 'object' ? parsed : { version: 3, fields: {}, tables: {} };
+        const next = { ...base, fields: { ...(base.fields || {}), ...patch }, savedAt: new Date().toISOString() };
+        const serialized = JSON.stringify(next);
+        try { localStorage.setItem(`tenderloop-sow-backup-${localOpp.id}`, serialized); } catch { /* non-critical backup */ }
+        handleFieldChange('notes', localOpp.notes.map(n => n.id === sowNote.id ? { ...n, content: serialized } : n), true);
     };
 
     const deleteNote = (noteId: string) => {
@@ -3584,7 +3623,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return pool.filter(c =>
             c.name.toLowerCase().includes(term) ||
             (c.email || '').toLowerCase().includes(term) ||
-            (c.availableRoles || []).some(r => r.toLowerCase().includes(term))
+            (c.availableRoles || []).some(r => r.toLowerCase().includes(term)) ||
+            (c.aliases || []).some(a => a.toLowerCase().includes(term))
         ).slice(0, 8);
     }, [globalContacts, localOpp.stakeholders, directorySearch]);
     const renderDirectorySearch = () => (
@@ -4019,7 +4059,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const syncAssignmentKpi = (opp: Opportunity, task: Task): Opportunity => {
-        if (!task.isAssignment) return opp;
+        const hasResponsible = (task.responsibleTeamMemberIds || []).length > 0 || !!task.responsible?.trim();
+        const hasApprover = (task.approverTeamMemberIds || []).length > 0;
+        if (!task.isAssignment && !hasResponsible && !hasApprover) return opp;
         const today = getTodayStr();
         const people = opp.stakeholders || [];
         const idsForPhase = task.status === 'Approval' ? (task.approverTeamMemberIds || []) : (task.responsibleTeamMemberIds || []);
@@ -4033,8 +4075,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         areas.forEach(areaName => {
             if (!nextAreas.some(a => a.area === areaName)) nextAreas.push({ id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} });
         });
+        // For an active assignment, reserve the exact time window configured on the
+        // task (Requested on → Due back). Once it is delivered, actual delivery wins.
         const start = task.status === 'Approval' ? task.approvalRequestedDate : task.responsibleRequestedDate;
-        const end = task.status === 'Approval' ? (task.approvalDeliveredDate || today) : (task.responsibleDeliveredDate || today);
+        const end = task.status === 'Approval'
+            ? (task.approvalDeliveredDate || task.approvalDueDate || today)
+            : (task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || today);
         if (start && end) {
             const dates: string[] = [];
             for (let d = new Date(`${start}T00:00:00`), last = new Date(`${end}T00:00:00`); d <= last; d.setDate(d.getDate() + 1)) {
@@ -5710,13 +5756,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <div className="scale-90 origin-right flex items-center gap-2">
                                     {!isSubView && (
                                         <>
-                                            <OpportunityExportImportButtons
-                                                opportunity={localOpp}
-                                                onImport={(importedOpp) => onUpdate(importedOpp)}
-                                            />
-                                            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                            {!hiddenHeaderFields.has('exportImport') && (
+                                                <>
+                                                    <OpportunityExportImportButtons
+                                                        opportunity={localOpp}
+                                                        onImport={(importedOpp) => onUpdate(importedOpp)}
+                                                    />
+                                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                                </>
+                                            )}
 
                                             {/* Version Manager Discrete UI */}
+                                            {!hiddenHeaderFields.has('revisions') && (
                                             <div className="relative">
                                                 <button
                                                     onClick={() => setShowVersionMenu(!showVersionMenu)}
@@ -5803,11 +5854,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </>
                                                 )}
                                             </div>
+                                            )}
 
-                                            <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                            <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
-                                            <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
-                                            {!isSnapshot && (
+                                            {!hiddenHeaderFields.has('exportPdf') && (
+                                                <>
+                                                    <div className="w-px h-6 bg-gray-200 mx-1"></div>
+                                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
+                                                </>
+                                            )}
+                                            {!hiddenHeaderFields.has('copySummary') && (
+                                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
+                                            )}
+                                            {!isSnapshot && !hiddenHeaderFields.has('autoFillEmail') && (
                                                 <button
                                                     onClick={() => setShowSrImport(true)}
                                                     className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] border border-[#3DCD58]/20 rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"
@@ -5816,7 +5874,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <Mail className="w-3.5 h-3.5" /> Auto-fill from Email
                                                 </button>
                                             )}
-                                            {!isSnapshot && (
+                                            {!isSnapshot && !hiddenHeaderFields.has('delete') && (
                                                 <>
                                                     <div className="w-px h-6 bg-gray-200 mx-1"></div>
                                                     <button onClick={() => { if (window.confirm('Are you sure you want to delete this opportunity?')) onDelete(); }} className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
@@ -5832,14 +5890,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
                                     <div className="flex items-center gap-2 w-full mt-1">
                                         <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
-                                        <span className="text-gray-300 text-sm">·</span>
-                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                        {!hiddenHeaderFields.has('address') && (
+                                            <>
+                                                <span className="text-gray-300 text-sm">·</span>
+                                                <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                            </>
+                                        )}
                                     </div>
-                                    <div className="flex items-center gap-2 w-full mt-1">
-                                        <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
-                                    </div>
+                                    {!hiddenHeaderFields.has('seller') && (
+                                        <div className="flex items-center gap-2 w-full mt-1">
+                                            <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
+                                        </div>
+                                    )}
 
-                                    {nextTask ? (
+                                    {nextTask && !hiddenHeaderFields.has('nextStep') ? (
                                             <div
                                                 className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
                                                 onClick={() => {
@@ -5859,19 +5923,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         ) : null}
 
+                                    {(!hiddenHeaderFields.has('quoteType') || !hiddenHeaderFields.has('alias')) && (
                                     <div className="flex flex-wrap items-center gap-2 mt-2">
-                                        {localOpp.quoteType && (
+                                        {localOpp.quoteType && !hiddenHeaderFields.has('quoteType') && (
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${
-                                                localOpp.quoteType === 'Firm' 
-                                                ? 'bg-[#3DCD58] text-white' 
+                                                localOpp.quoteType === 'Firm'
+                                                ? 'bg-[#3DCD58] text-white'
                                                 : 'bg-white text-gray-700 border border-gray-200'
                                             }`}>
                                                 {localOpp.quoteType} Proposal
                                             </span>
                                         )}
-                                        {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
+                                        {opportunity.alias && !hiddenHeaderFields.has('alias') && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
                                     </div>
+                                    )}
 
+                                    {!hiddenHeaderFields.has('labels') && (
                                     <div className="flex flex-wrap items-center gap-2 mt-2">
                                         {(localOpp.labels || []).map(l => (
                                             <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
@@ -5923,9 +5990,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             )}
                                         </div>
                                     </div>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                    {!isSnapshot && (
+                                    {!isSnapshot && !hiddenHeaderFields.has('emailButton') && (
                                         <div className="flex flex-col gap-1">
                                             <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Emails</span>
                                             <button
@@ -5937,18 +6005,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </button>
                                         </div>
                                     )}
+                                    {!hiddenHeaderFields.has('principalStatus') && (
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Principal Status</span>
                                         <select disabled={isSnapshot} value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                                     </div>
+                                    )}
+                                    {!hiddenHeaderFields.has('processStatus') && (
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Process Status</span>
                                         <select disabled={isSnapshot} value={localOpp.detailedStatus || 'No Status'} onChange={(e) => handleFieldChange('detailedStatus', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${DETAILED_STATUS_COLORS[localOpp.detailedStatus || 'No Status']}`}>{Object.keys(DETAILED_STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}</select>
                                     </div>
+                                    )}
+                                    {!hiddenHeaderFields.has('priority') && (
                                     <div className="flex flex-col gap-1">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Priority</span>
                                         <select disabled={isSnapshot} value={localOpp.priority || 'Medium'} onChange={(e) => handleFieldChange('priority', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded-full border outline-none w-24 text-center shadow-sm disabled:cursor-not-allowed ${PRIORITY_COLORS[localOpp.priority as TaskPriority]}`}>{Object.keys(PRIORITY_COLORS).map(s => <option key={s} value={s}>{s}</option>)}</select>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -6109,7 +6183,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div className="grid grid-cols-3 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s}>{s}</option>)}</select>
+                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -6144,6 +6218,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             onChange={(ids) => updateTaskInModal('responsibleTeamMemberIds', ids, {
                                                                 responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
                                                                 externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                                ...(ids.length > 0 ? { isAssignment: true, responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {}),
                                                                 ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(selectedTaskForEdit.task.status) ? { status: 'Missing Info' as TaskStatus } : {}),
                                                                 // Clear the (now hidden) requested/due-back/delivered dates when there's no one assigned anymore.
                                                                 ...(ids.length === 0 ? { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' } : {})
@@ -6396,12 +6471,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     : 'bg-gray-50/30 border-gray-200 text-gray-900'
                                                 }`}
                                             />
-                                            {localOpp.dates.requested && localOpp.dates.expected && (() => {
-                                                const businessDays = countBusinessDays(localOpp.dates.requested, localOpp.dates.expected, holidays);
-                                                const calendarDays = countCalendarDays(localOpp.dates.requested, localOpp.dates.expected);
+                                            {(() => {
+                                                const hasDates = !!(localOpp.dates.requested && localOpp.dates.expected);
+                                                const businessDays = hasDates ? countBusinessDays(localOpp.dates.requested, localOpp.dates.expected, holidays) : 0;
+                                                const calendarDays = hasDates ? countCalendarDays(localOpp.dates.requested, localOpp.dates.expected) : 0;
                                                 const isOver = businessDays < 0 || calendarDays < 0;
                                                 return (
                                                     <div className="absolute -top-8 right-0 flex gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setScopeModalOpen(true)}
+                                                            title="SCOPE - quick view of the SOW scope"
+                                                            className="text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm uppercase tracking-wider bg-emerald-50 text-[#2db64a] border-emerald-100 hover:bg-emerald-100 transition-colors"
+                                                        >
+                                                            Scope
+                                                        </button>
+                                                        {hasDates && <>
                                                         <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg border shadow-sm ${
                                                             isOver ? 'bg-red-50 text-red-600 border-red-100' : 'bg-blue-50 text-blue-600 border-blue-100'
                                                         }`}>
@@ -6412,6 +6497,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         }`}>
                                                             {Math.abs(calendarDays)} Calendar Days
                                                         </span>
+                                                        </>}
                                                     </div>
                                                 );
                                             })()}
@@ -7742,8 +7828,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         )}
 
                         {activeTab === 'notes' && (
-                            <div className={`flex min-h-[calc(100vh-190px)] h-full gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6 min-h-0' : ''}`}>
-                                {!isNoteFullScreen && (
+                            <div className={`flex min-h-0 gap-6 ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : 'h-[calc(100vh-190px)]'}`}>
+                                {!isNoteFullScreen && !sowNavigationOpen && (
                                     <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto border-r border-gray-100 pr-4">
                                         {/* Search Bar for Notes */}
                                         <div className="relative mb-1">
@@ -7770,7 +7856,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {sowSectionEnabled && <button onClick={addSowNote} className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-blue-600" title="Add the Scope of Work guided form to this opportunity"><ListChecks className="w-3 h-3" /> SOW</button>}
                                             <button onClick={() => addFolder()} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
-                                        {renderTeamPanelButton()}
+                                        {stakeholdersSectionEnabled && renderTeamPanelButton()}
                                         {filteredNotes.length === 0 && searchTerm && (
                                             <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                         )}
@@ -7968,13 +8054,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         key={currentNote.id}
                                                         content={currentNote.content}
                                                         people={localOpp.stakeholders || []}
+                                                        directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                         areas={trackedAreas}
-                                                        prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.srId || localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm / Bid to buy' : localOpp.quoteType === 'Budgetary' ? 'Budgetary' : '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
+                                                        prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.srId || localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm / Bid to buy' : localOpp.quoteType || '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
                                                         globalForm={globalSowForm}
                                                         onGlobalFormChange={onGlobalSowFormChange}
+                                                        onSellerMissing={(name) => {
+                                                            if (window.confirm(`"${name}" is not in the contact directory. Do you want to create or link a contact now? You can skip this and resolve it later in Stakeholders.`)) createContactAndInvolve(name);
+                                                        }}
+                                                        onNavigationOpenChange={setSowNavigationOpen}
                                                         onOpportunitySync={(fields) => {
                                                             const proposalType = String(fields.proposal_type ?? '');
-                                                            const updated = { ...localOpp, title: String(fields.op_name ?? localOpp.title), alias: String(fields.alias ?? localOpp.alias ?? ''), qlk: String(fields.sr_qlk ?? localOpp.qlk ?? ''), customer: String(fields.customer ?? localOpp.customer), seller: String(fields.team_cse ?? localOpp.seller ?? ''), customerAddress: String(fields.site ?? localOpp.customerAddress ?? ''), description: String(fields.objective ?? localOpp.description ?? ''), quoteType: proposalType.includes('Budgetary') ? 'Budgetary' : proposalType.includes('Firm') ? 'Firm' : undefined, dates: { ...localOpp.dates, expected: String(fields.proposal_delivery ?? localOpp.dates?.expected ?? '') }, commercial: { ...localOpp.commercial, cqaOfficialSellPrice: Number(fields.commercialSell ?? localOpp.commercial?.cqaOfficialSellPrice ?? 0), cqaOfficialMargin: Number(fields.commercialMargin ?? localOpp.commercial?.cqaOfficialMargin ?? 0), discountsAndNotes: String(fields.commercialNotes ?? localOpp.commercial?.discountsAndNotes ?? '') }, lastUpdated: new Date().toISOString() };
+                                                            // Keep every SOW proposal type. Previously values such as
+                                                            // "Bid to bid" were mapped to undefined and got erased when
+                                                            // the parent sent the next prefill update back to the iframe.
+                                                            const quoteType = proposalType ? (proposalType.includes('Budgetary') ? 'Budgetary' : proposalType.includes('Firm') ? 'Firm' : proposalType) : localOpp.quoteType;
+                                                            const updated = { ...localOpp, title: String(fields.op_name ?? localOpp.title), alias: String(fields.alias ?? localOpp.alias ?? ''), qlk: String(fields.sr_qlk ?? localOpp.qlk ?? ''), customer: String(fields.customer ?? localOpp.customer), seller: String(fields.team_cse ?? localOpp.seller ?? ''), customerAddress: String(fields.site ?? localOpp.customerAddress ?? ''), description: String(fields.objective ?? localOpp.description ?? ''), quoteType, dates: { ...localOpp.dates, expected: String(fields.proposal_delivery ?? localOpp.dates?.expected ?? '') }, commercial: { ...localOpp.commercial, cqaOfficialSellPrice: Number(fields.commercialSell ?? localOpp.commercial?.cqaOfficialSellPrice ?? 0), cqaOfficialMargin: Number(fields.commercialMargin ?? localOpp.commercial?.cqaOfficialMargin ?? 0), discountsAndNotes: String(fields.commercialNotes ?? localOpp.commercial?.discountsAndNotes ?? '') }, lastUpdated: new Date().toISOString() };
                                                             setLocalOpp(updated); syncToParentNow(updated);
                                                         }}
                                                         onGeneratedNote={addGeneratedSowNote}
@@ -8148,7 +8243,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                         {/* CHANGED: Replaced select with MultiSelect for Status Filtering */}
                                         <MultiSelect
-                                            options={Object.keys(TASK_STATUS_COLORS)}
+                                            options={TASK_STATUS_ORDER}
                                             selected={taskStatusFilters}
                                             onChange={setTaskStatusFilters}
                                             placeholder="All Status"
@@ -8357,7 +8452,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                 onChange={(e) => applyTaskFieldsDirect(task.id, { status: e.target.value as TaskStatus })}
                                                                                 className={`text-[10px] font-black uppercase pl-2 pr-1 py-1 rounded-full shadow-sm border-none cursor-pointer ${TASK_STATUS_COLORS[task.status]}`}
                                                                             >
-                                                                                {(task.owner === 'External Area' && (task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                                {(task.owner === 'External Area' && (task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s} value={s}>{s}</option>)}
                                                                             </select>
                                                                         </div>
                                                                     </div>
@@ -8435,7 +8530,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     ) : taskViewMode === 'kanban' ? (
                                         <div className="flex-1 overflow-x-auto overflow-y-hidden p-6 custom-scrollbar">
                                             <div className="flex gap-4 h-full">
-                                                {(Object.keys(TASK_STATUS_COLORS) as TaskStatus[]).map(status => {
+                                                {TASK_STATUS_ORDER.map(status => {
                                                     const columnTasks = filteredTasks.filter(t => t.status === status);
                                                     return (
                                                         <div
@@ -8709,7 +8804,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="grid grid-cols-3 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : Object.keys(TASK_STATUS_COLORS)).map(s => <option key={s}>{s}</option>)}</select>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -8748,6 +8843,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         onChange={(ids) => updateTaskInModal('responsibleTeamMemberIds', ids, {
                                                             responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
                                                             externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
+                                                            ...(ids.length > 0 ? { isAssignment: true, responsibleRequestedDate: selectedTaskForEdit.task.responsibleRequestedDate || getTodayStr() } : {}),
                                                             ...(ids.length > 0 && !ASSIGNED_TASK_STATUSES.includes(selectedTaskForEdit.task.status) ? { status: 'Missing Info' as TaskStatus } : {}),
                                                             ...(ids.length === 0 ? { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' } : {})
                                                         })}
@@ -9123,6 +9219,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         onSelect={handleAddFileQuickRef}
                         onClose={() => setShowQuickRefFilePicker(false)}
                         title="Pick file(s) for Quick References"
+                    />
+                )
+            }
+
+            {
+                scopeModalOpen && (
+                    <ScopeQuickViewModal
+                        sowNote={sowNote}
+                        disabled={isSnapshot}
+                        onSaveFields={saveScopeFields}
+                        onCreateSowNote={addSowNote}
+                        onClose={() => setScopeModalOpen(false)}
                     />
                 )
             }

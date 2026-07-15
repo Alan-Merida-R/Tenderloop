@@ -48,7 +48,7 @@ const health = (_req: express.Request, res: express.Response) => {
         port: PORT,
         dbOpen: dbRepository.status().open,
         db: dbRepository.status(),
-        features: ['open', 'open-many', 'reveal', 'clipboard', 'locate', 'find-dir', 'copy-template'],
+        features: ['open', 'open-many', 'reveal', 'clipboard', 'locate', 'find-dir', 'copy-template', 'check-path', 'list-dir'],
     });
 };
 

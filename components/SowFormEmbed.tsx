@@ -14,7 +14,12 @@ interface Props {
     onGlobalFormChange?: (form: { sections: any[]; questions: any[] }) => void;
     onOpportunitySync?: (fields: Record<string, unknown>) => void;
     onGeneratedNote?: (note: { title?: string; content?: string }) => void;
+    /** Contacts from the shared directory, used by the SOW seller autocomplete. */
+    directoryPeople?: Person[];
+    onSellerMissing?: (name: string) => void;
     disabled?: boolean;
+    /** Called when the SOW's own in-document search/navigation panel opens or closes, so the host can free up space for it (e.g. hide the notes list) instead of letting it overlap content. */
+    onNavigationOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -25,7 +30,7 @@ interface Props {
  * reported back via 'save' so it can be written into that note's content field. This
  * keeps each opportunity's SOW form fully isolated from every other opportunity's.
  */
-export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, disabled }) => {
+export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onSellerMissing, onNavigationOpenChange, disabled }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const overviewIframeRef = useRef<HTMLIFrameElement>(null);
     const [overviewOpen, setOverviewOpen] = useState(false);
@@ -38,11 +43,23 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     const onGlobalFormChangeRef = useRef(onGlobalFormChange);
     const onOpportunitySyncRef = useRef(onOpportunitySync);
     const onGeneratedNoteRef = useRef(onGeneratedNote);
+    const onSellerMissingRef = useRef(onSellerMissing);
+    const onNavigationOpenChangeRef = useRef(onNavigationOpenChange);
     const lastPrefillSyncRef = useRef('');
 
     useEffect(() => { contentRef.current = content; }, [content]);
     useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
-    useEffect(() => { peopleRef.current = people; }, [people]);
+    useEffect(() => {
+        // Keep local stakeholders first, while exposing directory names and aliases
+        // to the native datalist without duplicating a contact.
+        const seen = new Set<string>();
+        peopleRef.current = [...people, ...directoryPeople].filter(person => {
+            const signature = (person.email || person.name || '').trim().toLowerCase();
+            if (!signature || seen.has(signature)) return false;
+            seen.add(signature);
+            return true;
+        });
+    }, [people, directoryPeople]);
     useEffect(() => { areasRef.current = areas; }, [areas]);
     useEffect(() => { prefillRef.current = prefill; }, [prefill]);
     const prefillSignature = JSON.stringify(prefill);
@@ -55,6 +72,8 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     useEffect(() => { onGlobalFormChangeRef.current = onGlobalFormChange; }, [onGlobalFormChange]);
     useEffect(() => { onOpportunitySyncRef.current = onOpportunitySync; }, [onOpportunitySync]);
     useEffect(() => { onGeneratedNoteRef.current = onGeneratedNote; }, [onGeneratedNote]);
+    useEffect(() => { onSellerMissingRef.current = onSellerMissing; }, [onSellerMissing]);
+    useEffect(() => { onNavigationOpenChangeRef.current = onNavigationOpenChange; }, [onNavigationOpenChange]);
     useEffect(() => {
         if (!overviewOpen) return;
         const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOverviewOpen(false); };
@@ -94,15 +113,23 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                 onOpportunitySyncRef.current?.(data.payload);
             } else if (data.type === 'generated-note' && !disabled && data.payload) {
                 onGeneratedNoteRef.current?.(data.payload);
+            } else if (data.type === 'seller-contact-missing' && !disabled && data.name) {
+                onSellerMissingRef.current?.(String(data.name));
             } else if (data.type === 'overview-open') {
                 setOverviewOpen(true);
             } else if (data.type === 'overview-close') {
                 setOverviewOpen(false);
+            } else if (data.type === 'navigation-open' && isMainFrame) {
+                onNavigationOpenChangeRef.current?.(true);
+            } else if (data.type === 'navigation-close' && isMainFrame) {
+                onNavigationOpenChangeRef.current?.(false);
             }
         };
         window.addEventListener('message', onMessage);
         return () => window.removeEventListener('message', onMessage);
     }, [disabled]);
+
+    useEffect(() => () => onNavigationOpenChangeRef.current?.(false), []);
 
     return (
         <>

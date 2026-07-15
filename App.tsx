@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import { importBackendDb, isBackendAvailable, openDefaultBackendDb, saveBackendDb } from './services/backendDb';
 import Dashboard from './components/Dashboard';
+import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
-import { SettingsModal, DEFAULT_SETTINGS, AppSettings } from './components/SettingsModal';
+import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS } from './components/SettingsModal';
 import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
@@ -18,10 +19,72 @@ import { useScheduleNotifications } from './features/schedule/useScheduleNotific
 
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
-type AppView = 'general-dashboard' | 'proposals-dashboard' | 'tasks-dashboard';
+type AppView = AppViewKey;
 type StorageMode = 'backend' | 'file' | null;
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
+
+const mergeGlobalLabels = (...sources: Array<OpportunityLabel[] | undefined>): OpportunityLabel[] => {
+  const labels = new Map<string, OpportunityLabel>();
+  sources.flatMap(source => source || []).forEach(label => {
+    if (!label?.id || !label.text?.trim()) return;
+    labels.set(label.id, { ...label, text: label.text.trim() });
+  });
+  return [...labels.values()];
+};
+
+const labelsAreEqual = (left: OpportunityLabel[] = [], right: OpportunityLabel[] = []) => (
+  left.length === right.length && left.every((label, index) => label.id === right[index]?.id && label.text === right[index]?.text && label.color === right[index]?.color)
+);
+
+/** Adds the configured assignment window to the KPI area timeline. */
+const syncTaskAssignmentTimeline = (opp: Opportunity, task: Task, holidays: string[]): Opportunity => {
+  const hasAssignee = (task.responsibleTeamMemberIds || []).length > 0 || !!task.responsible?.trim();
+  if (!task.isAssignment && !hasAssignee) return opp;
+  const people = opp.stakeholders || [];
+  const assigneeAreas = people
+    .filter(person => (task.responsibleTeamMemberIds || []).includes(person.id))
+    .flatMap(person => person.roles?.length ? person.roles : (person.role ? [person.role] : []));
+  const areas = Array.from(new Set([...(task.externalAreas || []), ...assigneeAreas].filter(Boolean)));
+  const start = task.responsibleRequestedDate;
+  const end = task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate;
+  if (!areas.length || !start || !end) return opp;
+
+  const baseKpis = opp.kpis || {
+    languageSkill: 0,
+    technicalUnderstanding: 0,
+    dealProbability: 0,
+    effortContribution: 0,
+    sold: null,
+    proposalAmountUSD: 0,
+    timeline: { receivedAt: opp.dates?.requested || getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null },
+    execution: { myWorkDays: 0, waitingOnOthersDays: 0 },
+    areasInvolved: [],
+  };
+  const areaEntries = [...(baseKpis.areasInvolved || [])];
+  [...areas, 'Tendering'].forEach(area => {
+    if (!areaEntries.some(entry => entry.area === area)) areaEntries.push({ id: crypto.randomUUID(), area, daysSpent: 0, waitingDays: 0, calendar: {} });
+  });
+  const dates: string[] = [];
+  for (let date = new Date(`${start}T00:00:00`), last = new Date(`${end}T00:00:00`); date <= last; date.setDate(date.getDate() + 1)) {
+    const key = date.toISOString().slice(0, 10);
+    if (date.getDay() !== 0 && date.getDay() !== 6 && !holidays.includes(key)) dates.push(key);
+  }
+  const nextAreas = areaEntries.map(area => {
+    const worked = areas.includes(area.area);
+    const waiting = area.area === 'Tendering' && !worked;
+    if (!worked && !waiting) return area;
+    const calendar = { ...(area.calendar || {}) };
+    dates.forEach(date => { if (!calendar[date]) calendar[date] = { type: worked ? 'Worked' : 'Waiting' }; });
+    return {
+      ...area,
+      calendar,
+      daysSpent: Object.values(calendar).filter((record: any) => record.type === 'Worked').length,
+      waitingDays: Object.values(calendar).filter((record: any) => record.type === 'Waiting').length,
+    };
+  });
+  return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
+};
 
 /**
  * Creates one compact, lower-cased text index for dashboard searches.  It is
@@ -247,12 +310,21 @@ function App() {
     }
   }, [currentView]);
 
+  useEffect(() => {
+    const hiddenViews = appSettings.hiddenViews || [];
+    if (hiddenViews.includes(currentView)) {
+      const fallback = APP_VIEWS.find(v => !hiddenViews.includes(v.key))?.key || 'general-dashboard';
+      setCurrentView(fallback);
+    }
+  }, [appSettings.hiddenViews, currentView]);
+
   // Load Settings from LocalStorage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem('TenderLoop_Settings_V1');
+      const mergedSettings: AppSettings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
       if (saved) {
-        setAppSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(saved) });
+        setAppSettings(mergedSettings);
       }
       // NEW: Restore minimized records
       // Restore Session State (Tab Independent)
@@ -261,15 +333,22 @@ function App() {
         try { setFloatingTabs(JSON.parse(savedTabs)); } catch (e) { }
       }
 
-      // Restore Navigation State
+      // Restore Navigation State. If there's no in-session nav to restore, open
+      // on the user's configured startup view instead of the hardcoded default.
       const savedNav = sessionStorage.getItem('TenderLoop_Navigation_V1');
+      let restoredView = false;
       if (savedNav) {
         try {
           const nav = JSON.parse(savedNav);
-          if (nav.currentView) setCurrentView(nav.currentView);
+          if (nav.currentView) { setCurrentView(nav.currentView); restoredView = true; }
           if (nav.selectedOppId) setSelectedOppId(nav.selectedOppId);
           if (nav.activeDeepLink) setActiveDeepLink(nav.activeDeepLink);
         } catch (e) { }
+      }
+      if (!restoredView) {
+        const hiddenViews = mergedSettings.hiddenViews || [];
+        const desired = mergedSettings.defaultStartView || 'general-dashboard';
+        setCurrentView(hiddenViews.includes(desired) ? (APP_VIEWS.find(v => !hiddenViews.includes(v.key))?.key || 'general-dashboard') : desired);
       }
     } catch (e) {
       console.error("Failed to load settings or tabs", e);
@@ -279,7 +358,30 @@ function App() {
   const handleSaveSettings = (newSettings: AppSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
+    if (newSettings.globalLabels) {
+      setDb(prev => ({
+        ...prev,
+        userSettings: { ...prev.userSettings, globalLabels: mergeGlobalLabels(newSettings.globalLabels), globalLabelsMigrated: true }
+      }));
+    }
   };
+
+  // One-time, safe migration: import legacy browser settings and all labels already
+  // assigned to opportunities into the current database. This lets old files retain
+  // their labels and makes them portable from now on.
+  useEffect(() => {
+    if (!isDbLoaded || db.userSettings?.globalLabelsMigrated) return;
+    const migratedLabels = mergeGlobalLabels(
+      db.userSettings?.globalLabels,
+      appSettings.globalLabels,
+      ...db.opportunities.map(opportunity => opportunity.labels || [])
+    );
+    setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, globalLabels: migratedLabels, globalLabelsMigrated: true } }));
+    if (!labelsAreEqual(appSettings.globalLabels || [], migratedLabels)) {
+      setAppSettings(prev => ({ ...prev, globalLabels: migratedLabels }));
+      localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify({ ...appSettings, globalLabels: migratedLabels }));
+    }
+  }, [isDbLoaded, db.userSettings?.globalLabels, db.opportunities, appSettings.globalLabels]);
 
   // PERF FIX: Debounced sessionStorage writes (was synchronous on every render).
   // sessionStorage.setItem blocks the main thread. On low-RAM machines this
@@ -393,7 +495,8 @@ function App() {
   // render, busting React.memo on Dashboard/OpportunityDetail and forcing
   // their multi-thousand-line trees to reconcile each time App state moves.
   const stableHolidays = useMemo(() => appSettings.holidays || EMPTY_ARR, [appSettings.holidays]);
-  const stableGlobalLabels = useMemo(() => appSettings.globalLabels || EMPTY_ARR, [appSettings.globalLabels]);
+  // Global labels live in the database so they travel with the user's TenderLoop file.
+  const stableGlobalLabels = useMemo(() => db.userSettings?.globalLabels || appSettings.globalLabels || EMPTY_ARR, [db.userSettings?.globalLabels, appSettings.globalLabels]);
   const stableTrackedAreas = useMemo(() => appSettings.trackedAreas || EMPTY_ARR, [appSettings.trackedAreas]);
   const stableGlobalContacts = useMemo(() => appSettings.globalContacts || EMPTY_ARR, [appSettings.globalContacts]);
   const stableHiddenOpportunityDetailSections = useMemo(() => appSettings.hiddenOpportunityDetailSections || EMPTY_ARR, [appSettings.hiddenOpportunityDetailSections]);
@@ -841,6 +944,8 @@ function App() {
         globalLabels={stableGlobalLabels}
         emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
         sowSectionEnabled={appSettings.sowSectionEnabled || false}
+        stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
+        hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
         hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
         opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
         userName={appSettings.userName || 'User'}
@@ -1615,18 +1720,23 @@ function App() {
           const doneDate = isMarkingDone
             ? (existingTask.dueDate || getTodayStr())
             : '';
-          const updatedOpp = {
+          let updatedTask: Task | undefined;
+          let updatedOpp = {
             ...o,
             tasks: o.tasks.map(t => {
               if (t.id !== taskId) return t;
-              return {
+              updatedTask = {
                 ...t,
                 ...updates,
                 ...(isMarkingDone && !t.dueDate ? { dueDate: doneDate } : {}),
               };
+              return updatedTask;
             }),
             lastUpdated: new Date().toISOString()
           };
+          if (updatedTask) {
+            updatedOpp = syncTaskAssignmentTimeline(updatedOpp, updatedTask, appSettingsRef.current.holidays || []);
+          }
           return isMarkingDone ? markTenderingWorkedDay(updatedOpp, doneDate) : updatedOpp;
         })
       }));
@@ -1878,24 +1988,30 @@ function App() {
               TenderLoop
             </div>
             <div className={`flex gap-1 bg-gray-50 p-1 rounded-lg ${isPending ? 'opacity-70 pointer-events-none' : ''}`}>
-              <button
+              {!(appSettings.hiddenViews || []).includes('general-dashboard') && <button
                 onClick={() => { startTransition(() => setCurrentView('general-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'general-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <BarChart3 className="w-4 h-4" /> General
-              </button>
-              <button
+              </button>}
+              {!(appSettings.hiddenViews || []).includes('proposals-dashboard') && <button
                 onClick={() => { startTransition(() => setCurrentView('proposals-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'proposals-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <Layout className="w-4 h-4" /> Proposals
-              </button>
-              <button
+              </button>}
+              {!(appSettings.hiddenViews || []).includes('tasks-dashboard') && <button
                 onClick={() => { startTransition(() => setCurrentView('tasks-dashboard')); }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'tasks-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 <CheckSquare className="w-4 h-4" /> Tasks
-              </button>
+              </button>}
+              {!(appSettings.hiddenViews || []).includes('indicators-dashboard') && <button
+                onClick={() => { startTransition(() => setCurrentView('indicators-dashboard')); }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'indicators-dashboard' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Activity className="w-4 h-4" /> Indicators
+              </button>}
             </div>
           </div>
 
@@ -2107,7 +2223,11 @@ function App() {
             {/* Dashboard / Primary Content */}
             <div className={`h-full overflow-hidden transition-all duration-300 ${splitTab ? 'w-1/2 border-r border-gray-100' : 'w-full'}`}>
               <LocalErrorBoundary fallbackLabel="Dashboard">
-                <Dashboard
+                {currentView === 'indicators-dashboard' ? <IndicatorsDashboard
+                  opportunities={dashboardOpportunities}
+                  hiddenSections={appSettings.hiddenIndicatorSections}
+                  onSelectOpportunity={handleSelectOpp}
+                /> : <Dashboard
                   key={storageMode === 'backend' ? (backendName || 'backend') : (fileHandle?.name || 'sandbox')}
                   mode={currentView === 'proposals-dashboard' ? 'proposals' : currentView === 'tasks-dashboard' ? 'tasks' : 'general'}
                   opportunities={dashboardOpportunities}
@@ -2121,9 +2241,10 @@ function App() {
                   globalLabels={stableGlobalLabels}
                   alarms={appSettings.alarms}
                   hiddenProposalProcessColumns={appSettings.hiddenProposalProcessColumns}
+                  processBoardColors={appSettings.processBoardColors}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
-                />
+                />}
               </LocalErrorBoundary>
             </div>
 
@@ -2168,7 +2289,9 @@ function App() {
                     onTrackedAreasChange={(areas) => handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas })}
                     globalLabels={stableGlobalLabels}
                     emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
-        sowSectionEnabled={appSettings.sowSectionEnabled || false}
+                    sowSectionEnabled={appSettings.sowSectionEnabled || false}
+                    stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
+                    hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
                     hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
                     opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
                     userName={appSettings.userName || 'User'}
@@ -2188,7 +2311,7 @@ function App() {
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
           onSave={handleSaveSettings}
-          initialSettings={appSettings}
+          initialSettings={{ ...appSettings, globalLabels: stableGlobalLabels }}
           opportunities={stableOpportunities}
         />
         <StickyNotesWidget />

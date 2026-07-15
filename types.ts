@@ -361,6 +361,8 @@ export interface Person {
   directoryContactId?: string;
   roles?: string[];
   roleContexts?: Record<string, string>;
+  /** Alternate names/nicknames for this person, searchable and used to match against the directory. */
+  aliases?: string[];
 }
 
 export interface GlobalContact {
@@ -368,6 +370,8 @@ export interface GlobalContact {
   name: string;
   email: string;
   availableRoles: string[];
+  /** Alternate names/nicknames for this person, searchable and used to match against the directory. */
+  aliases?: string[];
 }
 
 export interface Question {
@@ -525,8 +529,14 @@ export interface Opportunity {
   kpis: KPIs;
 
   folderLinked?: boolean;
+  /**
+   * Absolute OS path of the linked folder, keyed by revision ('' = legacy/no revision).
+   * Persisted in the shared JSON DB so any browser/machine with the local helper can
+   * browse and operate by path, even without a FileSystemDirectoryHandle.
+   */
+  folderPaths?: Record<string, string>;
 
-  // Deprecated 
+  // Deprecated
   kanbanNote?: string;
 
   lastUpdated: string;
@@ -552,6 +562,9 @@ export interface OpportunityVersion {
 export interface UserSettings {
   theme: 'light' | 'dark';
   userName: string;
+  /** Labels shared by every opportunity. Stored in the database, not browser-only settings. */
+  globalLabels?: OpportunityLabel[];
+  globalLabelsMigrated?: boolean;
 }
 
 export interface TaskStandardTemplate {
@@ -572,7 +585,7 @@ export interface DatabaseSchema {
 
 export const INITIAL_DB: DatabaseSchema = {
   meta: { version: "1.9", lastUpdated: new Date().toISOString() },
-  userSettings: { theme: "light", userName: "Engineer" },
+  userSettings: { theme: "light", userName: "Engineer", globalLabels: [], globalLabelsMigrated: false },
   opportunities: []
 };
 
@@ -620,6 +633,9 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   'Missing Info': 'bg-rose-100 text-rose-700',
   'Canceled': 'bg-gray-100 text-gray-400 line-through',
 };
+
+/** Shared display order for every task status selector, filter and board. */
+export const TASK_STATUS_ORDER: TaskStatus[] = ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info', 'Done', 'Canceled'];
 
 export const PRIORITY_COLORS: Record<TaskPriority, string> = {
   'High': 'text-red-600 bg-red-50 border-red-100',
