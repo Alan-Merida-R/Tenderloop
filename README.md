@@ -5,7 +5,11 @@ The current beta is available from the [`version-beta`](https://github.com/Alan-
 1. Download the [beta ZIP](https://github.com/Alan-Merida-R/Tenderloop/archive/refs/heads/version-beta.zip), or select **Code -> Download ZIP** while viewing `version-beta`.
 2. Extract the ZIP to a short Windows path such as `C:\TenderLoop`.
 3. Install Node.js 18+ (LTS) if it is not already installed.
-4. Double-click `LANZAR_TENDERLOOP.vbs`.
+4. Double-click `ABRIR_TENDERLOOP.vbs`.
+
+If Windows security blocks or removes `.vbs` / `.hta` launchers, use
+`ABRIR_TENDERLOOP.bat` instead. It uses the same app engine but keeps the
+first-time setup and any errors visible in a Command Prompt window.
 
 The first start installs dependencies and then opens the local app. For the complete Windows guide, see [MANUAL_USUARIO.md](MANUAL_USUARIO.md). Beta scope and validation notes are in [docs/version-beta.md](docs/version-beta.md).
 
@@ -283,4 +287,3 @@ Si deseas realizar cambios o mejoras en la aplicación, sigue estas directrices 
 Desarrollado con un enfoque en **Performance-First Design**. 
 
 © 2026 TenderLoop Team. Todos los derechos reservados.
-
