@@ -12,7 +12,11 @@ export interface EmailRecipient {
 }
 
 export interface ComposeManualFields {
+  /** Free-form context included in the email. Entering it marks stage-aware emails as a follow-up. */
+  emailNotes?: string;
   reviewPoints?: string;
+  /** Proposal Approval draft: questions or key notes for the reviewing team. */
+  approvalQuestions?: string;
   infoNeededBullets?: string;
   taskDeliverable?: string;
   paCost?: string;
@@ -32,8 +36,6 @@ export interface ComposeManualFields {
   dueDate?: string;
   /** Info Request: items being requested, as selectable chips (e.g. "BOM", "Updated SLD"). */
   requestItems?: string[];
-  /** Info Request / Proposal: ids of the opportunity questions to include. */
-  selectedQuestionIds?: string[];
   /** Price Approval: request approval of the price, or ask the seller to verify/adjust it. */
   priceMode?: 'approve' | 'verify';
   /** Status Report: id of the history entry to quote (defaults to the latest). */
@@ -127,7 +129,7 @@ export const kindHasStage = (kind?: GeneratedEmailKind): boolean =>
  */
 const DEFAULT_SECTIONS: Partial<Record<GeneratedEmailKind, Record<string, boolean>>> = {
   status_report: { progress: false, nextTask: true, missingInfo: true, history: true, expectedDate: true, links: false },
-  info_request: { openQuestions: true, missingInfo: true, wellWish: true, callOffer: false, links: false },
+  info_request: { missingInfo: true, wellWish: true, callOffer: false, links: false },
   task_assignment: { description: true, deliverable: true, subtasks: true, wellWish: true, callOffer: true, links: false },
   reminder: { expectedDate: true, wellWish: true, callOffer: false, links: false },
   price_approval: { summary: true, commercialTable: false, links: false },
@@ -381,7 +383,7 @@ const buildExecutiveSummaryHtml = (opp: Opportunity, paCost: string): string => 
     `<p ${SUMMARY_H}>Executive Notes</p>`,
     `<p ${P_STYLE}>${nl2br(opp.presentation?.executiveSummary || '-')}</p>`,
     `<p ${SUMMARY_H}>Commercial Information</p>`,
-    `<p ${P_STYLE}>CQA Sell Price: ${cqaSellPrice}<br/>GM CCO: ${cqaMargin}<br/>Notes / Discounts Logic: ${escapeHtml(opp.commercial?.discountsAndNotes || '-')}${paCost ? `<br/>PA Cost: ${escapeHtml(paCost)}` : ''}</p>`,
+    `<p ${P_STYLE}>CQA Sell Price: ${cqaSellPrice}<br/>GM CCO: ${cqaMargin}<br/>Notes / Discounts Logic: ${nl2br(opp.commercial?.discountsAndNotes || '-')}${paCost ? `<br/>PA Cost: ${escapeHtml(paCost)}` : ''}</p>`,
     `<p ${SUMMARY_H}>Required Links</p>`,
     `<p ${P_STYLE}>SR Link: ${linkAnchor(links.srLink) || '-'}<br/>CQA 2.0 Link: ${linkAnchor(links.cqaLink) || '-'}</p>`,
   ].join('');
@@ -482,7 +484,6 @@ export const buildEmailContext = (
     : [...overdue, ...pending.filter(t => !overdue.includes(t))];
   const missingInfo = getMissingInfoTasks(opp);
   const lastPendingTask = getLastPendingTask(opp);
-  const openQuestions = (opp.questions || []).filter(q => !q.isResolved);
   const manual = opts.manual || {};
   const deliverable = manual.taskDeliverable
     || task?.deliverable
@@ -492,6 +493,9 @@ export const buildEmailContext = (
   const revisionNotice = revisionType === 'final'
     ? "This is the <b>FINAL</b> revision. Unless there are further changes, we will proceed to close the SR."
     : "This is a <b>DRAFT</b> revision — I would appreciate your comments and feedback.";
+  const approvalQuestionsBlock = revisionType === 'draft' && manual.approvalQuestions?.trim()
+    ? `<div style="margin:12px 0;padding:10px 12px;border-left:4px solid #3DCD58;background:#f0fdf4;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222"><p style="margin:0 0 5px 0;font-weight:bold;color:#278a3b">Questions / important notes for the team</p><div>${nl2br(manual.approvalQuestions.trim())}</div></div>`
+    : '';
   const priceApprovalBlock = manual.includePriceApproval
     ? `<p ${SUMMARY_H}>Price Approval — @${escapeHtml(manual.sellerName || 'CSE/Seller')}</p>${buildExecutiveSummaryHtml(opp, paCost)}`
     : '';
@@ -499,7 +503,12 @@ export const buildEmailContext = (
   // --- Tone, stage and section switches -----------------------------------
   const kind = opts.kind;
   const tone = toneForKind(kind);
-  const stage: 'first' | 'followup' = kindHasStage(kind) ? (manual.requestStage || 'first') : 'first';
+  // A note describes a change or extra context since the original request, so
+  // it is unambiguously a follow-up even when no previous generated record is
+  // available (for example, an email sent outside TenderLoop).
+  const stage: 'first' | 'followup' = kindHasStage(kind)
+    ? (manual.emailNotes?.trim() ? 'followup' : (manual.requestStage || 'first'))
+    : 'first';
   const on = (key: string, fallback = true) => sectionOn(kind, manual, key, fallback);
   const full = `<b>${escapeHtml(buildFullOpportunityName(opp, settings.fullNameFormat))}</b>`;
   const dueF = fmtFriendlyDate(manual.dueDate);
@@ -613,14 +622,6 @@ export const buildEmailContext = (
         : `Expected delivery of this opportunity: <b>${escapeHtml(expectedF)}</b>.`)
     : '';
 
-  // Selected open questions (Info Request / Proposal review points).
-  const selectedQuestions = manual.selectedQuestionIds
-    ? openQuestions.filter(q => manual.selectedQuestionIds!.includes(q.id))
-    : openQuestions;
-  const openQuestionsSelList = on('openQuestions') && selectedQuestions.length
-    ? `<ul ${LIST_STYLE}>${selectedQuestions.map(q => `<li>${escapeHtml(q.question || q.quote)}</li>`).join('')}</ul>`
-    : '';
-
   // Meeting recap: agreements bullets + next steps built from the selected tasks.
   const meetingF = fmtFriendlyDate(manual.meetingDate);
   const recapIntro = kind === 'meeting_recap'
@@ -668,6 +669,7 @@ export const buildEmailContext = (
     callOfferLine,
     requestOpening,
     requestClosing,
+    emailNotes: nl2br(manual.emailNotes?.trim() || ''),
     requestItemsList,
     linksBlock,
     stakeholdersList: bulletListHtml(stakeholders.map(p => {
@@ -720,6 +722,7 @@ export const buildEmailContext = (
     reviewPoints: nl2br(manual.reviewPoints || ''),
     changeNotes: nl2br(manual.changeNotes || ''),
     revisionNotice,
+    approvalQuestionsBlock,
     priceApprovalBlock,
     // Task
     taskTitle: escapeHtml(task?.title || ''),
@@ -743,10 +746,6 @@ export const buildEmailContext = (
       : escapeHtml(t.status)),
     // Info request
     missingInfoTasksList: on('missingInfo') ? taskListHtmlNoStage(missingInfo) : '',
-    openQuestionsList: openQuestions.length
-      ? `<ul ${LIST_STYLE}>${openQuestions.map(q => `<li>${escapeHtml(q.question || q.quote)}</li>`).join('')}</ul>`
-      : '',
-    openQuestionsSelList,
     infoNeededBullets: manual.infoNeededBullets
       ? bulletListHtml(manual.infoNeededBullets.split('\n').map(l => l.trim()).filter(Boolean))
       : '',

@@ -24,7 +24,9 @@ export function moveAndReorderNote(
     targetNoteId: string,
     newFolderId: string | undefined,
     newParentId: string | undefined,
-    newIndex: number
+    newIndex: number,
+    /** IDs in the order currently displayed to the user. */
+    destinationOrderIds?: string[]
 ): MeetingNote[] {
     const target = notes.find(n => n.id === targetNoteId);
     if (!target) return notes;
@@ -34,9 +36,21 @@ export function moveAndReorderNote(
 
     const destSiblings = notes.filter(n => n.id !== targetNoteId && noteContainerKey(n) === destKey);
     const posIndex = Math.max(0, Math.min(newIndex, destSiblings.length));
-    const sortedDest = reindexGroup(destSiblings).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    // `newIndex` is calculated from the visible tree.  Do not rebuild that list
+    // from the raw storage array: old notes are normally displayed by date, so
+    // doing so made a drop at the top appear at the bottom (or vice versa).
+    const visiblePosition = new Map((destinationOrderIds || []).map((id, index) => [id, index]));
+    const sortedDest = [...destSiblings].sort((a, b) => {
+        const aPos = visiblePosition.get(a.id);
+        const bPos = visiblePosition.get(b.id);
+        if (aPos != null || bPos != null) return (aPos ?? Number.MAX_SAFE_INTEGER) - (bPos ?? Number.MAX_SAFE_INTEGER);
+        return (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER);
+    });
     sortedDest.splice(posIndex, 0, moved);
-    const reindexedDest = reindexGroup(sortedDest);
+    // `sortedDest` is already in the exact order requested by the drop.  Do not
+    // pass it through reindexGroup (which sorts by the *previous* order again),
+    // otherwise the visible move is silently undone.
+    const reindexedDest = sortedDest.map((item, idx) => ({ ...item, order: idx + 1 }));
     const reindexedById = new Map(reindexedDest.map(n => [n.id, n]));
 
     return notes.map(n => reindexedById.get(n.id) || n);

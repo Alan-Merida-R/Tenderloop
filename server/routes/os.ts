@@ -8,7 +8,7 @@ import { existsSync, statSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard,
-    copyDirectoryBestEffort, findDirByName, locateByMarker
+    copyDirectoryBestEffort, findDirByName, findFileByMetadata, locateByMarker
 } from '../os/shell';
 import { composeEmail, findMissingAttachments } from '../os/outlookCompose';
 import type { ComposeMode } from '../os/outlookCompose';
@@ -30,6 +30,18 @@ const q = (req: Request, name: string): string => {
 };
 
 export const osRouter = Router();
+
+osRouter.get('/find-db-file', async (req: Request, res: Response) => {
+    const name = q(req, 'name').trim();
+    const size = Number(q(req, 'size'));
+    const mtime = Number(q(req, 'mtime'));
+    if (!name || !Number.isFinite(size) || !Number.isFinite(mtime)) {
+        return res.status(400).json({ error: 'Missing or invalid file metadata.' });
+    }
+    const found = await findFileByMetadata(name, size, mtime);
+    if (!found) return res.status(404).json({ error: 'The selected database path could not be resolved unambiguously.' });
+    return res.json({ ok: true, path: found });
+});
 
 // --- Open a single file/folder in its native app ---
 osRouter.get('/open', async (req: Request, res: Response) => {

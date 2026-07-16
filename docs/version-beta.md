@@ -1,7 +1,7 @@
 # TenderLoop — Version Beta
 
 **Branch:** `version-beta`  
-**Date:** 2026-07-13  
+**Date:** 2026-07-16
 **Base:** backend integration now incorporated into `main`
 
 ## Installation and use
@@ -23,6 +23,18 @@ The backend work is now part of `main` and is the base for this beta:
 - SR imports use the requested expediente date.
 
 ## Changes included in this beta
+
+### Quick Organizer and reminders
+
+- Added a review-first Quick Organizer for weekly planning. TenderLoop prepares a prompt from the current workload, the user chooses where to process it, and the returned plan is parsed and previewed before any task schedule, reminder or due date is changed.
+- Added a weekly agenda and review workspace for scheduled and unscheduled tasks, recommendations, blockers, delivery risks and missing-task suggestions.
+- Added persistent reminders linked to opportunities, tasks and notes, with a header bell, overdue tracking, optional browser notifications and direct navigation.
+- Removed the previous direct Google AI SDK/API-key integration and the legacy AI Thinking modal. TenderLoop no longer calls an AI provider directly for this workflow.
+
+### Database and Windows integration
+
+- Browser-selected database files can now be resolved by metadata through the local backend and opened natively when Windows finds exactly one matching indexed path.
+- Persistence and normalization were expanded for reminder, planning and updated opportunity fields.
 
 ### Opportunity, dashboard and process
 
@@ -64,7 +76,7 @@ The backend work is now part of `main` and is the base for this beta:
 
 - The local application and backend are restricted to loopback and trusted TenderLoop browser origins.
 - HTML rendered from imported or user-provided content is sanitized.
-- The installer uses the lockfile through `npm ci`.
+- Dependency installation follows the committed lockfile and can repair an incomplete local installation in place.
 - PDF and transitive dependency vulnerabilities identified by npm audit were updated. See `docs/security.md` for the remaining `xlsx` export-only advisory and security boundaries.
 
 ## Stability
@@ -73,4 +85,4 @@ The backend work is now part of `main` and is the base for this beta:
 
 ## Publishing rules
 
-This branch includes the source code, scripts, documentation and `TenderLoop.exe` required by the Windows installer. It deliberately excludes local editor permissions (`.claude/settings.local.json`) and generated development artifacts (`dev-dist/`).
+This branch includes the source code, scripts and documentation required by the Windows installer. The supported launcher is `ABRIR_TENDERLOOP.vbs`; no unsigned executable is required. It deliberately excludes local assistant/editor workspaces, permissions, temporary files, dependencies and generated build artifacts.

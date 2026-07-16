@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail } from 'lucide-react';
+import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail, Sparkles } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_COLORS, GlobalContact } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
@@ -43,7 +43,7 @@ export interface NoteTemplate {
   autoCreate: boolean;
 }
 
-export type OpportunityDetailSectionKey = 'kpi' | 'history' | 'tasks' | 'commercial' | 'notes' | 'emails' | 'folder' | 'questions';
+export type OpportunityDetailSectionKey = 'kpi' | 'history' | 'tasks' | 'commercial' | 'notes' | 'emails' | 'folder';
 
 export const OPPORTUNITY_DETAIL_SECTIONS: { key: OpportunityDetailSectionKey; label: string; description: string }[] = [
   { key: 'kpi', label: 'KPI', description: 'Shows performance metrics, delivery dates, work calendars and area tracking for each opportunity.' },
@@ -53,7 +53,6 @@ export const OPPORTUNITY_DETAIL_SECTIONS: { key: OpportunityDetailSectionKey; la
   { key: 'notes', label: 'Notes', description: 'Shows meeting notes, note folders, templates, inline tasks and linked notes.' },
   { key: 'emails', label: 'Emails', description: 'Shows the email workspace for Outlook conversations, folders, labels and email links to tasks or notes.' },
   { key: 'folder', label: 'Opportunity Folder', description: 'Shows the local opportunity folder browser, linked files and document preview tools.' },
-  { key: 'questions', label: 'Questions', description: 'Shows open questions captured from notes or tasks and their resolution status.' },
 ];
 
 export const normalizeOpportunityDetailSectionOrder = (order?: OpportunityDetailSectionKey[]) => {
@@ -131,6 +130,8 @@ export interface AppSettings {
   hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
   opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
   processRadialWidgetEnabled?: boolean;
+  /** Whether the reminders bell is shown next to Settings in the top bar. Off by default. */
+  remindersEnabled?: boolean;
   /** The top-level view shown when the app opens. */
   defaultStartView?: AppViewKey;
   /** Top-level views hidden from the main navigation. At least one view must stay visible. */
@@ -197,6 +198,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timerSound: 'beep',
   emailIntegrationEnabled: false,
   sowSectionEnabled: false,
+  remindersEnabled: false,
   stakeholdersSectionEnabled: false,
   hiddenOpportunityDetailSections: [],
   opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
@@ -226,6 +228,7 @@ interface Props {
   onSave: (settings: AppSettings) => void;
   initialSettings: AppSettings;
   opportunities: import('../types').Opportunity[];
+  onOpenQuickOrganizer?: () => void;
 }
 
 export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
@@ -273,7 +276,7 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
   );
 };
 
-export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities }) => {
+export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities, onOpenQuickOrganizer }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'contacts' | 'expediente' | 'tasks' | 'notes' | 'sow' | 'labels' | 'taskview' | 'alarms' | 'emailTemplates'>('general');
   const [emailTplSelectedId, setEmailTplSelectedId] = useState<string>('status_report');
   const emailBodyRef = React.useRef<HTMLTextAreaElement>(null);
@@ -634,6 +637,32 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   {settings.processRadialWidgetEnabled
                     ? 'Enabled. The radial widget appears in the app with a pop-out control.'
                     : 'Disabled. Turn it on to monitor active opportunity timelines.'}
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                      <Bell className="w-4 h-4 text-[#3DCD58]" /> Reminders
+                    </h3>
+                    <p className="text-xs text-gray-500 max-w-2xl">
+                      Show a bell in the top bar to schedule reminders, standalone or linked to a task.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(prev => ({ ...prev, remindersEnabled: !prev.remindersEnabled }))}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${settings.remindersEnabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                    title="Toggle reminders bell"
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.remindersEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                <div className={`mt-4 rounded-lg border px-3 py-2 text-xs font-medium ${settings.remindersEnabled ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                  {settings.remindersEnabled
+                    ? 'Enabled. The reminders bell appears next to Settings in the top bar.'
+                    : 'Disabled. Turn it on to schedule reminders.'}
                 </div>
               </div>
 
@@ -1341,84 +1370,27 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           )}
 
           {/* TASK QUICK VIEW TAB */}
-          {activeTab === 'taskview' && (() => {
-            const openStatuses = ['In Progress', 'Pending', 'On Hold', 'Review'];
-            const aiPlanningOpps = opportunities
-              .filter(opp => opp.statusLabel === 'In Progress' || opp.statusLabel === 'On Hold')
-              .map(opp => ({
-                alias: opp.alias || `OPP-${opp.id.slice(-4)}`,
-                standardStatus: opp.statusLabel,
-                processStatus: opp.detailedStatus || 'Review',
-                expectedDate: opp.dates?.expected || 'No expected completion date',
-              }));
-            const rows: { alias: string; task: string; status: string; missing: string[] }[] = [];
-            for (const opp of opportunities) {
-              if (!openStatuses.includes(opp.statusLabel)) continue;
-              const label = opp.alias || `OPP-${opp.id.slice(-4)}`;
-              for (const task of opp.tasks || []) {
-                if (task.status === 'Done' || task.status === 'Canceled') continue;
-                const missing: string[] = [];
-                if (!task.dueDate) missing.push('due date');
-                if (!task.owner) missing.push('owner');
-                if (!task.priority) missing.push('priority');
-                rows.push({ alias: label, task: task.title, status: task.status, missing });
-              }
-            }
-            const copyToClipboard = () => {
-              const lines = [
-                'Open opportunities for AI planning',
-                'Use the expected completion date as the latest date available to help schedule and assign dates to this opportunity pending tasks.',
-                '',
-                'No. | Opportunity | Standard Status | Process Status | Expected Completion Date',
-              ];
-              aiPlanningOpps.forEach((opp, index) => {
-                lines.push(`${index + 1} | ${opp.alias} | ${opp.standardStatus} | ${opp.processStatus} | ${opp.expectedDate}`);
-              });
-              lines.push('', 'Task table', 'Opportunity | Task | Status | Missing Info');
-              rows.forEach(r => lines.push(`${r.alias} | ${r.task} | ${r.status} | ${r.missing.length ? r.missing.join(', ') : '—'}`));
-              navigator.clipboard.writeText(lines.join('\n'));
-            };
-            return (
-              <div className="space-y-4">
-                <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-700">
-                  <b>Task Quick View</b> — snapshot of all active tasks in open opportunities. No sensitive data (costs/clients hidden). Use "Copy for AI" to paste into an assistant for prioritization.
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={copyToClipboard} className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
-                    <Copy className="w-3.5 h-3.5" /> Copy for AI
-                  </button>
-                </div>
-                {rows.length === 0 ? (
-                  <p className="text-center text-sm text-gray-400 py-8">No active tasks in open opportunities.</p>
-                ) : (
-                  <div className="overflow-x-auto rounded-xl border border-gray-200">
-                    <table className="w-full text-xs">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Opportunity</th>
-                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Task</th>
-                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Status</th>
-                          <th className="text-left px-3 py-2 font-black uppercase tracking-widest text-gray-500">Missing</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r, i) => (
-                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="px-3 py-2 font-bold text-[#3DCD58]">{r.alias}</td>
-                            <td className="px-3 py-2 text-gray-800">{r.task}</td>
-                            <td className="px-3 py-2">
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${TASK_STATUS_COLORS[r.status as TaskStatus] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
-                            </td>
-                            <td className="px-3 py-2 text-amber-600 font-bold">{r.missing.length ? r.missing.join(', ') : <span className="text-green-600">✓</span>}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+          {activeTab === 'taskview' && (
+            <div className="flex flex-col items-center justify-center gap-4 py-16">
+              <div className="w-14 h-14 rounded-2xl bg-[#3DCD58] flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                <LayoutList className="w-7 h-7 text-white" />
               </div>
-            );
-          })()}
+              <div className="text-center max-w-sm">
+                <h3 className="text-sm font-black text-gray-800">Quick Organizer</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Opens a full-screen assistant that builds an AI-ready prompt from your pending
+                  tasks, then applies the AI's scheduling reply straight into your Schedule and
+                  Reminders.
+                </p>
+              </div>
+              <button
+                onClick={() => onOpenQuickOrganizer?.()}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-bold bg-[#3DCD58] text-white rounded-xl hover:bg-[#34b34c] transition-colors"
+              >
+                <Sparkles className="w-4 h-4" /> Open Quick Organizer
+              </button>
+            </div>
+          )}
 
           {/* ALARMS TAB */}
           {activeTab === 'alarms' && (

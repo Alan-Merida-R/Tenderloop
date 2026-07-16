@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, TaskOwner, KPIs, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS } from '../types';
-import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check } from 'lucide-react';
+import { LayoutGrid, Table as TableIcon, Search, Calendar as CalendarIcon, Filter, Plus, CheckSquare, List, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Grid, Briefcase, ArrowRight, Trash2, Edit2, MoreHorizontal, Layers, Copy, Link as LinkIcon, Upload, FileText, Columns, Unlink, Lock, ListChecks, Target, TrendingUp, BarChart3, Minus, Info, Maximize2, Minimize2, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { collectSowTeamMembers } from '../services/sowTeamMembers';
 import { ResponsibleTeamPicker } from './OpportunityDetail';
@@ -16,6 +16,7 @@ import { CalendarDays, Play, Pause } from 'lucide-react';
 import { OpportunitySearchInput, parseBooleanQuery } from './OpportunitySearchInput';
 import { TaskSearchInput } from './TaskSearchInput';
 import { OptimizedInput, OptimizedTextArea } from './OptimizedInput';
+import { DateTimePicker } from './RemindersBell';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
@@ -151,6 +152,11 @@ interface Props {
     processBoardColors?: Record<string, string>;
     onMinimize?: (tab: FloatingTab) => void;
     onOpenTaskSubView?: (oppId: string, taskId: string) => void;
+    /** Whether the "Remind me" button shows up in the task detail modal. Off by default. */
+    remindersEnabled?: boolean;
+    onAddReminder?: (reminder: Omit<import('../types').Reminder, 'id' | 'createdAt'>) => void;
+    /** Increment to force the Tasks view into the Agenda (schedule) mode — e.g. right after the Quick Organizer applies a plan. */
+    agendaFocusNonce?: number;
 }
 
 // Helper: Copy text to clipboard
@@ -709,7 +715,7 @@ const TaskCard = React.memo(({
             </div>
 
             {(item.responsibleRequestedDate || item.responsibleDueDate) && (
-                <div className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold mt-1 inline-block" title="Requested / due back from responsible">
+                <div className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold mt-1 inline-block" title="Requested on / committed date">
                     {item.responsibleRequestedDate || '?'} → {item.responsibleDueDate || '?'}
                 </div>
             )}
@@ -734,7 +740,7 @@ const TaskCard = React.memo(({
                                 <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={item.responsibleRequestedDate || ''} onChange={(e) => onUpdate(item.opp.id, item.id, { responsibleRequestedDate: e.target.value })} />
                             </div>
                             <div>
-                                <label className="text-[9px] font-bold text-gray-500 uppercase">Due back</label>
+                                <label className="text-[9px] font-bold text-gray-500 uppercase">Committed date</label>
                                 <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-xs p-1.5" value={item.responsibleDueDate || ''} onChange={(e) => onUpdate(item.opp.id, item.id, { responsibleDueDate: e.target.value })} />
                             </div>
                         </div>
@@ -977,7 +983,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0 }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -986,6 +992,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // Derived current view mode based on component 'mode' prop
     const viewMode = mode === 'tasks' ? tasksViewMode : proposalsViewMode;
     const setViewMode = mode === 'tasks' ? setTasksViewMode : setProposalsViewMode;
+
+    // External "jump to the Agenda" signal (e.g. Quick Organizer just applied a plan). The
+    // Dashboard stays mounted under that overlay, so a nonce is the only way to retarget it.
+    useEffect(() => {
+        if (agendaFocusNonce > 0) setTasksViewMode('schedule');
+    }, [agendaFocusNonce]);
 
     const [filterText, setFilterText] = useState('');
     const deferredFilterText = useDeferredValue(filterText); // Optimize search performance
@@ -1247,6 +1259,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     };
 
     const [selectedTask, setSelectedTask] = useState<{ task: Task, oppId: string } | null>(null);
+    const [remindTaskPopoverOpen, setRemindTaskPopoverOpen] = useState(false);
+    const [remindTaskWhen, setRemindTaskWhen] = useState('');
+    const [remindTaskPicking, setRemindTaskPicking] = useState(false);
     const [showDocPicker, setShowDocPicker] = useState<boolean>(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [splitViewNoteId, setSplitViewNoteId] = useState<string | null>(null);
@@ -2454,7 +2469,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     <button onClick={() => setViewMode('board')} className={`p-1.5 rounded ${viewMode === 'board' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Board View"><LayoutGrid className="w-4 h-4" /></button>
                                     <button onClick={() => setViewMode('calendar')} className={`p-1.5 rounded ${viewMode === 'calendar' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Calendar View"><CalendarIcon className="w-4 h-4" /></button>
                                     {mode === 'tasks' && (
-                                        <button onClick={() => setViewMode('schedule')} className={`p-1.5 rounded ${viewMode === 'schedule' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`} title="Schedule View"><CalendarDays className="w-4 h-4" /></button>
+                                        <button onClick={() => setViewMode('schedule')} className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-bold ${viewMode === 'schedule' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-700'}`} title="Agenda de tareas"><CalendarDays className="w-4 h-4" /><span>Agenda</span></button>
                                     )}
                                 </div>
 
@@ -2928,7 +2943,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                         {visibleColumns.includes('nextStep') && (
                                                             <td className="px-6 py-3">
                                                                 {(() => {
-                                                                    const nextTask = (opp.tasks || []).find(t => !['Done', 'Completada', 'Won', 'Lost', 'Canceled', 'Cancelada'].includes(t.status));
+                                                                    const nextTask = getNextTask(opp.tasks || []);
                                                                     return nextTask ? <span className="text-xs font-bold text-blue-600 line-clamp-1" title={nextTask.title}>{nextTask.title}</span> : <span className="text-xs text-gray-400 italic">None</span>;
                                                                 })()}
                                                             </td>
@@ -3264,12 +3279,13 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         )}
 
                         {viewMode === 'schedule' && mode === 'tasks' && (
-                            <div className="h-full overflow-hidden">
+                            <div className="h-full w-full min-w-0 overflow-hidden">
                                 <ScheduleView
                                     opportunities={opportunities}
                                     onSelectTask={(oppId, taskId) => onSelect(oppId, { tab: 'tasks', taskId })}
                                     onOpenTaskSubView={onOpenTaskSubView}
                                     onOppUpdate={onOppUpdate}
+                                    onStartTimer={startTimer}
                                 />
                             </div>
                         )}
@@ -3304,6 +3320,60 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <button onClick={copyTaskSummary} className="flex items-center gap-1 text-xs font-medium bg-[#3DCD58]/10 text-[#3DCD58] px-3 py-1.5 rounded-lg hover:bg-[#3DCD58]/20 transition-colors">
                                     <Copy className="w-3 h-3" /> Summary
                                 </button>
+                                {remindersEnabled && (
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => { setRemindTaskWhen(''); setRemindTaskPopoverOpen(o => !o); setRemindTaskPicking(false); }}
+                                            title="Schedule a reminder for this task"
+                                            className="flex items-center gap-1 text-xs font-medium bg-amber-50 text-amber-600 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-colors"
+                                        >
+                                            <Bell className="w-3 h-3" /> Remind me
+                                        </button>
+                                        {remindTaskPopoverOpen && (
+                                            <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-50 p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                {!remindTaskPicking ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setRemindTaskPicking(true)}
+                                                        className="w-full text-left border border-gray-200 rounded-lg text-sm p-2 bg-white hover:bg-gray-50"
+                                                    >
+                                                        {remindTaskWhen ? new Date(remindTaskWhen).toLocaleString() : <span className="text-gray-400">Pick date &amp; time…</span>}
+                                                    </button>
+                                                ) : (
+                                                    <DateTimePicker
+                                                        value={remindTaskWhen}
+                                                        onConfirm={(isoLocal) => { setRemindTaskWhen(isoLocal); setRemindTaskPicking(false); }}
+                                                        onCancel={() => setRemindTaskPicking(false)}
+                                                    />
+                                                )}
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            if (!remindTaskWhen) return;
+                                                            onAddReminder?.({
+                                                                title: selectedTask.task.title,
+                                                                dueAt: new Date(remindTaskWhen).toISOString(),
+                                                                opportunityId: selectedTask.oppId,
+                                                                taskId: selectedTask.task.id,
+                                                            });
+                                                            setRemindTaskPopoverOpen(false);
+                                                        }}
+                                                        disabled={!remindTaskWhen}
+                                                        className="flex-1 py-1.5 text-sm font-medium bg-[#3DCD58] text-white rounded-lg hover:bg-[#34b34c] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setRemindTaskPopoverOpen(false)}
+                                                        className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                                                    >
+                                                        <X className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <button
                                     onClick={() => {
                                         onMinimize?.({

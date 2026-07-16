@@ -23,6 +23,26 @@ export const revealInExplorer = (target: string): void => {
     exec(`explorer /select,"${target.replace(/"/g, '')}"`, { windowsHide: true }, () => { });
 };
 
+/** Resolve a browser-selected file to one unambiguous indexed Windows path. */
+export const findFileByMetadata = async (name: string, size: number, mtime: number): Promise<string | null> => {
+    const out = await runPowerShell(
+        `$ErrorActionPreference='SilentlyContinue';` +
+        `$n=${psSingleQuote(name)};` +
+        `$sql='SELECT TOP 50 System.ItemUrl FROM SYSTEMINDEX WHERE System.FileName = ''' + $n.Replace("'","''") + '''';` +
+        `$c=New-Object System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows'");` +
+        `$c.Open();$q=$c.CreateCommand();$q.CommandText=$sql;$r=$q.ExecuteReader();` +
+        `while($r.Read()){[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\'};$c.Close()`,
+        2000
+    ).catch(() => '');
+    const matches = (out || '').split(/\r?\n/).map(p => path.normalize(p.trim())).filter(candidate => {
+        try {
+            const info = statSync(candidate);
+            return info.isFile() && info.size === size && Math.abs(info.mtimeMs - mtime) < 2000;
+        } catch { return false; }
+    });
+    return matches.length === 1 ? matches[0] : null;
+};
+
 /** Copy real files to the Windows clipboard (paste in Explorer/Outlook/Teams). */
 export const copyPathsToClipboard = async (paths: string[]): Promise<void> => {
     const list = paths.map(psSingleQuote).join(',');

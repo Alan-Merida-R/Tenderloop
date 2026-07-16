@@ -349,16 +349,16 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
   );
 };
 
-const RadialOpportunityButton = ({
-  opportunity,
-  metric,
-  mode,
-  onSelect,
-}: {
+const RadialOpportunityButton: React.FC<{
   opportunity: Opportunity;
   metric: ReturnType<typeof buildMetric>;
   mode: string;
   onSelect: () => void;
+}> = ({
+  opportunity,
+  metric,
+  mode,
+  onSelect,
 }) => {
   const isTiny = mode === 'tiny';
   const isCompact = mode === 'compact';

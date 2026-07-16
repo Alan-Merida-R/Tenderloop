@@ -39,6 +39,7 @@ interface Props {
     /** `immediate` makes the change commit synchronously (no startTransition) so a
      *  dragged block persists at once instead of briefly snapping back. */
     onOppUpdate: (updated: Opportunity, id?: string, immediate?: boolean) => void;
+    onStartTimer: (taskId: string, oppId: string, taskTitle: string) => void;
 }
 
 /**
@@ -47,7 +48,7 @@ interface Props {
  * Owns the right panel (Task Details / Unscheduled) and delegates block
  * mutations to the opportunities via onOppUpdate.
  */
-export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onOpenTaskSubView, onOppUpdate }) => {
+export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onOpenTaskSubView, onOppUpdate, onStartTimer }) => {
     const [tab, setTab] = useState<'week' | 'month'>('week');
     const [anchor, setAnchor] = useState<Date>(() => new Date());
     const [panelTab, setPanelTab] = useState<'details' | 'unscheduled'>('details');
@@ -261,6 +262,7 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
                             onOpenTask={onOpenTaskSubView || onSelectTask}
                             onCreateBlock={handleCreateBlock}
                             onUpdateBlock={handleUpdateBlock}
+                            onStartTimer={onStartTimer}
                         />
                     ) : (
                         <ScheduleMonthView

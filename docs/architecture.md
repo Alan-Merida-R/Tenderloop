@@ -42,7 +42,7 @@
 │   ├── opportunity-export/    # Exportación de oportunidades
 │   ├── doc-links/             # Vinculación de documentos
 │   ├── tracking/              # Tracking de KPIs
-│   └── ai-thinking/           # Modal de AI thinking
+│   └── quickOrganizer/        # Organizador semanal asistido por IA (copiar/pegar prompt)
 ├── services/                  # Lógica de negocio y utilidades
 │   ├── save.worker.ts         # Worker para guardado async
 │   ├── folderStorage.ts       # Gestión de carpetas

@@ -148,6 +148,8 @@ export interface Subtask {
   id: string;
   title: string;
   completed: boolean;
+  /** System-managed phase for assignment tasks. */
+  assignmentPhase?: 'execution' | 'approval';
 }
 
 export interface InlineTask {
@@ -228,6 +230,9 @@ export interface Task {
 
   /** Expected deliverable of the task, used in assignment emails. */
   deliverable?: string;
+
+  /** ISO timestamp of when the task was last marked Done. Cleared if moved out of Done. */
+  completedAt?: string;
 }
 
 export interface TimeLog {
@@ -334,6 +339,8 @@ export interface GeneratedEmailRecord {
   requestStage?: 'first' | 'followup';
   /** Items requested in an info request (e.g. "BOM", "Updated SLD"). */
   requestItems?: string[];
+  /** Notes or changes that accompanied this generated email. */
+  emailNotes?: string;
 }
 
 export interface MeetingNote {
@@ -372,17 +379,6 @@ export interface GlobalContact {
   availableRoles: string[];
   /** Alternate names/nicknames for this person, searchable and used to match against the directory. */
   aliases?: string[];
-}
-
-export interface Question {
-  id: string;
-  sourceId: string; // ID of Note or Task where it originated
-  sourceType: 'note' | 'task';
-  quote: string; // The text selected
-  question: string;
-  answer: string;
-  isResolved: boolean;
-  createdAt: string;
 }
 
 export interface HistoryEntry {
@@ -511,7 +507,6 @@ export interface Opportunity {
   /** Stakeholders/contacts involved in this specific opportunity — who's involved changes per opportunity, so this is not a global list. Used to suggest who a task is waiting on. */
   stakeholders?: Person[];
   tasks: Task[];
-  questions: Question[]; 
   history: HistoryEntry[];
   /** Optional override for the "Last History Event" dashboard card field — when unset, the card shows the most recent history entry's content verbatim. */
   lastHistoryEventOverride?: string;
@@ -559,12 +554,42 @@ export interface OpportunityVersion {
   snapshot: Omit<Opportunity, 'versions'>;
 }
 
+export interface Reminder {
+  id: string;
+  title: string;
+  /** ISO datetime (local) at which the reminder should fire. */
+  dueAt: string;
+  createdAt: string;
+  /** Every reminder is linked to an opportunity. */
+  opportunityId: string;
+  /** Optional: narrows the reminder to a specific task within the opportunity. */
+  taskId?: string;
+  /** Optional: links the reminder to a specific note within the opportunity. Can be combined with taskId. */
+  noteId?: string;
+  /** Set once the browser Notification has fired for this reminder. */
+  notifiedAt?: string;
+  /** Set once the user marks the reminder as seen — removes it from the bell badge count. */
+  seenAt?: string;
+}
+
 export interface UserSettings {
   theme: 'light' | 'dark';
   userName: string;
   /** Labels shared by every opportunity. Stored in the database, not browser-only settings. */
   globalLabels?: OpportunityLabel[];
   globalLabelsMigrated?: boolean;
+  /** User-scheduled reminders, standalone or linked to a task. Stored in the database. */
+  reminders?: Reminder[];
+  /** Visibility and layout choices that must travel with the TenderLoop database. */
+  uiPreferences?: {
+    hiddenOpportunityDetailSections?: string[];
+    opportunityDetailSectionOrder?: string[];
+    hiddenOpportunityHeaderFields?: string[];
+    hiddenViews?: string[];
+    hiddenIndicatorSections?: string[];
+    hiddenProposalProcessColumns?: string[];
+    processBoardColors?: Record<string, string>;
+  };
 }
 
 export interface TaskStandardTemplate {

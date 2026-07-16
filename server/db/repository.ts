@@ -1,9 +1,10 @@
-import { copyFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BACKUPS_DIR, DEFAULT_DB_PATH } from '../config';
 import { DatabaseSchema, INITIAL_DB } from '../../types';
 
 const BACKUP_MIN_INTERVAL_MS = 10_000;
+const MAX_BACKUPS = 10;
 
 export interface DbSnapshot {
     data: DatabaseSchema;
@@ -179,7 +180,28 @@ export class DbRepository {
         const backupPath = path.join(BACKUPS_DIR, `${timestamp}_${safeName}`);
         await copyFile(this.snapshot.path, backupPath);
         this.lastBackupAt = Date.now();
+        await this.pruneBackups();
         return { path: backupPath };
+    }
+
+    /** Store a recovery-only snapshot without changing the active database. */
+    async archiveSnapshot(data: unknown, sourceName = 'tendering_db.json'): Promise<{ path: string } | null> {
+        if (Date.now() - this.lastBackupAt < BACKUP_MIN_INTERVAL_MS) return null;
+        const validated = validateDatabase(data);
+        await mkdir(BACKUPS_DIR, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const safeName = path.basename(sourceName).replace(/[^a-zA-Z0-9._-]/g, '_') || 'tendering_db.json';
+        const backupPath = path.join(BACKUPS_DIR, `${timestamp}_${safeName}`);
+        await writeFile(backupPath, JSON.stringify(validated), 'utf8');
+        this.lastBackupAt = Date.now();
+        await this.pruneBackups();
+        return { path: backupPath };
+    }
+
+    private async pruneBackups(): Promise<void> {
+        const entries = await readdir(BACKUPS_DIR, { withFileTypes: true });
+        const files = entries.filter(entry => entry.isFile()).map(entry => entry.name).sort().reverse();
+        await Promise.all(files.slice(MAX_BACKUPS).map(name => unlink(path.join(BACKUPS_DIR, name))));
     }
 
     close(): void {

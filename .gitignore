@@ -55,11 +55,15 @@ private/
 # Local AI/editor permissions and generated Windows distribution files
 .ai/
 .agents/
+.codex/
 .claude/settings.local.json
 .claude/
+.cursor/
 .gemini/
+AGENTS.md
 CLAUDE.md
 CODEX.md
 GEMINI.md
 dev-dist/
+.tmp/
 .tenderloop-setup-complete

@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel, Reminder } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
-import { importBackendDb, isBackendAvailable, openDefaultBackendDb, saveBackendDb } from './services/backendDb';
+import { archiveRecoveryBackup, isBackendAvailable, openDefaultBackendDb, resolveNativeDbPath, revealCurrentBackendDb, revealNativePath, saveBackendDb } from './services/backendDb';
 import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
@@ -14,8 +14,11 @@ import { TimerWidget } from './components/TimerWidget';
 import { ProcessRadialWidget } from './components/ProcessRadialWidget';
 import { StickyNotesWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
-import { assignMissingOrders } from './services/taskUtils';
+import { assignMissingOrders, normalizeTaskStatus, syncAssignmentSubtasks } from './services/taskUtils';
 import { useScheduleNotifications } from './features/schedule/useScheduleNotifications';
+import { useReminderNotifications } from './features/reminders/useReminderNotifications';
+import { RemindersBell } from './components/RemindersBell';
+import { QuickOrganizerView } from './features/quickOrganizer/QuickOrganizerView';
 
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -259,6 +262,7 @@ function App() {
   const [backendAvailable, setBackendAvailable] = useState(false);
   const [backendRevision, setBackendRevision] = useState<number>(0);
   const [backendName, setBackendName] = useState<string | null>(null);
+  const [currentDbNativePath, setCurrentDbNativePath] = useState<string | null>(null);
 
   // Navigation
   const [currentView, setCurrentView] = useState<AppView>('general-dashboard');
@@ -273,7 +277,34 @@ function App() {
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
+  const [showQuickOrganizer, setShowQuickOrganizer] = useState(false);
+  // Bumped when the Quick Organizer applies a plan, forcing the Tasks dashboard into Agenda mode.
+  const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+
+  const getDbUiPreferences = (settings: AppSettings): NonNullable<DatabaseSchema['userSettings']['uiPreferences']> => ({
+    hiddenOpportunityDetailSections: settings.hiddenOpportunityDetailSections,
+    opportunityDetailSectionOrder: settings.opportunityDetailSectionOrder,
+    hiddenOpportunityHeaderFields: settings.hiddenOpportunityHeaderFields,
+    hiddenViews: settings.hiddenViews,
+    hiddenIndicatorSections: settings.hiddenIndicatorSections,
+    hiddenProposalProcessColumns: settings.hiddenProposalProcessColumns,
+    processBoardColors: settings.processBoardColors,
+  });
+
+  const applyDbUiPreferences = (settings: AppSettings, preferences?: DatabaseSchema['userSettings']['uiPreferences']): AppSettings => {
+    if (!preferences) return settings;
+    return {
+      ...settings,
+      ...(preferences.hiddenOpportunityDetailSections !== undefined && { hiddenOpportunityDetailSections: preferences.hiddenOpportunityDetailSections as AppSettings['hiddenOpportunityDetailSections'] }),
+      ...(preferences.opportunityDetailSectionOrder !== undefined && { opportunityDetailSectionOrder: preferences.opportunityDetailSectionOrder as AppSettings['opportunityDetailSectionOrder'] }),
+      ...(preferences.hiddenOpportunityHeaderFields !== undefined && { hiddenOpportunityHeaderFields: preferences.hiddenOpportunityHeaderFields as AppSettings['hiddenOpportunityHeaderFields'] }),
+      ...(preferences.hiddenViews !== undefined && { hiddenViews: preferences.hiddenViews as AppSettings['hiddenViews'] }),
+      ...(preferences.hiddenIndicatorSections !== undefined && { hiddenIndicatorSections: preferences.hiddenIndicatorSections as AppSettings['hiddenIndicatorSections'] }),
+      ...(preferences.hiddenProposalProcessColumns !== undefined && { hiddenProposalProcessColumns: preferences.hiddenProposalProcessColumns }),
+      ...(preferences.processBoardColors !== undefined && { processBoardColors: preferences.processBoardColors }),
+    };
+  };
 
   // Quick Nav State
   const [floatingTabs, setFloatingTabs] = useState<FloatingTab[]>([]);
@@ -282,6 +313,9 @@ function App() {
   // Debounce saving
   const saveTimeoutRef = useRef<number | null>(null);
   const isSavingRef = useRef(false);
+  const recoveryBackupTimerRef = useRef<number | null>(null);
+  const recoveryBackupInFlightRef = useRef(false);
+  const lastRecoveryBackupAtRef = useRef(0);
   // E1 FIX: Track whether a mousedown started inside the detail overlay so that
   // text-selection drags that leave the inner container don't trigger the backdrop click.
   const detailMouseDownInsideRef = useRef(false);
@@ -301,6 +335,10 @@ function App() {
   // 300ms debounce batches bursts of changes into a single write.
   const sessionTabsTimerRef = useRef<number | null>(null);
   const sessionNavTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (recoveryBackupTimerRef.current) clearTimeout(recoveryBackupTimerRef.current);
+  }, []);
 
   // Redirect legacy tracking view
   useEffect(() => {
@@ -358,13 +396,32 @@ function App() {
   const handleSaveSettings = (newSettings: AppSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
-    if (newSettings.globalLabels) {
-      setDb(prev => ({
-        ...prev,
-        userSettings: { ...prev.userSettings, globalLabels: mergeGlobalLabels(newSettings.globalLabels), globalLabelsMigrated: true }
-      }));
-    }
+    setDb(prev => ({
+      ...prev,
+      userSettings: {
+        ...prev.userSettings,
+        uiPreferences: getDbUiPreferences(newSettings),
+        ...(newSettings.globalLabels && { globalLabels: mergeGlobalLabels(newSettings.globalLabels), globalLabelsMigrated: true })
+      }
+    }));
   };
+
+  // Visibility preferences are database-owned so the same configuration is
+  // restored when this database is opened from another browser or computer.
+  // Existing databases receive the current browser preferences once, then the
+  // database becomes the source of truth.
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const preferences = db.userSettings?.uiPreferences;
+    if (preferences) {
+      setAppSettings(prev => applyDbUiPreferences(prev, preferences));
+      return;
+    }
+    setDb(prev => ({
+      ...prev,
+      userSettings: { ...prev.userSettings, uiPreferences: getDbUiPreferences(appSettingsRef.current) }
+    }));
+  }, [isDbLoaded, db.userSettings?.uiPreferences]);
 
   // One-time, safe migration: import legacy browser settings and all labels already
   // assigned to opportunities into the current database. This lets old files retain
@@ -408,6 +465,30 @@ function App() {
     const init = async () => {
       const hasBackend = await isBackendAvailable();
       setBackendAvailable(hasBackend);
+
+      // A file explicitly selected by the user is always the source of truth.
+      // Reopen it before the legacy internal DB so restarts keep saving to the
+      // same visible JSON file.
+      const selectedRecents = await getRecentDbs();
+      setRecentDbs(selectedRecents);
+      const selectedLastHandle = await getLastDb();
+      if (selectedLastHandle) {
+        // @ts-ignore File System Access API permissions are Chromium-specific.
+        const perm = await selectedLastHandle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          setStatus('loading');
+          await loadDbFromHandle(selectedLastHandle);
+          return;
+        }
+        if (perm === 'prompt') {
+          setPendingHandle(selectedLastHandle);
+          setStartupHint('__reopen__');
+          return;
+        }
+      }
+
+      // Compatibility for existing installations: use the internal backend DB
+      // only when there is no user-selected file available.
       if (hasBackend) {
         try {
           setStatus('loading');
@@ -420,6 +501,7 @@ function App() {
           backendRevisionRef.current = snapshot.status.revision;
           setBackendRevision(snapshot.status.revision);
           setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+          setCurrentDbNativePath(snapshot.status.path);
           setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
           setIsDbLoaded(true);
           setStartupHint(null);
@@ -674,6 +756,28 @@ function App() {
 
           console.debug("[Autosave] Executing saveToDisk...");
           success = await saveToDisk(fileHandle, db);
+          // Recovery backups never participate in or delay the primary save.
+          // At most one is prepared every five minutes, after 15 seconds of
+          // idle time, and a second job cannot start while one is still running.
+          if (
+            success && backendAvailable &&
+            !recoveryBackupInFlightRef.current &&
+            !recoveryBackupTimerRef.current &&
+            Date.now() - lastRecoveryBackupAtRef.current >= 5 * 60_000
+          ) {
+            const recoveryName = fileHandle.name;
+            recoveryBackupTimerRef.current = window.setTimeout(() => {
+              recoveryBackupTimerRef.current = null;
+              if (recoveryBackupInFlightRef.current) return;
+              recoveryBackupInFlightRef.current = true;
+              archiveRecoveryBackup(dbRef.current, recoveryName)
+                .then(() => { lastRecoveryBackupAtRef.current = Date.now(); })
+                .catch(err => {
+                  console.warn('[Backup] Recovery snapshot failed; original DB was saved successfully.', err);
+                })
+                .finally(() => { recoveryBackupInFlightRef.current = false; });
+            }, 15_000);
+          }
         }
 
         if (success) {
@@ -776,6 +880,7 @@ function App() {
     console.debug("[App] Loading DB from handle:", handle.name);
     try {
       const file = await handle.getFile();
+      setCurrentDbNativePath(await resolveNativeDbPath(file));
       const text = await file.text();
       const data = JSON.parse(text);
 
@@ -945,6 +1050,8 @@ function App() {
         emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
         sowSectionEnabled={appSettings.sowSectionEnabled || false}
         stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
+        remindersEnabled={appSettings.remindersEnabled || false}
+        onAddReminder={handleAddReminder}
         hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
         hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
         opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
@@ -1105,7 +1212,6 @@ function App() {
             commercial: newCommercial as any,
             kpis: kpis,
             history: o.history || [],
-            questions: (o as any).questions || [],
             tasks: (o.tasks || []).map(t => {
               const oldT = t as any;
               let areas: string[] = [];
@@ -1119,7 +1225,7 @@ function App() {
 
               return {
                 ...t,
-                status: (t.status || 'Pending') as TaskStatus,
+                status: normalizeTaskStatus(t.status),
                 owner: (t.owner || 'Me') as TaskOwner,
                 externalAreas: areas,
                 priority: (t.priority || 'Medium') as TaskPriority,
@@ -1148,15 +1254,6 @@ function App() {
     console.debug("[App] handleOpenDB triggered.");
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-    // Reset state before loading new DB to avoid stale data conflicts
-    setDb(INITIAL_DB);
-    setIsDbLoaded(false);
-    setFileHandle(null);
-    setStorageMode(null);
-    setBackendRevision(0);
-    backendRevisionRef.current = 0;
-    setBackendName(null);
-
     setStatus('loading');
     setErrorMessage(null);
 
@@ -1181,45 +1278,35 @@ function App() {
           return;
         }
 
+        if (!result.handle) {
+          setErrorMessage('This browser can read the database but cannot save changes back to it. Open TenderLoop in Chrome or Edge and select the file again.');
+          setStatus('error');
+          return;
+        }
+
         console.debug("[App] Migrating and setting state...");
         const migratedData = migrateData(result.data);
         mergeNoteCrashBackups(migratedData);
 
-        if (backendAvailable) {
-          const snapshot = await importBackendDb(migratedData);
-          setDb(migrateData(snapshot.data));
-          setFileHandle(null);
-          setStorageMode('backend');
-          backendRevisionRef.current = snapshot.status.revision;
-          setBackendRevision(snapshot.status.revision);
-          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
-          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
-          setIsDbLoaded(true);
-          setRecentDbs(await getRecentDbs());
-          setStartupHint(null);
-          setStatus('idle');
+        // The selected file remains the source of truth. Every autosave writes
+        // directly through this handle instead of updating an internal copy.
+        // @ts-ignore File System Access API permissions are Chromium-specific.
+        const perm = await result.handle.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          setErrorMessage('Write permission is required so TenderLoop can update the selected database.');
+          setStatus('error');
           return;
         }
 
-        // Legacy file mode (backend unavailable)
-        if (result.handle) {
-          try {
-            // @ts-ignore
-            const perm = await result.handle.requestPermission({ mode: 'readwrite' });
-            if (perm !== 'granted') console.warn("Write permission not granted.");
-          } catch (e) {
-            console.error("Failed to request write permission", e);
-          }
-          setFileHandle(result.handle);
-          setStorageMode('file');
-          setFallbackFileName(null);
-          await rememberDb(result.handle, { name: result.handle.name });
-        } else {
-          setFileHandle(null);
-          setStorageMode('file');
-          // @ts-ignore
-          setFallbackFileName(result.name || "Offline DB");
-        }
+        setIsDbLoaded(false);
+        setFileHandle(result.handle);
+        setStorageMode('file');
+        setBackendRevision(0);
+        backendRevisionRef.current = 0;
+        setBackendName(null);
+        setFallbackFileName(null);
+        setCurrentDbNativePath(await resolveNativeDbPath(await result.handle.getFile()));
+        await rememberDb(result.handle, { name: result.handle.name });
 
         setDb(migratedData);
         setIsDbLoaded(true);
@@ -1304,6 +1391,54 @@ function App() {
     e.stopPropagation();
     await removeRecentDb(id);
     setRecentDbs(await getRecentDbs());
+  };
+
+  const handleOpenCurrentDbFolder = async () => {
+    setShowRecents(false);
+    try {
+      if (storageMode === 'backend') await revealCurrentBackendDb();
+      else if (currentDbNativePath) await revealNativePath(currentDbNativePath);
+      else throw new Error('The native path is not available yet. Reopen the database once after restarting TenderLoop.');
+    } catch (err: any) {
+      console.error('[Backend DB] Could not reveal current database:', err);
+      setErrorMessage('Could not open the current database folder: ' + (err?.message || String(err)));
+      setStatus('error');
+    }
+  };
+
+  const handleSaveCurrentDbToFile = async () => {
+    setShowRecents(false);
+    try {
+      if (typeof window.showSaveFilePicker !== 'function') {
+        throw new Error('Saving directly to a selected file requires Chrome or Edge.');
+      }
+      const handle = await window.showSaveFilePicker({
+        suggestedName: backendName || 'tendering_db.json',
+        types: [{
+          description: 'TenderLoop JSON Database',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      const saved = await saveToDisk(handle, dbRef.current);
+      if (!saved) throw new Error('The database could not be written to the selected file.');
+
+      setFileHandle(handle);
+      setStorageMode('file');
+      setBackendRevision(0);
+      backendRevisionRef.current = 0;
+      setBackendName(null);
+      setFallbackFileName(null);
+      setCurrentDbNativePath(await resolveNativeDbPath(await handle.getFile()));
+      await rememberDb(handle, { name: handle.name });
+      setRecentDbs(await getRecentDbs());
+      setErrorMessage(null);
+      setStatus('saved');
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      console.error('[Database] Could not move current DB to selected file:', err);
+      setErrorMessage('Could not save the current database to the selected file: ' + (err?.message || String(err)));
+      setStatus('error');
+    }
   };
 
   const deleteOpportunity = async (id: string) => {
@@ -1461,7 +1596,6 @@ function App() {
         selectedOutlookFolderIds: []
       },
       tasks: assignMissingOrders(defaultTasks),
-      questions: [],
       history: [],
       presentation: { executiveSummary: '', issues: '', kpis: '', requirements: '' },
       kpis: {
@@ -1714,9 +1848,29 @@ function App() {
         opportunities: prev.opportunities.map(o => {
           if (o.id !== oppId) return o;
           const existingTask = o.tasks.find(t => t.id === taskId);
+          let taskUpdates = { ...updates };
+          if (existingTask?.isAssignment && taskUpdates.status === 'Done') {
+            const today = getTodayStr();
+            if (existingTask.status === 'Missing Info' && (existingTask.approverTeamMemberIds || []).length > 0) {
+              taskUpdates = {
+                ...taskUpdates,
+                status: 'Approval',
+                responsibleDeliveredDate: existingTask.responsibleDeliveredDate || today,
+                approvalRequestedDate: existingTask.approvalRequestedDate || today,
+              };
+            } else if (existingTask.status === 'Missing Info') {
+              taskUpdates.responsibleDeliveredDate = existingTask.responsibleDeliveredDate || today;
+            } else if (existingTask.status === 'Approval') {
+              taskUpdates.approvalDeliveredDate = existingTask.approvalDeliveredDate || today;
+            }
+          }
           const isMarkingDone = existingTask
-            && updates.status === 'Done'
+            && taskUpdates.status === 'Done'
             && existingTask.status !== 'Done';
+          const isUnmarkingDone = existingTask
+            && taskUpdates.status
+            && taskUpdates.status !== 'Done'
+            && existingTask.status === 'Done';
           const doneDate = isMarkingDone
             ? (existingTask.dueDate || getTodayStr())
             : '';
@@ -1725,11 +1879,13 @@ function App() {
             ...o,
             tasks: o.tasks.map(t => {
               if (t.id !== taskId) return t;
-              updatedTask = {
+              updatedTask = syncAssignmentSubtasks({
                 ...t,
-                ...updates,
+                ...taskUpdates,
                 ...(isMarkingDone && !t.dueDate ? { dueDate: doneDate } : {}),
-              };
+                ...(isMarkingDone ? { completedAt: new Date().toISOString() } : {}),
+                ...(isUnmarkingDone ? { completedAt: undefined } : {}),
+              });
               return updatedTask;
             }),
             lastUpdated: new Date().toISOString()
@@ -1772,9 +1928,13 @@ function App() {
           task.timeLogs = [...(task.timeLogs || []), newLog];
 
           if (status) {
+            const wasDone = task.status === 'Done';
             task.status = status;
-            if (status === 'Done' && !task.dueDate) {
-              task.dueDate = dateStr;
+            if (status === 'Done') {
+              if (!task.dueDate) task.dueDate = dateStr;
+              if (!wasDone) task.completedAt = nowIso;
+            } else if (wasDone) {
+              task.completedAt = undefined;
             }
           } else if (task.status === 'Pending') {
             task.status = 'In Progress';
@@ -1946,6 +2106,47 @@ function App() {
   // Click opens the opportunity and focuses the related task.
   useScheduleNotifications(stableOpportunities, handleSelectOpp, appSettings.notificationSound);
 
+  const stableReminders = useMemo(() => db.userSettings?.reminders || EMPTY_ARR, [db.userSettings?.reminders]);
+
+  const handleAddReminder = useCallback((reminder: Omit<Reminder, 'id' | 'createdAt'>) => {
+    const newReminder: Reminder = { ...reminder, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+    setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, reminders: [...(prev.userSettings?.reminders || []), newReminder] } }));
+  }, []);
+
+  const handleReminderNotified = useCallback((id: string) => {
+    setDb(prev => ({
+      ...prev,
+      userSettings: { ...prev.userSettings, reminders: (prev.userSettings?.reminders || []).map(r => r.id === id ? { ...r, notifiedAt: new Date().toISOString() } : r) }
+    }));
+  }, []);
+
+  const handleUpdateReminder = useCallback((id: string, changes: Partial<Reminder>) => {
+    setDb(prev => ({
+      ...prev,
+      userSettings: { ...prev.userSettings, reminders: (prev.userSettings?.reminders || []).map(r => r.id === id ? { ...r, ...changes } : r) }
+    }));
+  }, []);
+
+  const handleDeleteReminder = useCallback((id: string) => {
+    setDb(prev => ({
+      ...prev,
+      userSettings: { ...prev.userSettings, reminders: (prev.userSettings?.reminders || []).filter(r => r.id !== id) }
+    }));
+  }, []);
+
+  // Opens whatever the reminder is linked to: both a task and a note opens the
+  // task's split view (task + note side by side); just a task focuses it in the
+  // Tasks tab; just a note opens it in the Notes tab; neither falls back to the
+  // opportunity overview.
+  const handleOpenReminder = useCallback((oppId: string, taskId?: string, noteId?: string) => {
+    if (taskId && noteId) handleSelectOpp(oppId, { tab: 'tasks', taskId, noteId, fullView: true });
+    else if (taskId) handleSelectOpp(oppId, { tab: 'tasks', taskId, fullView: true });
+    else if (noteId) handleSelectOpp(oppId, { tab: 'notes', noteId, fullView: true });
+    else handleSelectOpp(oppId);
+  }, [handleSelectOpp]);
+
+  useReminderNotifications(stableReminders, handleReminderNotified, handleOpenReminder, appSettings.notificationSound, appSettings.remindersEnabled);
+
   // Floating timer-only window mode: opened by TimerWidget.popOut() with ?window=timer.
   // Shares the same BroadcastChannel + localStorage so the widget stays in sync with the main app.
   const isTimerOnlyWindow = typeof window !== 'undefined'
@@ -2016,6 +2217,16 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {appSettings.remindersEnabled && (
+              <RemindersBell
+                reminders={stableReminders}
+                opportunities={stableOpportunities}
+                onAdd={handleAddReminder}
+                onUpdate={handleUpdateReminder}
+                onDelete={handleDeleteReminder}
+                onOpenReminder={handleOpenReminder}
+              />
+            )}
             <button
               onClick={() => setShowSettings(true)}
               className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm font-medium transition-colors"
@@ -2028,7 +2239,7 @@ function App() {
               <div className="flex items-center gap-2 relative">
                 <div className="flex bg-white border border-gray-300 rounded-lg shadow-sm">
                   <button onClick={handleOpenDB} className="flex items-center gap-2 px-3 py-1.5 text-gray-700 text-sm font-medium hover:bg-gray-50 rounded-l-lg transition-colors border-r border-gray-200">
-                    <FolderOpen className="w-4 h-4" /> {backendAvailable ? 'Import JSON' : 'Open DB'}
+                    <FolderOpen className="w-4 h-4" /> Open DB
                   </button>
                   {recentDbs.length > 0 && (
                     <div className="relative">
@@ -2116,7 +2327,15 @@ function App() {
                       <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
                         <div className="p-2 border-b border-gray-100">
                           <button onClick={() => { setShowRecents(false); handleOpenDB(); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
-                            <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> {backendAvailable ? 'Import another JSON...' : 'Open another file...'}
+                            <FolderOpen className="w-4 h-4 text-[#3DCD58]" /> Open another file...
+                          </button>
+                          {storageMode === 'backend' && (
+                            <button onClick={handleSaveCurrentDbToFile} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
+                              <Save className="w-4 h-4 text-[#3DCD58]" /> Save current DB to file...
+                            </button>
+                          )}
+                          <button onClick={handleOpenCurrentDbFolder} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded text-left">
+                            <ExternalLink className="w-4 h-4 text-blue-500" /> Open current DB folder
                           </button>
                         </div>
                         <div className="px-3 py-2 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">Recent Databases</div>
@@ -2196,7 +2415,7 @@ function App() {
               ) : (
                 <div className="flex gap-4 flex-wrap justify-center">
                   <button onClick={handleOpenDB} className="flex items-center gap-2 px-6 py-3 bg-[#3DCD58] hover:bg-[#2db64a] text-white rounded-xl font-bold shadow-md transition-all">
-                    <FolderOpen className="w-5 h-5" /> {backendAvailable ? 'Importar JSON' : 'Abrir Base de Datos'}
+                    <FolderOpen className="w-5 h-5" /> Abrir Base de Datos
                   </button>
                   <button onClick={handleCreateDB} className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold shadow-sm hover:bg-gray-50 transition-all">
                     <PlusCircle className="w-5 h-5" /> Nueva Base de Datos
@@ -2244,6 +2463,9 @@ function App() {
                   processBoardColors={appSettings.processBoardColors}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
+                  remindersEnabled={appSettings.remindersEnabled || false}
+                  onAddReminder={handleAddReminder}
+                  agendaFocusNonce={agendaFocusNonce}
                 />}
               </LocalErrorBoundary>
             </div>
@@ -2291,6 +2513,8 @@ function App() {
                     emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
                     sowSectionEnabled={appSettings.sowSectionEnabled || false}
                     stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
+                    remindersEnabled={appSettings.remindersEnabled || false}
+                    onAddReminder={handleAddReminder}
                     hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
                     hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
                     opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
@@ -2313,7 +2537,23 @@ function App() {
           onSave={handleSaveSettings}
           initialSettings={{ ...appSettings, globalLabels: stableGlobalLabels }}
           opportunities={stableOpportunities}
+          onOpenQuickOrganizer={() => { setShowSettings(false); setShowQuickOrganizer(true); }}
         />
+        {showQuickOrganizer && (
+          <QuickOrganizerView
+            opportunities={stableOpportunities}
+            userName={appSettings.userName || 'User'}
+            onOppUpdate={updateOpportunity}
+            onAddReminder={handleAddReminder}
+            onClose={() => { setShowQuickOrganizer(false); setShowSettings(true); }}
+            onPlanAccepted={() => {
+              // Land the user directly on the accepted plan: Tasks view, Agenda mode.
+              setShowQuickOrganizer(false);
+              setCurrentView('tasks-dashboard');
+              setAgendaFocusNonce(n => n + 1);
+            }}
+          />
+        )}
         <StickyNotesWidget />
         {appSettings.processRadialWidgetEnabled && (
           <ProcessRadialWidget

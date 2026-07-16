@@ -101,6 +101,15 @@ dbRouter.post('/backup', async (_req: Request, res: Response) => {
     }
 });
 
+dbRouter.post('/recovery-backup', async (req: Request, res: Response) => {
+    try {
+        const backup = await dbRepository.archiveSnapshot(req.body?.data, req.body?.name);
+        return res.json({ ok: true, backup });
+    } catch (err) {
+        return handleError(res, err);
+    }
+});
+
 dbRouter.post('/close', (_req: Request, res: Response) => {
     dbRepository.close();
     return res.json({ ok: true, status: dbRepository.status() });

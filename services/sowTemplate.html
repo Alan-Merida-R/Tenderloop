@@ -309,14 +309,14 @@
 <div class="field"><label>End user</label><input data-key="end_user" type="text"/></div>
 <div class="field"><label>Site / plant location</label><input data-key="site" type="text"/></div>
 <div class="field"><label>Seller / CSE</label><input data-key="team_cse" type="text"/></div>
-<div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option>Firm / Bid to buy</option><option>Bid to bid</option><option>Budgetary</option><option>Non-binding budgetary</option><option>Change order / Revision</option></select></div>
+<div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
 </div>
 <div class="field" id="expedienteObjective" style="margin-top:13px">
 <label>Objective <span class="required-mark">*</span></label>
 <div class="editable" contenteditable="true" data-key="objective" data-placeholder="What outcome must this proposal and project achieve?" data-required=""></div>
 </div>
 <div class="field" style="margin-top:13px">
-<label>Scope (Alcance)</label>
+<label>Scope</label>
 <textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
 <div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
 </div></section>
@@ -379,7 +379,7 @@
 <div class="section-body">
 <div class="grid four">
 <div class="field"><label>Opportunity type <span class="required-mark">*</span></label><select data-key="opp_type" data-required=""><option value=""></option><option>Greenfield</option><option>Modernization</option><option>Migration</option><option>Upgrade</option><option>Expansion</option><option>Services only</option><option>Mixed</option></select></div>
-<div class="field"><label>Proposal type <span class="required-mark">*</span></label><select data-key="proposal_type" data-required=""><option value=""></option><option>Firm / Bid to buy</option><option>Bid to bid</option><option>Budgetary</option><option>Non-binding budgetary</option><option>Change order / Revision</option></select></div>
+<div class="field"><label>Proposal type <span class="required-mark">*</span></label><select data-key="proposal_type" data-required=""><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
 <div class="field"><label>Scope type</label><select data-key="scope_type"><option value=""></option><option>Supply</option><option>Engineering</option><option>Integration</option><option>Services</option><option>Turnkey</option><option>Mixed</option></select></div>
 <div class="field"><label>Commercial structure</label><select data-key="commercial_structure"><option value=""></option><option>Hardware + Software + Services</option><option>Services only</option><option>Migration / Modernization</option><option>Change order / Revision</option></select></div>
 <div class="field"><label>Purchaser</label><select data-key="purchaser"><option value=""></option><option>End user</option><option>Distributor</option><option>System integrator</option><option>GC / EC</option><option>Other</option></select></div>
@@ -1101,8 +1101,19 @@
     if(!Array.isArray(rows) || !rows.length) return;
     const body = $('tbody', table); body.innerHTML=''; rows.forEach(cells => addTableRow(table, cells));
   }
-  function captureFieldValues(){ const data={}; fields().forEach(el => data[el.dataset.key]=getValue(el)); return data; }
+  function captureFieldValues(){ const data={}; fields().forEach(el => {const key=el.dataset.key,val=getValue(el);if(!Object.prototype.hasOwnProperty.call(data,key)||filledValue(val)||!filledValue(data[key]))data[key]=val;}); return data; }
   function restoreFieldValues(data){ if(!data) return; fields().forEach(el => { if(Object.prototype.hasOwnProperty.call(data,el.dataset.key)) setValue(el,data[el.dataset.key]); }); }
+  // scope_summary (Overview quick view) and included_scope (detailed guided question) are
+  // the same answer. syncChangedKey() only mirrors them as the user types, so notes loaded
+  // with only one of the two filled (older data, or a save made before the other was typed)
+  // must be reconciled here too, otherwise Overview and the SOW question show different text.
+  function reconcileScopeFields(){
+    const summaryEl=keyEl('scope_summary'), includedEl=keyEl('included_scope');
+    if(!summaryEl||!includedEl) return;
+    const summary=String(getValue(summaryEl)||''), included=String(getValue(includedEl)||'');
+    if(included.trim()){ if(!summary.trim()) setValue(summaryEl,included); }
+    else if(summary.trim()){ setValue(includedEl,summary); }
+  }
 
   function collectState(){
     const data = {version:4, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), flags:[...flaggedQuestions], ui:{guidedMode}, savedAt:new Date().toISOString()};
@@ -1125,6 +1136,7 @@
     if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
     rebuildCustomForm(null, false);
     restoreFieldValues(data.fields || {});
+    reconcileScopeFields();
     $$('.dynamic-table').forEach(t => { if(data.tables && data.tables[t.dataset.key]) restoreTable(t,data.tables[t.dataset.key]); });
     updateGuidedButton(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
   }
@@ -1404,6 +1416,12 @@
   function syncChangedKey(key){
     if(syncing||!key)return; syncing=true;
     try{
+      // Some base fields appear in two sections. Keep their controls in lockstep
+      // and never let an empty duplicate overwrite the value the user just entered.
+      const matching=fields().filter(el=>el.dataset.key===key), source=matching.find(el=>el===document.activeElement)||matching[0];
+      if(source) matching.forEach(el=>{if(el!==source)setValue(el,getValue(source));});
+      if(key==='scope_summary'&&keyEl('included_scope'))setValue(keyEl('included_scope'),getValue(source));
+      if(key==='included_scope'&&keyEl('scope_summary'))setValue(keyEl('scope_summary'),getValue(source));
       const direct=SYNC_PAIRS[key], reverse=Object.entries(SYNC_PAIRS).find(([,v])=>v===key)?.[0];
       if(direct&&keyEl(direct)) setValue(keyEl(direct),value(key));
       if(reverse&&keyEl(reverse)) setValue(keyEl(reverse),value(key));
@@ -1452,6 +1470,14 @@
 
   document.addEventListener('input',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility(); save(); } });
   document.addEventListener('change',e=>{ if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();save(); } });
+  // FLUSH-ON-BLUR: save() debounces 180ms so typing doesn't spam postMessage/localStorage.
+  // But switching tabs/notes in the host unmounts this iframe (and its 'message' listener)
+  // synchronously the instant the click is handled — if the debounce timer hasn't fired yet,
+  // the edit is lost, and the Overview Scope panel (which reads the persisted note) shows
+  // stale data. Clicking outside the iframe always fires focusout on the field that had
+  // focus BEFORE the host's click handler runs, so flushing here — bypassing the debounce
+  // entirely — guarantees the save reaches the host before any unmount can happen.
+  document.addEventListener('focusout',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]') && e.target.closest('[data-key]')){ clearTimeout(saveTimer); persistNow(); } });
   document.addEventListener('click',e=>{
     const flag=e.target.closest('[data-flag-question]');if(flag){toggleFlag(flag.dataset.flagQuestion);return;}
     const navigate=e.target.closest('[data-navigate-key]');if(navigate){const target=keyEl(navigate.dataset.navigateKey);let parent=target?.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}target?.scrollIntoView({behavior:'smooth',block:'center'});return;}
@@ -1548,6 +1574,7 @@
     }
     if(e.data.type === 'open-overview'){ $('#terminalOverview').classList.add('open');renderOverview(); }
     if(e.data.type === 'update-prefill'){ hostPrefill=e.data.prefill || hostPrefill; applyLinkedPrefill(hostPrefill); }
+    if(e.data.type === 'update-fields' && e.data.fields){ restoreFieldValues(e.data.fields); reconcileScopeFields(); updateConditionalVisibility(); updateProgress(); }
   });
   try{ window.parent.postMessage({source:'tenderloop-sow', type:'ready'}, '*'); }catch(e){}
 

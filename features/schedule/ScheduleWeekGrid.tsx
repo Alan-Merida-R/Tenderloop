@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, AlertTriangle, Play } from 'lucide-react';
 import { ScheduledItem } from './ScheduleView';
 import { ExecutionBlock } from '../../types';
-import { useTimerActions } from '../../contexts/TimerContext';
 import {
     timeToMinutes,
     minutesToTime,
@@ -22,6 +21,7 @@ interface Props {
     onOpenTask: (oppId: string, taskId: string) => void;
     onCreateBlock: (oppId: string, taskId: string, date: string, startTime: string, endTime?: string) => void;
     onUpdateBlock: (oppId: string, taskId: string, blockId: string, updates: Partial<ExecutionBlock>) => void;
+    onStartTimer: (taskId: string, oppId: string, taskTitle: string) => void;
 }
 
 const HOUR_START = 8;   // 08:00
@@ -91,8 +91,7 @@ const layoutDay = (items: ScheduledItem[], preview?: Record<string, { date: stri
     return result;
 };
 
-export const ScheduleWeekGrid: React.FC<Props> = ({ items, anchor, onAnchorChange, onSelectTask, onOpenTask, onCreateBlock, onUpdateBlock }) => {
-    const timerActions = useTimerActions();
+export const ScheduleWeekGrid: React.FC<Props> = ({ items, anchor, onAnchorChange, onSelectTask, onOpenTask, onCreateBlock, onUpdateBlock, onStartTimer }) => {
     const weekStart = useMemo(() => mondayOf(anchor), [anchor]);
     const days = useMemo(() => Array.from({ length: 5 }, (_, i) => {
         const d = new Date(weekStart);
@@ -272,7 +271,7 @@ export const ScheduleWeekGrid: React.FC<Props> = ({ items, anchor, onAnchorChang
 
     const handleStartTimer = (e: React.MouseEvent, it: ScheduledItem) => {
         e.stopPropagation();
-        timerActions.startTimer(it.task.id, it.oppId, it.task.title);
+        onStartTimer(it.task.id, it.oppId, it.task.title);
     };
 
     const nowLineTop = ((nowMin - HOUR_START * 60) / SLOT_MIN) * SLOT_HEIGHT;

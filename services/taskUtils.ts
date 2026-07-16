@@ -1,6 +1,43 @@
 import { Task } from '../types';
 
 /**
+ * Keeps the system-managed assignment subtasks aligned with the selected
+ * participants and the dates produced by assignment status transitions.
+ * User-created subtasks are preserved untouched.
+ */
+export function syncAssignmentSubtasks(task: Task): Task {
+    const manualSubtasks = (task.subtasks || []).filter(subtask => !subtask.assignmentPhase);
+    if (!task.isAssignment) {
+        return { ...task, subtasks: manualSubtasks };
+    }
+
+    const existingExecution = (task.subtasks || []).find(subtask => subtask.assignmentPhase === 'execution');
+    const existingApproval = (task.subtasks || []).find(subtask => subtask.assignmentPhase === 'approval');
+    const hasExecution = (task.responsibleTeamMemberIds || []).length > 0 || !!task.responsible?.trim();
+    const hasApproval = (task.approverTeamMemberIds || []).length > 0;
+    const automatic: Task['subtasks'] = [];
+
+    if (hasExecution) {
+        automatic.push({
+            id: existingExecution?.id || crypto.randomUUID(),
+            title: 'Execution',
+            completed: !!task.responsibleDeliveredDate || task.status === 'Approval' || task.status === 'Done',
+            assignmentPhase: 'execution' as const,
+        });
+    }
+    if (hasApproval) {
+        automatic.push({
+            id: existingApproval?.id || crypto.randomUUID(),
+            title: 'Approval',
+            completed: !!task.approvalDeliveredDate || task.status === 'Done',
+            assignmentPhase: 'approval' as const,
+        });
+    }
+
+    return { ...task, subtasks: [...automatic, ...manualSubtasks] };
+}
+
+/**
  * Single source of truth for computing the "Next Step" task of an opportunity.
  * Rules:
  *  1. Exclude tasks with status 'Done' or 'Canceled'
@@ -21,6 +58,25 @@ export function getNextTask(tasks: Task[]): Task | undefined {
             if (b.dueDate) return 1;
             return 0;
         })[0];
+}
+
+/** Normalize task statuses found in databases created by older UI versions. */
+export function normalizeTaskStatus(status?: string): Task['status'] {
+    const normalized = (status || '').trim().toLowerCase();
+    const legacy: Record<string, Task['status']> = {
+        'missing information': 'Missing Info',
+        'missing info': 'Missing Info',
+        'falta informacion': 'Missing Info',
+        'falta información': 'Missing Info',
+        'waiting': 'Missing Info',
+        'approval': 'Approval',
+        'in approval': 'Approval',
+        'en aprobacion': 'Approval',
+        'en aprobación': 'Approval',
+        'completada': 'Done',
+        'cancelada': 'Canceled',
+    };
+    return legacy[normalized] || (status as Task['status']) || 'Pending';
 }
 
 /**

@@ -62,6 +62,15 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     }, [people, directoryPeople]);
     useEffect(() => { areasRef.current = areas; }, [areas]);
     useEffect(() => { prefillRef.current = prefill; }, [prefill]);
+    // Changes made from Overview's Scope panel update the saved SOW note without
+    // remounting this iframe. Push the current answers back into the live form so
+    // both views always show the same scope immediately.
+    useEffect(() => {
+        try {
+            const parsed = content ? JSON.parse(content) : null;
+            if (parsed?.fields) iframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'update-fields', fields: parsed.fields }, '*');
+        } catch { /* invalid/empty SOW content is initialized by the iframe */ }
+    }, [content]);
     const prefillSignature = JSON.stringify(prefill);
     useEffect(() => {
         if (lastPrefillSyncRef.current === prefillSignature) return;
@@ -104,6 +113,20 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                 overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
                 overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'open-overview' }, '*');
             } else if (data.type === 'save' && !disabled) {
+                // Canonicalize the two representations used by the detailed SOW
+                // and the Overview Scope button before persisting. This makes the
+                // synchronization resilient even for older iframe state.
+                if (data.payload?.fields) {
+                    const fields = data.payload.fields;
+                    // An empty included_scope is still a string, so a plain typeof check
+                    // would let a blank detailed answer wipe out an existing scope_summary.
+                    // Prefer whichever side actually has content.
+                    const included = typeof fields.included_scope === 'string' ? fields.included_scope : '';
+                    const summary = typeof fields.scope_summary === 'string' ? fields.scope_summary : '';
+                    const scope = included.trim() ? included : summary;
+                    fields.included_scope = scope;
+                    fields.scope_summary = scope;
+                }
                 const serialized = JSON.stringify(data.payload);
                 try { if (prefillRef.current?.op_id) localStorage.setItem(`tenderloop-sow-backup-${prefillRef.current.op_id}`, serialized); } catch { /* non-critical backup */ }
                 onChangeRef.current(serialized);

@@ -299,7 +299,6 @@ const SECTION_DEFS: Partial<Record<GeneratedEmailKind, { key: string; label: str
         { key: 'links', label: 'Links (SR / CQA / bFO)' },
     ],
     info_request: [
-        { key: 'openQuestions', label: 'Open questions' },
         { key: 'missingInfo', label: 'Tasks waiting on info' },
         { key: 'wellWish', label: '"I hope you\'re doing well"' },
         { key: 'callOffer', label: 'Offer a quick call' },
@@ -327,7 +326,6 @@ const SECTION_DEFS: Partial<Record<GeneratedEmailKind, { key: string; label: str
     proposal_approval: [
         { key: 'meta', label: 'Revision / version info' },
         { key: 'docs', label: 'Documents list' },
-        { key: 'openQuestions', label: 'Open questions' },
         { key: 'links', label: 'Links (SR / CQA / bFO)' },
     ],
     meeting_recap: [
@@ -675,8 +673,9 @@ export const EmailComposeModal: React.FC<Props> = ({
             createdAt: new Date().toISOString(),
             createdBy: userName || undefined,
             toNames: recipientFirstNames(to, stakeholders, globalContacts),
-            requestStage: kindHasStage(kind) ? (manual.requestStage || 'first') : undefined,
+            requestStage: kindHasStage(kind) ? (manual.emailNotes?.trim() ? 'followup' : (manual.requestStage || 'first')) : undefined,
             requestItems: manual.requestItems?.length ? manual.requestItems : undefined,
+            emailNotes: manual.emailNotes?.trim() || undefined,
         };
         onGenerated(record);
         onClose();
@@ -787,6 +786,30 @@ export const EmailComposeModal: React.FC<Props> = ({
                                 )}
                             </div>
                         )}
+
+                        {/* Shared notes: useful for any email type. A change note makes
+                            request-style messages a follow-up even if the original was
+                            sent outside the app. */}
+                        <div>
+                            <label className="text-[9px] font-bold text-gray-500 uppercase">Notes / changes for this email</label>
+                            <textarea
+                                value={manual.emailNotes || ''}
+                                onChange={e => {
+                                    const emailNotes = e.target.value;
+                                    setManual(m => ({
+                                        ...m,
+                                        emailNotes: emailNotes || undefined,
+                                        ...(emailNotes.trim() && kindHasStage(kind) ? { requestStage: 'followup' as const } : {}),
+                                    }));
+                                }}
+                                rows={3}
+                                placeholder="Add context or describe what changed..."
+                                className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1"
+                            />
+                            {kindHasStage(kind) && manual.emailNotes?.trim() && (
+                                <p className="text-[10px] text-amber-600 mt-1">Notes entered: this email uses the follow-up wording.</p>
+                            )}
+                        </div>
 
                         {/* Needed-by date with quick chips */}
                         {kind !== 'status_report' && kind !== 'meeting_recap' && kind !== 'custom' && (
@@ -929,6 +952,19 @@ export const EmailComposeModal: React.FC<Props> = ({
                                     <label className="text-[9px] font-bold text-gray-500 uppercase">Points / questions to review</label>
                                     <textarea value={manual.reviewPoints || ''} onChange={e => setManual(m => ({ ...m, reviewPoints: e.target.value }))} rows={3} placeholder="Any doubts or points per section for the approver..." className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1" />
                                 </div>
+                                {(manual.revisionType || 'draft') === 'draft' && (
+                                    <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-2.5">
+                                        <label className="text-[9px] font-bold text-emerald-800 uppercase">Questions / important notes for the team</label>
+                                        <textarea
+                                            value={manual.approvalQuestions || ''}
+                                            onChange={e => setManual(m => ({ ...m, approvalQuestions: e.target.value }))}
+                                            rows={3}
+                                            placeholder={'Please confirm the proposed scope for phase 2\nImportant: customer requires the delivery date to remain unchanged'}
+                                            className="w-full text-xs border-emerald-200 rounded-lg bg-white mt-1"
+                                        />
+                                        <p className="text-[10px] text-emerald-700 mt-1">This will appear as a highlighted section in the draft approval email.</p>
+                                    </div>
+                                )}
                                 <div className="border border-gray-100 rounded-lg p-2.5 bg-gray-50/50 space-y-2">
                                     <label className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
                                         <input type="checkbox" checked={!!manual.includePriceApproval} onChange={e => setManual(m => ({ ...m, includePriceApproval: e.target.checked }))} className="rounded text-[#3DCD58] focus:ring-[#3DCD58]" />
@@ -1048,32 +1084,6 @@ export const EmailComposeModal: React.FC<Props> = ({
                                     <label className="text-[9px] font-bold text-gray-500 uppercase">Agreements (one per line)</label>
                                     <textarea value={manual.agreements || ''} onChange={e => setManual(m => ({ ...m, agreements: e.target.value }))} rows={3} placeholder={'Scope confirmed for buildings A and B\nCustomer to send the load list'} className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1" />
                                     <p className="text-[10px] text-gray-400 mt-0.5">Next steps come from the tasks you check above — owner and due date included automatically.</p>
-                                </div>
-                            </div>
-                        )}
-                        {(kind === 'info_request' || kind === 'proposal_approval') && (opportunity.questions || []).filter(q => !q.isResolved).length > 0 && (
-                            <div>
-                                <label className="text-[9px] font-bold text-gray-500 uppercase">Open questions to include</label>
-                                <div className="mt-1 max-h-32 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-50 bg-white">
-                                    {(opportunity.questions || []).filter(q => !q.isResolved).map(q => {
-                                        const allIds = (opportunity.questions || []).filter(x => !x.isResolved).map(x => x.id);
-                                        const selected = manual.selectedQuestionIds ?? allIds;
-                                        const checked = selected.includes(q.id);
-                                        return (
-                                            <label key={q.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-emerald-50 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={checked}
-                                                    onChange={() => setManual(m => {
-                                                        const cur = m.selectedQuestionIds ?? allIds;
-                                                        return { ...m, selectedQuestionIds: checked ? cur.filter(id => id !== q.id) : [...cur, q.id] };
-                                                    })}
-                                                    className="rounded text-[#3DCD58] focus:ring-[#3DCD58]"
-                                                />
-                                                <span className="flex-1 truncate text-gray-700" title={q.question || q.quote}>{q.question || q.quote}</span>
-                                            </label>
-                                        );
-                                    })}
                                 </div>
                             </div>
                         )}

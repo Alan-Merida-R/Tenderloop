@@ -116,7 +116,6 @@ Se abre al seleccionar una oportunidad. Contiene las siguientes pestañas:
 6. **Commercial:** Tabla financiera que separa **SW/HW**, **Services** y **Resale**. Calcula montos finales basados en margen y descuentos.
 7. **Notes:** Gestor de notas de reuniones con **Templates** (Kick-off, Scope, etc.) y capacidad de crear **Inline Tasks**.
 8. **Opportunity Folder:** Integración con el sistema de archivos local para explorar y previsualizar documentos del proyecto.
-9. **Questions:** Registro de dudas generadas desde notas o tareas para su resolución.
 
 ### C. Sistema de Versiones
 Implementa una lógica de ramas lógicas basadas en el `srId`. Permite crear "Snapshots" y comparar versiones (**Diff View**) para ver qué cambió en tareas o KPIs respecto a la versión "Live".
@@ -129,7 +128,7 @@ Implementa una lógica de ramas lógicas basadas en el `srId`. Permite crear "Sn
 - **ID:** `OP-XXXXXX` (Único).
 - **Metadata:** Title, Customer, QLK, Revision, SR ID.
 - **Status:** In Progress, Won, Lost, etc.
-- **Lists:** Array de `Task`, `MeetingNote`, `Question`, `HistoryEntry`.
+- **Lists:** Array de `Task`, `MeetingNote`, `HistoryEntry`.
 - **KPIs:** Objeto con métricas (Technical, Language, Deal Probability) y Timeline (Received/Delivered).
 - **Commercial:** Desglose de costos y precios de venta oficial (CQA).
 

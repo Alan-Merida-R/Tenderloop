@@ -1,5 +1,5 @@
 
-import { Opportunity, Task, MeetingNote, Question, HistoryEntry, INITIAL_DB } from '../types';
+import { Opportunity, Task, MeetingNote, HistoryEntry, INITIAL_DB } from '../types';
 import { getMeta, saveMeta, DocMeta } from './opportunityDocMetaStore';
 import { OpportunityExportPackage, CURRENT_SCHEMA_VERSION } from '../features/opportunity-export/schema';
 
@@ -93,13 +93,6 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], t
     return { ...n, id: newId };
   });
 
-  // Questions
-  const newQuestions = (oldOpp.questions || []).map(q => {
-    const newId = generateId();
-    idMap[q.id] = newId;
-    return { ...q, id: newId };
-  });
-
   // History
   const newHistory = (oldOpp.history || []).map(h => {
     const newId = generateId();
@@ -119,13 +112,6 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], t
     }
   });
 
-  // Questions -> Source links
-  newQuestions.forEach(q => {
-    if (q.sourceId && idMap[q.sourceId]) {
-      q.sourceId = idMap[q.sourceId];
-    }
-  });
-
   // 3. Construct New Opportunity
   const newOpp: Opportunity = {
     ...oldOpp,
@@ -133,7 +119,6 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], t
     title: targetId ? oldOpp.title : `${oldOpp.title} (Imported)`,
     tasks: newTasks,
     notes: newNotes,
-    questions: newQuestions,
     history: newHistory,
     folderLinked: false, // Reset folder link
     lastUpdated: new Date().toISOString()

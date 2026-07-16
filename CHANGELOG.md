@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Added a Quick Organizer workflow that exports current workload context as a copy/paste prompt, imports a reviewed response, previews the resulting weekly agenda, reminders and due-date adjustments, and applies changes only after explicit confirmation.
+- Added persistent user reminders linked to opportunities, tasks or notes, including a header bell, overdue state, browser notifications, configurable sound and direct navigation to the linked item.
+- Added agenda-oriented task planning improvements, dashboard indicators and expanded opportunity quick views for prioritization and follow-up.
+- Added backend-assisted database file resolution and native opening so a browser-selected database can be matched safely to one unambiguous Windows path.
+
+### Changed
+- Expanded task, opportunity, SOW and email data handling so new planning and reminder fields survive backend persistence, import/export and existing-data normalization.
+- Updated the embedded SOW form, dashboards, settings and email workflows with the latest usability and data-consistency improvements.
+
+### Removed
+- Removed the direct Google AI SDK integration, API-key ambient declaration and legacy AI Thinking modal. The Quick Organizer uses an explicit copy/paste review flow and does not send project data to an AI provider from TenderLoop.
+
 ### Fixed
 - Restored direct application startup: `ABRIR_TENDERLOOP.vbs` now launches TenderLoop whenever Vite is available, without requiring an installer-completion marker or reopening setup after an interrupted installation.
 - The installer no longer creates Desktop or Start Menu shortcuts. It validates the visible `ABRIR_TENDERLOOP.vbs` launcher instead, avoiding stale shortcut paths on corporate computers.

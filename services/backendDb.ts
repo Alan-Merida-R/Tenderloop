@@ -100,3 +100,44 @@ export const saveBackendDb = async (data: DatabaseSchema, expectedRevision?: num
     method: 'PUT',
     body: await serializeJson({ data, expectedRevision }),
   });
+
+export const archiveRecoveryBackup = async (data: DatabaseSchema, name: string) =>
+  request<{ ok: true; backup: { path: string } | null }>('/db/recovery-backup', {
+    method: 'POST',
+    body: await serializeJson({ data, name }),
+  });
+
+export const resolveNativeDbPath = async (file: File): Promise<string | null> => {
+  const query = new URLSearchParams({
+    name: file.name,
+    size: String(file.size),
+    mtime: String(file.lastModified),
+  });
+  try {
+    const result = await request<{ ok: true; path: string }>(`/os/find-db-file?${query}`);
+    return result.path;
+  } catch {
+    return null;
+  }
+};
+
+export const revealNativePath = async (nativePath: string): Promise<void> => {
+  const query = new URLSearchParams({ path: nativePath });
+  const response = await fetch(`${API_BASE}/os/reveal?${query}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || `Could not open Explorer (${response.status}).`);
+};
+
+export const revealCurrentBackendDb = async (): Promise<void> => {
+  const current = await request<BackendDbStatusResponse>('/db/status');
+  if (!current.status.open || !current.status.path) {
+    throw new Error('No database is currently open.');
+  }
+
+  const query = new URLSearchParams({ path: current.status.path });
+  const response = await fetch(`${API_BASE}/os/reveal?${query}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || `Could not open Explorer (${response.status}).`);
+  }
+};
