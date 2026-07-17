@@ -12,7 +12,7 @@ the internal launcher and installer files; if setup is incomplete it opens the
 installer automatically. Keep `motor_tenderloop.bat` as the visible recovery
 option for computers where Windows security blocks the normal launcher.
 
-The first start installs dependencies and then opens the local app. For the complete Windows guide, see [MANUAL_USUARIO.md](MANUAL_USUARIO.md). Beta scope and validation notes are in [docs/version-beta.md](docs/version-beta.md).
+The first start installs dependencies and then opens the local app. For the complete Windows guide, see [docs/MANUAL_USUARIO.md](docs/MANUAL_USUARIO.md). Beta scope and validation notes are in [docs/version-beta.md](docs/version-beta.md).
 
 ---
 
@@ -166,24 +166,31 @@ La base de datos es un archivo `.json` con la siguiente estructura raíz:
 ### Estructura de Carpetas:
 ```text
 /
-├── App.tsx             # Corazón de la app: Estado global, DB y Vistas.
-├── index.tsx           # Punto de entrada de React.
-├── types.ts            # Definiciones de Interfaces y Tipos de Datos.
-├── components/         # Componentes visuales principales.
-│   ├── Dashboard.tsx          # Tableros Kanban, Tabla y General.
-│   ├── OpportunityDetail.tsx  # Lógica del expediente y sus pestañas.
-│   ├── SettingsModal.tsx      # Configuración de templates y etiquetas.
-│   └── ...                    # Buscador, Tablas, Calendarios.
-├── services/           # Lógica de negocio y utilidades.
-│   ├── fileSystem.ts          # Comunicación con el Disco (Pickers).
-│   ├── dateUtils.ts           # Cálculos de días hábiles/festivos.
-│   ├── opportunityExportImport.ts  # Importación/Exportación parcial.
-│   └── ...
-├── features/           # Módulos especializados e independientes.
-│   ├── opportunity-folder/    # Gestión de archivos locales.
-│   ├── doc-links/             # Vínculos entre metadatos y archivos.
-│   └── tracking/              # Seguimiento de actividad.
-└── public/             # Assets estáticos.
+├── src/                # Todo el código fuente del frontend.
+│   ├── App.tsx             # Corazón de la app: Estado global, DB y Vistas.
+│   ├── index.tsx           # Punto de entrada de React (Loop).
+│   ├── index_flow.tsx      # Punto de entrada de Flow.
+│   ├── types.ts            # Definiciones de Interfaces y Tipos de Datos.
+│   ├── components/         # Componentes visuales principales.
+│   │   ├── Dashboard.tsx          # Tableros Kanban, Tabla y General.
+│   │   ├── OpportunityDetail.tsx  # Lógica del expediente y sus pestañas.
+│   │   ├── SettingsModal.tsx      # Configuración de templates y etiquetas.
+│   │   └── ...                    # Buscador, Tablas, Calendarios.
+│   ├── services/           # Lógica de negocio y utilidades.
+│   │   ├── fileSystem.ts          # Comunicación con el Disco (Pickers).
+│   │   ├── dateUtils.ts           # Cálculos de días hábiles/festivos.
+│   │   ├── opportunityExportImport.ts  # Importación/Exportación parcial.
+│   │   └── ...
+│   ├── features/           # Módulos especializados e independientes.
+│   │   ├── opportunity-folder/    # Gestión de archivos locales.
+│   │   ├── doc-links/             # Vínculos entre metadatos y archivos.
+│   │   └── tracking/              # Seguimiento de actividad.
+│   ├── contexts/           # Contextos de React (timer global).
+│   └── tender-flow/        # App Flow (puerto 3003).
+├── server/             # Backend local (puerto 3099): DB JSON + integración OS.
+├── docs/               # Manuales y documentación técnica.
+├── public/             # Assets estáticos.
+└── *.bat / *.vbs       # Lanzadores de Windows (deben quedarse en la raíz).
 ```
 
 ---

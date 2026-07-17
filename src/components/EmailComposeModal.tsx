@@ -19,7 +19,7 @@ import { sanitizeHtml } from '../services/sanitizeHtml';
 import { getFolderHandleForRevision, getRootPathDisplayForRevision } from '../services/opportunityFolderLink';
 import { listDirectory, toAbsolutePath } from '../features/opportunity-folder/fileOps';
 import type { FileItem } from '../features/opportunity-folder/types';
-import { getMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
+import { getMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 
 export interface EmailComposeAttachment {
     name: string;
@@ -378,6 +378,9 @@ export const EmailComposeModal: React.FC<Props> = ({
     const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>(initialTaskIds || []);
     const [manual, setManual] = useState<ComposeManualFields>({});
     const [attachments, setAttachments] = useState<EmailComposeAttachment[]>([]);
+    // Removing an auto-added file only affects this draft. Remember that choice
+    // while the composer stays open so task-selection changes do not add it back.
+    const excludedAutoAttachmentKeysRef = useRef<Set<string>>(new Set());
     const [taskLinkedDocNames, setTaskLinkedDocNames] = useState<string[]>([]);
     const [subject, setSubject] = useState('');
     const [subjectDirty, setSubjectDirty] = useState(false);
@@ -437,6 +440,7 @@ export const EmailComposeModal: React.FC<Props> = ({
         setTo([]); setCc([]); setBcc([]);
         setManual({});
         setAttachments([]);
+        excludedAutoAttachmentKeysRef.current = new Set();
         setSubjectDirty(false);
         setBodyDirty(false);
         setRecipientsTouched(false);
@@ -450,6 +454,51 @@ export const EmailComposeModal: React.FC<Props> = ({
         setRegenCounter(c => c + 1);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    // Preload documents linked to the selected tasks, plus documents linked to
+    // their notes. These are copied into the email draft only; the task/note
+    // links in IndexedDB remain untouched if the user removes an attachment.
+    useEffect(() => {
+        if (!isOpen || selectedTaskIds.length === 0) return;
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const rootPath = await getRootPathDisplayForRevision(opportunity.id, opportunity.revision);
+                if (!rootPath || cancelled) return;
+
+                const selected = (opportunity.tasks || []).filter(task => selectedTaskIds.includes(task.id));
+                const noteIds = Array.from(new Set<string>(selected.flatMap(task => [
+                    ...(task.linkedNoteIds || []),
+                    ...(task.linkedNoteId ? [task.linkedNoteId] : []),
+                ])));
+                const linkedGroups = await Promise.all([
+                    ...selected.map(task => listLinkedForTask(opportunity.id, task.id)),
+                    ...noteIds.map(noteId => listLinkedForNote(opportunity.id, noteId)),
+                ]);
+                if (cancelled) return;
+
+                const byKey = new Map<string, EmailComposeAttachment>();
+                for (const { fileKey } of linkedGroups.flat()) {
+                    if (!fileKey || excludedAutoAttachmentKeysRef.current.has(fileKey)) continue;
+                    const relativePath = fileKey.split('/').filter(Boolean);
+                    byKey.set(fileKey, {
+                        name: relativePath[relativePath.length - 1] || fileKey,
+                        fileKey,
+                        absolutePath: toAbsolutePath(rootPath, relativePath),
+                    });
+                }
+                setAttachments(prev => {
+                    const existing = new Set(prev.map(item => item.fileKey));
+                    return [...prev, ...Array.from(byKey.values()).filter(item => !existing.has(item.fileKey))];
+                });
+            } catch (error) {
+                console.warn('Could not preload task/note attachments for email:', error);
+            }
+        })();
+
+        return () => { cancelled = true; };
+    }, [isOpen, opportunity.id, opportunity.revision, opportunity.tasks, selectedTaskIds.join('|')]);
 
     // Docs linked to the primary task → deliverable fallback
     useEffect(() => {
@@ -1152,7 +1201,10 @@ export const EmailComposeModal: React.FC<Props> = ({
                                                 <FileText className={`w-3.5 h-3.5 shrink-0 ${missing ? 'text-red-500' : 'text-gray-400'}`} />
                                                 <span className="flex-1 truncate" title={a.absolutePath}>{a.name}</span>
                                                 {missing && <span className="text-[9px] font-bold text-red-600 uppercase">Not found</span>}
-                                                <button onClick={() => setAttachments(prev => prev.filter(x => x.fileKey !== a.fileKey))} className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => {
+                                                    excludedAutoAttachmentKeysRef.current.add(a.fileKey);
+                                                    setAttachments(prev => prev.filter(x => x.fileKey !== a.fileKey));
+                                                }} className="text-gray-300 hover:text-red-500" title="Remove from this email only"><Trash2 className="w-3.5 h-3.5" /></button>
                                             </div>
                                         );
                                     })}

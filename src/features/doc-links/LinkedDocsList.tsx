@@ -12,9 +12,10 @@ interface Props {
   taskId?: string;
   noteId?: string;
   onNavigateToFile?: (fileKey: string) => void;
+  onCountChange?: (taskId: string, count: number) => void;
 }
 
-export const LinkedDocsList: React.FC<Props> = ({ opportunityId, revision, taskId, noteId, onNavigateToFile }) => {
+export const LinkedDocsList: React.FC<Props> = ({ opportunityId, revision, taskId, noteId, onNavigateToFile, onCountChange }) => {
   const [links, setLinks] = useState<{ fileKey: string; meta: DocMeta }[]>([]);
   const [loading, setLoading] = useState(false);
   const [rootPath, setRootPath] = useState('');
@@ -31,12 +32,13 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, revision, taskI
           ? await listLinkedForNote(opportunityId, noteId)
           : [];
       setLinks(data);
+      if (taskId) onCountChange?.(taskId, data.length);
     } catch (err) {
       console.error("Failed to load linked docs", err);
     } finally {
       setLoading(false);
     }
-  }, [opportunityId, revision, taskId, noteId]);
+  }, [opportunityId, revision, taskId, noteId, onCountChange]);
 
   useEffect(() => {
     load();

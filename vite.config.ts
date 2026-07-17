@@ -55,8 +55,8 @@ export default defineConfig(({ mode }) => {
       ],
       resolve: {
         alias: {
-          // Fix: Replace __dirname with path.resolve('.') for ESM compatibility
-          '@': path.resolve('.'),
+          // Source now lives under src/ (ESM-safe path.resolve instead of __dirname).
+          '@': path.resolve('./src'),
           // Browser polyfill for Node's `buffer` builtin. Required by
           // iconv-lite/safer-buffer (pulled in by @kenjiuno/msgreader when
           // reading classic-Outlook .msg files); without it Vite serves an

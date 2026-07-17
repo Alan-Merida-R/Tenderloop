@@ -286,6 +286,28 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
         setShowStopModal(false);
     }, [broadcastState]);
 
+    // A task can be completed from its card/editor without going through the
+    // timer controls. Keep both pieces of state in sync: when the active task
+    // becomes Done, stop immediately and persist the work accumulated up to
+    // that exact moment. Only the primary window performs the write so a
+    // popped-out timer cannot create a duplicate log.
+    const autoStopInFlightRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!primary || !timerState.isRunning || !timerState.taskId || !timerState.oppId) {
+            autoStopInFlightRef.current = null;
+            return;
+        }
+        const activeTask = opportunities
+            .find(opp => opp.id === timerState.oppId)
+            ?.tasks.find(task => task.id === timerState.taskId);
+        if (activeTask?.status !== 'Done') return;
+
+        const key = `${timerState.oppId}:${timerState.taskId}:${timerState.startTime || ''}`;
+        if (autoStopInFlightRef.current === key) return;
+        autoStopInFlightRef.current = key;
+        confirmStop('Done');
+    }, [primary, opportunities, timerState.isRunning, timerState.taskId, timerState.oppId, timerState.startTime, confirmStop]);
+
     const formatTime = useCallback((seconds: number) => {
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);

@@ -2134,6 +2134,31 @@ function App() {
     }));
   }, []);
 
+  // Reminders are only actionable while their target is still open: once the
+  // linked task closes (Done/Canceled) or the opportunity itself is
+  // Completed/Canceled, the reminder auto-completes — same effect as pressing
+  // its Done button, no matter which view changed the status.
+  useEffect(() => {
+    setDb(prev => {
+      const reminders = prev.userSettings?.reminders;
+      if (!reminders || reminders.length === 0) return prev;
+      const oppById = new Map<string, Opportunity>(prev.opportunities.map(o => [o.id, o]));
+      const stillActive = (r: Reminder): boolean => {
+        const opp = oppById.get(r.opportunityId);
+        if (!opp) return true;
+        if (opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled' || opp.statusLabel === 'Canceled') return false;
+        if (r.taskId) {
+          const task = opp.tasks.find(t => t.id === r.taskId);
+          if (task && (task.status === 'Done' || task.status === 'Canceled')) return false;
+        }
+        return true;
+      };
+      const kept = reminders.filter(stillActive);
+      if (kept.length === reminders.length) return prev;
+      return { ...prev, userSettings: { ...prev.userSettings, reminders: kept } };
+    });
+  }, [db.opportunities]);
+
   // Opens whatever the reminder is linked to: both a task and a note opens the
   // task's split view (task + note side by side); just a task focuses it in the
   // Tasks tab; just a note opens it in the Notes tab; neither falls back to the

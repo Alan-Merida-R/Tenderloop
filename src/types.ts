@@ -205,7 +205,14 @@ export interface Task {
     approvalRequired?: string;
     approved?: string;
     changesRequestedAt?: string;
+    reviewOutcome?: 'approved' | 'changes_requested';
+    changeRequest?: string;
+    reworkTaskId?: string;
   }>;
+  /** Set on a correction task created from a rejected approval. */
+  reworkForTaskId?: string;
+  /** Human-readable changes requested by the reviewer. */
+  changeRequest?: string;
   dueDate: string;
   stageContext: ProcessStage;
   subtasks: Subtask[];

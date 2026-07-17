@@ -325,8 +325,8 @@ export const RemindersBell: React.FC<RemindersBellProps> = ({ reminders, opportu
                     className="flex-1 min-w-0 cursor-pointer"
                     onClick={() => { onOpenReminder(r.opportunityId, r.taskId, r.noteId); setOpen(false); }}
                 >
-                    <p className="text-sm text-gray-800 truncate">{r.title}</p>
-                    <p className="text-[11px] text-gray-400 truncate">
+                    <p className="text-sm text-gray-800 break-words">{r.title}</p>
+                    <p className="text-[11px] text-gray-400 break-words">
                         {new Date(r.dueAt).toLocaleString()}
                         {oppLabel && ` · ${oppLabel}`}
                         {task && ` · ${task.title}`}

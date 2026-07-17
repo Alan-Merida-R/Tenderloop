@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { BACKUPS_DIR, DEFAULT_DB_PATH } from '../config';
-import { DatabaseSchema, INITIAL_DB } from '../../types';
+import { DatabaseSchema, INITIAL_DB } from '../../src/types';
 
 const BACKUP_MIN_INTERVAL_MS = 10_000;
 const MAX_BACKUPS = 10;

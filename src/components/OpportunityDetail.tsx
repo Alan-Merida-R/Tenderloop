@@ -12,7 +12,7 @@ import { SowFormEmbed } from './SowFormEmbed';
 import ScopeQuickViewModal from './ScopeQuickViewModal';
 import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { getRootPathDisplay, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
-import { saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
+import { getMeta, saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
 import { ImportSrEmailModal } from './ImportSrEmailModal';
 import { RevisionCarryoverModal } from './RevisionCarryoverModal';
@@ -1249,7 +1249,7 @@ const FullCalendarModal = ({
         committed?: string;
         end?: string;
         active: boolean;
-        result: 'On time' | 'Late' | 'Overdue' | 'Open' | 'Completed';
+        result: 'On time' | 'Late' | 'Overdue' | 'Open' | 'Completed' | 'Changes requested';
     };
 
     const assignmentRows = React.useMemo<AssignmentTimelineRow[]>(() => {
@@ -1261,8 +1261,8 @@ const FullCalendarModal = ({
                     const late = !!cycle.executionDelivered && !!cycle.executionRequired && cycle.executionDelivered > cycle.executionRequired;
                     rows.push({ id: `${task.id}-cycle-${index}-execution`, taskTitle: task.title, phase: 'Execution', cycle: index + 1, start: cycle.executionRequested, committed: cycle.executionRequired, end: cycle.executionDelivered, active: false, result: late ? 'Late' : 'On time' });
                 }
-                if (cycle.approvalRequested || cycle.approved || cycle.approvalRequired) {
-                    rows.push({ id: `${task.id}-cycle-${index}-approval`, taskTitle: task.title, phase: 'Approval', cycle: index + 1, start: cycle.approvalRequested, committed: cycle.approvalRequired, end: cycle.approved, active: false, result: 'Completed' });
+                if (cycle.approvalRequested || cycle.approved || cycle.approvalRequired || cycle.changesRequestedAt) {
+                    rows.push({ id: `${task.id}-cycle-${index}-approval`, taskTitle: task.title, phase: 'Approval', cycle: index + 1, start: cycle.approvalRequested, committed: cycle.approvalRequired, end: cycle.approved || cycle.changesRequestedAt, active: false, result: cycle.reviewOutcome === 'changes_requested' ? 'Changes requested' : 'Completed' });
                 }
             });
 
@@ -1491,7 +1491,7 @@ const FullCalendarModal = ({
                                         <div className="bg-slate-50 p-3 border-r border-t sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <div className="flex items-center justify-between gap-2">
                                                 <span className="truncate text-xs font-black text-gray-800" title={row.taskTitle}>{row.taskTitle}</span>
-                                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-100 text-red-700' : row.result === 'On time' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{row.result}</span>
+                                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-100 text-red-700' : row.result === 'On time' ? 'bg-emerald-100 text-emerald-700' : row.result === 'Changes requested' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-600'}`}>{row.result}</span>
                                             </div>
                                             <div className="mt-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-wide text-gray-400">
                                                 <span className={row.phase === 'Execution' ? 'text-blue-600' : 'text-purple-600'}>{row.phase}</span>
@@ -2449,6 +2449,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     });
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [linkedTaskDocCounts, setLinkedTaskDocCounts] = useState<Record<string, number>>({});
     const [selectedEmailFolderId, setSelectedEmailFolderId] = useState<string>('all');
     const [selectedEmailConversationId, setSelectedEmailConversationId] = useState<string | null>(null);
     const [showEmailLinkPicker, setShowEmailLinkPicker] = useState<
@@ -2457,6 +2458,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         | null
     >(null);
     const [showOutlookSelector, setShowOutlookSelector] = useState(false);
+
+    // Document links live in IndexedDB rather than in the opportunity payload. Keep
+    // a light count cache so task cards can show an expander only when it has content.
+    useEffect(() => {
+        let cancelled = false;
+        Promise.all((localOpp.tasks || []).map(async task => {
+            try {
+                const docs = await listLinkedForTask(opportunity.id, task.id);
+                return [task.id, docs.length] as const;
+            } catch {
+                return [task.id, 0] as const;
+            }
+        })).then(entries => {
+            if (!cancelled) setLinkedTaskDocCounts(Object.fromEntries(entries));
+        });
+        return () => { cancelled = true; };
+    }, [opportunity.id, localOpp.tasks.length, refreshKey]);
 
     // Commercial Quick References state
     const [commercialRootPath, setCommercialRootPath] = useState<string>('');
@@ -4193,15 +4211,26 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
 
     const addTask = () => {
-        // Compute next order: max existing order + 1, deduplicate if needed
-        const existingOrders = localOpp.tasks.map(t => t.order ?? 0).filter(n => n > 0);
-        const nextOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : localOpp.tasks.length + 1;
+        const baseOpp = localOppRef.current;
+        // Insert at the current execution point. For example, if #15 is next,
+        // the new task becomes #15 and the old #15 (and everything after it) shifts.
+        const currentTask = getNextTask(baseOpp.tasks);
+        const existingOrders = baseOpp.tasks.map(t => t.order ?? 0).filter(n => n > 0);
+        const insertionOrder = currentTask?.order
+            ?? (existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1);
+        const shiftedTasks = baseOpp.tasks.map(task => ({
+            ...task,
+            order: task.order != null && task.order >= insertionOrder ? task.order + 1 : task.order,
+        }));
         const newTask: Task = {
             id: crypto.randomUUID(), title: 'New Task', description: '', status: 'Pending', priority: 'Medium', owner: 'Me',
             externalAreas: [], responsible: '', dueDate: '', stageContext: localOpp.stage, subtasks: [], linkedNoteIds: [],
-            order: nextOrder, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
+            order: insertionOrder, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
         };
-        handleFieldChange('tasks', [...localOpp.tasks, newTask]);
+        const newOpp = { ...baseOpp, tasks: [...shiftedTasks, newTask], lastUpdated: new Date().toISOString() };
+        localOppRef.current = newOpp;
+        setLocalOpp(newOpp);
+        onUpdate(newOpp);
         setSelectedTaskForEdit({ task: newTask });
     };
 
@@ -4297,6 +4326,95 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
     };
 
+    const requestApprovalChanges = (taskId: string) => {
+        const baseOpp = localOppRef.current;
+        const approvalTask = baseOpp.tasks.find(task => task.id === taskId);
+        if (!approvalTask || approvalTask.status !== 'Approval') return;
+
+        const requestedChanges = window.prompt('What changes are required before this can be approved?');
+        if (requestedChanges === null) return;
+        const changeRequest = requestedChanges.trim();
+        if (!changeRequest) {
+            alert('Describe the required changes so the correction can be tracked.');
+            return;
+        }
+
+        const today = getTodayStr();
+        const ordered = [...baseOpp.tasks].sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999));
+        const fallbackOrder = Math.max(1, ordered.findIndex(task => task.id === taskId) + 1);
+        const insertionOrder = approvalTask.order ?? fallbackOrder;
+        const reworkId = crypto.randomUUID();
+        const hasExternalResponsible = (approvalTask.responsibleTeamMemberIds || []).length > 0 || !!approvalTask.responsible?.trim();
+
+        const correctionTask: Task = syncAssignmentSubtasks({
+            id: reworkId,
+            title: `Changes requested: ${approvalTask.title}`,
+            description: changeRequest,
+            changeRequest,
+            reworkForTaskId: approvalTask.id,
+            status: hasExternalResponsible ? 'Missing Info' : 'Pending',
+            priority: approvalTask.priority || 'Medium',
+            owner: hasExternalResponsible ? 'External Area' : 'Me',
+            externalAreas: [...(approvalTask.externalAreas || [])],
+            responsible: approvalTask.responsible || '',
+            responsibleTeamMemberIds: [...(approvalTask.responsibleTeamMemberIds || [])],
+            informedTeamMemberIds: [...(approvalTask.informedTeamMemberIds || [])],
+            isAssignment: hasExternalResponsible,
+            responsibleRequestedDate: today,
+            dueDate: '',
+            stageContext: approvalTask.stageContext || baseOpp.stage,
+            subtasks: [],
+            linkedNoteIds: [...(approvalTask.linkedNoteIds || [])],
+            order: insertionOrder,
+            dependsOnTaskIds: [],
+            blockDoneUntilDependenciesDone: false,
+        });
+
+        const previousCycle = {
+            id: crypto.randomUUID(),
+            executionRequested: approvalTask.responsibleRequestedDate,
+            executionRequired: approvalTask.responsibleDueDate,
+            executionDelivered: approvalTask.responsibleDeliveredDate,
+            approvalRequested: approvalTask.approvalRequestedDate,
+            approvalRequired: approvalTask.approvalDueDate,
+            changesRequestedAt: today,
+            reviewOutcome: 'changes_requested' as const,
+            changeRequest,
+            reworkTaskId: reworkId,
+        };
+
+        const shiftedTasks = baseOpp.tasks.map(task => {
+            const shiftedOrder = task.order != null && task.order >= insertionOrder ? task.order + 1 : task.order;
+            if (task.id !== approvalTask.id) return { ...task, order: shiftedOrder };
+            return syncAssignmentSubtasks({
+                ...task,
+                order: shiftedOrder,
+                assignmentCycles: [...(task.assignmentCycles || []), previousCycle],
+                approvalRequestedDate: '',
+                approvalDueDate: '',
+                approvalDeliveredDate: '',
+                dependsOnTaskIds: Array.from(new Set([...(task.dependsOnTaskIds || []), reworkId])),
+                blockDoneUntilDependenciesDone: true,
+            });
+        });
+
+        const historyEntry: HistoryEntry = {
+            id: crypto.randomUUID(),
+            date: today,
+            content: `Changes requested during approval for "${approvalTask.title}": ${changeRequest}`,
+        };
+        const newOpp = {
+            ...baseOpp,
+            tasks: [...shiftedTasks, correctionTask],
+            history: sortHistoryEntries([historyEntry, ...(baseOpp.history || [])]),
+            lastUpdated: new Date().toISOString(),
+        };
+        localOppRef.current = newOpp;
+        setLocalOpp(newOpp);
+        onUpdate(newOpp);
+        setSelectedTaskForEdit({ task: correctionTask });
+    };
+
     /**
      * Board-level task patcher (checkbox toggles, subtask toggles, quick-assign) that works
      * without the task-detail modal being open. Mirrors updateTaskInModal's status side effects
@@ -4312,6 +4430,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const task = baseOpp.tasks.find(t => t.id === taskId);
         if (!task) return;
 
+        if (patch.status === 'Missing Info' && task.status === 'Approval') {
+            requestApprovalChanges(taskId);
+            return;
+        }
+
         const finalPatch: Partial<Task> = { ...patch };
         if (finalPatch.status === 'Done' && task.isAssignment) {
             const today = getTodayStr();
@@ -4324,14 +4447,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             } else if (task.status === 'Approval') {
                 finalPatch.approvalDeliveredDate = task.approvalDeliveredDate || today;
             }
-        }
-        if (finalPatch.status === 'Missing Info' && task.isAssignment && task.status === 'Approval') {
-            const today = getTodayStr();
-            finalPatch.assignmentCycles = [...(task.assignmentCycles || []), { id: crypto.randomUUID(), executionRequested: task.responsibleRequestedDate, executionRequired: task.responsibleDueDate, executionDelivered: task.responsibleDeliveredDate, approvalRequested: task.approvalRequestedDate, approvalRequired: task.approvalDueDate, changesRequestedAt: today }];
-            finalPatch.responsibleRequestedDate = today;
-            finalPatch.responsibleDeliveredDate = '';
-            finalPatch.approvalRequestedDate = '';
-            finalPatch.approvalDeliveredDate = '';
         }
         const isStatusChange = finalPatch.status !== undefined && finalPatch.status !== task.status;
 
@@ -4350,7 +4465,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         const updatedTaskData: Task = syncAssignmentSubtasks({ ...task, ...finalPatch });
-        const updatedTasks = baseOpp.tasks.map(t => t.id === taskId ? updatedTaskData : t);
+        let updatedTasks = baseOpp.tasks.map(t => t.id === taskId ? updatedTaskData : t);
+        if (updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId) {
+            const today = getTodayStr();
+            updatedTasks = updatedTasks.map(t => t.id === updatedTaskData.reworkForTaskId
+                ? syncAssignmentSubtasks({ ...t, status: 'Approval', approvalRequestedDate: today, approvalDeliveredDate: '' })
+                : t);
+        }
 
         let updatedNotes = baseOpp.notes;
         if (finalPatch.status !== undefined || finalPatch.title !== undefined) {
@@ -4368,8 +4489,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         let newOpp = { ...baseOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
-        if (finalPatch.status === 'Missing Info' && task.isAssignment && task.status === 'Approval') {
-            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Changes requested during approval for "${task.title}".` }, ...(newOpp.history || [])]) };
+        if (updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId) {
+            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Correction "${updatedTaskData.title}" completed; approval restarted.` }, ...(newOpp.history || [])]) };
         }
         newOpp = syncAssignmentKpi(newOpp, updatedTaskData);
         if (isStatusChange && finalPatch.status === 'Done') {
@@ -4416,6 +4537,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const baseOpp = localOppRef.current;
         const latestTask = baseOpp.tasks.find(t => t.id === selectedTaskForEdit.task.id) || selectedTaskForEdit.task;
 
+        if (field === 'status' && value === 'Missing Info' && latestTask.status === 'Approval') {
+            requestApprovalChanges(latestTask.id);
+            return;
+        }
+
         if (field === 'status' && value === 'Done' && selectedTaskForEdit.task.isAssignment) {
             const today = getTodayStr();
             if (selectedTaskForEdit.task.status === 'Missing Info' && (selectedTaskForEdit.task.approverTeamMemberIds || []).length > 0) {
@@ -4427,11 +4553,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 extraPatch = { ...extraPatch, approvalDeliveredDate: selectedTaskForEdit.task.approvalDeliveredDate || today };
             }
         }
-        if (field === 'status' && value === 'Missing Info' && selectedTaskForEdit.task.isAssignment && selectedTaskForEdit.task.status === 'Approval') {
-            const today = getTodayStr();
-            extraPatch = { ...extraPatch, assignmentCycles: [...(selectedTaskForEdit.task.assignmentCycles || []), { id: crypto.randomUUID(), executionRequested: selectedTaskForEdit.task.responsibleRequestedDate, executionRequired: selectedTaskForEdit.task.responsibleDueDate, executionDelivered: selectedTaskForEdit.task.responsibleDeliveredDate, approvalRequested: selectedTaskForEdit.task.approvalRequestedDate, approvalRequired: selectedTaskForEdit.task.approvalDueDate, changesRequestedAt: today }], responsibleRequestedDate: today, responsibleDeliveredDate: '', approvalRequestedDate: '', approvalDeliveredDate: '' };
-        }
-
         // If marking as Done and there's an active timer for THIS task, we must stop it first to log the time.
         const currentTimerState = getTimerState();
         if (field === 'status' && value === 'Done' && currentTimerState.taskId === selectedTaskForEdit.task.id && currentTimerState.isRunning) {
@@ -4465,6 +4586,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         setSelectedTaskForEdit({ task: updatedTaskData });
 
         let updatedTasks = baseOpp.tasks.map(t => t.id === selectedTaskForEdit.task.id ? updatedTaskData : t);
+        if (updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId) {
+            const today = getTodayStr();
+            updatedTasks = updatedTasks.map(t => t.id === updatedTaskData.reworkForTaskId
+                ? syncAssignmentSubtasks({ ...t, status: 'Approval', approvalRequestedDate: today, approvalDeliveredDate: '' })
+                : t);
+        }
         let updatedNotes = baseOpp.notes;
 
         // Sync to inline tasks if status or title changed
@@ -4491,8 +4618,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // setSelectedTaskForEdit above; the task list + other tabs behind the modal can
         // re-render at low priority without freezing the UI on rapid edits.
         let newOpp = { ...baseOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
-        if (field === 'status' && value === 'Missing Info' && selectedTaskForEdit.task.isAssignment && selectedTaskForEdit.task.status === 'Approval') {
-            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Changes requested during approval for "${selectedTaskForEdit.task.title}".` }, ...(newOpp.history || [])]) };
+        if (updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId) {
+            newOpp = { ...newOpp, history: sortHistoryEntries([{ id: crypto.randomUUID(), date: getTodayStr(), content: `Correction "${updatedTaskData.title}" completed; approval restarted.` }, ...(newOpp.history || [])]) };
         }
         newOpp = syncAssignmentKpi(newOpp, updatedTaskData);
         if (isMarkingDone) {
@@ -5059,11 +5186,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!showDocPicker) return;
         const { type, id } = showDocPicker;
         for (const key of keys) {
-            await saveMeta(opportunity.id, key, type === 'task' ? { linkedTaskIds: [id] } : { linkedNoteIds: [id] });
+            // Preserve every existing connection on the document. Passing [id]
+            // directly used to replace links to other tasks/notes.
+            const existing = await getMeta(opportunity.id, key);
+            await saveMeta(opportunity.id, key, type === 'task'
+                ? { linkedTaskIds: Array.from(new Set([...(existing?.linkedTaskIds || []), id])) }
+                : { linkedNoteIds: Array.from(new Set([...(existing?.linkedNoteIds || []), id])) });
+        }
+        if (type === 'task') {
+            const docs = await listLinkedForTask(opportunity.id, id);
+            setLinkedTaskDocCounts(prev => ({ ...prev, [id]: docs.length }));
+            setExpandedTaskIds(prev => new Set(prev).add(id));
         }
         setShowDocPicker(null);
         setRefreshKey(prev => prev + 1);
     };
+
+    const handleLinkedTaskDocCount = useCallback((taskId: string, count: number) => {
+        setLinkedTaskDocCounts(prev => prev[taskId] === count ? prev : { ...prev, [taskId]: count });
+        if (count === 0) {
+            setExpandedTaskIds(prev => {
+                if (!prev.has(taskId)) return prev;
+                const next = new Set(prev);
+                next.delete(taskId);
+                return next;
+            });
+        }
+    }, []);
 
     const navigateToFile = (fileKey: string) => {
         setFolderNavTarget(fileKey);
@@ -8597,9 +8746,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                             )}
                                                                         </div>
                                                                         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                                                            <button onClick={() => toggleTaskExpanded(task.id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 shrink-0" title={isExpanded ? 'Hide attachments' : 'Show attachments'}>
-                                                                                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                                                            </button>
+                                                                            {(linkedTaskDocCounts[task.id] || 0) > 0 && (
+                                                                                <button onClick={() => toggleTaskExpanded(task.id)} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 shrink-0" title={isExpanded ? 'Hide attachments' : 'Show attachments'}>
+                                                                                    {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                                                                </button>
+                                                                            )}
                                                                             <button onClick={() => setShowDocPicker({ type: 'task', id: task.id })} className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-blue-500 shrink-0" title="Attach file from folder">
                                                                                 <Paperclip className="w-3.5 h-3.5" />
                                                                             </button>
@@ -8657,7 +8808,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                                                     {isExpanded && (
                                                                         <div onClick={(e) => e.stopPropagation()}>
-                                                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} revision={localOpp.revision} taskId={task.id} onNavigateToFile={navigateToFile} />
+                                                                            <LinkedDocsList key={refreshKey} opportunityId={opportunity.id} revision={localOpp.revision} taskId={task.id} onNavigateToFile={navigateToFile} onCountChange={handleLinkedTaskDocCount} />
                                                                         </div>
                                                                     )}
                                                                 </div>

@@ -174,7 +174,7 @@ const copyToClipboard = (text: string) => {
 };
 
 const PROPOSAL_CARD_FIELD_OPTIONS = [
-    { key: 'opId', label: 'OP', required: true },
+    { key: 'opId', label: 'OP' },
     { key: 'alias', label: 'Alias', required: true },
     { key: 'detailedStatus', label: 'Detailed Status' },
     { key: 'rank', label: 'Rank' },
@@ -196,7 +196,7 @@ type ProposalCardFieldKey = typeof PROPOSAL_CARD_FIELD_OPTIONS[number]['key'];
 const PROPOSAL_CARD_FIELD_STORAGE_KEY = 'tl.proposalCard.visibleFields.v1';
 const PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY = 'tl.proposalCard.saveQuickNote.defaultOff.v1';
 const PROPOSAL_LAST_HISTORY_EVENT_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.lastHistoryEvent.defaultOn.v1';
-const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['opId', 'alias']);
+const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['alias']);
 const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS
     .map(option => option.key)
     .filter(key => key !== 'saveQuickNote');

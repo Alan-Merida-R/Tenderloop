@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail, Sparkles } from 'lucide-react';
 import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_COLORS, GlobalContact } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
@@ -296,6 +296,38 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
       setTrackedAreasText((initialSettings.trackedAreas || DEFAULT_TRACKED_AREAS).join('\n'));
     }
   }, [isOpen, initialSettings]);
+
+  // Stakeholders already present on an opportunity but never saved to the global directory
+  // (no matching directoryContactId or email) — these are the "in the proposal but not in
+  // Contacts" people the Contacts tab needs to surface so they can be imported.
+  const missingStakeholders = useMemo(() => {
+    const directory = settings.globalContacts || [];
+    const seen = new Set<string>();
+    const result: { key: string, name: string, email: string, roles: string[] }[] = [];
+    for (const opp of opportunities) {
+      for (const person of opp.stakeholders || []) {
+        const email = (person.email || '').trim().toLowerCase();
+        const inDirectory = directory.some(c => (person.directoryContactId && c.id === person.directoryContactId) || (!!email && c.email.toLowerCase() === email));
+        if (inDirectory) continue;
+        const key = email || person.name.trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        result.push({ key, name: person.name.trim(), email: person.email.trim(), roles: person.roles?.length ? person.roles : (person.role ? [person.role] : []) });
+      }
+    }
+    return result;
+  }, [opportunities, settings.globalContacts]);
+
+  const importStakeholder = (person: { name: string, email: string, roles: string[] }) => {
+    setSettings(prev => {
+      const email = person.email.trim();
+      const existing = (prev.globalContacts || []).find(c => email && c.email.toLowerCase() === email.toLowerCase());
+      const globalContacts = existing
+        ? (prev.globalContacts || []).map(c => c.id === existing.id ? { ...c, availableRoles: Array.from(new Set([...(c.availableRoles || []), ...person.roles])) } : c)
+        : [...(prev.globalContacts || []), { id: crypto.randomUUID(), name: person.name, email, availableRoles: person.roles }];
+      return { ...prev, globalContacts };
+    });
+  };
 
   if (!isOpen) return null;
 
@@ -910,6 +942,23 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           )}
 
           {activeTab === 'contacts' && (
+            <div className="space-y-4">
+              {missingStakeholders.length > 0 && (
+                <div className="bg-amber-50 p-6 rounded-xl border border-amber-200 shadow-sm space-y-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div><h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Found in proposals, missing from Contacts</h3><p className="text-xs text-amber-700 mt-1">These people are already stakeholders on an opportunity but aren't in the global directory yet.</p></div>
+                    <button type="button" onClick={() => missingStakeholders.forEach(importStakeholder)} className="px-3 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold whitespace-nowrap">Add all ({missingStakeholders.length})</button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {missingStakeholders.map(person => (
+                      <div key={person.key} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-amber-200 bg-white text-sm">
+                        <div className="min-w-0"><span className="font-bold text-gray-800">{person.name || '(no name)'}</span><span className="text-gray-400 ml-2">{person.email || 'no email'}</span>{person.roles.length > 0 && <span className="text-[10px] text-amber-700 ml-2">{person.roles.join(', ')}</span>}</div>
+                        <button type="button" onClick={() => importStakeholder(person)} className="px-2 py-1 rounded border border-amber-300 text-amber-700 text-[10px] font-bold shrink-0">Add to Contacts</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div><h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Global Contact Directory</h3><p className="text-xs text-gray-500 mt-1">Used for autocomplete. Opportunity roles are selected independently.</p></div>
@@ -926,6 +975,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 </div>
               ))}
               {(settings.globalContacts || []).length === 0 && <div className="text-center text-xs text-gray-400 py-8">No contacts yet.</div>}
+            </div>
             </div>
           )}
 

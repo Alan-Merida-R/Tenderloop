@@ -10,7 +10,7 @@ Users can download this exact branch from GitHub using **Code -> Download ZIP**,
 
 `https://github.com/Alan-Merida-R/Tenderloop/archive/refs/heads/version-beta.zip`
 
-Extract the ZIP, install Node.js 18+ LTS and run `ABRIR_TENDERLOOP.vbs`. It opens the installer automatically only when setup is incomplete. Internal launcher and installer files are hidden after first use; `motor_tenderloop.bat` remains visible as the recovery option. See `MANUAL_USUARIO.md` for the complete Windows guide.
+Extract the ZIP, install Node.js 18+ LTS and run `ABRIR_TENDERLOOP.vbs`. It opens the installer automatically only when setup is incomplete. Internal launcher and installer files are hidden after first use; `motor_tenderloop.bat` remains visible as the recovery option. See `docs/MANUAL_USUARIO.md` for the complete Windows guide.
 
 ## Included baseline: backend integration
 
