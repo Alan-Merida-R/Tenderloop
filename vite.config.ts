@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => {
         // development/PWA server to the local network.
         host: '127.0.0.1',
         allowedHosts: ['localhost', '127.0.0.1'],
+        // The Windows launcher runs this development server as the local app.
+        // Never let Chromium reuse an old HTML/module response after an update.
+        headers: { 'Cache-Control': 'no-store' },
       },
       plugins: [
         react(),

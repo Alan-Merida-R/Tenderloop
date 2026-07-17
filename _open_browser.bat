@@ -1,8 +1,11 @@
 @echo off
 setlocal
-set "APP_URL=http://localhost:3000"
+:: Use the same loopback host Vite binds to. Previous launchers used localhost,
+:: whose old PWA/service-worker cache could keep serving a stale blank shell.
+:: 127.0.0.1 gives the local app a clean, consistent origin.
+set "APP_URL=http://127.0.0.1:3000"
 
-:: Wait until Vite answers on localhost:3000, then open the app window.
+:: Wait until Vite answers, then open the app window.
 :WAIT
 ping -n 2 127.0.0.1 >nul
 curl.exe -s -o nul %APP_URL% >nul 2>&1

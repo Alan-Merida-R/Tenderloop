@@ -29,7 +29,7 @@ if "%MODE%"=="INSTALL" (
 :: left behind by an earlier installation, so do not open it by mistake.
 curl.exe -s -o nul --max-time 2 http://127.0.0.1:3000 >nul 2>&1
 if not errorlevel 1 (
-    curl.exe -f -s -o nul --max-time 2 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/health >nul 2>&1
+    curl.exe -f -s -o nul --max-time 2 -H "Origin: http://127.0.0.1:3000" http://127.0.0.1:3099/health >nul 2>&1
     if not errorlevel 1 (
         start "" /B cmd /c call "%~dp0_open_browser.bat"
         exit /b 0

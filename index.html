@@ -11,6 +11,23 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="TenderLoop" />
+    <script>
+      // Development launches used to register a PWA service worker on the same
+      // local origin. Remove any stale worker/cache so an updated installation
+      // cannot be replaced by an obsolete blank application shell.
+      if ((location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '3000') {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            registrations.forEach(function (registration) { registration.unregister(); });
+          }).catch(function () {});
+        }
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (key) { caches.delete(key); });
+          }).catch(function () {});
+        }
+      }
+    </script>
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #f1f3f4; }
       /* Custom scrollbar for Notion-like feel */

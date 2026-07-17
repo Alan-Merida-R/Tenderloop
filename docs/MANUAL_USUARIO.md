@@ -134,7 +134,7 @@ Puedes tener tantos archivos `.json` como quieras. Para cambiar entre ellos:
 
 ## 5. Ejecuciones siguientes
 
-Simplemente doble clic en `ABRIR_TENDERLOOP.vbs`. Este es el único archivo que debes usar normalmente. Si falta la instalación, abrirá el instalador automáticamente. Los archivos internos del instalador y del lanzador quedan ocultos después del primer inicio. Si Windows bloquea el inicio normal, usa `motor_tenderloop.bat` como respaldo visible.
+Simplemente haz doble clic en `ABRIR_TENDERLOOP.vbs`. Si falta la instalación, abrirá el instalador automáticamente. Ningún lanzador o instalador se oculta ni se elimina. Si Windows bloquea archivos VBS, usa `ABRIR_TENDERLOOP.bat`; como último respaldo también puedes usar `motor_tenderloop.bat`.
 Como ya están instaladas las dependencias, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
 
 ---

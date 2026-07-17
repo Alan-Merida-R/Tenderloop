@@ -1,30 +1,28 @@
 Option Explicit
 
-Dim WshShell, fso, scriptDir, batPath, installerUi, viteLauncher
+Dim WshShell, fso, scriptDir, batPath, viteLauncher, command, windowStyle
 
 Set WshShell = CreateObject("Wscript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 batPath = scriptDir & "\motor_tenderloop.bat"
-installerUi = scriptDir & "\INSTALAR_TENDERLOOP.hta"
 viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
-WshShell.Environment("PROCESS")("TENDERLOOP_ROOT") = scriptDir
+
+If Not fso.FileExists(batPath) Then
+    MsgBox "motor_tenderloop.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "TenderLoop"
+    WScript.Quit 1
+End If
 
 If fso.FileExists(viteLauncher) Then
-    ' Normal run: if Vite exists, TenderLoop is ready to start. Do not
-    ' require an installer marker, since a previous interrupted setup must
-    ' never prevent an otherwise working local application from opening.
-    WshShell.Run """" & batPath & """ HIDDEN", 0, False
+    command = "cmd.exe /d /c call """ & batPath & """ HIDDEN"
+    windowStyle = 0
 Else
-    ' First run or an incomplete installation: always show the Windows-style
-    ' installer instead of silently attempting to launch a broken app.
-    If fso.FileExists(scriptDir & "\INSTALAR_TENDERLOOP.vbs") Then
-        WshShell.Run "wscript.exe """ & scriptDir & "\INSTALAR_TENDERLOOP.vbs""", 1, False
-    Else
-        WshShell.Run """" & batPath & """ VISIBLE", 1, False
-    End If
+    command = "cmd.exe /d /c call """ & batPath & """ INSTALL"
+    windowStyle = 1
 End If
+
+WshShell.Run command, windowStyle, False
 
 Set fso = Nothing
 Set WshShell = Nothing
