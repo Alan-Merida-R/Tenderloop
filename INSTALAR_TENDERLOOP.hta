@@ -416,10 +416,10 @@
     }
 
     function openApp() {
-      var launcher = scriptDir + "\\LANZAR_TENDERLOOP.vbs";
+      var launcher = scriptDir + "\\ABRIR_TENDERLOOP.vbs";
       var closer = scriptDir + "\\CERRAR_TENDERLOOP.bat";
       if (!fso.FileExists(launcher)) {
-        failInstall("LANZAR_TENDERLOOP.vbs was not found after setup.");
+        failInstall("ABRIR_TENDERLOOP.vbs was not found after setup.");
         return;
       }
       if (!fso.FileExists(closer)) {

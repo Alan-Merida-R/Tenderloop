@@ -7,9 +7,10 @@ The current beta is available from the [`version-beta`](https://github.com/Alan-
 3. Install Node.js 18+ (LTS) if it is not already installed.
 4. Double-click `ABRIR_TENDERLOOP.vbs`.
 
-If Windows security blocks or removes `.vbs` / `.hta` launchers, use
-`ABRIR_TENDERLOOP.bat` instead. It uses the same app engine but keeps the
-first-time setup and any errors visible in a Command Prompt window.
+`ABRIR_TENDERLOOP.vbs` is the single normal entry point. On first use it hides
+the internal launcher and installer files; if setup is incomplete it opens the
+installer automatically. Keep `motor_tenderloop.bat` as the visible recovery
+option for computers where Windows security blocks the normal launcher.
 
 The first start installs dependencies and then opens the local app. For the complete Windows guide, see [MANUAL_USUARIO.md](MANUAL_USUARIO.md). Beta scope and validation notes are in [docs/version-beta.md](docs/version-beta.md).
 

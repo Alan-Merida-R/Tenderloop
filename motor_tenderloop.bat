@@ -120,7 +120,7 @@ if "%MODE%"=="INSTALL" (
     echo.
     choice /c OC /n /m "Press O to Open app, or C to Close installer: "
     if errorlevel 2 exit /b 0
-    start "" wscript.exe "%~dp0LANZAR_TENDERLOOP.vbs"
+    start "" wscript.exe "%~dp0ABRIR_TENDERLOOP.vbs"
     exit /b 0
 )
 

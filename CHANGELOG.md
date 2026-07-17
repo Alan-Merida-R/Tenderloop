@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added backend-assisted database file resolution and native opening so a browser-selected database can be matched safely to one unambiguous Windows path.
 
 ### Changed
+- Simplified Windows startup to one normal visible entry point: `ABRIR_TENDERLOOP.vbs`. It hides the internal launcher and installer files on first use, opens setup automatically when required, and leaves `motor_tenderloop.bat` visible as the recovery path for restrictive computers.
 - Expanded task, opportunity, SOW and email data handling so new planning and reminder fields survive backend persistence, import/export and existing-data normalization.
 - Updated the embedded SOW form, dashboards, settings and email workflows with the latest usability and data-consistency improvements.
 

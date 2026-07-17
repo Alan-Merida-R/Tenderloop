@@ -54,7 +54,7 @@ En computadoras del trabajo muchas veces el instalador `.msi` de Node pide contr
    - ❌ `C:\Usuarios\María José\Escritorio\Tenderloop (copia)\`
 2. Clic derecho → **Extraer todo…**
 3. Al terminar, dentro de la carpeta deberás ver archivos como:
-   - `LANZAR_TENDERLOOP.vbs`
+   - `ABRIR_TENDERLOOP.vbs` (inicio normal)
    - `LANZAR_TENDERFLOW.vbs`
    - `motor_tenderloop.bat`
    - `package.json`
@@ -69,7 +69,7 @@ En computadoras del trabajo muchas veces el instalador `.msi` de Node pide contr
 Doble clic sobre:
 
 ```
-LANZAR_TENDERLOOP.vbs
+ABRIR_TENDERLOOP.vbs
 ```
 
 Lo que verás:
@@ -134,7 +134,7 @@ Puedes tener tantos archivos `.json` como quieras. Para cambiar entre ellos:
 
 ## 5. Ejecuciones siguientes
 
-Simplemente doble clic en `LANZAR_TENDERLOOP.vbs`.
+Simplemente doble clic en `ABRIR_TENDERLOOP.vbs`. Este es el único archivo que debes usar normalmente. Si falta la instalación, abrirá el instalador automáticamente. Los archivos internos del instalador y del lanzador quedan ocultos después del primer inicio. Si Windows bloquea el inicio normal, usa `motor_tenderloop.bat` como respaldo visible.
 Como ya están instaladas las dependencias, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
 
 ---
@@ -184,7 +184,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 - Tu base de datos (`.json`) → vive fuera de esta carpeta en la ruta que tú elegiste. **Queda intacta.**
 - Node.js instalado en tu PC → es para otros proyectos también. **No se toca.**
-- Los archivos fuente del proyecto (`App.tsx`, `package.json`, etc.) → para que puedas reinstalar de nuevo si cambias de opinión (simplemente ejecuta `LANZAR_TENDERLOOP.vbs` otra vez y volverá a bajar `node_modules`).
+- Los archivos fuente del proyecto (`App.tsx`, `package.json`, etc.) → para que puedas reinstalar de nuevo si cambias de opinión (simplemente ejecuta `ABRIR_TENDERLOOP.vbs` otra vez y volverá a bajar `node_modules`).
 
 > **¿Quieres borrar TODO incluido el código?** Ejecuta `DESINSTALAR_TENDERLOOP.vbs` primero (libera los locks) y luego borra la carpeta completa desde el Explorador.
 
