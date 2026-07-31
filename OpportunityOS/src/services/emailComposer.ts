@@ -488,10 +488,10 @@ export const buildEmailContext = (
   const originalApprovalTask = correctionTask?.reworkForTaskId
     ? (opp.tasks || []).find(item => item.id === correctionTask.reworkForTaskId)
     : task;
-  const latestChangeRecord = [...(opp.approvalHistory || [])].reverse().find(entry =>
-    (correctionTask?.changeRevisionId && entry.changeRevisionId === correctionTask.changeRevisionId)
-    || (originalApprovalTask?.id && entry.taskId === originalApprovalTask.id)
-  );
+  const latestChangeEvent = [...(opp.history || [])].reverse().find(entry =>
+    (correctionTask?.changeRevisionId && entry.approval?.changeRevisionId === correctionTask.changeRevisionId)
+    || (originalApprovalTask?.id && entry.approval?.taskId === originalApprovalTask.id)
+  )?.approval;
   const reminderTasks = opts.kind === 'reminder'
     ? (opts.selectedTasks || [])
     : (opts.selectedTasks && opts.selectedTasks.length
@@ -514,13 +514,13 @@ export const buildEmailContext = (
   const priceApprovalBlock = manual.includePriceApproval
     ? `<p ${SUMMARY_H}>Price Approval — @${escapeHtml(manual.sellerName || 'CSE/Seller')}</p>${buildExecutiveSummaryHtml(opp, paCost)}`
     : '';
-  const changeRequired = correctionTask?.changeRequest || latestChangeRecord?.requiredChanges || '';
-  const changeReason = correctionTask?.changeReason || latestChangeRecord?.reason || '';
-  const changeRequestedBy = teamMemberNames(correctionTask?.changeRequestedByIds || latestChangeRecord?.requestedByIds, stakeholders, globalContacts).join(', ');
-  const changeInformed = teamMemberNames(correctionTask?.changeInformedIds || latestChangeRecord?.informedIds, stakeholders, globalContacts).join(', ');
+  const changeRequired = correctionTask?.changeRequest || latestChangeEvent?.requiredChanges || '';
+  const changeReason = correctionTask?.changeReason || latestChangeEvent?.reason || '';
+  const changeRequestedBy = teamMemberNames(correctionTask?.changeRequestedByIds || latestChangeEvent?.requestedByIds, stakeholders, globalContacts).join(', ');
+  const changeInformed = teamMemberNames(correctionTask?.changeInformedIds || latestChangeEvent?.informedIds, stakeholders, globalContacts).join(', ');
   const changeFiles = opts.attachmentNames?.length
     ? opts.attachmentNames
-    : (correctionTask?.changeRevisionFileKeys || latestChangeRecord?.activeAttachmentKeys || []).map(key => key.split('/').pop() || key);
+    : (correctionTask?.changeRevisionFileKeys || latestChangeEvent?.activeAttachmentKeys || []).map(key => key.split('/').pop() || key);
   const changeRevisionBlock = [
     changeRequired ? `<p ${SUMMARY_H}>Required changes</p><p ${P_STYLE}>${nl2br(changeRequired)}</p>` : '',
     changeReason ? `<p ${SUMMARY_H}>Why the changes are required</p><p ${P_STYLE}>${nl2br(changeReason)}</p>` : '',

@@ -1147,6 +1147,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // Next Steps Toggle
     const [showNextSteps, setShowNextSteps] = useState(false);
     const [showProposalCardFieldsMenu, setShowProposalCardFieldsMenu] = useState(false);
+    const proposalCardFieldsMenuRef = useRef<HTMLDivElement>(null);
     const [proposalCardVisibleFields, setProposalCardVisibleFields] = useState<ProposalCardFieldKey[]>(
         () => readProposalCardFields(PROPOSAL_CARD_FIELD_STORAGE_KEY, PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS)
     );
@@ -1185,6 +1186,37 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             window.dispatchEvent(new CustomEvent('opportunityos:workload-visibility', { detail: false }));
         };
     }, [showWorkloadChart, mode]);
+
+    // Filter dropdowns close on their own backdrop, but the open one has to be dropped when the
+    // user presses Escape or switches view — several of them are mode-specific, so a stale
+    // `openDropdown` would pop the menu back up on return.
+    useEffect(() => {
+        if (!openDropdown) return;
+        const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenDropdown(null); };
+        document.addEventListener('keydown', closeOnEscape);
+        return () => document.removeEventListener('keydown', closeOnEscape);
+    }, [openDropdown]);
+    useEffect(() => { setOpenDropdown(null); }, [mode]);
+
+    // "Edit Cards" is a plain inline dropdown, so nothing dismisses it on its own: close it when
+    // the user clicks away, presses Escape, or leaves the proposals view (otherwise it would still
+    // be open when they come back).
+    useEffect(() => {
+        if (!showProposalCardFieldsMenu) return;
+        if (mode !== 'proposals') { setShowProposalCardFieldsMenu(false); return; }
+        const handlePointerDown = (e: MouseEvent) => {
+            if (!proposalCardFieldsMenuRef.current?.contains(e.target as Node)) setShowProposalCardFieldsMenu(false);
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setShowProposalCardFieldsMenu(false);
+        };
+        document.addEventListener('mousedown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [showProposalCardFieldsMenu, mode]);
 
     // Sticky Notes (stored in localStorage)
     const STICKY_KEY = 'tenderloop.stickynotes.v1';
@@ -2667,7 +2699,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
                     {mode === 'proposals' && (
                         <div className="flex items-center gap-2">
-                            <div className="relative">
+                            <div className="relative" ref={proposalCardFieldsMenuRef}>
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();

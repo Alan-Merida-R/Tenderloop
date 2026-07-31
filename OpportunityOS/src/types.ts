@@ -432,11 +432,12 @@ export interface HistoryEntry {
   content: string;
   /** Exact creation time used when several events share the same date. */
   createdAt?: string;
+  /** Optional metadata for an approval-related event in the regular history. */
+  approval?: ApprovalEvent;
 }
 
-/** Immutable/auditable approval-cycle record for a task and its change revisions. */
-export interface ApprovalHistoryEntry {
-  id: string;
+/** Metadata kept on a normal history event so approval workflows and emails retain their context. */
+export interface ApprovalEvent {
   taskId: string;
   correctionTaskId?: string;
   changeRevisionId?: string;
@@ -455,8 +456,6 @@ export interface ApprovalHistoryEntry {
   approvedAt?: string;
   previousAttachmentKeys: string[];
   activeAttachmentKeys: string[];
-  createdAt: string;
-  updatedAt?: string;
 }
 
 export interface PrdPresentation {
@@ -582,8 +581,6 @@ export interface Opportunity {
   stakeholders?: Person[];
   tasks: Task[];
   history: HistoryEntry[];
-  /** Structured audit trail for approvals, requested changes, resubmissions and attachments. */
-  approvalHistory?: ApprovalHistoryEntry[];
   /** Optional override for the "Last History Event" dashboard card field — when unset, the card shows the most recent history entry's content verbatim. */
   lastHistoryEventOverride?: string;
   presentation: PrdPresentation;

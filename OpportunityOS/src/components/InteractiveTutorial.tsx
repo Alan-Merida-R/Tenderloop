@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import {
   X, ChevronLeft, ChevronRight, Sparkles, LayoutDashboard, Layout, CheckSquare, Activity,
   Mail, Bell, Timer, FolderOpen, Trophy, Check, ArrowLeftRight,
@@ -21,12 +21,14 @@ interface Props {
   onClose: () => void;
   /** Switch the top-level view so spotlight targets exist on screen. */
   onNavigate?: (view: AppViewKey) => void;
+  /** Open the most recently created opportunity's expediente (steps that live inside it). */
+  onOpenLatestOpportunity?: () => void;
 }
 
 type Lang = 'en' | 'es';
 type Loc<T = string> = { en: T; es: T };
 type MascotPose = 'wave' | 'point' | 'cheer' | 'idle';
-type CheckKind = 'createOpp' | 'editHeader' | 'changeStatus' | 'addTask' | 'addHistory' | 'addNote';
+type CheckKind = 'createOpp' | 'editHeader' | 'changeStatus' | 'addTask' | 'completeTask' | 'addHistory' | 'addNote';
 
 interface TutorialStep {
   id: string;
@@ -42,6 +44,13 @@ interface TutorialStep {
   illustration?: React.ReactNode;
   /** Live-data condition that completes a "do" step. */
   check?: CheckKind;
+  /**
+   * Automatic set-up run when the step activates, so the user never has to
+   * close things or find their way back by hand: overlays are always closed
+   * (via the `oos-tutorial-prepare` event), then optionally the latest
+   * opportunity's expediente is opened and one of its tabs is clicked.
+   */
+  prepare?: { expediente?: boolean; clickTab?: string };
 }
 
 const B = ({ children }: { children: React.ReactNode }) => <b className="text-gray-800">{children}</b>;
@@ -66,6 +75,7 @@ const UI_TEXT = {
 interface Baseline {
   count: number;
   tasks: number;
+  doneTasks: number;
   history: number;
   notes: number;
   headerSig: Map<string, string>;
@@ -75,9 +85,13 @@ interface Baseline {
 const countAll = (opps: Opportunity[], pick: (o: Opportunity) => unknown[] | undefined) =>
   opps.reduce((n, o) => n + (pick(o)?.length || 0), 0);
 
+const countDoneTasks = (opps: Opportunity[]) =>
+  opps.reduce((n, o) => n + (o.tasks || []).filter(t => t.status === 'Done').length, 0);
+
 const takeSnapshot = (opps: Opportunity[]): Baseline => ({
   count: opps.length,
   tasks: countAll(opps, o => o.tasks),
+  doneTasks: countDoneTasks(opps),
   history: countAll(opps, o => o.history),
   notes: countAll(opps, o => o.notes),
   headerSig: new Map(opps.map(o => [o.id, `${o.title}|${o.customer}`])),
@@ -97,6 +111,7 @@ const checkDone = (kind: CheckKind, base: Baseline, opps: Opportunity[]): boolea
       return prev !== undefined && prev !== (o.detailedStatus || '');
     });
     case 'addTask': return countAll(opps, o => o.tasks) > base.tasks;
+    case 'completeTask': return countDoneTasks(opps) > base.doneTasks;
     case 'addHistory': return countAll(opps, o => o.history) > base.history;
     case 'addNote': return countAll(opps, o => o.notes) > base.notes;
   }
@@ -336,7 +351,7 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       illustration: <IllusExpediente caption={cap({ en: "The tabs of every expediente — hide the ones you don't use in Settings", es: 'Las pestañas de cada expediente — oculta las que no uses en Settings' })} />,
     },
     {
-      id: 'fill', kind: 'do', pose: 'point', target: 'opp-title', check: 'editHeader',
+      id: 'fill', kind: 'do', pose: 'point', target: 'opp-title', check: 'editHeader', prepare: { expediente: true },
       chapter: { en: 'The Expediente', es: 'El Expediente' },
       title: { en: 'Give it a name', es: 'Ponle nombre' },
       body: {
@@ -355,7 +370,7 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       illustration: <IllusStatuses caption={cap({ en: 'Cards travel across the board as the process status changes', es: 'Las tarjetas cruzan el tablero cuando cambia el process status' })} />,
     },
     {
-      id: 'status-do', kind: 'do', pose: 'point', target: 'process-status', check: 'changeStatus',
+      id: 'status-do', kind: 'do', pose: 'point', target: 'process-status', check: 'changeStatus', prepare: { expediente: true },
       chapter: { en: 'Statuses', es: 'Status' },
       title: { en: 'Move your deal forward', es: 'Avanza tu negocio' },
       body: {
@@ -364,30 +379,62 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       },
     },
     {
-      id: 'task', kind: 'do', pose: 'point', target: 'detail-tab-tasks', check: 'addTask',
+      id: 'task-create', kind: 'do', pose: 'point', target: 'add-task', check: 'addTask',
+      prepare: { expediente: true, clickTab: 'detail-tab-tasks' },
       chapter: { en: 'Tasks', es: 'Tareas' },
-      title: { en: 'Add a task', es: 'Agrega una tarea' },
+      title: { en: 'Create a task', es: 'Crea una tarea' },
       body: {
-        en: <>Open the <G>Tasks</G> tab and create a task of your own — your standard list is already there. Every task has an owner, priority, due date and subtasks. Golden rule: a task can <B>depend</B> on others and stay <B>blocked from "Done"</B> until they finish.</>,
-        es: <>Abre la pestaña <G>Tasks</G> y crea una tarea propia — tu lista estándar ya está ahí. Cada tarea tiene responsable, prioridad, fecha límite y subtareas. Regla de oro: una tarea puede <B>depender</B> de otras y quedar <B>bloqueada para "Done"</B> hasta que terminen.</>,
+        en: <>I opened the <G>Tasks</G> tab for you. Click the glowing <G>+ Add Task</G> button — a <B>"New Task"</B> appears at the end of the list. Click it to give it a title, an <B>owner</B>, a <B>priority</B>, a <B>due date</B> and subtasks if you need them.</>,
+        es: <>Ya te abrí la pestaña <G>Tasks</G>. Haz clic en el botón resaltado <G>+ Add Task</G> — aparecerá una <B>"New Task"</B> al final de la lista. Ábrela para ponerle título, <B>responsable</B>, <B>prioridad</B>, <B>fecha límite</B> y subtareas si las necesitas.</>,
       },
     },
     {
-      id: 'history', kind: 'do', pose: 'point', target: 'detail-tab-history', check: 'addHistory',
+      id: 'task-close', kind: 'do', pose: 'point', check: 'completeTask',
+      prepare: { expediente: true, clickTab: 'detail-tab-tasks' },
+      chapter: { en: 'Tasks', es: 'Tareas' },
+      title: { en: 'Now close one', es: 'Ahora cierra una' },
+      body: {
+        en: <>Finishing work feels great: change any task's <B>Status</B> to <G>Done</G> — use the status control right on the task row, or open the task and change it there. Golden rule: a task that <B>depends</B> on others stays <B>blocked from "Done"</B> until its dependencies finish, so the plan always runs in order.</>,
+        es: <>Terminar se siente bien: cambia el <B>Status</B> de cualquier tarea a <G>Done</G> — usa el control de status en la fila de la tarea, o ábrela y cámbialo ahí. Regla de oro: una tarea que <B>depende</B> de otras queda <B>bloqueada para "Done"</B> hasta que sus dependencias terminen, así el plan siempre avanza en orden.</>,
+      },
+    },
+    {
+      id: 'history', kind: 'do', pose: 'point', target: 'add-history', check: 'addHistory',
+      prepare: { expediente: true, clickTab: 'detail-tab-history' },
       chapter: { en: 'History', es: 'Historial' },
       title: { en: 'Log your first event', es: 'Registra tu primer evento' },
       body: {
-        en: <>Open the <G>History</G> tab and click <B>+ Add Entry</B> — write something like <i>"Kickoff meeting done"</i>. History is the deal's diary: milestones, status changes, and automatic entries like <i>"I sent an email to…"</i> when you send from the app.</>,
-        es: <>Abre la pestaña <G>History</G> y haz clic en <B>+ Add Entry</B> — escribe algo como <i>"Kickoff meeting done"</i>. History es el diario del negocio: hitos, cambios de status y entradas automáticas como <i>"I sent an email to…"</i> cuando envías correos desde la app.</>,
+        en: <>We're now in the <G>History</G> tab — the deal's diary. Click the highlighted <G>+ Add Entry</G> and write something like <i>"Kickoff meeting done"</i>. Milestones, status changes and automatic entries like <i>"I sent an email to…"</i> all land here — ready to copy, stamped with your name.</>,
+        es: <>Estamos en la pestaña <G>History</G> — el diario del negocio. Haz clic en el resaltado <G>+ Add Entry</G> y escribe algo como <i>"Kickoff meeting done"</i>. Aquí caen los hitos, los cambios de status y las entradas automáticas como <i>"I sent an email to…"</i> — listos para copiar, firmados con tu nombre.</>,
       },
     },
     {
-      id: 'note', kind: 'do', pose: 'point', target: 'detail-tab-notes', check: 'addNote',
+      id: 'note', kind: 'do', pose: 'point', target: 'add-note', check: 'addNote',
+      prepare: { expediente: true, clickTab: 'detail-tab-notes' },
       chapter: { en: 'Notes', es: 'Notas' },
       title: { en: 'Write a note', es: 'Escribe una nota' },
       body: {
-        en: <>Open the <G>Notes</G> tab and create a note — meeting minutes, ideas, anything. You can start from a template, organize notes in folders, and even create <B>inline tasks</B> from a note's text.</>,
-        es: <>Abre la pestaña <G>Notes</G> y crea una nota — minutas, ideas, lo que sea. Puedes partir de una plantilla, organizar las notas en carpetas e incluso crear <B>tareas desde el texto</B> de una nota.</>,
+        en: <>This is the <G>Notes</G> tab. Click <G>Blank</G> (highlighted) or any template to create a note — meeting minutes, ideas, anything. Organize notes in folders and even create <B>inline tasks</B> right from a note's text.</>,
+        es: <>Esta es la pestaña <G>Notes</G>. Haz clic en <G>Blank</G> (resaltado) o en cualquier plantilla para crear una nota — minutas, ideas, lo que sea. Organiza las notas en carpetas e incluso crea <B>tareas directamente desde el texto</B> de una nota.</>,
+      },
+    },
+    {
+      id: 'autofill', kind: 'tell', pose: 'cheer', target: 'autofill-button', prepare: { expediente: true },
+      chapter: { en: 'Email magic', es: 'Magia con correos' },
+      title: { en: 'Auto-fill, step by step', es: 'Auto-fill, paso a paso' },
+      body: {
+        en: <>See the highlighted button? When a bFO Support Request email arrives: <B>1)</B> click <G>Auto-fill from Email</G>, <B>2)</B> drag the <B>.msg / .eml</B> straight from Outlook onto the window (or paste the email text), <B>3)</B> I read the project, client, dates, links and references, <B>4)</B> review the preview and apply. The whole expediente fills itself in seconds — no retyping.</>,
+        es: <>¿Ves el botón resaltado? Cuando llegue un correo de Support Request de bFO: <B>1)</B> haz clic en <G>Auto-fill from Email</G>, <B>2)</B> arrastra el <B>.msg / .eml</B> directo desde Outlook a la ventana (o pega el texto del correo), <B>3)</B> yo leo el proyecto, cliente, fechas, links y referencias, <B>4)</B> revisa la vista previa y aplica. El expediente completo se llena solo en segundos — sin volver a teclear.</>,
+      },
+      illustration: <IllusEmailMagic />,
+    },
+    {
+      id: 'header-tools', kind: 'tell', pose: 'idle', prepare: { expediente: true },
+      chapter: { en: 'Header tools', es: 'Herramientas del encabezado' },
+      title: { en: 'Three more header superpowers', es: 'Tres superpoderes más del encabezado' },
+      body: {
+        en: <><B>Email</B> composes an executive email from dynamic blocks — it detects first contact vs. follow-up and logs the send to History. <B>Revisions</B> creates Rev. B, C… when the client asks for a new version, carrying over whatever you choose. And <B>Copy Summary / Export PDF</B> turn the expediente into a shareable status in one click.</>,
+        es: <><B>Email</B> redacta un correo ejecutivo con bloques dinámicos — detecta si es primer contacto o seguimiento y registra el envío en History. <B>Revisions</B> crea la Rev. B, C… cuando el cliente pide nueva versión, arrastrando lo que tú elijas. Y <B>Copy Summary / Export PDF</B> convierten el expediente en un status compartible con un clic.</>,
       },
     },
     {
@@ -400,14 +447,13 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       },
     },
     {
-      id: 'email', kind: 'tell', pose: 'cheer',
-      chapter: { en: 'Email magic', es: 'Magia con correos' },
-      title: { en: 'Auto-fill & the email composer', es: 'Auto-fill y el redactor de correos' },
+      id: 'tasksview', kind: 'tell', pose: 'point', view: 'tasks-dashboard',
+      chapter: { en: 'Daily agenda', es: 'Agenda diaria' },
+      title: { en: 'Your daily agenda', es: 'Tu agenda diaria' },
       body: {
-        en: <>My favorite trick: in the expediente header, <G>Auto-fill from Email</G> reads a bFO SR email (<B>.msg / .eml</B> or pasted text) and fills the fields for you. And the <B>Email</B> button composes an executive email from dynamic blocks — it detects first contact vs. follow-up and logs the send to History.</>,
-        es: <>Mi truco favorito: en el encabezado del expediente, <G>Auto-fill from Email</G> lee un correo SR de bFO (<B>.msg / .eml</B> o texto pegado) y llena los campos por ti. Y el botón <B>Email</B> redacta un correo ejecutivo con bloques dinámicos — detecta si es primer contacto o seguimiento y registra el envío en History.</>,
+        en: <>I brought you to the <B>Tasks</B> view: every task from <B>every</B> opportunity in one agenda. Overdue items stand out, you can filter by owner or area, plan your week, and jump straight into any task's expediente. Start your mornings here.</>,
+        es: <>Te traje a la vista <B>Tasks</B>: todas las tareas de <B>todas</B> las oportunidades en una sola agenda. Lo vencido resalta, puedes filtrar por responsable o área, planear tu semana y saltar directo al expediente de cualquier tarea. Empieza tus mañanas aquí.</>,
       },
-      illustration: <IllusEmailMagic />,
     },
     {
       id: 'customize', kind: 'tell', pose: 'point', target: 'settings-button',
@@ -434,8 +480,8 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       chapter: { en: 'You made it!', es: '¡Lo lograste!' },
       title: { en: "You're ready! 🏆", es: '¡Estás listo! 🏆' },
       body: {
-        en: <>Look at what you built during this tour: a real opportunity with a title, a status, a task, a history entry and a note. Keep it or delete it — it's yours. This tour always waits at the bottom of <B>Settings</B> if you want a refresher. Now go win that tender!</>,
-        es: <>Mira lo que construiste durante el tutorial: una oportunidad real con título, status, una tarea, un evento en el historial y una nota. Consérvala o bórrala — es tuya. Este tutorial siempre te espera al final de <B>Settings</B> por si quieres repasar. ¡Ahora ve y gana esa licitación!</>,
+        en: <>Look at what you built during this tour: a real opportunity with a title, a status, a task created <i>and</i> closed, a history entry and a note. Keep it or delete it — it's yours. This tour always waits at the bottom of <B>Settings</B> if you want a refresher. Now go win that tender!</>,
+        es: <>Mira lo que construiste durante el tutorial: una oportunidad real con título, status, una tarea creada <i>y</i> cerrada, un evento en el historial y una nota. Consérvala o bórrala — es tuya. Este tutorial siempre te espera al final de <B>Settings</B> por si quieres repasar. ¡Ahora ve y gana esa licitación!</>,
       },
     },
   ];
@@ -446,10 +492,12 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
 const CARD_W = 440;
 const DO_CARD_W = 360;
 
-export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, onNavigate }) => {
+export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, onNavigate, onOpenLatestOpportunity }) => {
   const [lang, setLang] = useState<Lang | null>(null);
   const [index, setIndex] = useState(0);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  // rect is tagged with the step index it belongs to so a new step never paints
+  // one frame with the previous step's position (that read as a corner→center jump).
+  const [loc, setLoc] = useState<{ idx: number; rect: { top: number; left: number; width: number; height: number } | null }>({ idx: -1, rect: null });
   const [celebrating, setCelebrating] = useState(false);
   const [dockLeft, setDockLeft] = useState(false);
   const baselineRef = useRef<Baseline | null>(null);
@@ -464,15 +512,45 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
   const goNext = useCallback(() => setIndex(i => Math.min(i + 1, Math.max(steps.length - 1, 0))), [steps.length]);
   const goBack = useCallback(() => setIndex(i => Math.max(i - 1, 0)), []);
 
-  // Step activation: reset celebration, snapshot live data, navigate if needed.
+  // Step activation: reset celebration, snapshot live data, then take the user
+  // to the right place automatically — close any open overlays, open the
+  // expediente and click the tab the step needs, so they never have to close
+  // things or find their way back by hand.
   useEffect(() => {
     if (!lang || !step) return;
     celebratingRef.current = false;
     setCelebrating(false);
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     baselineRef.current = takeSnapshot(opportunities);
+    window.dispatchEvent(new CustomEvent('oos-tutorial-prepare'));
     if (step.view && onNavigate) onNavigate(step.view);
     if (step.id === 'done') playSound('triad');
+
+    const prep = step.prepare;
+    if (!prep) return;
+    if (prep.expediente && onOpenLatestOpportunity) {
+      const expedienteVisible = () => {
+        const el = document.querySelector('[data-tutorial="opp-title"]');
+        return !!el && el.getBoundingClientRect().width > 0;
+      };
+      if (!expedienteVisible()) onOpenLatestOpportunity();
+    }
+    if (prep.clickTab) {
+      let tries = 0;
+      let clicked = false;
+      const timer = window.setInterval(() => {
+        tries += 1;
+        if (!clicked) {
+          const els = document.querySelectorAll(`[data-tutorial="${prep.clickTab}"]`);
+          for (let i = els.length - 1; i >= 0; i--) {
+            const el = els[i] as HTMLElement;
+            if (el.getBoundingClientRect().width > 0) { el.click(); clicked = true; break; }
+          }
+        }
+        if (clicked || tries > 20) window.clearInterval(timer);
+      }, 150);
+      return () => window.clearInterval(timer);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, lang]);
 
@@ -486,34 +564,40 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
       celebratingRef.current = true;
       setCelebrating(true);
       playSound('chime');
-      advanceTimer.current = window.setTimeout(() => goNext(), 1700);
+      advanceTimer.current = window.setTimeout(() => goNext(), 1000);
     }
   }, [opportunities, index, lang, step, goNext]);
 
-  // Locate + track the spotlight/halo target (UI moves as the user works).
-  useEffect(() => {
-    setRect(null);
-    if (!step?.target) return;
-    const find = () => {
+  // Locate + track the spotlight/halo target. useLayoutEffect + step-tagged
+  // state means the very first painted frame of a step already has the right
+  // position — no corner-to-center jump between slides.
+  useLayoutEffect(() => {
+    const measure = () => {
+      if (!step?.target) return null;
       const els = document.querySelectorAll(`[data-tutorial="${step.target}"]`);
       for (let i = els.length - 1; i >= 0; i--) {
         const r = els[i].getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          setRect(prev => {
-            if (prev && Math.abs(prev.top - r.top) < 1 && Math.abs(prev.left - r.left) < 1
-              && Math.abs(prev.width - r.width) < 1 && Math.abs(prev.height - r.height) < 1) return prev;
-            return { top: r.top, left: r.left, width: r.width, height: r.height };
-          });
-          return;
-        }
+        if (r.width > 0 && r.height > 0) return { top: r.top, left: r.left, width: r.width, height: r.height };
       }
-      setRect(prev => (prev === null ? prev : null));
+      return null;
     };
-    find();
-    const timer = window.setInterval(find, 350);
-    window.addEventListener('resize', find);
-    return () => { window.clearInterval(timer); window.removeEventListener('resize', find); };
+    setLoc({ idx: index, rect: measure() });
+    if (!step?.target) return;
+    const track = () => {
+      const r = measure();
+      setLoc(prev => {
+        if (prev.idx === index && ((prev.rect === null && r === null) || (prev.rect && r
+          && Math.abs(prev.rect.top - r.top) < 1 && Math.abs(prev.rect.left - r.left) < 1
+          && Math.abs(prev.rect.width - r.width) < 1 && Math.abs(prev.rect.height - r.height) < 1))) return prev;
+        return { idx: index, rect: r };
+      });
+    };
+    const timer = window.setInterval(track, 250);
+    window.addEventListener('resize', track);
+    return () => { window.clearInterval(timer); window.removeEventListener('resize', track); };
   }, [index, step?.target, lang]);
+
+  const rect = loc.idx === index ? loc.rect : null;
 
   // Keyboard: Esc always exits; arrows/Enter navigate "tell" steps only, and
   // never while the user is typing in a real input.
@@ -530,7 +614,7 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
     return () => window.removeEventListener('keydown', onKey);
   }, [goNext, goBack, onClose, isLast, lang, step]);
 
-  const minutesLeft = lang ? Math.max(1, Math.round((steps.length - index) * 1)) : 15;
+  const minutesLeft = lang ? Math.max(1, Math.round((steps.length - index) * 0.8)) : 15;
   const progressPct = lang ? ((index + 1) / steps.length) * 100 : 0;
 
   /* ------------------------------ Language picker ------------------------------ */

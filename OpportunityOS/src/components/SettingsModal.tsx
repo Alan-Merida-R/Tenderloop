@@ -263,6 +263,13 @@ interface Props {
 export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  // The backdrop below handles clicks away; this covers Escape and keyboard-only dismissal.
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsOpen(false); };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [isOpen]);
   return (
     <div className="relative">
       <button onClick={() => { setIsOpen(!isOpen); setSearchTerm(''); }} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">

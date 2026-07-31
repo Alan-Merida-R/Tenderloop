@@ -220,18 +220,40 @@ function dailyKpiTimeline(opportunity) {
     (task.assignmentCycles || []).forEach(cycle => { addEvent(cycle.changesRequestedAt, `Changes requested: ${task.title}`); addEvent(cycle.approved, `Approval completed: ${task.title}`); });
   });
   const allDates = [...dayRecords.keys(), ...events.keys()].sort();
-  const start = localDay(kpis.timeline?.receivedAt) || allDates[0]; const end = localDay(kpis.timeline?.deliveredAt) || localDay(new Date()) || allDates.at(-1);
+  const start = [localDay(kpis.timeline?.receivedAt), allDates[0]].filter(Boolean).sort()[0];
+  const end = [localDay(kpis.timeline?.deliveredAt) || localDay(new Date()), allDates.at(-1)].filter(Boolean).sort().at(-1);
   if (!start || !end || start > end) return { days: [], truncated: false };
-  const days = [], cursor = new Date(`${start}T12:00:00`), last = new Date(`${end}T12:00:00`); let count = 0;
-  while (cursor <= last && count < 730) {
+  const days = [], cursor = new Date(`${start}T12:00:00`), last = new Date(`${end}T12:00:00`);
+  while (cursor <= last) {
     const day = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}-${String(cursor.getDate()).padStart(2,'0')}`;
     const records = dayRecords.get(day) || [], dayEvents = events.get(day) || [];
     const worked = records.filter(record => record.type === 'Worked'), waiting = records.filter(record => record.type === 'Waiting'), inactive = records.filter(record => record.type === 'Inactive');
     const state = worked.length ? 'worked' : waiting.length ? 'waiting' : inactive.length ? 'inactive' : dayEvents.length ? 'event' : 'empty';
     const detail = [...worked.map(record => `Worked · ${record.area}${record.hours ? ` (${record.hours}h)` : ''}`), ...waiting.map(record => `Waiting · ${record.area}`), ...inactive.map(record => `Inactive · ${record.area}`), ...dayEvents];
-    days.push({ day, state, detail }); cursor.setDate(cursor.getDate()+1); count++;
+    days.push({ day, state, detail }); cursor.setDate(cursor.getDate()+1);
   }
-  return { days, truncated: cursor <= last };
+  return { days, truncated: false };
+}
+function assignmentGanttRows(opportunity) {
+  const todayDay = localDay(new Date()), rows = [];
+  (opportunity.tasks || []).filter(task => task.isAssignment || task.responsibleRequestedDate || task.approvalRequestedDate || task.assignmentCycles?.length).forEach(task => {
+    (task.assignmentCycles || []).forEach((cycle, index) => {
+      if (cycle.executionRequested || cycle.executionDelivered || cycle.executionRequired) rows.push({ task, phase: 'Execution', cycle:index+1, start:cycle.executionRequested, committed:cycle.executionRequired, end:cycle.executionDelivered, active:false, result: cycle.executionDelivered && cycle.executionRequired && cycle.executionDelivered > cycle.executionRequired ? 'Late' : 'Completed' });
+      if (cycle.approvalRequested || cycle.approved || cycle.approvalRequired || cycle.changesRequestedAt) rows.push({ task, phase: 'Approval', cycle:index+1, start:cycle.approvalRequested, committed:cycle.approvalRequired, end:cycle.approved || cycle.changesRequestedAt, active:false, result:cycle.reviewOutcome==='changes_requested' ? 'Changes requested' : 'Completed' });
+    });
+    const cycle = (task.assignmentCycles || []).length + 1;
+    if (task.responsibleRequestedDate || task.responsibleDeliveredDate || task.responsibleDueDate) { const active=['Missing Info','On Hold'].includes(task.status) && !task.responsibleDeliveredDate; rows.push({ task, phase:'Execution', cycle, start:task.responsibleRequestedDate, committed:task.responsibleDueDate, end:task.responsibleDeliveredDate, active, result:task.responsibleDeliveredDate?'Completed':task.responsibleDueDate && todayDay > task.responsibleDueDate?'Overdue':'Open' }); }
+    if (task.approvalRequestedDate || task.approvalDeliveredDate || task.approvalDueDate || task.status === 'Approval') { const active=task.status==='Approval'&&!task.approvalDeliveredDate; rows.push({ task, phase:'Approval', cycle, start:task.approvalRequestedDate, committed:task.approvalDueDate, end:task.approvalDeliveredDate, active, result:task.approvalDeliveredDate?'Completed':task.approvalDueDate && todayDay > task.approvalDueDate?'Overdue':'Open' }); }
+  }); return rows;
+}
+function fullGanttHtml(opportunity, timeline) {
+  const days=timeline.days, areas=opportunity.kpis?.areasInvolved || [], assignmentRows=assignmentGanttRows(opportunity), todayDay=localDay(new Date());
+  const cell = (item, content='', extra='') => `<div class="gantt-cell ${item?.state || 'empty'} ${extra}" title="${escape(item ? `${item.day}${item.detail.length ? `\n${item.detail.join('\n')}` : ''}` : '')}">${content}</div>`;
+  const header = days.map(item => { const d=new Date(`${item.day}T12:00:00`); return `<div class="gantt-date ${item.day===todayDay?'today':''}"><small>${d.toLocaleDateString(undefined,{weekday:'short'})}</small><strong>${item.day.slice(8)}</strong><em>${d.toLocaleDateString(undefined,{month:'short'})}</em></div>`; }).join('');
+  const events = days.map(item => cell(item, item.detail.length ? '<span class="gantt-event-dot"></span>' : '', 'events')).join('');
+  const assignment = assignmentRows.map(row => `<div class="gantt-label task"><strong>${escape(row.task.title)}</strong><small>${row.phase} · Cycle ${row.cycle} · ${escape(row.result)}</small></div>${days.map(item => { const end=row.end || (row.active ? todayDay : row.start); const inRange=row.start&&end&&item.day>=row.start&&item.day<=end; const markers=`${item.day===row.start?'<b>START</b>':''}${item.day===row.committed?'<b class="commit">CMT</b>':''}${item.day===row.end?'<b class="end">END</b>':''}`; return cell(item, markers, `${inRange ? `assignment ${row.phase.toLowerCase()}` : ''}`); }).join('')}`).join('');
+  const areaRows = areas.map(area => `<div class="gantt-label area"><strong>${escape(area.area || 'Unnamed area')}</strong><small>${Number(area.daysSpent||0)}d work · ${Number(area.waitingDays||0)}d wait</small></div>${days.map(item => { const record=area.calendar?.[item.day]; const state=record?.type==='Worked'?'worked':record?.type==='Waiting'?'waiting':record?.type==='Inactive'?'inactive':'empty'; const title=record ? `${item.day}\n${area.area}: ${record.type}${record.hours ? ` (${record.hours}h)` : ''}` : item.day; return `<div class="gantt-cell ${state}" title="${escape(title)}">${record?.type==='Worked'?'●':record?.type==='Waiting'?'◐':record?.type==='Inactive'?'×':''}</div>`; }).join('')}`).join('');
+  return `<div class="full-gantt-scroll"><div class="full-gantt" style="grid-template-columns:230px repeat(${days.length},42px)"><div class="gantt-label header">Area / activity</div>${header}<div class="gantt-label events-label">Events & milestones</div>${events}${assignment}${areaRows}</div></div>`;
 }
 function lastActivity(opportunity) {
   const taskDates = (opportunity.tasks || []).flatMap(task => [task.completedAt, task.responsibleDeliveredDate, task.approvalDeliveredDate]).filter(Boolean);
@@ -295,6 +317,11 @@ function ensureManagerUiStyles() {
   const style = document.createElement('style'); style.id = 'managerUiStyles';
   style.textContent = '.op-labels{display:flex;flex-wrap:wrap;gap:4px;min-width:100px}.op-label{display:inline-flex;align-items:center;border:1px solid color-mix(in srgb,var(--label-color) 42%,white);background:color-mix(in srgb,var(--label-color) 12%,white);color:var(--label-color);border-radius:999px;padding:3px 7px;font-size:10px;font-weight:800;line-height:1.1}.database-warning{color:#ffd268}.database-card-warning{border-color:#e6b94e;background:#fffdf7}.timeline-legend{display:flex;flex-wrap:wrap;gap:8px;margin:-3px 0 12px}.timeline-legend span{padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800}.timeline-legend .worked{background:#e9faed;color:#187332}.timeline-legend .waiting{background:#fff5d8;color:#9b7200}.timeline-legend .inactive{background:#edf1f4;color:#667587}.timeline-legend .event{background:#f0ebff;color:#6040ac}.timeline-legend .empty{background:#fafbfc;color:#8795a2;padding:4px 8px;text-align:left}.daily-timeline{display:flex;gap:5px;overflow-x:auto;padding:8px 2px 12px;border-bottom:1px solid #edf1f4}.timeline-day{width:38px;min-width:38px;height:58px;border:1px solid #e2e8ed;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;background:#fafbfc;color:#8795a2;cursor:help}.timeline-day strong{font-size:13px}.timeline-day small{font-size:9px;font-weight:750;margin-top:1px}.timeline-day i{position:absolute;bottom:5px;width:17px;height:4px;border-radius:10px;background:#dce4eb}.timeline-day.worked{background:#effcf2;border-color:#a8dfb5;color:#187332}.timeline-day.worked i{background:#3DCD58}.timeline-day.waiting{background:#fff9e7;border-color:#f0d27a;color:#9b7200}.timeline-day.waiting i{background:#d6a900}.timeline-day.inactive{background:#f1f4f6;color:#667587}.timeline-day.inactive i{background:#8a99a5}.timeline-day.event{background:#f4f1ff;border-color:#cabbf1;color:#6040ac}.timeline-day.event i{background:#6b46c1}.timeline-day:hover{transform:translateY(-2px);box-shadow:0 5px 12px #0b1f3320}';
   document.head.append(style);
+}
+function ensureGanttStyles() {
+  if ($('#managerGanttStyles')) return;
+  const style=document.createElement('style'); style.id='managerGanttStyles';
+  style.textContent='.gantt-legend{display:flex;gap:7px;flex-wrap:wrap;margin:-3px 0 12px}.gantt-legend span{border-radius:999px;padding:4px 8px;font-size:10px;font-weight:800}.gantt-legend .worked{background:#e9faed;color:#187332}.gantt-legend .waiting{background:#fff5d8;color:#9b7200}.gantt-legend .inactive{background:#f1f4f6;color:#667587}.gantt-legend .execution{background:#e8f2ff;color:#1d63a8}.gantt-legend .approval{background:#f0ebff;color:#6040ac}.full-gantt-scroll{overflow:auto;max-height:680px;border:1px solid #dce4eb;border-radius:10px;background:#dce4eb}.full-gantt{display:grid;gap:1px;min-width:max-content}.gantt-label,.gantt-date,.gantt-cell{background:#fff;min-height:52px}.gantt-label{position:sticky;left:0;z-index:3;padding:10px 12px;box-shadow:2px 0 5px #0b1f3318}.gantt-label.header{z-index:6;background:#eff3f6;color:#607082;text-transform:uppercase;font-size:10px;font-weight:850;display:flex;align-items:center}.gantt-label.events-label{background:#f8fffa;color:#16893a;font-size:10px;font-weight:850;display:flex;align-items:center}.gantt-label.task{background:#f8fafc}.gantt-label.area{background:#fff}.gantt-label strong,.gantt-label small{display:block}.gantt-label strong{font-size:11px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gantt-label small{margin-top:3px;color:#667587;font-size:9px}.gantt-date{position:sticky;top:0;z-index:5;background:#eff3f6;text-align:center;padding:6px 1px;display:flex;flex-direction:column;justify-content:center;color:#607082}.gantt-date.today{background:#dff7e5;color:#187332}.gantt-date small,.gantt-date em{font-size:8px;font-style:normal;font-weight:750}.gantt-date strong{font-size:14px}.gantt-cell{display:flex;align-items:center;justify-content:center;position:relative;font-size:10px;cursor:help}.gantt-cell.events{background:#fbfffc}.gantt-event-dot{width:8px;height:8px;border-radius:50%;background:#3DCD58;box-shadow:0 1px 4px #16893a77}.gantt-cell.worked{background:#e7f7ec;color:#187332}.gantt-cell.waiting{background:#fff5d8;color:#9b7200}.gantt-cell.inactive{background:#f1f4f6;color:#667587}.gantt-cell.assignment{background:#e8f2ff}.gantt-cell.assignment.approval{background:#f0ebff}.gantt-cell.assignment::after{content:"";position:absolute;left:0;right:0;height:7px;border-radius:5px;background:#4285c5}.gantt-cell.assignment.approval::after{background:#8062c8}.gantt-cell b{position:relative;z-index:1;background:#173952;color:#fff;border-radius:3px;padding:2px 3px;font-size:7px;line-height:1}.gantt-cell b.commit{background:#e98223}.gantt-cell b.end{background:#16893a}.gantt-cell:hover{outline:2px solid #3DCD58;outline-offset:-2px;z-index:2}'; document.head.append(style);
 }
 function renderShell() {
   ensureManagerUiStyles();
@@ -364,6 +391,7 @@ function showTaskDetail(task) {
   }
 }
 function decorateSummaryDetail() {
+  ensureGanttStyles();
   const entry = findEntry(selectedKey);
   const drawer = $('.drawer');
   if (!entry || !drawer || detailTab !== 'summary') return;
@@ -389,7 +417,10 @@ function decorateSummaryDetail() {
   const timeline = dailyKpiTimeline(op);
   const timelineSection = document.createElement('section'); timelineSection.className = 'section card'; timelineSection.style.marginTop = '18px';
   timelineSection.innerHTML = `<div class="section-title"><div><h2>Daily KPI timeline</h2><span>Scroll horizontally to review every day of the opportunity.</span></div></div><div class="timeline-legend"><span class="worked">Worked</span><span class="waiting">Waiting</span><span class="inactive">Inactive</span><span class="event">Activity</span><span class="empty">No record</span></div><div class="daily-timeline">${timeline.days.map(item => `<div class="timeline-day ${item.state}" title="${escape(`${item.day}${item.detail.length ? `\n${item.detail.join('\n')}` : '\nNo tracked activity'}`)}"><strong>${item.day.slice(8)}</strong><small>${item.day.slice(5,7)}</small><i></i></div>`).join('') || '<div class="empty">No KPI timeline dates are available in this report.</div>'}</div>${timeline.truncated ? '<p class="muted" style="margin:12px 0 0">The first 730 days are shown. The KPI range is longer than two years.</p>' : ''}<p class="muted" style="margin:12px 0 0">Hover over a day to see the tracked areas and events. The timeline is read-only.</p>`;
-  $('.detail-body', drawer)?.append(timelineSection);
+  // The compact strip remains prepared for future responsive use; the complete Gantt below is the visible manager view.
+  const ganttSection = document.createElement('section'); ganttSection.className = 'section card'; ganttSection.style.marginTop = '18px';
+  ganttSection.innerHTML = `<div class="section-title"><div><h2>Implementation Gantt</h2><span>Complete read-only calendar by area, assignments and milestones.</span></div></div><div class="gantt-legend"><span class="worked">● Worked</span><span class="waiting">◐ Waiting</span><span class="inactive">× Inactive</span><span class="execution">Execution</span><span class="approval">Approval</span></div>${fullGanttHtml(op, timeline)}<p class="muted" style="margin:12px 0 0">Every day in the opportunity range is included. Scroll horizontally and hover a cell for its detail.</p>`;
+  $('.detail-body', drawer)?.append(ganttSection);
   const noteHeading = [...$$('h3', drawer)].find(heading => heading.textContent.trim() === 'Tender notes');
   const noteList = noteHeading?.nextElementSibling;
   if (noteList) $$(':scope > .list-row', noteList).forEach((row, index) => {

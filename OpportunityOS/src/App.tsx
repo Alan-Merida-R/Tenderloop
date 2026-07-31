@@ -2764,6 +2764,10 @@ function App() {
               setActiveDeepLink(null);
               startTransition(() => setCurrentView(view));
             }}
+            onOpenLatestOpportunity={() => {
+              const latest = stableOpportunities[0];
+              if (latest) handleSelectOpp(latest.id);
+            }}
           />
         )}
         {showQuickOrganizer && (

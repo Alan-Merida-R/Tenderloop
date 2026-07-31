@@ -155,12 +155,6 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], t
     opportunityId: newOppId,
     correctionTaskId: entry.correctionTaskId ? idMap[entry.correctionTaskId] : undefined,
   }));
-  const newApprovalHistory = (oldOpp.approvalHistory || []).map(entry => ({
-    ...entry,
-    id: generateId(),
-    taskId: idMap[entry.taskId] || entry.taskId,
-    correctionTaskId: entry.correctionTaskId ? idMap[entry.correctionTaskId] : undefined,
-  }));
   const newEmails = oldOpp.emails ? {
     ...oldOpp.emails,
     conversations: (oldOpp.emails.conversations || []).map(conversation => ({
@@ -184,11 +178,17 @@ export const importOpportunity = async (pkg: any, existingOpps: Opportunity[], t
     title: targetId ? oldOpp.title : `${oldOpp.title} (Imported)`,
     tasks: newTasks,
     notes: newNotes,
-    history: newHistory,
+    history: newHistory.map(entry => entry.approval ? ({
+      ...entry,
+      approval: {
+        ...entry.approval,
+        taskId: idMap[entry.approval.taskId] || entry.approval.taskId,
+        correctionTaskId: entry.approval.correctionTaskId ? idMap[entry.approval.correctionTaskId] : undefined,
+      },
+    }) : entry),
     folderDocs: newFolderDocs,
     folderPins: newFolderPins,
     fileRevisionHistory: newRevisionHistory,
-    approvalHistory: newApprovalHistory,
     emails: newEmails,
     // Nothing legacy to sweep in for an id that has never existed in this browser.
     folderDataMigrated: true,

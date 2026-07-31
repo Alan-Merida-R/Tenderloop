@@ -1,8 +1,8 @@
 ﻿
-import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalHistoryEntry } from '../types';
+import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, GripVertical, Maximize2, Minimize2, MessageCircle, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip, Bell } from 'lucide-react';
 import { SearchableSelect, DateTimePicker, SearchableOption } from './RemindersBell';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
@@ -62,6 +62,23 @@ const normalizeHistoryDate = (value?: string | null) => {
 };
 
 const sortHistoryEntries = sortHistoryEntriesNewestFirst;
+
+const approvalEventsForTask = (history: HistoryEntry[], taskId: string) =>
+    history.filter(entry => entry.approval?.taskId === taskId).map(entry => entry.approval!);
+
+const migrateLegacyApprovalEvents = (opportunity: Opportunity): Opportunity => {
+    const legacy = (opportunity as Opportunity & { approvalHistory?: ApprovalEvent[] }).approvalHistory;
+    if (!legacy?.length) return opportunity;
+    const history = [...(opportunity.history || [])];
+    legacy.forEach(event => {
+        if (history.some(entry => entry.approval?.taskId === event.taskId && entry.approval.outcome === event.outcome && entry.approval.changeRevisionId === event.changeRevisionId && entry.date === (event.approvedAt || event.sentBackAt || event.requestedAt))) return;
+        const taskTitle = opportunity.tasks.find(task => task.id === event.taskId)?.title || 'task';
+        const action = event.outcome === 'approved' ? 'Approved' : event.outcome === 'resubmitted' ? 'Sent back for approval' : 'Changes requested';
+        history.push({ id: crypto.randomUUID(), date: event.approvedAt || event.sentBackAt || event.requestedAt, createdAt: new Date().toISOString(), approval: event, content: `${action} for "${taskTitle}".${event.requiredChanges ? ` ${event.requiredChanges}` : ''}` });
+    });
+    const { approvalHistory: _legacy, ...migrated } = opportunity as Opportunity & { approvalHistory?: ApprovalEvent[] };
+    return { ...migrated, history: sortHistoryEntries(history), lastUpdated: new Date().toISOString() };
+};
 
 // PERF FIX: jsPDF + autoTable are large libraries (~400KB combined).
 // Loading them statically caused ~200-400ms of parse/execution on every
@@ -843,9 +860,11 @@ const MultiSelect = ({ options, selected, onChange, placeholder, onCreate, compa
     const [isOpen, setIsOpen] = useState(false);
     const [newOption, setNewOption] = useState('');
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 224 });
-    useEffect(() => {
-        if (!isOpen) return;
+    // null until measured: rendering the menu before we know where the button is would paint it
+    // at the viewport corner for one frame and then visibly jump into place.
+    const [menuPosition, setMenuPosition] = useState<{ top: number, left: number, width: number } | null>(null);
+    useLayoutEffect(() => {
+        if (!isOpen) { setMenuPosition(null); return; }
         const positionMenu = () => {
             const rect = buttonRef.current?.getBoundingClientRect();
             if (!rect) return;
@@ -858,12 +877,15 @@ const MultiSelect = ({ options, selected, onChange, placeholder, onCreate, compa
                 width,
             });
         };
+        const closeOnEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsOpen(false); };
         positionMenu();
         window.addEventListener('resize', positionMenu);
         window.addEventListener('scroll', positionMenu, true);
+        document.addEventListener('keydown', closeOnEscape);
         return () => {
             window.removeEventListener('resize', positionMenu);
             window.removeEventListener('scroll', positionMenu, true);
+            document.removeEventListener('keydown', closeOnEscape);
         };
     }, [isOpen]);
     const submitNewOption = () => {
@@ -880,7 +902,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder, onCreate, compa
                 <span className="truncate">{compact ? '+ Role' : (selected.length ? `${selected.length} selected` : placeholder)}</span>
                 {!compact && <ChevronDown className="w-3 h-3" />}
             </button>
-            {isOpen && createPortal(
+            {isOpen && menuPosition && createPortal(
                 <>
                     <div className="fixed inset-0 z-[9998]" onClick={() => setIsOpen(false)} />
                     <div className="fixed bg-white border border-gray-200 shadow-xl z-[9999] max-h-64 overflow-y-auto rounded-xl p-1 animate-in fade-in duration-200" style={menuPosition}>
@@ -2307,7 +2329,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [editingAreaCalendar, setEditingAreaCalendar] = useState<string | null>(null); // Area ID
     const [showFullCalendar, setShowFullCalendar] = useState(false);
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
-    const [localOpp, setLocalOpp] = useState<Opportunity>(opportunity);
+    const [localOpp, setLocalOpp] = useState<Opportunity>(() => migrateLegacyApprovalEvents(opportunity));
     const hiddenHeaderFields = useMemo(() => new Set(hiddenOpportunityHeaderFields), [hiddenOpportunityHeaderFields]);
 
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
@@ -2351,6 +2373,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             updateTimeoutRef.current = window.setTimeout(flush, 200);
         }
     }, [parentOnUpdate]);
+
+    const migratedApprovalOppIdsRef = useRef(new Set<string>());
+    useEffect(() => {
+        const legacy = (opportunity as Opportunity & { approvalHistory?: ApprovalEvent[] }).approvalHistory;
+        if (!legacy?.length || migratedApprovalOppIdsRef.current.has(opportunity.id)) return;
+        migratedApprovalOppIdsRef.current.add(opportunity.id);
+        const migrated = migrateLegacyApprovalEvents(opportunity);
+        setLocalOpp(migrated);
+        onUpdate(migrated, opportunity.id, true);
+    }, [opportunity, onUpdate]);
 
     useEffect(() => {
         return () => {
@@ -2658,7 +2690,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showDocPicker, setShowDocPicker] = useState<{ type: 'task' | 'note'; id: string } | null>(null);
     const [changeRevisionTaskId, setChangeRevisionTaskId] = useState<string | null>(null);
     const [creatingChangeRevision, setCreatingChangeRevision] = useState(false);
-    const [editingApprovalHistory, setEditingApprovalHistory] = useState<ApprovalHistoryEntry | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const [linkedTaskDocCounts, setLinkedTaskDocCounts] = useState<Record<string, number>>({});
     const [selectedEmailFolderId, setSelectedEmailFolderId] = useState<string>('all');
@@ -3255,12 +3286,30 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const mergedEmailComposeSettings = useMemo(() => mergeEmailComposeSettings(emailComposeSettings), [emailComposeSettings]);
     const [emailComposeState, setEmailComposeState] = useState<{ open: boolean; templateId?: string; taskIds?: string[] }>({ open: false });
     const openEmailCompose = (templateId?: string, taskIds?: string[]) => setEmailComposeState({ open: true, templateId, taskIds });
+
+    // The interactive tutorial fires this event when a new step activates so any
+    // modal the user left open (task editor, email composer, revision dialogs…)
+    // closes and the step's spotlight target is actually visible.
+    useEffect(() => {
+        const closeOverlays = () => {
+            setSelectedTaskForEdit(null);
+            setEmailComposeState({ open: false });
+            setShowCreateVersionModal(false);
+            setShowDiffModal(false);
+            setShowCopyTasksModal(false);
+            setShowRevisionCarryoverModal(false);
+            setShowAddAreaModal(false);
+            setShowAddSectionModal(false);
+        };
+        window.addEventListener('oos-tutorial-prepare', closeOverlays);
+        return () => window.removeEventListener('oos-tutorial-prepare', closeOverlays);
+    }, []);
     const emailKindForTask = (task: Task): GeneratedEmailKind => {
         if (task.reworkForTaskId) {
             return task.status === 'Done' || !!task.sentBackForApprovalAt ? 'approval_resubmission' : 'change_revision';
         }
-        const hasResubmission = (localOpp.approvalHistory || []).some(entry => entry.taskId === task.id && entry.outcome === 'resubmitted');
-        const hasApproval = (localOpp.approvalHistory || []).some(entry => entry.taskId === task.id && entry.outcome === 'approved');
+        const hasResubmission = approvalEventsForTask(localOpp.history || [], task.id).some(entry => entry.outcome === 'resubmitted');
+        const hasApproval = approvalEventsForTask(localOpp.history || [], task.id).some(entry => entry.outcome === 'approved');
         if (task.status === 'Approval' && hasResubmission) return 'approval_resubmission';
         if (task.status === 'Done' && hasApproval) return 'approval_confirmation';
         return 'task_assignment';
@@ -4713,21 +4762,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!task || (task.status !== 'Approval' && task.status !== 'Done')) return;
         setChangeRevisionTaskId(taskId);
     };
-    const saveApprovalHistoryEdit = () => {
-        if (!editingApprovalHistory) return;
-        const base = localOppRef.current;
-        const updatedEntry = { ...editingApprovalHistory, updatedAt: new Date().toISOString() };
-        const updated = {
-            ...base,
-            approvalHistory: (base.approvalHistory || []).map(entry => entry.id === updatedEntry.id ? updatedEntry : entry),
-            lastUpdated: new Date().toISOString(),
-        };
-        localOppRef.current = updated;
-        setLocalOpp(updated);
-        onUpdate(updated, base.id, true);
-        setEditingApprovalHistory(null);
-    };
-
     const createApprovalChangeRevision = async (form: ChangeRevisionFormValue) => {
         if (!changeRevisionTaskId || creatingChangeRevision) return;
         const baseOpp = localOppRef.current;
@@ -4825,21 +4859,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             });
         });
 
-        const historyEntry: HistoryEntry = {
-            id: crypto.randomUUID(),
-            date: today,
-            content: `Change revision created for "${approvalTask.title}": ${form.requiredChanges}`,
-            createdAt: new Date().toISOString(),
-        };
-        const approvalCycle = (baseOpp.approvalHistory || []).filter(entry => entry.taskId === approvalTask.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1;
-        const approvalRecord: ApprovalHistoryEntry = {
-            id: crypto.randomUUID(), taskId: approvalTask.id, correctionTaskId: reworkId, changeRevisionId,
+        const approvalCycle = approvalEventsForTask(baseOpp.history || [], approvalTask.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1;
+        const approvalEvent: ApprovalEvent = {
+            taskId: approvalTask.id, correctionTaskId: reworkId, changeRevisionId,
             cycle: approvalCycle, outcome: 'changes_requested', requiredChanges: form.requiredChanges,
             reason: form.reason, requestedByIds: [...form.requestedByIds], informedIds: [...form.informedIds],
             assignedTo: form.assignedTo, responsibleTeamMemberIds: [...form.responsibleTeamMemberIds],
             requestedAt: today, committedAt: form.committedDate || undefined,
             previousAttachmentKeys: previousAttachments, activeAttachmentKeys: nextApprovalAttachments,
-            createdAt: new Date().toISOString(),
+        };
+        const historyEntry: HistoryEntry = {
+            id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), approval: approvalEvent,
+            content: `Changes requested for "${approvalTask.title}": ${form.requiredChanges}`,
         };
         const revisionNote: MeetingNote = {
             id: revisionNoteId,
@@ -4882,7 +4913,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             tasks: [...shiftedTasks, correctionTask],
             notes: [revisionNote, ...(baseOpp.notes || [])],
             history: sortHistoryEntries([historyEntry, ...(baseOpp.history || [])]),
-            approvalHistory: [...(baseOpp.approvalHistory || []), approvalRecord],
             folderDocs: existingDocs,
             fileRevisionHistory: [...(baseOpp.fileRevisionHistory || []), ...createdFiles.map(file => file.history)],
             lastUpdated: new Date().toISOString(),
@@ -4919,10 +4949,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (task.id === correction.id) return { ...task, sentBackForApprovalAt: today };
             return task;
         });
-        const sourceRecord = [...(baseOpp.approvalHistory || [])].reverse().find(entry => entry.changeRevisionId === correction.changeRevisionId && entry.outcome === 'changes_requested');
-        const record: ApprovalHistoryEntry = {
-            id: crypto.randomUUID(), taskId: original.id, correctionTaskId: correction.id, changeRevisionId: correction.changeRevisionId,
-            cycle: sourceRecord?.cycle || ((baseOpp.approvalHistory || []).filter(entry => entry.taskId === original.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1),
+        const sourceRecord = [...(baseOpp.history || [])].reverse().find(entry => entry.approval?.changeRevisionId === correction.changeRevisionId && entry.approval.outcome === 'changes_requested')?.approval;
+        const approvalEvent: ApprovalEvent = {
+            taskId: original.id, correctionTaskId: correction.id, changeRevisionId: correction.changeRevisionId,
+            cycle: sourceRecord?.cycle || (approvalEventsForTask(baseOpp.history || [], original.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1),
             outcome: 'resubmitted', requiredChanges: correction.changeRequest, reason: correction.changeReason,
             requestedByIds: correction.changeRequestedByIds || [], informedIds: correction.changeInformedIds || [],
             assignedTo: correction.owner, responsibleTeamMemberIds: correction.responsibleTeamMemberIds || [],
@@ -4931,9 +4961,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             deliveredAt: correction.responsibleDeliveredDate || correction.completedAt || today,
             sentBackAt: today, previousAttachmentKeys: sourceRecord?.previousAttachmentKeys || previousKeys,
             activeAttachmentKeys: sourceRecord?.activeAttachmentKeys || newKeys,
-            createdAt: new Date().toISOString(),
         };
-        const updatedApprovalHistory = (baseOpp.approvalHistory || []).map(entry => entry.id === sourceRecord?.id ? { ...entry, deliveredAt: record.deliveredAt, updatedAt: new Date().toISOString() } : entry);
         const folderDocs = (baseOpp.folderDocs || []).map(doc => previousKeys.includes(doc.fileKey)
             ? { ...doc, linkedTaskIds: doc.linkedTaskIds.filter(id => id !== original.id), updatedAt: new Date().toISOString() }
             : newKeys.includes(doc.fileKey)
@@ -4942,8 +4970,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newOpp = {
             ...baseOpp, tasks, folderDocs,
             notes: appendChangeRevisionNoteEvent(baseOpp.notes || [], correction.changeRevisionId, 'Sent Back for Approval', `The correction task "${correction.title}" was resubmitted for approval.`, today),
-            approvalHistory: [...updatedApprovalHistory, record],
-            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), content: `Correction "${correction.title}" sent back for approval.` }, ...(baseOpp.history || [])]),
+            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), approval: approvalEvent, content: `Correction "${correction.title}" sent back for approval.` }, ...(baseOpp.history || [])]),
             lastUpdated: new Date().toISOString(),
         };
         localOppRef.current = newOpp;
@@ -4959,11 +4986,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!window.confirm(`Approve "${task.title}"?`)) return;
         const today = getTodayStr();
         const activeAttachments = (await listLinkedForTask(baseOpp.id, task.id)).map(item => item.fileKey);
-        const latestResubmission = [...(baseOpp.approvalHistory || [])].reverse().find(entry => entry.taskId === task.id && entry.outcome === 'resubmitted');
-        const cycle = latestResubmission?.cycle || ((baseOpp.approvalHistory || []).filter(entry => entry.taskId === task.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1);
+        const latestResubmission = [...(baseOpp.history || [])].reverse().find(entry => entry.approval?.taskId === task.id && entry.approval.outcome === 'resubmitted')?.approval;
+        const cycle = latestResubmission?.cycle || (approvalEventsForTask(baseOpp.history || [], task.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1);
         const approvedTask = syncAssignmentSubtasks({ ...task, status: 'Done', approvalDeliveredDate: today, completedAt: new Date().toISOString() });
-        const record: ApprovalHistoryEntry = {
-            id: crypto.randomUUID(), taskId: task.id, correctionTaskId: latestResubmission?.correctionTaskId,
+        const approvalEvent: ApprovalEvent = {
+            taskId: task.id, correctionTaskId: latestResubmission?.correctionTaskId,
             changeRevisionId: latestResubmission?.changeRevisionId, cycle, outcome: 'approved',
             requiredChanges: latestResubmission?.requiredChanges, reason: latestResubmission?.reason,
             requestedByIds: latestResubmission?.requestedByIds || [], informedIds: latestResubmission?.informedIds || [],
@@ -4972,14 +4999,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             requestedAt: task.approvalRequestedDate || today, deliveredAt: latestResubmission?.deliveredAt,
             sentBackAt: latestResubmission?.sentBackAt, approvedAt: today,
             previousAttachmentKeys: latestResubmission?.previousAttachmentKeys || [], activeAttachmentKeys: activeAttachments,
-            createdAt: new Date().toISOString(),
         };
         let newOpp = {
             ...baseOpp,
             tasks: baseOpp.tasks.map(item => item.id === task.id ? approvedTask : item),
             notes: appendChangeRevisionNoteEvent(baseOpp.notes || [], latestResubmission?.changeRevisionId, 'Approved', `The revised deliverable for "${task.title}" was approved.`, today),
-            approvalHistory: [...(baseOpp.approvalHistory || []), record],
-            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), content: `Approved "${task.title}".` }, ...(baseOpp.history || [])]),
+            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), approval: approvalEvent, content: `Approved "${task.title}".` }, ...(baseOpp.history || [])]),
             lastUpdated: new Date().toISOString(),
         };
         newOpp = withTenderingWorkedDay(newOpp, today);
@@ -5874,7 +5899,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 alert('Complete the linked corrective task first. The original approval cannot be completed from a note.');
                 return;
             }
-            const wasExplicitlyApproved = linked?.status === 'Done' && (localOpp.approvalHistory || []).some(entry => entry.taskId === linked.id && entry.outcome === 'approved');
+            const wasExplicitlyApproved = linked?.status === 'Done' && approvalEventsForTask(localOpp.history || [], linked.id).some(entry => entry.outcome === 'approved');
             if (!updatedTask.isDone && wasExplicitlyApproved) {
                 alert('An approved task cannot be reopened from a note. Create a Change Revision instead.');
                 return;
@@ -6823,6 +6848,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             )}
                                             {!isSnapshot && !hiddenHeaderFields.has('autoFillEmail') && (
                                                 <button
+                                                    data-tutorial="autofill-button"
                                                     onClick={() => setShowSrImport(true)}
                                                     className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] border border-[#3DCD58]/20 rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"
                                                     title="Auto-fill this expediente from a bFO Support Request email (.msg / .eml file or pasted text)"
@@ -8510,37 +8536,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
                                 )}
-                                <div className="rounded-2xl border border-purple-100 bg-purple-50/30 p-4">
-                                    <div className="mb-3 flex items-center justify-between">
-                                        <h3 className="flex items-center gap-2 font-bold text-gray-800"><CheckCircle className="h-4 w-4 text-purple-600" /> Approval History</h3>
-                                        <span className="text-[10px] font-black uppercase text-gray-400">{(localOpp.approvalHistory || []).length} events</span>
-                                    </div>
-                                    <div className="space-y-2">
-                                        {[...(localOpp.approvalHistory || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(entry => {
-                                            const task = localOpp.tasks.find(item => item.id === entry.taskId);
-                                            const requestedBy = (localOpp.stakeholders || []).filter(person => (entry.requestedByIds || []).includes(person.id)).map(person => person.name).join(', ');
-                                            return <div key={entry.id} className="rounded-xl border border-gray-100 bg-white p-3 text-xs shadow-sm">
-                                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <div className="min-w-0"><span className="font-black text-gray-800">Cycle {entry.cycle} · {task?.title || entry.taskId}</span>{requestedBy && <span className="ml-2 text-gray-400">Requested by {requestedBy}</span>}</div>
-                                                    <div className="flex items-center gap-1.5"><span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${entry.outcome === 'approved' ? 'bg-emerald-100 text-emerald-700' : entry.outcome === 'resubmitted' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'}`}>{entry.outcome.replace('_', ' ')}</span>{!isSnapshot && <button onClick={() => setEditingApprovalHistory({ ...entry })} className="rounded border border-gray-200 px-2 py-0.5 text-[9px] font-bold text-gray-500 hover:bg-gray-50">Edit</button>}</div>
-                                                </div>
-                                                {editingApprovalHistory?.id === entry.id ? <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3">
-                                                    <div className="grid gap-2 md:grid-cols-2"><textarea value={editingApprovalHistory.requiredChanges || ''} onChange={e => setEditingApprovalHistory({ ...editingApprovalHistory, requiredChanges: e.target.value })} placeholder="Required changes" className="rounded-lg border-gray-200 text-xs" /><textarea value={editingApprovalHistory.reason || ''} onChange={e => setEditingApprovalHistory({ ...editingApprovalHistory, reason: e.target.value })} placeholder="Reason" className="rounded-lg border-gray-200 text-xs" /></div>
-                                                    <div className="grid gap-2 md:grid-cols-2"><div><label className="text-[9px] font-bold uppercase text-gray-400">Requested By</label><SimpleMultiSelect placeholder="Select stakeholders" options={(localOpp.stakeholders || []).map(person => ({ id: person.id, label: person.name }))} selected={editingApprovalHistory.requestedByIds || []} onChange={ids => setEditingApprovalHistory({ ...editingApprovalHistory, requestedByIds: ids })} /></div><div><label className="text-[9px] font-bold uppercase text-gray-400">Keep Informed</label><SimpleMultiSelect placeholder="Select stakeholders" options={(localOpp.stakeholders || []).map(person => ({ id: person.id, label: person.name }))} selected={editingApprovalHistory.informedIds || []} onChange={ids => setEditingApprovalHistory({ ...editingApprovalHistory, informedIds: ids })} /></div></div>
-                                                    <div className="grid grid-cols-2 gap-2 md:grid-cols-5">{([['requestedAt','Requested'],['committedAt','Committed'],['deliveredAt','Delivered'],['sentBackAt','Resubmitted'],['approvedAt','Approved']] as const).map(([field,label]) => <label key={field} className="text-[9px] font-bold uppercase text-gray-400">{label}<input type="date" value={editingApprovalHistory[field] || ''} onChange={e => setEditingApprovalHistory({ ...editingApprovalHistory, [field]: e.target.value || undefined })} className="mt-1 w-full rounded border-gray-200 p-1 text-[10px]" /></label>)}</div>
-                                                    <div className="flex justify-end gap-2"><button onClick={() => setEditingApprovalHistory(null)} className="rounded px-2 py-1 text-[10px] font-bold text-gray-500">Cancel</button><button onClick={saveApprovalHistoryEdit} className="rounded bg-[#3DCD58] px-3 py-1 text-[10px] font-black text-white">Save</button></div>
-                                                </div> : <><>{entry.requiredChanges && <p className="mt-2 text-gray-600"><b>Changes:</b> {entry.requiredChanges}</p>}</><>{entry.reason && <p className="mt-1 text-gray-500"><b>Reason:</b> {entry.reason}</p>}</><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-400"><span>Requested: {entry.requestedAt}</span>{entry.committedAt && <span>Committed: {entry.committedAt}</span>}{entry.deliveredAt && <span>Delivered: {entry.deliveredAt}</span>}{entry.sentBackAt && <span>Resubmitted: {entry.sentBackAt}</span>}{entry.approvedAt && <span>Approved: {entry.approvedAt}</span>}<span>{entry.activeAttachmentKeys.length} active attachment(s)</span></div></>}
-                                            </div>;
-                                        })}
-                                        {!(localOpp.approvalHistory || []).length && <p className="py-4 text-center text-xs italic text-gray-400">No approval cycles recorded yet.</p>}
-                                    </div>
-                                </div>
                                 <div className="flex justify-between items-center">
                                     <h3 className="font-bold text-gray-800">Change Log / Events</h3>
                                     <div className="flex gap-2">
                                         <button onClick={copyHistoryToClipboard} className="text-xs font-bold px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">Copy for bFO</button>
                                         {!isSnapshot && (
-                                            <button onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
+                                            <button data-tutorial="add-history" onClick={() => addHistoryEntry()} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">+ Add Entry</button>
                                         )}
                                     </div>
                                 </div>
@@ -8578,7 +8579,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         {[...(emailsData.generatedEmails || [])].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).map(rec => (
                                             <div key={rec.id} className="flex items-center gap-2 bg-gray-50/60 border border-gray-100 rounded-lg px-3 py-2 text-xs">
                                                 <span className="flex-1 truncate text-gray-700" title={rec.subject}>
-                                                    Mandé un correo <b>({emailTopicFromSubject(rec.subject)})</b> para {rec.to.join(', ')}
+                                                    I sent an email <b>({emailTopicFromSubject(rec.subject)})</b> to {rec.to.join(', ')}
                                                 </span>
                                                 {rec.attachments.length > 0 && <span className="flex items-center gap-0.5 text-gray-400 shrink-0"><Paperclip className="w-3 h-3" />{rec.attachments.length}</span>}
                                                 <span className="text-gray-300 shrink-0">{(rec.createdAt || '').slice(0, 10)}</span>
@@ -8848,7 +8849,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <Plus className="w-3 h-3" /> {tmpl.title}
                                                 </button>
                                             ))}
-                                            <button onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
+                                            <button data-tutorial="add-note" onClick={() => addNote()} className="p-3 bg-gray-50 hover:bg-[#3DCD58]/10 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all"><Zap className="w-3 h-3" /> Blank</button>
                                             {sowSectionEnabled && <button onClick={addSowNote} className="p-3 bg-gray-50 hover:bg-blue-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-blue-600" title="Add the Scope of Work guided form to this opportunity"><ListChecks className="w-3 h-3" /> SOW</button>}
                                             <button onClick={() => addFolder()} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
@@ -9268,7 +9269,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         {!isSnapshot && (
                                             <>
                                                 <button onClick={() => setShowCopyTasksModal(true)} className="text-xs font-bold bg-white border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm flex items-center gap-2"><Copy className="w-4 h-4" /> Copy Tasks</button>
-                                                <button onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
+                                                <button data-tutorial="add-task" onClick={addTask} className="text-xs font-bold bg-[#3DCD58] text-white px-4 py-2 rounded-lg hover:bg-[#2db64a] shadow-lg shadow-[#3DCD58]/20 flex items-center gap-2"><Plus className="w-4 h-4" /> Add Task</button>
                                             </>
                                         )}
                                     </div>
