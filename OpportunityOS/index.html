@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpportunityOS</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" href="/icon.png?v=opportunityos-planner-2" type="image/png" sizes="1024x1024" />
+    <meta name="theme-color" content="#080d1a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="OpportunityOS" />
+    <script>
+      // Development launches used to register a PWA service worker on the same
+      // local origin. Remove any stale worker/cache so an updated installation
+      // cannot be replaced by an obsolete blank application shell.
+      (function () {
+        var isLocalDev = (location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '3000';
+        if (!isLocalDev) return;
+
+        var wasControlled = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            registrations.forEach(function (registration) { registration.unregister(); });
+          }).catch(function () {});
+        }
+        if ('caches' in window) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (key) { caches.delete(key); });
+          }).catch(function () {});
+        }
+
+        // Unregistering above only affects the *next* navigation, not this one —
+        // if a stale worker already served this load, this window still has the
+        // obsolete/blank shell. Reload once automatically so the user isn't left
+        // staring at a blank window until they close and relaunch by hand.
+        if (wasControlled && !sessionStorage.getItem('OpportunityOS_SwRecoveryReload')) {
+          sessionStorage.setItem('OpportunityOS_SwRecoveryReload', '1');
+          location.reload();
+          return;
+        }
+
+        // Safety net for any other cause of a blank shell after the computer
+        // sleeps/wakes (Chrome discarding and silently reloading the app window,
+        // a dropped dev-server request, etc.): if React hasn't mounted anything
+        // into #root a few seconds after load, reload once automatically instead
+        // of requiring a manual close/reopen of the app.
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (root && root.childElementCount === 0 && !sessionStorage.getItem('OpportunityOS_BlankRecoveryReload')) {
+              sessionStorage.setItem('OpportunityOS_BlankRecoveryReload', '1');
+              location.reload();
+            }
+          }, 4000);
+        });
+      })();
+    </script>
+    <style>
+      body { font-family: 'Inter', sans-serif; background-color: #f1f3f4; }
+      /* Custom scrollbar for Notion-like feel */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #E3E2E0; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #D3D1CB; }
+      
+      /* Animation for Slide Over */
+      @keyframes slideInRight {
+        from { transform: translateX(100%); }
+        to { transform: translateX(0); }
+      }
+      .animate-slide-in-right {
+        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      /* Transitions for preview */
+      .preview-enter { opacity: 0; transform: scale(0.95); }
+      .preview-enter-active { opacity: 1; transform: scale(1); transition: all 0.2s ease-out; }
+
+      /* Quick Organizer intro: a smooth green launch into the planning workspace. */
+      @keyframes qoHorizon {
+        from { transform: translateY(12%) scale(0.84); opacity: 0.25; }
+        to { transform: translateY(-5%) scale(1.16); opacity: 0.85; }
+      }
+      .qo-horizon { animation: qoHorizon 1.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+      @keyframes qoStarFlight {
+        0% { transform: translateX(-20vw) scaleX(0.3); opacity: 0; }
+        16% { opacity: 0.85; }
+        100% { transform: translateX(120vw) scaleX(18); opacity: 0; }
+      }
+      .qo-particle { animation-name: qoStarFlight; animation-timing-function: cubic-bezier(0.2, 0.65, 0.25, 1); animation-iteration-count: infinite; transform-origin: left center; }
+
+      @keyframes qoRocketLaunch {
+        0% { transform: translate(-20px, 34px) rotate(-18deg) scale(0.78); opacity: 0; }
+        45% { opacity: 1; }
+        100% { transform: translate(12px, -16px) rotate(0deg) scale(1); opacity: 1; }
+      }
+      .qo-rocket-wrap { animation: qoRocketLaunch 0.78s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+      @keyframes qoFlame {
+        from { transform: translateY(4px) scaleY(0.7); opacity: 0.35; }
+        to { transform: translateY(15px) scaleY(1.35); opacity: 0.9; }
+      }
+      .qo-rocket-flame { animation: qoFlame 0.34s ease-in-out infinite alternate; }
+
+      @keyframes qoFadeUp {
+        from { opacity: 0; transform: translateY(16px); filter: blur(4px); }
+        to { opacity: 1; transform: translateY(0); filter: blur(0); }
+      }
+      .qo-fade-up { animation: qoFadeUp 0.7s ease-out both; }
+
+      @keyframes qoProgress {
+        from { width: 0%; }
+        to { width: 100%; }
+      }
+      .qo-progress { animation-name: qoProgress; animation-timing-function: linear; animation-fill-mode: forwards; }
+
+      /* Keep the organizer canvas opaque during the hand-off from the intro. */
+      @keyframes qoSceneIn {
+        from { opacity: 0.96; transform: scale(1.008); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      .qo-scene-in { animation: qoSceneIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    </style>
+
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,1362 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { Opportunity, Task, HistoryEntry, MeetingNote, KPIArea, AreaDayRecord, TaskStatus, TaskPriority, DeepLink, TASK_STATUS_ORDER } from '../../types';
+import { TrackingFilters, TrackingWorkItem, TrackingViewMode, TrackingItemType } from './trackingTypes';
+import { Calendar, ChevronLeft, ChevronRight, Filter, Plus, Clock, History, FileText, CheckCircle, Search, X, LayoutGrid, CalendarDays, Timer, Briefcase, User, Info, ArrowRight, Save, Trash2, Edit2, FolderOpen, ExternalLink } from 'lucide-react';
+import { OptimizedInput, DebouncedInput } from '../../components/OptimizedInput';
+import { sortHistoryEntriesNewestFirst } from '../../services/historyUtils';
+
+interface TrackingViewProps {
+    opportunities: Opportunity[];
+    onClose: () => void;
+    onUpdateOpportunity?: (updated: Opportunity) => void;
+    onSelectOpp?: (id: string, deeplink?: DeepLink) => void;
+}
+
+// Virtual Inbox — stored in localStorage, no opportunity needed
+interface InboxItem {
+    id: string;
+    type: 'task' | 'note' | 'history';
+    title: string;
+    content: string;
+    date: string;
+    priority: 'High' | 'Medium' | 'Low';
+    createdAt: string;
+}
+const INBOX_KEY = 'tenderloop.inbox.v1';
+
+const normalizeDateString = (value?: string | null) => {
+    if (!value) return new Date().toLocaleDateString('en-CA');
+    const raw = value.split('T')[0];
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) return raw;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? new Date().toLocaleDateString('en-CA') : parsed.toLocaleDateString('en-CA');
+};
+
+const sortHistoryByDate = sortHistoryEntriesNewestFirst;
+
+
+export const TrackingView: React.FC<TrackingViewProps> = ({ opportunities, onClose, onUpdateOpportunity, onSelectOpp }) => {
+    const getLocalToday = () => new Date().toLocaleDateString('en-CA');
+    const [viewMode, setViewMode] = useState<TrackingViewMode>('month');
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [filters, setFilters] = useState<TrackingFilters>(() => {
+        const saved = localStorage.getItem('tracking.filters.v1');
+        return saved ? JSON.parse(saved) : {
+            opportunityIds: [],
+            taskStatuses: [],
+            taskPriorities: [],
+            searchQuery: '',
+            areas: [],
+            activeOnly: true,
+            calendarizedFilter: 'all',
+            itemTypes: ['task', 'history', 'note', 'hours']
+        };
+    });
+
+    const [selectedDay, setSelectedDay] = useState<string | null>(getLocalToday());
+    const [showFilters, setShowFilters] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<TrackingWorkItem | null>(null);
+    const [showInbox, setShowInbox] = useState(false);
+
+    // Inbox state — independent of opportunities
+    const [inboxItems, setInboxItems] = useState<InboxItem[]>(() => {
+        try { return JSON.parse(localStorage.getItem(INBOX_KEY) || '[]'); } catch { return []; }
+    });
+    useEffect(() => { localStorage.setItem(INBOX_KEY, JSON.stringify(inboxItems)); }, [inboxItems]);
+    const [useInbox, setUseInbox] = useState(false);
+    // Edit inbox item
+    const [editingInboxItem, setEditingInboxItem] = useState<InboxItem | null>(null);
+    // Assign inbox item to opp on drag-drop
+    const [assignDrop, setAssignDrop] = useState<{ item: InboxItem; date: string } | null>(null);
+    const [assignOppSearch, setAssignOppSearch] = useState('');
+
+    // Creation Modal State
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newItemType, setNewItemType] = useState<TrackingItemType>('task');
+    const [targetOppId, setTargetOppId] = useState<string>('');
+    const [oppSearch, setOppSearch] = useState('');
+    const [formData, setFormData] = useState({
+        title: '',
+        content: '',
+        date: new Date().toLocaleDateString('en-CA'),
+        hours: 0,
+        areaId: '',
+        priority: 'Medium' as any,
+        status: 'Pending' as any
+    });
+
+    const LABELS = {
+        title: "Activity Tracking",
+        today: "Today",
+        month: "Month",
+        week: "Week",
+        day: "Day",
+        filters: "Filters",
+        opportunities: "Opportunities",
+        itemTypes: "Item Types",
+        status: "Status",
+        activeOnly: "Active Opportunities Only",
+        clearFilters: "Clear Filters",
+        tasks: "Tasks",
+        history: "History",
+        notes: "Notes",
+        hours: "Hours",
+        agenda: "Agenda",
+        selectDay: "Select a day",
+        newItem: "New Item",
+        noActivities: "No items for this day",
+        task: "Task",
+        note: "Note",
+        view: "View",
+        createItem: "Create New Item",
+        opportunity: "Opportunity",
+        searchOpp: "Search opportunity by ID or name...",
+        date: "Date",
+        priority: "Priority",
+        content: "Content",
+        titleField: "Title",
+        description: "Description / Content",
+        cancel: "Cancel",
+        create: "Create Item",
+        area: "Area",
+        selectArea: "Select area...",
+        save: "Save",
+        edit: "Edit",
+        details: "Details",
+        openOpp: "Open Opportunity Folder",
+        updated: "Updated successfully",
+        error: "Failed to save changes"
+    };
+
+    const filteredOppsForSearch = useMemo(() => {
+        if (!oppSearch) return [];
+        return (opportunities || []).filter(o =>
+            o.title.toLowerCase().includes(oppSearch.toLowerCase()) ||
+            o.id.toLowerCase().includes(oppSearch.toLowerCase())
+        ).slice(0, 5);
+    }, [opportunities, oppSearch]);
+
+    // Save filters
+    useEffect(() => {
+        localStorage.setItem('tracking.filters.v1', JSON.stringify(filters));
+    }, [filters]);
+
+    // Data Aggregation
+    const workItems = useMemo(() => {
+        const items: TrackingWorkItem[] = [];
+        const searchLower = filters.searchQuery.toLowerCase();
+
+        opportunities.forEach(opp => {
+            if (filters.opportunityIds.length > 0 && !filters.opportunityIds.includes(opp.id)) {
+                return;
+            }
+            if (filters.activeOnly && opp.statusLabel !== 'In Progress') {
+                return;
+            }
+
+            // 1. Tasks
+            if (filters.itemTypes.includes('task')) {
+                (opp.tasks || []).forEach(task => {
+                    if (filters.taskStatuses.length > 0 && !filters.taskStatuses.includes(task.status)) return;
+                    if (filters.taskPriorities.length > 0 && !filters.taskPriorities.includes(task.priority)) return;
+                    if (filters.calendarizedFilter === 'calendarized' && !task.calendarized) return;
+                    if (filters.calendarizedFilter === 'not-calendarized' && task.calendarized) return;
+                    if (searchLower && !task.title.toLowerCase().includes(searchLower) && !task.description?.toLowerCase().includes(searchLower)) return;
+
+                    if (task.dueDate) {
+                        items.push({
+                            id: task.id,
+                            type: 'task',
+                            date: task.dueDate.split('T')[0],
+                            opportunityId: opp.id,
+                            opportunityTitle: opp.title,
+                            opportunityAlias: opp.alias,
+                            title: task.title,
+                            status: task.status,
+                            data: task
+                        });
+                    }
+                });
+            }
+
+            // 2. History
+            if (filters.itemTypes.includes('history')) {
+                opp.history.forEach(h => {
+                    if (searchLower && !h.content.toLowerCase().includes(searchLower)) return;
+                    items.push({
+                        id: h.id,
+                        type: 'history',
+                        date: normalizeDateString(h.date),
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: h.content,
+                        data: h
+                    });
+                });
+            }
+
+            // 3. Notes
+            if (filters.itemTypes.includes('note')) {
+                opp.notes.forEach(n => {
+                    if (searchLower && !n.title.toLowerCase().includes(searchLower) && !n.content.toLowerCase().includes(searchLower)) return;
+                    items.push({
+                        id: n.id,
+                        type: 'note',
+                        date: n.date.split('T')[0],
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: n.title,
+                        data: n
+                    });
+                });
+            }
+
+            // 4. Hours
+            if (filters.itemTypes.includes('hours')) {
+                opp.kpis?.areasInvolved.forEach(area => {
+                    if (area.calendar) {
+                        Object.entries(area.calendar).forEach(([date, record]) => {
+                            const r = record as AreaDayRecord;
+                            if (r.type === 'Worked' && r.hours) {
+                                if (searchLower && !area.area.toLowerCase().includes(searchLower)) return;
+                                items.push({
+                                    id: `hours-${opp.id}-${area.id}-${date}`,
+                                    type: 'hours',
+                                    date: date,
+                                    opportunityId: opp.id,
+                                    opportunityTitle: opp.title,
+                                    opportunityAlias: opp.alias,
+                                    title: `${area.area}: ${r.hours}h`,
+                                    data: { area: area.area, hours: r.hours }
+                                });
+                            }
+                        });
+                    }
+                });
+            }
+        });
+
+        return items.sort((a, b) => {
+            const dateCompare = a.date.localeCompare(b.date);
+            if (dateCompare !== 0) return dateCompare;
+            return a.title.localeCompare(b.title);
+        });
+    }, [opportunities, filters]);
+
+    const unorganizedItems = useMemo(() => {
+        const items: TrackingWorkItem[] = [];
+        opportunities.forEach(opp => {
+            // 1. Tasks without dates (exclude Done/Canceled — they're closed work)
+            (opp.tasks || []).forEach(task => {
+                if (!task.dueDate && task.status !== 'Done' && task.status !== 'Canceled') {
+                    items.push({
+                        id: task.id,
+                        type: 'task',
+                        date: '',
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: task.title,
+                        status: task.status,
+                        data: task
+                    });
+                }
+            });
+            // 2. Notes without dates
+            (opp.notes || []).forEach(note => {
+                if (!note.date) {
+                    items.push({
+                        id: note.id,
+                        type: 'note',
+                        date: '',
+                        opportunityId: opp.id,
+                        opportunityTitle: opp.title,
+                        opportunityAlias: opp.alias,
+                        title: note.title,
+                        data: note
+                    });
+                }
+            });
+        });
+        return items;
+    }, [opportunities]);
+
+    // Calendar Generation
+    const days = useMemo(() => {
+        const result: Date[] = [];
+        const base = new Date(currentDate);
+
+        if (viewMode === 'month') {
+            const start = new Date(base.getFullYear(), base.getMonth(), 1);
+            const startDay = start.getDay();
+            const startDate = new Date(start);
+            startDate.setDate(startDate.getDate() - startDay);
+            for (let i = 0; i < 42; i++) {
+                result.push(new Date(startDate));
+                startDate.setDate(startDate.getDate() + 1);
+            }
+        } else if (viewMode === 'week') {
+            const startDay = base.getDay();
+            const startDate = new Date(base);
+            startDate.setDate(startDate.getDate() - startDay);
+            for (let i = 0; i < 7; i++) {
+                result.push(new Date(startDate));
+                startDate.setDate(startDate.getDate() + 1);
+            }
+        } else if (viewMode === 'day') {
+            result.push(new Date(base));
+        }
+        return result;
+    }, [currentDate, viewMode]);
+
+    const navigate = (amount: number) => {
+        const next = new Date(currentDate);
+        if (viewMode === 'month') next.setMonth(next.getMonth() + amount);
+        else if (viewMode === 'week') next.setDate(next.getDate() + (amount * 7));
+        else if (viewMode === 'day') next.setDate(next.getDate() + amount);
+        setCurrentDate(next);
+        if (viewMode === 'day') {
+            setSelectedDay(next.toLocaleDateString('en-CA'));
+        }
+    };
+
+    const selectedDayItems = useMemo(() => {
+        if (!selectedDay) return [];
+        return workItems.filter(item => item.date === selectedDay);
+    }, [workItems, selectedDay]);
+
+    const updateItem = (item: TrackingWorkItem, updates: any) => {
+        const opp = opportunities.find(o => o.id === item.opportunityId);
+        if (!opp) return;
+        const updatedOpp = { ...opp };
+
+        try {
+            if (item.type === 'task') {
+                const currentTask = (updatedOpp.tasks || []).find(task => task.id === item.data.id);
+                if (updates.status === 'Done' && currentTask?.status === 'Approval') {
+                    alert('Open the task and use the Approve button to complete this approval.');
+                    return;
+                }
+                if (updates.status === 'Done' && currentTask?.status === 'Changes Requested / Rework') {
+                    alert('Complete the linked corrective task first.');
+                    return;
+                }
+                updatedOpp.tasks = (updatedOpp.tasks || []).map(t => t.id === item.data.id ? { ...t, ...updates } : t);
+            } else if (item.type === 'note') {
+                updatedOpp.notes = (updatedOpp.notes || []).map(n => n.id === item.data.id ? { ...n, ...updates } : n);
+            } else if (item.type === 'history') {
+                updatedOpp.history = sortHistoryByDate((updatedOpp.history || []).map(h => {
+                    if (h.id !== item.data.id) return h;
+                    const next = { ...h, ...updates };
+                    return { ...next, date: normalizeDateString(next.date) };
+                }));
+            } else if (item.type === 'hours') {
+                if (!updatedOpp.kpis) return;
+                const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.area === item.data.area);
+                if (areaIdx !== -1) {
+                    updatedOpp.kpis.areasInvolved[areaIdx] = {
+                        ...updatedOpp.kpis.areasInvolved[areaIdx],
+                        calendar: {
+                            ...updatedOpp.kpis.areasInvolved[areaIdx].calendar,
+                            [item.date]: { type: 'Worked', hours: updates.hours }
+                        }
+                    };
+                }
+            }
+            onUpdateOpportunity?.(updatedOpp);
+            // Also update selectedItem if it's the one we are editing
+            if (selectedItem && selectedItem.id === item.id) {
+                setSelectedItem({ ...selectedItem, ...updates, data: { ...selectedItem.data, ...updates } });
+            }
+        } catch (e) {
+            alert(LABELS.error);
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-gray-50 overflow-hidden rounded-2xl border border-gray-200">
+            {/* Header / Controls */}
+            <div className="p-4 bg-white border-b flex items-center justify-between shadow-sm z-10 shrink-0">
+                <div className="flex items-center gap-6">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <CalendarDays className="w-6 h-6 text-[#3DCD58]" />
+                        {LABELS.title}
+                    </h2>
+
+                    <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+                        <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all"><ChevronLeft className="w-5 h-5 text-gray-600" /></button>
+                        <button
+                            onClick={() => {
+                                const now = new Date();
+                                setCurrentDate(now);
+                                setSelectedDay(getLocalToday());
+                            }}
+                            className="px-3 py-1 text-xs font-bold text-gray-600 hover:text-[#3DCD58] uppercase"
+                        >
+                            {LABELS.today}
+                        </button>
+                        <span className="text-sm font-black w-48 text-center text-gray-700 capitalize">
+                            {viewMode === 'month'
+                                ? currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+                                : viewMode === 'week'
+                                    ? `Week of ${days[0]?.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`
+                                    : currentDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+                            }
+                        </span>
+                        <button onClick={() => navigate(1)} className="p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all"><ChevronRight className="w-5 h-5 text-gray-600" /></button>
+                    </div>
+
+                    <div className="flex bg-gray-100 rounded-xl p-1">
+                        {(['month', 'week', 'day'] as TrackingViewMode[]).map(m => (
+                            <button
+                                key={m}
+                                onClick={() => setViewMode(m)}
+                                className={`px-4 py-1.5 text-xs font-black rounded-lg transition-all uppercase ${viewMode === m ? 'bg-white text-[#3DCD58] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                            >
+                                {LABELS[m]}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setShowInbox(!showInbox)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showInbox ? 'bg-amber-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                        <span>📥</span>
+                        Inbox {(inboxItems.length + unorganizedItems.length) > 0 && <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${showInbox ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-600'}`}>{inboxItems.length + unorganizedItems.length}</span>}
+                    </button>
+                    <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${showFilters ? 'bg-[#3DCD58] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                        <Filter className="w-4 h-4" />
+                        {LABELS.filters}
+                        {Object.values(filters).some(v => Array.isArray(v) && v.length > 0) && (
+                            <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                        )}
+                    </button>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><X className="w-6 h-6 text-gray-400" /></button>
+                </div>
+            </div>
+
+            <div className="flex-1 flex min-h-0 overflow-hidden">
+                {/* Main Calendar Area */}
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 min-h-0 relative">
+                    {/* Filters Panel — absolute so it overlays calendar without displacing it */}
+                    {showFilters && (
+                        <div className="absolute top-4 left-4 right-4 z-30 bg-white rounded-2xl p-6 border border-gray-200 shadow-2xl animate-in slide-in-from-top duration-300">
+                            <div className="grid grid-cols-2 gap-8">
+                                {/* Section 1: Opportunity Filters */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity Filters</label>
+                                        {filters.opportunityIds.length > 0 && (
+                                            <button
+                                                onClick={() => setFilters({ ...filters, opportunityIds: [] })}
+                                                className="text-[10px] font-bold text-red-500 hover:underline"
+                                            >
+                                                Clear Selected
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="relative group">
+                                        <div className="absolute left-3 top-3"><Search className="w-4 h-4 text-gray-400" /></div>
+                                        <DebouncedInput
+                                            placeholder="Search opportunities by name or ID..."
+                                            className="w-full pl-10 pr-4 py-2 bg-gray-50 border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-[#3DCD58] focus:bg-white transition-all outline-none"
+                                            value={oppSearch}
+                                            onChange={(val: string) => setOppSearch(val)}
+                                        />
+                                        {oppSearch && (
+                                            <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl z-[100] max-h-60 overflow-y-auto">
+                                                {opportunities
+                                                    .filter(o => !filters.opportunityIds.includes(o.id))
+                                                    .filter(o => (o.title || '').toLowerCase().includes(oppSearch.toLowerCase()) || (o.id || '').toLowerCase().includes(oppSearch.toLowerCase()) || (o.customer || '').toLowerCase().includes(oppSearch.toLowerCase()))
+                                                    .slice(0, 50)
+                                                    .map(opp => (
+                                                        <button
+                                                            key={opp.id}
+                                                            onClick={() => {
+                                                                setFilters({ ...filters, opportunityIds: [...filters.opportunityIds, opp.id] });
+                                                                setOppSearch('');
+                                                            }}
+                                                            className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center justify-between border-b last:border-0 group/item"
+                                                        >
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="text-sm font-bold text-gray-800 truncate">{opp.title}</div>
+                                                                <div className="text-[10px] text-gray-400 font-mono">{opp.id} • {opp.customer || 'No Customer'}</div>
+                                                            </div>
+                                                            <Plus className="w-4 h-4 text-gray-300 group-hover/item:text-[#3DCD58]" />
+                                                        </button>
+                                                    ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Selected Chips */}
+                                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pb-1">
+                                        {filters.opportunityIds.map(id => {
+                                            const opp = opportunities.find(o => o.id === id);
+                                            return (
+                                                <div key={id} className="flex items-center gap-1.5 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg border border-[#3DCD58]/20 animate-in zoom-in-95">
+                                                    <span className="text-[10px] font-black max-w-[150px] truncate">{opp?.title || id}</span>
+                                                    <button
+                                                        onClick={() => setFilters({ ...filters, opportunityIds: filters.opportunityIds.filter(i => i !== id) })}
+                                                        className="hover:bg-[#3DCD58]/20 rounded-full p-0.5"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                        {filters.opportunityIds.length === 0 && !oppSearch && (
+                                            <div className="text-xs text-gray-400 italic">No specific opportunities selected (showing all)</div>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <div className="flex items-center gap-2 group">
+                                            <input
+                                                type="checkbox"
+                                                id="fActive"
+                                                checked={filters.activeOnly}
+                                                onChange={e => setFilters({ ...filters, activeOnly: e.target.checked })}
+                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                            />
+                                            <label htmlFor="fActive" className="text-sm text-gray-700 cursor-pointer">{LABELS.activeOnly}</label>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 group border-t border-gray-100 pt-3">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest cursor-pointer select-none">Calendarized:</label>
+                                            <select
+                                                className="text-[10px] font-bold text-gray-700 bg-gray-50 border-none rounded focus:ring-1 focus:ring-[#3DCD58] p-1"
+                                                value={filters.calendarizedFilter}
+                                                onChange={e => setFilters({ ...filters, calendarizedFilter: e.target.value as any })}
+                                            >
+                                                <option value="all">All</option>
+                                                <option value="calendarized">Only Calendarized</option>
+                                                <option value="not-calendarized">Not Calendarized</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 2: Item & Task Filters */}
+                                <div className="space-y-4 border-l border-gray-100 pl-8">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Item & Task Filters</label>
+
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['task', 'history', 'note', 'hours'] as TrackingItemType[]).map(type => (
+                                            <button
+                                                key={type}
+                                                onClick={() => {
+                                                    const types = filters.itemTypes.includes(type)
+                                                        ? filters.itemTypes.filter(t => t !== type)
+                                                        : [...filters.itemTypes, type];
+                                                    setFilters({ ...filters, itemTypes: types });
+                                                }}
+                                                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 border shadow-sm ${filters.itemTypes.includes(type) ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'}`}
+                                            >
+                                                {type === 'task' ? <CheckCircle className="w-3 h-3" /> : type === 'history' ? <History className="w-3 h-3" /> : type === 'note' ? <FileText className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
+                                                {LABELS[type as keyof typeof LABELS]}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {filters.itemTypes.includes('task') && (
+                                        <div className="space-y-3 pt-3 border-t border-gray-50">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Task Status</label>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {TASK_STATUS_ORDER.map(status => (
+                                                            <button
+                                                                key={status}
+                                                                onClick={() => {
+                                                                    const s = filters.taskStatuses.includes(status) ? filters.taskStatuses.filter(x => x !== status) : [...filters.taskStatuses, status];
+                                                                    setFilters({ ...filters, taskStatuses: s });
+                                                                }}
+                                                                className={`px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all ${filters.taskStatuses.includes(status) ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-400 hover:bg-blue-100'}`}
+                                                            >
+                                                                {status}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">Task Priority</label>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {['High', 'Medium', 'Low'].map(p => (
+                                                            <button
+                                                                key={p}
+                                                                onClick={() => {
+                                                                    const pr = filters.taskPriorities.includes(p) ? filters.taskPriorities.filter(x => x !== p) : [...filters.taskPriorities, p];
+                                                                    setFilters({ ...filters, taskPriorities: pr });
+                                                                }}
+                                                                className={`px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all ${filters.taskPriorities.includes(p) ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-400 hover:bg-orange-100'}`}
+                                                            >
+                                                                {p}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="relative">
+                                                <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
+                                                <DebouncedInput
+                                                    placeholder="Search in titles/content..."
+                                                    className="w-full pl-9 pr-3 py-2 bg-gray-50 border-gray-100 rounded-lg text-xs outline-none focus:ring-1 focus:ring-gray-300"
+                                                    value={filters.searchQuery}
+                                                    onChange={(val: string) => setFilters({ ...filters, searchQuery: val })}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-between items-center pt-4 mt-auto">
+                                        <button
+                                            onClick={() => setFilters({
+                                                opportunityIds: [],
+                                                taskStatuses: [],
+                                                taskPriorities: [],
+                                                searchQuery: '',
+                                                areas: [],
+                                                activeOnly: true,
+                                                calendarizedFilter: 'all',
+                                                itemTypes: ['task', 'history', 'note', 'hours']
+                                            })}
+                                            className="text-[10px] text-red-500 font-bold hover:underline"
+                                        >
+                                            Reset All Filters
+                                        </button>
+                                        <button
+                                            onClick={() => setShowFilters(false)}
+                                            className="bg-gray-100 text-gray-600 px-4 py-2 rounded-xl text-xs font-black uppercase hover:bg-gray-200 transition-all"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Main Content Area: Calendar + Inbox Sidebar */}
+                    <div className="flex-1 flex overflow-hidden gap-4 min-h-0">
+                        {/* Calendar Grid */}
+                        <div className="flex-1 border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px] bg-white rounded-2xl">
+                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} bg-gray-50 border-b border-gray-200`}>
+                                {viewMode === 'day' ? (
+                                    <div className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{days[0]?.toLocaleDateString('en-US', { weekday: 'long' })}</div>
+                                ) : (
+                                    ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                                        <div key={d} className="py-2 text-center text-[10px] font-black text-gray-400 uppercase tracking-tighter">{d}</div>
+                                    ))
+                                )}
+                            </div>
+                            <div className={`grid ${viewMode === 'month' ? 'grid-cols-7' : viewMode === 'week' ? 'grid-cols-7' : 'grid-cols-1'} flex-1 overflow-y-auto content-start`}>
+                                {days.map((d, i) => {
+                                    const dateStr = d.toLocaleDateString('en-CA');
+                                    const isSelected = selectedDay === dateStr;
+                                    const isToday = dateStr === getLocalToday();
+                                    const isCurrentMonth = d.getMonth() === currentDate.getMonth();
+                                    const dayItems = workItems.filter(item => item.date === dateStr);
+
+                                    return (
+                                        <div
+                                            key={i}
+                                            onDragOver={(e) => e.preventDefault()}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                try {
+                                                    const raw = e.dataTransfer.getData('application/json');
+                                                    const itemData = JSON.parse(raw);
+                                                    if (!itemData) return;
+                                                    // Check if it's an inbox item (localStorage, no opp)
+                                                    if (itemData.__isInbox) {
+                                                        setAssignDrop({ item: itemData as InboxItem, date: dateStr });
+                                                        setAssignOppSearch('');
+                                                    } else if (itemData.__isUnorganized) {
+                                                        // Already belongs to an opp — just set the date
+                                                        updateItem(itemData, { dueDate: dateStr, date: dateStr });
+                                                    } else {
+                                                        updateItem(itemData, { date: dateStr, dueDate: dateStr });
+                                                    }
+                                                } catch (err) { console.error('Drop failed', err); }
+                                            }}
+                                            onClick={() => setSelectedDay(dateStr)}
+                                            className={`border-r border-b border-gray-100 p-2 flex flex-col gap-1 cursor-pointer transition-all ${viewMode === 'day' ? 'min-h-full' : 'min-h-[140px] max-h-[180px] overflow-y-auto'} ${isSelected ? 'bg-[#3DCD58]/5 ring-2 ring-[#3DCD58] ring-inset z-10' : 'hover:bg-gray-50'} ${!isCurrentMonth && viewMode === 'month' ? 'opacity-30' : ''}`}
+                                        >
+                                            <div className="flex justify-between items-center mb-1 shrink-0 sticky top-0 bg-inherit z-10 backdrop-blur-[2px]">
+                                                <span className={`text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full ${isToday ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500'}`}>
+                                                    {d.getDate()}
+                                                </span>
+                                                {dayItems.length > 0 && <span className="text-[8px] font-black text-[#3DCD58] bg-[#3DCD58]/10 px-1 py-0.5 rounded-full">{dayItems.length}</span>}
+                                            </div>
+                                            <div className="flex flex-col gap-0.5">
+                                                {dayItems.map(item => (
+                                                    <div
+                                                        key={item.id}
+                                                        draggable
+                                                        onDragStart={(e) => {
+                                                            e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                                        }}
+                                                        className={`w-full max-w-full truncate px-1 py-0.5 rounded shadow-sm border ${viewMode === 'day' ? 'text-xs p-2 mb-1' : 'text-[8px]'} ${item.type === 'task' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                                                            item.type === 'history' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                                                item.type === 'note' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                                                                    'bg-orange-50 text-orange-700 border-orange-200 font-black'
+                                                            }`}
+                                                    >
+                                                        <span className="font-bold">{item.type === 'hours' ? '' : item.type.toUpperCase() + ':'}</span>{' '}
+                                                        {item.opportunityAlias
+                                                            ? `[${item.opportunityAlias}] `
+                                                            : item.opportunityTitle
+                                                                ? `[${item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}] `
+                                                                : ''}{item.title}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Inbox Sidebar */}
+                        {showInbox && (
+                            <div className="w-80 bg-white border border-gray-200 rounded-2xl flex flex-col shadow-xl animate-in slide-in-from-right duration-300 overflow-hidden">
+                                <div className="p-4 border-b border-amber-100 bg-amber-50/80 flex items-center justify-between">
+                                    <h4 className="text-xs font-black text-amber-700 uppercase tracking-widest flex items-center gap-2">
+                                        <span>📥</span> Inbox
+                                        {inboxItems.length > 0 && <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{inboxItems.length}</span>}
+                                    </h4>
+                                    <button onClick={() => setShowInbox(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-gray-50/30">
+                                    {/* Inbox: localStorage items + unorganized opp items (no date) */}
+                                    {(inboxItems.length === 0 && unorganizedItems.length === 0) ? (
+                                        <div className="text-center py-16 opacity-40">
+                                            <span className="text-4xl block mb-2">📥</span>
+                                            <p className="text-xs font-bold">Inbox empty</p>
+                                            <p className="text-[9px] text-gray-400">Use "+ New Item" and select "Save to Inbox"</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {/* Unorganized opp items (tasks/notes with no date) */}
+                                            {unorganizedItems.length > 0 && (
+                                                <>
+                                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest px-1">Unscheduled</p>
+                                                    {unorganizedItems.map(item => (
+                                                        <div
+                                                            key={item.id}
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isUnorganized: true }));
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                            }}
+                                                            className="bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm hover:border-blue-200 transition-all group cursor-grab active:cursor-grabbing"
+                                                        >
+                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
+                                                                <span className="text-[9px] font-black text-gray-400 uppercase shrink-0">{item.type}</span>
+                                                                {(item.opportunityAlias || item.opportunityTitle) && (
+                                                                    <span className="text-[9px] font-black text-[#3DCD58] shrink-0 uppercase">
+                                                                        [{item.opportunityAlias || item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}]
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-xs font-semibold text-gray-800 truncate flex-1">{item.title}</span>
+                                                            </div>
+                                                            <p className="text-[9px] text-gray-300 mt-1">↔ drag to calendar to schedule</p>
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            )}
+                                            {/* localStorage Inbox items */}
+                                            {inboxItems.length > 0 && (
+                                                <>
+                                                    {unorganizedItems.length > 0 && <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest px-1 pt-1">Inbox</p>}
+                                                    {inboxItems.map(item => (
+                                                        <div
+                                                            key={item.id}
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.setData('application/json', JSON.stringify({ ...item, __isInbox: true }));
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                            }}
+                                                            className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:border-amber-300 transition-all group cursor-grab active:cursor-grabbing"
+                                                        >
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                                    <span className={`w-2 h-2 rounded-full shrink-0 ${item.type === 'task' ? 'bg-blue-500' : item.type === 'note' ? 'bg-purple-500' : 'bg-emerald-500'}`}></span>
+                                                                    <span className="text-[9px] font-black text-gray-400 uppercase">{item.type}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        onClick={() => setEditingInboxItem({ ...item })}
+                                                                        className="opacity-0 group-hover:opacity-100 text-blue-400 hover:text-blue-600 transition-all"
+                                                                        title="Edit"
+                                                                    >
+                                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setInboxItems(prev => prev.filter(i => i.id !== item.id))}
+                                                                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <X className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-xs font-bold text-gray-800 mt-1 line-clamp-2 leading-tight">{item.title}</p>
+                                                            {item.content && <p className="text-[10px] text-gray-400 mt-0.5 line-clamp-1">{item.content}</p>}
+                                                            <div className="flex items-center gap-2 mt-1.5">
+                                                                {item.date && <span className="text-[9px] text-gray-300">{item.date}</span>}
+                                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${item.priority === 'High' ? 'bg-red-100 text-red-600' : item.priority === 'Medium' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>{item.priority}</span>
+                                                                <span className="text-[9px] text-gray-300 ml-auto">↔ drag to calendar</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-3 border-t border-gray-100 bg-white">
+                                    <button
+                                        onClick={() => {
+                                            setUseInbox(true);
+                                            setFormData({ ...formData, date: '', title: '', content: '' });
+                                            setNewItemType('task');
+                                            setShowCreateModal(true);
+                                        }}
+                                        className="w-full py-2.5 bg-amber-500 text-white text-[10px] font-black uppercase rounded-xl hover:bg-amber-600 transition-all shadow-md flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" /> Add to Inbox
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                {/* Agenda Sidebar */}
+                <div className="w-[450px] bg-white border-l border-gray-200 flex flex-col shadow-2xl z-20 shrink-0">
+                    <div className="p-6 border-b border-gray-100 bg-gray-50/50 shrink-0">
+                        <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-lg font-black text-gray-800">{LABELS.agenda}</h3>
+                            <span className="text-sm font-bold text-gray-500">
+                                {selectedDay ? new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' }) : LABELS.selectDay}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => { setFormData({ ...formData, date: selectedDay || getLocalToday() }); setShowCreateModal(true); }}
+                            className="w-full flex items-center justify-center gap-2 bg-[#3DCD58] text-white py-2 rounded-xl text-xs font-black hover:bg-[#2db64a] transition-all shadow-md active:scale-95"
+                        >
+                            <Plus className="w-4 h-4" /> {LABELS.newItem}
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/30 overflow-x-hidden pb-40">
+                        {selectedDayItems.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4 opacity-60">
+                                <Info className="w-12 h-12" />
+                                <p className="text-center font-bold">{LABELS.noActivities}</p>
+                            </div>
+                        ) : (
+                            selectedDayItems.map(item => (
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('application/json', JSON.stringify(item));
+                                    }}
+                                    className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 transition-all group flex items-center gap-2 cursor-move"
+                                >
+                                    {/* Type icon */}
+                                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${item.type === 'task' ? 'bg-blue-100 text-blue-600' : item.type === 'history' ? 'bg-emerald-100 text-emerald-600' : item.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
+                                        {item.type === 'task' ? <CheckCircle className="w-2.5 h-2.5" /> : item.type === 'history' ? <History className="w-2.5 h-2.5" /> : item.type === 'note' ? <FileText className="w-2.5 h-2.5" /> : <Timer className="w-2.5 h-2.5" />}
+                                    </div>
+                                    {/* Alias */}
+                                    {(item.opportunityAlias || item.opportunityTitle) && (
+                                        <span className="text-[9px] font-black text-[#3DCD58] shrink-0 uppercase tracking-tight">
+                                            [{item.opportunityAlias || item.opportunityTitle.split(' ').map((w: string) => w[0]).join('').slice(0, 3).toUpperCase()}]
+                                        </span>
+                                    )}
+                                    {/* Title - BIGGER */}
+                                    <input
+                                        className="text-sm font-semibold text-gray-800 bg-transparent border-none p-0 flex-1 min-w-0 focus:ring-0 focus:bg-gray-50 rounded transition-colors truncate"
+                                        value={item.title}
+                                        onChange={(e) => updateItem(item, item.type === 'history' ? { content: e.target.value } : { title: e.target.value })}
+                                    />
+                                    {/* Right side actions */}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {item.type === 'task' && (
+                                            <select
+                                                className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase border-none focus:ring-0 cursor-pointer leading-none ${item.status === 'Done' ? 'bg-green-100 text-green-700' : item.status === 'In Progress' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}
+                                                value={item.status}
+                                                onChange={(e) => updateItem(item, { status: e.target.value })}
+                                            >
+                                                {TASK_STATUS_ORDER.map(status => <option key={status} value={status}>{status}</option>)}
+                                            </select>
+                                        )}
+                                        {item.type === 'hours' && (
+                                            <input type="number" step="0.5" className="w-10 text-[8px] font-black bg-orange-50 text-orange-700 border-none p-0.5 rounded focus:ring-0" value={item.data.hours} onChange={(e) => updateItem(item, { hours: parseFloat(e.target.value) })} />
+                                        )}
+                                        {/* Clear date — sends item back to Inbox */}
+                                        {item.type !== 'hours' && (
+                                            <button
+                                                onClick={() => updateItem(item, item.type === 'task' ? { dueDate: '' } : { date: '' })}
+                                                title="Remove date — return to Inbox"
+                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-colors text-red-400 hover:text-red-600"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                        <button onClick={() => setSelectedItem(item)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-colors text-[#3DCD58]" title="Details">
+                                            <ArrowRight className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Create Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in duration-200">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                            <h3 className="text-xl font-black text-gray-800">{LABELS.createItem}</h3>
+                            <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
+                        </div>
+                        <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.opportunity} <span className="text-red-500">*</span><span className="text-gray-300 font-normal ml-1">(or use Inbox below)</span></label>
+
+                                {/* Inbox quick-select chip */}
+                                <button
+                                    onClick={() => { setUseInbox(!useInbox); setTargetOppId(''); setOppSearch(''); }}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border-2 transition-all w-full ${useInbox
+                                        ? 'bg-amber-50 border-amber-400 text-amber-700'
+                                        : 'bg-gray-50 border-dashed border-gray-300 text-gray-500 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50'
+                                        }`}
+                                >
+                                    <span className="text-lg">📥</span>
+                                    <span>Save to Inbox</span>
+                                    <span className="text-[10px] font-normal text-gray-400 ml-1">— organize later</span>
+                                    {useInbox && <span className="ml-auto text-xs font-black text-amber-600">✓ Selected</span>}
+                                </button>
+
+                                {/* Or search for an opportunity */}
+                                {!useInbox && (
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                        <DebouncedInput placeholder={LABELS.searchOpp} value={targetOppId ? opportunities.find(o => o.id === targetOppId)?.title || targetOppId : oppSearch} onChange={(val: string) => { setOppSearch(val); if (targetOppId) setTargetOppId(''); }} className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3DCD58] outline-none text-sm transition-all" />
+                                        {!targetOppId && filteredOppsForSearch.length > 0 && (
+                                            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                                                {filteredOppsForSearch.map(opp => (
+                                                    <button key={opp.id} onClick={() => { setTargetOppId(opp.id); setOppSearch(''); }} className="w-full text-left p-3 hover:bg-gray-50 border-b last:border-0">
+                                                        <div className="text-sm font-bold text-gray-800">{opp.title}</div>
+                                                        <div className="text-[10px] text-gray-400 font-mono">{opp.id}</div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                                {(['task', 'history', 'note', 'hours'] as TrackingItemType[]).map(type => (
+                                    <button key={type} onClick={() => setNewItemType(type)} className={`py-2 rounded-xl text-[10px] font-black uppercase border ${newItemType === type ? 'bg-[#3DCD58] text-white border-[#3DCD58]' : 'bg-white text-gray-500 border-gray-200'}`}>{LABELS[type as keyof typeof LABELS]}</button>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.date}</label>
+                                    <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none text-sm" />
+                                </div>
+                                {newItemType === 'task' && (
+                                    <div className="space-y-2">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.priority}</label>
+                                        <select value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })} className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none text-sm">
+                                            <option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
+                                        </select>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{newItemType === 'history' ? LABELS.content : LABELS.titleField}</label>
+                                <OptimizedInput type="text" value={formData.title} onChange={(val: string) => setFormData({ ...formData, title: val })} placeholder={newItemType === 'history' ? 'Ex: Sent follow-up email' : 'Ex: Review documentation...'} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none text-sm" />
+                            </div>
+                            {(newItemType === 'note' || newItemType === 'task') && (
+                                <div className="space-y-2">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.description}</label>
+                                    <textarea value={formData.content} onChange={(e) => setFormData({ ...formData, content: e.target.value })} rows={3} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none text-sm resize-none" />
+                                </div>
+                            )}
+                            {newItemType === 'hours' && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.hours}</label>
+                                        <input type="number" step="0.5" value={formData.hours} onChange={(e) => setFormData({ ...formData, hours: parseFloat(e.target.value) })} className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none text-sm" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.area}</label>
+                                        <select value={formData.areaId} onChange={(e) => setFormData({ ...formData, areaId: e.target.value })} className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none text-sm">
+                                            <option value="">{LABELS.selectArea}</option>
+                                            {targetOppId && opportunities.find(o => o.id === targetOppId)?.kpis?.areasInvolved.map(area => (<option key={area.id} value={area.id}>{area.area}</option>))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-6 bg-gray-50 border-t flex gap-3">
+                            <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
+                            <button onClick={() => {
+                                // --- INBOX PATH ---
+                                if (useInbox) {
+                                    if (!formData.title.trim()) return alert('Enter a title');
+                                    const newInboxItem: InboxItem = {
+                                        id: crypto.randomUUID(),
+                                        type: newItemType === 'hours' ? 'note' : newItemType as 'task' | 'note' | 'history',
+                                        title: formData.title,
+                                        content: formData.content,
+                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        priority: formData.priority,
+                                        createdAt: new Date().toISOString()
+                                    };
+                                    setInboxItems(prev => [newInboxItem, ...prev]);
+                                    setShowCreateModal(false);
+                                    setFormData({ ...formData, title: '', content: '', hours: 0 });
+                                    setUseInbox(false);
+                                    setShowInbox(true);
+                                    return;
+                                }
+
+                                // --- OPPORTUNITY PATH ---
+                                const finalTargetId = targetOppId;
+                                if (!finalTargetId) return alert('Select an opportunity or use the Inbox.');
+
+                                const opp = opportunities.find(o => o.id === finalTargetId);
+                                if (!opp) return;
+
+                                const updatedOpp = { ...opp };
+                                if (newItemType === 'task') {
+                                    const newTask: Task = {
+                                        id: crypto.randomUUID(),
+                                        title: formData.title,
+                                        description: formData.content,
+                                        status: 'Pending',
+                                        priority: formData.priority,
+                                        owner: 'Me',
+                                        responsible: '',
+                                        externalAreas: [],
+                                        dueDate: formData.date,
+                                        subtasks: [],
+                                        order: (opp.tasks?.length || 0) + 1,
+                                        stageContext: opp.stage,
+                                        dependsOnTaskIds: [],
+                                        blockDoneUntilDependenciesDone: false
+                                    };
+                                    updatedOpp.tasks = [...(opp.tasks || []), newTask];
+                                } else if (newItemType === 'history') {
+                                    const newHistory: HistoryEntry = {
+                                        id: crypto.randomUUID(),
+                                        date: normalizeDateString(formData.date),
+                                        content: formData.title,
+                                        createdAt: new Date().toISOString(),
+                                    };
+                                    updatedOpp.history = sortHistoryByDate([...(opp.history || []), newHistory]);
+                                } else if (newItemType === 'note') {
+                                    const newNote: MeetingNote = {
+                                        id: crypto.randomUUID(),
+                                        date: formData.date || new Date().toLocaleDateString('en-CA'),
+                                        type: 'General',
+                                        title: formData.title,
+                                        content: formData.content,
+                                        attendees: ''
+                                    };
+                                    updatedOpp.notes = [...(opp.notes || []), newNote];
+                                } else if (newItemType === 'hours') {
+                                    if (!formData.areaId) return alert('Select an area');
+                                    if (!updatedOpp.kpis) return;
+                                    const areaIdx = updatedOpp.kpis.areasInvolved.findIndex(a => a.id === formData.areaId);
+                                    if (areaIdx === -1) return;
+                                    const calendar = { ...(updatedOpp.kpis.areasInvolved[areaIdx].calendar || {}) };
+                                    calendar[formData.date] = { type: 'Worked', hours: formData.hours };
+                                    const updatedAreas = [...updatedOpp.kpis.areasInvolved];
+                                    updatedAreas[areaIdx] = { ...updatedAreas[areaIdx], calendar };
+                                    updatedOpp.kpis = { ...updatedOpp.kpis, areasInvolved: updatedAreas };
+                                }
+
+                                onUpdateOpportunity?.(updatedOpp);
+                                setShowCreateModal(false);
+                                setFormData({ ...formData, title: '', content: '', hours: 0 });
+                                setTargetOppId('');
+                                setOppSearch('');
+                            }} className="flex-[2] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all">
+                                {useInbox ? '📥 Save to Inbox' : LABELS.create}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Focused Subview Modal */}
+            {selectedItem && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-xl ${selectedItem.type === 'task' ? 'bg-blue-100 text-blue-600' : selectedItem.type === 'history' ? 'bg-emerald-100 text-emerald-600' : selectedItem.type === 'note' ? 'bg-purple-100 text-purple-600' : 'bg-orange-100 text-orange-600'}`}>
+                                    {selectedItem.type === 'task' ? <CheckCircle className="w-5 h-5" /> : selectedItem.type === 'history' ? <History className="w-5 h-5" /> : selectedItem.type === 'note' ? <FileText className="w-5 h-5" /> : <Timer className="w-5 h-5" />}
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className="text-xl font-black text-gray-800">{LABELS[selectedItem.type as keyof typeof LABELS]} {LABELS.details}</h3>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest truncate">{selectedItem.opportunityAlias ? `[${selectedItem.opportunityAlias}] ` : ''}{selectedItem.opportunityTitle}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5 text-gray-500" /></button>
+                        </div>
+                        <div className="p-8 space-y-6 overflow-y-auto">
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.titleField}</label>
+                                    <OptimizedInput className="w-full text-xl font-bold text-gray-900 border-none p-2 bg-gray-50 rounded-xl focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.title} onChange={(val: string) => updateItem(selectedItem, selectedItem.type === 'history' ? { content: val } : { title: val })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.date}</label>
+                                            {selectedItem.type === 'task' && (
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="trackModalCalendarized"
+                                                        checked={selectedItem.data.calendarized || false}
+                                                        onChange={(e) => updateItem(selectedItem, { calendarized: e.target.checked })}
+                                                        className="rounded text-[#3DCD58] focus:ring-[#3DCD58] w-3 h-3"
+                                                    />
+                                                    <label htmlFor="trackModalCalendarized" className="text-[9px] font-bold text-gray-500 uppercase cursor-pointer">Calendarized</label>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <input type="date" className="w-full text-sm text-gray-700 bg-gray-50 p-2 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.date} onChange={(e) => updateItem(selectedItem, selectedItem.type === 'task' ? { dueDate: e.target.value } : { date: e.target.value })} />
+                                    </div>
+                                    {selectedItem.type === 'task' && (
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.status}</label>
+                                            <select className="w-full text-sm font-bold bg-gray-50 p-2 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58] uppercase" value={selectedItem.status} onChange={(e) => updateItem(selectedItem, { status: e.target.value as any })}>
+                                                {TASK_STATUS_ORDER.map(status => <option key={status} value={status}>{status}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                                {(selectedItem.type === 'task' || selectedItem.type === 'note') && (
+                                    <div className="space-y-1 pt-4 border-t">
+                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.description}</label>
+                                        <textarea className="w-full text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58] resize-none" rows={5} value={selectedItem.type === 'task' ? selectedItem.data.description : selectedItem.data.content} onChange={(e) => updateItem(selectedItem, selectedItem.type === 'task' ? { description: e.target.value } : { content: e.target.value })} />
+                                    </div>
+                                )}
+                                {selectedItem.type === 'hours' && (
+                                    <div className="space-y-4 pt-4 border-t">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.area}</label><p className="p-2 text-sm font-bold text-gray-800">{selectedItem.data.area}</p></div>
+                                            <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{LABELS.hours}</label><input type="number" step="0.5" className="w-full text-sm font-bold bg-gray-50 p-2 rounded-xl border-none focus:ring-2 focus:ring-[#3DCD58]" value={selectedItem.data.hours} onChange={(e) => updateItem(selectedItem, { hours: parseFloat(e.target.value) })} /></div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="p-6 bg-gray-50 border-t flex gap-3">
+                            <button onClick={() => setSelectedItem(null)} className="px-4 py-3 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 transition-all border">{LABELS.cancel}</button>
+
+                            <button onClick={() => {
+                                onSelectOpp?.(selectedItem.opportunityId, { tab: 'folder' });
+                                setSelectedItem(null);
+                            }} className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-white transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                                <FolderOpen className="w-3.5 h-3.5 text-gray-400" /> {LABELS.openOpp}
+                            </button>
+
+                            <button onClick={() => {
+                                let deeplink: DeepLink | undefined;
+                                if (selectedItem.type === 'task') deeplink = { tab: 'tasks', taskId: selectedItem.id };
+                                else if (selectedItem.type === 'note') deeplink = { tab: 'notes', noteId: selectedItem.id };
+                                else if (selectedItem.type === 'history') deeplink = { tab: 'history', eventId: selectedItem.id };
+                                else if (selectedItem.type === 'hours') deeplink = { tab: 'kpi', focusDate: selectedItem.date };
+
+                                onSelectOpp?.(selectedItem.opportunityId, deeplink);
+                                setSelectedItem(null);
+                            }} className="flex-[1.5] px-4 py-3 bg-[#3DCD58] text-white rounded-xl text-sm font-black shadow-lg hover:bg-[#2db64a] transition-all flex items-center justify-center gap-2">
+                                <ExternalLink className="w-4 h-4" /> {LABELS.view} {LABELS[selectedItem.type as keyof typeof LABELS]}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Inbox Item Modal */}
+            {editingInboxItem && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setEditingInboxItem(null)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b bg-amber-50/60 flex justify-between items-center">
+                            <h3 className="text-lg font-black text-amber-800 flex items-center gap-2"><span>📥</span> Edit Inbox Item</h3>
+                            <button onClick={() => setEditingInboxItem(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
+                        </div>
+                        <div className="p-5 space-y-4 overflow-y-auto">
+                            {/* Type */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Type</label>
+                                <div className="flex gap-2">
+                                    {(['task', 'note', 'history'] as const).map(t => (
+                                        <button key={t} onClick={() => setEditingInboxItem({ ...editingInboxItem, type: t })}
+                                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-colors ${editingInboxItem.type === t ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300'}`}>
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* Title */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Title</label>
+                                <OptimizedInput type="text" value={editingInboxItem.title}
+                                    onChange={(val: string) => setEditingInboxItem({ ...editingInboxItem, title: val })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300" />
+                            </div>
+                            {/* Content */}
+                            <div className="space-y-1">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Description / Content</label>
+                                <textarea value={editingInboxItem.content} rows={3}
+                                    onChange={e => setEditingInboxItem({ ...editingInboxItem, content: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none text-sm focus:ring-2 focus:ring-amber-300 resize-none" />
+                            </div>
+                            {/* Date + Priority */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Date <span className="text-gray-300 font-normal">(optional)</span></label>
+                                    <input type="date" value={editingInboxItem.date}
+                                        onChange={e => setEditingInboxItem({ ...editingInboxItem, date: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Priority</label>
+                                    <select value={editingInboxItem.priority}
+                                        onChange={e => setEditingInboxItem({ ...editingInboxItem, priority: e.target.value as any })}
+                                        className="w-full px-3 py-2 rounded-xl border border-gray-200 outline-none text-sm">
+                                        <option value="High">High</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="Low">Low</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-5 border-t bg-gray-50 flex gap-3">
+                            <button onClick={() => setEditingInboxItem(null)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancel</button>
+                            <button onClick={() => {
+                                if (!editingInboxItem.title.trim()) return alert('Title cannot be empty');
+                                setInboxItems(prev => prev.map(i => i.id === editingInboxItem.id ? editingInboxItem : i));
+                                setEditingInboxItem(null);
+                            }} className="flex-[2] px-4 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-black shadow hover:bg-amber-600 transition-all">
+                                Save changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Assign Inbox Item to Opportunity Modal (on drag-drop) */}
+            {assignDrop && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in duration-200">
+                        <div className="p-5 border-b bg-blue-50/60 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-lg font-black text-blue-800">Assign to Opportunity</h3>
+                                <p className="text-[10px] text-blue-500 mt-0.5">📅 {assignDrop.date} · 📥 <span className="font-bold">{assignDrop.item.title}</span></p>
+                            </div>
+                            <button onClick={() => setAssignDrop(null)} className="p-2 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-500" /></button>
+                        </div>
+                        <div className="p-5 space-y-3">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Which opportunity to link it to?</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <DebouncedInput placeholder="Search opportunity..." value={assignOppSearch}
+                                    onChange={(val: string) => setAssignOppSearch(val)}
+                                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-300 outline-none text-sm" autoFocus />
+                            </div>
+                            <div className="max-h-56 overflow-y-auto space-y-1">
+                                {opportunities
+                                    .filter(o => !assignOppSearch || o.title.toLowerCase().includes(assignOppSearch.toLowerCase()) || (o.alias || '').toLowerCase().includes(assignOppSearch.toLowerCase()))
+                                    .slice(0, 8)
+                                    .map(opp => (
+                                        <button key={opp.id}
+                                            onClick={() => {
+                                                const item = assignDrop.item;
+                                                const updatedOpp = { ...opp };
+                                                if (item.type === 'task') {
+                                                    const newTask: Task = {
+                                                        id: crypto.randomUUID(),
+                                                        title: item.title,
+                                                        description: item.content,
+                                                        status: 'Pending',
+                                                        priority: item.priority,
+                                                        owner: 'Me',
+                                                        responsible: '',
+                                                        externalAreas: [],
+                                                        dueDate: assignDrop.date,
+                                                        subtasks: [],
+                                                        order: (opp.tasks?.length || 0) + 1,
+                                                        stageContext: opp.stage,
+                                                        dependsOnTaskIds: [],
+                                                        blockDoneUntilDependenciesDone: false
+                                                    };
+                                                    updatedOpp.tasks = [...(opp.tasks || []), newTask];
+                                                } else if (item.type === 'note') {
+                                                    updatedOpp.notes = [...(opp.notes || []), {
+                                                        id: crypto.randomUUID(),
+                                                        date: assignDrop.date,
+                                                        type: 'General',
+                                                        title: item.title,
+                                                        content: item.content,
+                                                        attendees: ''
+                                                    }];
+                                                } else if (item.type === 'history') {
+                                                    updatedOpp.history = sortHistoryByDate([...(opp.history || []), {
+                                                        id: crypto.randomUUID(),
+                                                        date: normalizeDateString(assignDrop.date),
+                                                        content: item.title,
+                                                        createdAt: new Date().toISOString(),
+                                                    }]);
+                                                }
+                                                onUpdateOpportunity?.(updatedOpp);
+                                                // Remove from inbox
+                                                setInboxItems(prev => prev.filter(i => i.id !== item.id));
+                                                setAssignDrop(null);
+                                            }}
+                                            className="w-full text-left p-3 rounded-xl hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                {opp.alias && <span className="text-[9px] font-black text-[#3DCD58] bg-green-50 px-1.5 py-0.5 rounded">[{opp.alias}]</span>}
+                                                <span className="text-sm font-bold text-gray-800 truncate">{opp.title}</span>
+                                            </div>
+                                            <p className="text-[10px] text-gray-400 mt-0.5">{opp.stage}</p>
+                                        </button>
+                                    ))}
+                            </div>
+                        </div>
+                        <div className="p-4 border-t bg-gray-50">
+                            <button onClick={() => setAssignDrop(null)} className="w-full px-4 py-2.5 rounded-xl text-sm font-bold text-gray-500 hover:bg-gray-200 border">Cancel — keep in Inbox</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};

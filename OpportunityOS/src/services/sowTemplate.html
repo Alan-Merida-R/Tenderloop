@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Define Scope - Dynamic Guided Builder</title>
+<style>
+  :root{
+    --primary:#2c7be5;
+    --primary-dark:#185abd;
+    --ink:#172033;
+    --muted:#667085;
+    --line:#d8dee8;
+    --surface:#ffffff;
+    --surface-2:#f2f4f7;
+    --surface-3:#eef1f5;
+    --green:#2ecc71;
+    --red:#e74c3c;
+    --amber:#f59e0b;
+    --purple:#7c3aed;
+    --orange:#d97706;
+    --teal:#0891b2;
+    --shadow:0 4px 14px rgba(15,23,42,.08);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:#edf1f7;
+    color:var(--ink);
+    font-family:Segoe UI, Arial, sans-serif;
+  }
+  .page-shell{width:100%;max-width:1500px;margin:0 auto;padding:18px}
+  .card{
+    background:var(--surface);
+    padding:20px;
+    border-radius:12px;
+    box-shadow:var(--shadow);
+    width:100%;
+    margin-bottom:16px;
+  }
+  .sticky-tools{
+    position:sticky;top:0;z-index:50;
+    background:rgba(237,241,247,.96);
+    backdrop-filter:blur(10px);
+    padding:10px 0 12px;
+  }
+  .toolbar{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:10px 12px;box-shadow:var(--shadow)
+  }
+  .toolbar-title{font-weight:700;margin-right:auto}
+  .btn{
+    border:1px solid #cbd5e1;background:white;color:#263247;
+    border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:13px
+  }
+  .btn:hover{background:#f8fafc}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:white}
+  .btn.danger{background:#fff1f0;border-color:#ffc9c5;color:#b42318}
+  .progress-wrap{display:flex;align-items:center;gap:9px;min-width:240px}
+  .progress-track{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;flex:1}
+  .progress-bar{height:100%;width:0;background:var(--green);transition:width .2s}
+  .progress-text{font-size:12px;color:var(--muted);white-space:nowrap}
+
+  h1{color:var(--primary);margin:0 0 6px;font-size:24px}
+  h2{margin:0;font-size:18px}
+  h3{font-size:16px;margin:16px 0 10px}
+  h4{font-size:14px;margin:14px 0 8px}
+  p{margin:7px 0}
+  .subtitle{color:var(--muted);margin-bottom:18px}
+  .section-intro{font-size:13px;color:var(--muted);margin-bottom:12px}
+
+  .grid{display:grid;gap:12px}
+  .grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .field{min-width:0}
+  .field label{display:block;font-weight:650;font-size:12px;margin-bottom:5px;color:#344054}
+  .required-mark{color:#d92d20}
+  input[type="text"],input[type="date"],input[type="number"],input[type="url"],select,textarea,.editable{
+    width:100%;border:1px solid #cfd7e3;border-radius:8px;background:#fff;
+    min-height:38px;padding:8px 10px;font:inherit;font-size:13px;color:var(--ink);
+    outline:none;transition:.15s;
+  }
+  textarea{resize:vertical;min-height:72px}
+  .editable{white-space:pre-wrap}
+  .editable:empty:before{content:attr(data-placeholder);color:#98a2b3}
+  input:focus,select:focus,textarea:focus,.editable:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(44,123,229,.12)}
+  .missing{border-color:#f04438!important;background:#fff7f6!important}
+  .help{font-size:11px;color:#667085;margin-top:4px;line-height:1.35}
+
+  details.section-card{
+    background:#fff;border-radius:12px;box-shadow:var(--shadow);
+    margin-bottom:14px;overflow:hidden;border:1px solid transparent
+  }
+  details.section-card>summary{
+    cursor:pointer;list-style:none;padding:14px 18px;font-weight:750;
+    display:flex;align-items:center;gap:10px;background:#fff
+  }
+  details.section-card>summary::-webkit-details-marker{display:none}
+  details.section-card>summary:before{content:'\203A';font-size:24px;line-height:16px;transform:rotate(0deg);transition:.15s;color:#667085}
+  details.section-card[open]>summary:before{transform:rotate(90deg)}
+  .section-body{padding:0 18px 18px}
+  .section-band{height:5px;background:var(--primary)}
+  .band-commercial{background:#059669}.band-technical{background:var(--purple)}
+  .band-hardware{background:var(--orange)}.band-services{background:var(--teal)}
+  .band-tests{background:#dc2626}.band-training{background:#db2777}.band-docs{background:#475569}
+  .band-triconex{background:#d92d20}.band-foxboro{background:#005eb8}.band-modicon{background:#3dcd58}
+
+  .subcard{background:var(--surface-2);padding:14px;border-radius:10px;margin:10px 0;border:1px solid #e4e7ec}
+  .subcard.white{background:#fff}
+  .check-row{background:var(--surface-3);padding:11px;border-radius:10px;margin-bottom:9px;border:1px solid #e0e5ed}
+  .check-row-head{display:flex;align-items:center;gap:8px;font-weight:650}
+  .check-row .editable{margin-top:8px;background:#fff;min-height:48px}
+  .choice-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px 12px}
+  .choice{display:flex;align-items:flex-start;gap:7px;font-size:13px;line-height:1.3;padding:3px 0}
+  input[type="checkbox"],input[type="radio"]{margin-top:2px;accent-color:var(--primary)}
+
+  .toggle-input{display:none}
+  .toggle-btn{
+    padding:7px 14px;border-radius:20px;background:var(--red);color:white;
+    cursor:pointer;font-size:13px;display:inline-block;user-select:none;font-weight:700
+  }
+  .toggle-input:checked + .toggle-btn{background:var(--green)}
+  .toggle-group{display:flex;gap:9px;flex-wrap:wrap;margin-top:7px}
+
+  .platform-picker{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .platform-input{display:none}
+  .platform-chip{
+    display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 14px;
+    border:1px solid #cfd7e3;background:#f8fafc;cursor:pointer;font-size:13px;font-weight:700
+  }
+  .platform-input:checked + .platform-chip{color:#fff;border-color:transparent}
+  #platform-modicon:checked + .platform-chip{background:#25a244}
+  #platform-triconex:checked + .platform-chip{background:#d92d20}
+  #platform-foxboro:checked + .platform-chip{background:#005eb8}
+  #platform-other:checked + .platform-chip{background:#475569}
+  .platform-section.hidden-by-platform{display:none}
+
+  .status-select{min-width:130px}
+  .inline-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .badge{display:inline-block;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700;background:#eef2f6;color:#344054}
+  .badge.critical{background:#fee4e2;color:#b42318}.badge.optional{background:#ecfdf3;color:#027a48}
+
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;background:#fff;border:1px solid #d8dee8;border-radius:9px;overflow:hidden}
+  th{background:#e9eef5;color:#344054;text-align:left;padding:8px;border-bottom:1px solid #d8dee8}
+  td{padding:7px;border-bottom:1px solid #e4e7ec;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td[contenteditable="true"]{min-width:90px;outline:none}
+  td[contenteditable="true"]:focus{background:#f0f7ff;box-shadow:inset 0 0 0 2px var(--primary)}
+  .table-actions{display:flex;justify-content:flex-end;margin-top:7px}
+  .remove-row{border:none;background:transparent;color:#b42318;cursor:pointer;font-weight:700}
+
+  .responsibility-grid{display:grid;grid-template-columns:1.5fr repeat(3,.7fr) 2fr;gap:1px;background:#d8dee8;border:1px solid #d8dee8;border-radius:9px;overflow:hidden}
+  .responsibility-grid>div{background:#fff;padding:8px;font-size:12px;min-height:38px}
+  .responsibility-grid .head{background:#e9eef5;font-weight:700}
+  .responsibility-grid .center{text-align:center}
+
+  .note-box{border-left:4px solid var(--primary);background:#eff6ff;padding:10px 12px;border-radius:6px;font-size:12px;color:#344054}
+  .warning-box{border-left-color:var(--amber);background:#fffaeb}
+  hr{border:0;border-top:1px solid #e4e7ec;margin:18px 0}
+
+  @media(max-width:1000px){
+    .grid.four{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid.three{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .responsibility-grid{grid-template-columns:1.3fr repeat(3,.55fr) 1.5fr}
+  }
+  @media(max-width:650px){
+    .page-shell{padding:10px}.grid.two,.grid.three,.grid.four{grid-template-columns:1fr}
+    .choice-grid{grid-template-columns:1fr}.progress-wrap{width:100%}
+    .responsibility-grid{display:block;background:#fff;border:none}
+    .responsibility-grid>div{border:1px solid #d8dee8;margin-top:-1px}
+  }
+
+  @media print{
+    body{background:white}.page-shell{max-width:none;padding:0}.sticky-tools{display:none}
+    .card,details.section-card{box-shadow:none;border:1px solid #d8dee8;break-inside:avoid}
+    details.section-card>summary{padding:10px 14px}
+    .section-body{padding:0 14px 14px}.btn,.table-actions,.remove-row{display:none!important}
+    input,select,textarea,.editable{box-shadow:none!important}
+  }
+
+
+  /* GUIDED / CONDITIONAL QUESTIONNAIRE */
+  .conditional-hidden{display:none!important}
+  .logic-note{
+    margin-top:14px;padding:10px 12px;border-radius:9px;border:1px solid #bfdbfe;
+    background:#eff6ff;color:#344054;font-size:12px;line-height:1.45
+  }
+  .logic-note b{color:#1d4ed8}
+  .logic-hint{font-size:11px;color:#667085;margin:5px 0 10px}
+  .logic-active{background:#ecfdf3!important;border-color:#a7f3d0!important;color:#027a48!important}
+  .band-team{background:#2c7be5}
+  .conditional-block{transition:opacity .16s ease}
+  /* Opportunity contacts are managed by the permanent Opportunity Team panel in Notes. */
+  #teamSection{display:none!important}
+  .team-table td:nth-child(1){min-width:145px}
+  .team-table td:nth-child(2){min-width:150px}
+  .team-table td:nth-child(3){min-width:120px}
+  .team-table td:nth-child(4){min-width:180px}
+  .team-table td:nth-child(6){min-width:220px}
+  .section-logic-label{
+    display:inline-flex;align-items:center;border-radius:999px;background:#eef2ff;
+    color:#4338ca;padding:3px 8px;font-size:10px;font-weight:700;margin-left:auto
+  }
+  .basic-proposal-information{margin:0 0 14px;padding:14px;border:1px solid #d8dee8;border-radius:10px;background:#fbfcfe}
+  .basic-proposal-information h2{font-size:14px;color:#1f3b63;margin:0 0 3px}.basic-proposal-information p{font-size:12px;color:#667085;margin:0 0 12px}
+  .basic-proposal-information #expedienteObjective{margin-top:12px!important}
+  .terminal-overview{position:fixed;inset:0;z-index:80;background:#090d12;color:#d8ffe1;display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .terminal-overview.open{display:flex}.terminal-head{padding:14px 24px;border-bottom:1px solid #d8e2dc;display:flex;align-items:center;gap:10px;background:#fff;color:#1f2937}.terminal-head b{font-size:12px;letter-spacing:.08em;flex:1}.terminal-head .btn{padding:5px 10px}.terminal-filters{display:flex;gap:10px;padding:10px 24px;background:#101b14;border-bottom:1px solid #183021}.terminal-search,.terminal-section-filter{padding:9px 10px;background:#101b14;border:1px solid #285738;color:#e8fff0;border-radius:7px}.terminal-search{flex:1;min-width:0}.terminal-section-filter{min-width:240px}.terminal-body{overflow:auto;padding:16px 24px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:12px;align-content:start}.terminal-line{padding:12px;border:1px solid #183021;border-radius:8px;font-size:12px;line-height:1.45}.terminal-tag{color:#69e784;font-weight:800}.terminal-question{color:#a6c7af;font-size:10px;text-transform:uppercase;margin-bottom:3px}.overview-edit{display:block;width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;resize:vertical;background:#101b14;color:#f0fff3;border:1px solid #285738;border-radius:6px;padding:7px;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+  @media(max-width:760px){.terminal-filters{flex-direction:column}.terminal-section-filter{min-width:0}}
+
+  /* GUIDED FLOW + FORM DESIGNER */
+  .band-flow{background:linear-gradient(90deg,#2563eb,#7c3aed)}
+  .flow-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  details.flow-step{border:1px solid #d8dee8;border-radius:10px;margin:10px 0;background:#fbfcfe;overflow:hidden}
+  details.flow-step>summary{cursor:pointer;list-style:none;padding:12px 14px;font-weight:750;display:flex;align-items:center;gap:9px;background:#f8fafc}
+  details.flow-step>summary::-webkit-details-marker{display:none}
+  details.flow-step>summary:before{content:'\203A';font-size:22px;line-height:14px;color:#667085;transition:.15s}
+  details.flow-step[open]>summary:before{transform:rotate(90deg)}
+  .flow-step-body{padding:2px 10px 10px}
+  .flow-step-goal{font-size:11px;color:#667085;margin:5px 0 7px;padding:6px 8px;background:#eef4ff;border-radius:7px}
+  .flow-count{margin-left:auto;font-size:11px;color:#475467;background:#e9eef5;border-radius:999px;padding:3px 8px;white-space:nowrap}
+  .flow-subsection{margin:10px 0 14px}
+  .subsection-title{font-size:12px;margin:0 0 7px;color:#344054;border-bottom:1px solid #e4e7ec;padding-bottom:4px}
+  .question-grid,.custom-question-container{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:9px;align-items:start}
+  .question-card{position:relative;background:#fff;border:1px solid #dfe5ee;border-radius:8px;padding:8px 10px;margin:0;min-width:0;transition:.15s}
+  .question-card:hover{border-color:#b8c7dc}
+  .question-card.flagged{border-color:#f04438;background:#fff8f7;box-shadow:0 0 0 2px #f0443820}
+  body.flag-filtering .question-card:not(.flagged){display:none}
+  .question-flag{margin-left:auto;border:0;background:transparent;color:#98a2b3;cursor:pointer;padding:2px 4px;border-radius:6px;font-size:17px;line-height:1}
+  .question-flag:hover,.question-flag.active{color:#e5484d;background:#fff0f0}
+  .terminal-tag.tbd{color:#fbbf24}
+  .nav-panel{position:fixed;z-index:75;inset:0 auto 0 0;width:min(390px,92vw);background:#fff;border-right:1px solid #d8dee8;box-shadow:12px 0 32px #0f172a2b;display:none;flex-direction:column}.nav-panel.open{display:flex}
+  /* Push the document instead of overlaying it, so the panel never covers content the user is trying to read/edit. */
+  body{transition:padding-left .15s ease}
+  body.nav-panel-open{padding-left:min(390px,92vw)}.nav-head{padding:16px;border-bottom:1px solid #e4e7ec;display:flex;gap:8px;align-items:center}.nav-head b{font-size:13px;flex:1}.nav-search{margin:12px;width:calc(100% - 24px);padding:10px 12px;border:1px solid #cfd7e3;border-radius:8px;font:inherit}.nav-results{overflow:auto;padding:0 12px 18px}.nav-section{border-bottom:1px solid #eef2f6}.nav-section>summary{padding:11px 5px;cursor:pointer;font-weight:700;font-size:13px;color:#172033}.nav-subsection{margin-left:14px;border-left:2px solid #eef2f6;padding-left:8px}.nav-subsection>summary{padding:8px 5px;cursor:pointer;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#8a94a6}.nav-question{display:flex;align-items:flex-start;gap:7px;padding:7px 8px;margin:3px 0;border-radius:7px;font-size:12px;color:#475467;cursor:pointer}.nav-question:hover,.nav-question.match{background:#fff6cc}.nav-flag{color:#e5484d;font-size:14px}.nav-snippet{display:block;color:#667085;font-size:11px;line-height:1.3;margin-top:2px}
+  .question-card.missing{border-color:#f04438!important;background:#fff7f6!important}
+  .question-header{display:flex;gap:8px;align-items:flex-start;margin-bottom:5px}
+  .question-title{font-size:12px;font-weight:700;line-height:1.3;flex:1}
+  .question-id{font-size:10px;font-weight:800;color:#475467;background:#eef2f6;padding:3px 6px;border-radius:5px;white-space:nowrap}
+  .question-meta{display:flex;gap:5px;flex-wrap:wrap;margin:4px 0 0}
+  .question-meta span{font-size:10px;border-radius:999px;padding:3px 7px;background:#f2f4f7;color:#475467}
+  .question-help{font-size:10px;color:#667085;line-height:1.3;margin-top:4px}
+  .multi-choice{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 12px;padding:8px 10px;border:1px solid #cfd7e3;border-radius:8px;background:#fff}
+  .multi-choice label{font-size:12px;display:flex;gap:7px;align-items:flex-start;font-weight:500}
+  .single-check-answer{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border:1px solid #cfd7e3;border-radius:8px;background:#fff;font-size:13px}
+  .link-answer{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+  .link-answer .quick-link-action{grid-column:1/-1;justify-self:start;border:1px solid #b7e4c0;background:#f0fff4;color:#278a3b;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer}
+  .link-answer .quick-link-action:disabled{opacity:.45;cursor:not-allowed}
+  .instruction-answer{padding:10px 12px;border-left:4px solid #7c3aed;background:#f5f3ff;border-radius:7px;font-size:12px;color:#4c1d95}
+  .custom-question-card{border-style:dashed;border-color:#94a3b8}
+  .custom-question-controls{display:flex;gap:4px}
+  .icon-btn{border:1px solid #d0d5dd;background:#fff;border-radius:7px;padding:4px 7px;cursor:pointer;font-size:11px;color:#344054}
+  .icon-btn:hover{background:#f2f4f7}
+  .icon-btn.danger{color:#b42318;border-color:#fda29b}
+  .builder-section-tools{display:flex;justify-content:flex-end;gap:7px;margin-top:12px;padding-top:10px;border-top:1px dashed #cbd5e1}
+  .builder-only{display:none!important}
+  body.designer-mode .builder-only{display:inline-flex!important}
+  body.designer-mode .question-card.custom-question-card{box-shadow:inset 0 0 0 1px #7c3aed33}
+  .custom-section-summary-tools{margin-left:auto;display:none;gap:5px}
+  body.designer-mode .custom-section-summary-tools{display:flex}
+  .designer-banner{display:none;background:#f5f3ff;border:1px solid #c4b5fd;color:#5b21b6;padding:8px 11px;border-radius:8px;font-size:12px;margin-bottom:10px}
+  body.designer-mode .designer-banner{display:block}
+  dialog.builder-dialog{width:min(820px,calc(100vw - 24px));max-height:90vh;border:0;border-radius:14px;padding:0;box-shadow:0 24px 70px rgba(15,23,42,.25)}
+  dialog.builder-dialog::backdrop{background:rgba(15,23,42,.55)}
+  .dialog-head{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid #e4e7ec;background:#f8fafc}
+  .dialog-head h2{font-size:17px;flex:1}
+  .dialog-body{padding:16px 18px;overflow:auto;max-height:calc(90vh - 120px)}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #e4e7ec;background:#fff}
+  .condition-editor{border:1px solid #d8dee8;border-radius:10px;padding:10px;background:#f8fafc;margin-top:8px}
+  .condition-row{display:grid;grid-template-columns:2fr 1.1fr 1.3fr auto;gap:7px;align-items:center;margin:7px 0}
+  .condition-row select,.condition-row input{min-height:34px;padding:6px 8px;font-size:12px}
+  .condition-empty{font-size:11px;color:#667085;margin:6px 0}
+  .custom-section-description{font-size:12px;color:#667085;margin:4px 0 12px}
+  .question-library-note{font-size:12px;color:#475467;background:#f8fafc;border:1px solid #e4e7ec;border-radius:8px;padding:9px 11px;margin-bottom:10px}
+  @media(max-width:800px){.multi-choice{grid-template-columns:repeat(2,minmax(0,1fr))}.condition-row{grid-template-columns:1fr}.link-answer{grid-template-columns:1fr}}
+  @media(max-width:620px){.question-grid,.custom-question-container{grid-template-columns:1fr}}
+  @media(max-width:520px){.multi-choice{grid-template-columns:1fr}}
+  @media print{.builder-only,.custom-question-controls,.custom-section-summary-tools,dialog,.designer-banner,.flow-actions{display:none!important}.question-card{break-inside:avoid}}
+
+</style>
+</head>
+<body>
+<div class="page-shell">
+<div class="sticky-tools">
+<div class="toolbar">
+<div class="toolbar-title">Scope Definition Workspace</div>
+<div class="progress-wrap">
+<div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+<span class="progress-text" id="progressText">0% complete</span>
+</div>
+<button aria-pressed="false" class="btn" id="designerModeBtn" type="button">Design questions</button><button class="btn builder-only" id="addSectionBtn" type="button">+ New section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" type="button">Meeting mode</button><button class="btn" id="generateMeetingNoteBtn" type="button">Generate meeting note</button><button class="btn" id="reviewGapsBtn" type="button">Review gaps</button><button class="btn" id="flaggedBtn" type="button">🚩 Flagged questions</button><button class="btn" id="navigationBtn" type="button">☰ Navigation</button><button class="btn" id="overviewBtn" type="button">Overview</button>
+<button class="btn primary" id="printBtn" type="button">Print / PDF</button>
+</div>
+</div>
+<aside class="terminal-overview" id="terminalOverview"><div class="terminal-head"><b>▣ OVERVIEW / CAPTURED INFORMATION</b><button class="btn" id="closeOverviewBtn" type="button">Close</button></div><div class="terminal-filters"><input class="terminal-search" id="overviewSearch" placeholder="Search BOM, scope, delivery..."/><select class="terminal-section-filter" id="overviewSectionFilter"><option value="">All sections</option></select></div><div class="terminal-body" id="overviewBody"></div></aside>
+<aside class="nav-panel" id="navigationPanel"><div class="nav-head"><b>Navigation panel</b><button class="btn" id="closeNavigationBtn" type="button">Close</button></div><input class="nav-search" id="navigationSearch" placeholder="Search in document (like Word)"/><div class="nav-results" id="navigationResults"></div></aside>
+<div class="card">
+<h1>Define Scope</h1>
+<div class="subtitle">Complete project, commercial, technical, execution and handover definition for Modicon PLC, Triconex SIS and EcoStruxure Foxboro DCS opportunities.</div>
+<section class="basic-proposal-information"><h2>Base Data</h2><p>Basic proposal information, linked automatically with the expediente.</p><div class="grid four" id="expedienteSnapshot">
+<div class="field"><label>Opportunity / OP ID <span class="required-mark">*</span></label><input data-key="op_id" data-required="" placeholder="OP-... " type="text"/></div>
+<div class="field"><label>Opportunity name <span class="required-mark">*</span></label><input data-key="op_name" data-required="" type="text"/></div>
+<div class="field"><label>Investigative alias</label><input data-key="alias" type="text"/></div>
+<div class="field"><label>SR / QLK</label><input data-key="sr_qlk" type="text"/></div>
+<div class="field"><label>Customer / company <span class="required-mark">*</span></label><input data-key="customer" data-required="" type="text"/></div>
+<div class="field"><label>End user</label><input data-key="end_user" type="text"/></div>
+<div class="field"><label>Site / plant location</label><input data-key="site" type="text"/></div>
+<div class="field"><label>Seller / CSE</label><input data-key="team_cse" type="text"/></div>
+<div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
+</div>
+<div class="field" id="expedienteObjective" style="margin-top:13px">
+<label>Objective <span class="required-mark">*</span></label>
+<div class="editable" contenteditable="true" data-key="objective" data-placeholder="What outcome must this proposal and project achieve?" data-required=""></div>
+</div>
+<div class="field" style="margin-top:13px">
+<label>Scope</label>
+<textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
+<div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
+</div></section>
+<div class="field" style="margin-top:13px">
+<label>Platforms included in this opportunity <span class="required-mark">*</span></label>
+<div class="platform-picker">
+<label><input class="platform-input platform-selector" data-key="platform_modicon" id="platform-modicon" type="checkbox"/><span class="platform-chip">Modicon PLC</span></label>
+<label><input class="platform-input platform-selector" data-key="platform_triconex" id="platform-triconex" type="checkbox"/><span class="platform-chip">Triconex SIS</span></label>
+<label><input class="platform-input platform-selector" data-key="platform_foxboro" id="platform-foxboro" type="checkbox"/><span class="platform-chip">Foxboro DCS</span></label>
+<label><input class="platform-input platform-selector" data-key="platform_other" id="platform-other" type="checkbox"/><span class="platform-chip">Other / AVEVA / Cyber</span></label>
+</div>
+</div><div class="logic-note"><b>Guided questionnaire:</b> dependent questions appear only when they apply. Hidden answers are preserved. Use <b>Guided mode</b> in the toolbar to temporarily display every question.</div>
+</div>
+
+<details class="section-card" open><div class="section-band band-team"></div><summary>Stakeholders from expediente</summary><div class="section-body"><p class="section-intro">People already registered in the expediente. Update contacts from the Stakeholders section when needed.</p><table><thead><tr><th>Area</th><th>Name</th></tr></thead><tbody id="expedienteStakeholders"><tr><td colspan="2">No stakeholders registered yet.</td></tr></tbody></table></div></details>
+
+<details class="section-card" id="guidedFlowMaster" open="">
+<div class="section-band band-flow"></div>
+<summary>Guided Scope Intake &amp; Dependency Flow <span class="section-logic-label">63 questions from automation flow</span></summary>
+<div class="section-body">
+<div class="designer-banner"><b>Form designer is active.</b> Use the buttons at the end of any section to add questions. You can also create complete sections and define dependency rules.</div>
+<p class="section-intro">This guided intake follows the question-flow workbook. Base answers unlock only the commercial, technical, cabinet, services, testing, training and documentation questions that apply.</p>
+<div class="question-library-note"><b>Dependency behavior:</b> hidden answers are preserved, but a hidden source question does not activate downstream branches. Turn off Guided mode to review every question.</div>
+<div class="flow-actions"><button class="btn" id="expandFlowBtn" type="button">Expand flow</button><button class="btn" id="collapseFlowBtn" type="button">Collapse flow</button></div>
+<div id="flowStepsContainer"></div>
+</div>
+</details>
+<details class="section-card" id="teamSection" open=""><div class="section-band band-team"></div><summary>Team Involved<span class="section-logic-label">Expandable team</span></summary><div class="section-body">
+
+<p class="section-intro">Identify the proposal, technical, execution and approval owners before scope definition starts.</p>
+<div class="grid four">
+<div class="field"><label>Sales / CSE <span class="required-mark">*</span></label><input data-key="team_cse" data-required="" type="text"/></div>
+<div class="field"><label>Tender Engineer <span class="required-mark">*</span></label><input data-key="team_tender" data-required="" type="text"/></div>
+<div class="field conditional-block"><label>TSC - Modicon</label><input data-key="team_tsc_modicon" type="text"/></div>
+<div class="field conditional-block"><label>TSC - Foxboro</label><input data-key="team_tsc_foxboro" type="text"/></div>
+<div class="field conditional-block"><label>TSC - Triconex</label><input data-key="team_tsc_triconex" type="text"/></div>
+<div class="field"><label>Delivery / Project Execution</label><input data-key="team_delivery" type="text"/></div>
+<div class="field"><label>Field Services</label><input data-key="team_field" type="text"/></div>
+<div class="field"><label>FoxMass / Cabinets</label><input data-key="team_foxmass" type="text"/></div>
+<div class="field"><label>Supply Chain / Resales</label><input data-key="team_supply" type="text"/></div>
+<div class="field"><label>Commercial / Contracts</label><input data-key="team_contracts" type="text"/></div>
+<div class="field"><label>Proposal approver</label><input data-key="team_approver" type="text"/></div>
+<div class="field"><label>Customer decision maker</label><input data-key="customer_decision" type="text"/></div>
+<div class="field"><label>Primary area</label><select data-key="team_primary_area" id="teamPrimaryArea"><option value=""></option></select></div>
+</div>
+<div class="grid two" style="margin-top:12px">
+<div class="field"><label>Key customer technical contact</label><textarea data-key="customer_technical_contact" placeholder="Name, role, email, phone"></textarea></div>
+<div class="field"><label>Distributor / SI / contractor contacts</label><textarea data-key="partner_contacts" placeholder="Company, name, role, email, phone"></textarea></div>
+</div>
+<h3>Additional Team Members</h3><p class="logic-hint">Add any additional technical, commercial, execution, customer or approval stakeholder required for this opportunity.</p>
+<table class="dynamic-table team-table" data-key="team_members_table" id="teamMembersTable">
+<thead><tr><th style="width:15%">Role / area</th><th style="width:15%">Name</th><th style="width:12%">Company</th><th style="width:17%">Email</th><th style="width:12%">Phone</th><th>Responsibility / decision</th><th style="width:4%"></th></tr></thead>
+<tbody><tr><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td><button class="remove-row" type="button">×</button></td></tr></tbody>
+</table>
+<div class="table-actions"><button class="btn add-row" data-table="teamMembersTable" type="button">+ Add team member</button></div>
+</div></details>
+<details class="section-card" open="">
+<div class="section-band band-commercial"></div>
+<summary>1. Project, Proposal &amp; Commercial Definition</summary>
+<div class="section-body">
+<div class="grid four">
+<div class="field"><label>Opportunity type <span class="required-mark">*</span></label><select data-key="opp_type" data-required=""><option value=""></option><option>Greenfield</option><option>Modernization</option><option>Migration</option><option>Upgrade</option><option>Expansion</option><option>Services only</option><option>Mixed</option></select></div>
+<div class="field"><label>Proposal type <span class="required-mark">*</span></label><select data-key="proposal_type" data-required=""><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
+<div class="field"><label>Scope type</label><select data-key="scope_type"><option value=""></option><option>Supply</option><option>Engineering</option><option>Integration</option><option>Services</option><option>Turnkey</option><option>Mixed</option></select></div>
+<div class="field"><label>Commercial structure</label><select data-key="commercial_structure"><option value=""></option><option>Hardware + Software + Services</option><option>Services only</option><option>Migration / Modernization</option><option>Change order / Revision</option></select></div>
+<div class="field"><label>Purchaser</label><select data-key="purchaser"><option value=""></option><option>End user</option><option>Distributor</option><option>System integrator</option><option>GC / EC</option><option>Other</option></select></div>
+<div class="field"><label>Type of purchase</label><select data-key="purchase_type"><option value=""></option><option>Low bid</option><option>Schneider specified</option><option>Competitive</option><option>Single source</option><option>Negotiated</option></select></div>
+<div class="field"><label>Cost / revenue forecast (USD)</label><input data-key="forecast_usd" min="0" step="0.01" type="number"/></div>
+<div class="field"><label>Currency / Incoterm</label><input data-key="currency_incoterm" placeholder="USD / FCA, DDP, etc." type="text"/></div>
+</div>
+<h3>Important Dates</h3>
+<div class="grid four">
+<div class="field"><label>Proposal due date <span class="required-mark">*</span></label><input data-key="proposal_due" data-required="" type="date"/></div>
+<div class="field"><label>Expected proposal delivery</label><input data-key="proposal_delivery" type="date"/></div>
+<div class="field"><label>Expected order entry</label><input data-key="order_entry" type="date"/></div>
+<div class="field"><label>Expected award</label><input data-key="award_date" type="date"/></div>
+<div class="field"><label>Execution start</label><input data-key="execution_start" type="date"/></div>
+<div class="field"><label>Required delivery / shipment</label><input data-key="delivery_date" type="date"/></div>
+<div class="field"><label>Site start</label><input data-key="site_start" type="date"/></div>
+<div class="field"><label>Project completion</label><input data-key="project_completion" type="date"/></div>
+</div>
+<h3>Links &amp; Commercial Documents</h3>
+<div class="grid four">
+<div class="field"><label>BFO / Opportunity link</label><input data-key="link_bfo" type="url"/></div>
+<div class="field"><label>SharePoint / DSO link</label><input data-key="link_dso" type="url"/></div>
+<div class="field"><label>RFQ / Specifications link</label><input data-key="link_rfq" type="url"/></div>
+<div class="field"><label>Installed-base / prior opportunity link</label><input data-key="link_installed_base" type="url"/></div>
+</div>
+<div class="subcard">
+<p><b>MSA / CFA / Contract Basis</b></p>
+<div class="toggle-group">
+<label><input class="toggle-input" data-key="msa_available" type="checkbox"/><span class="toggle-btn">MSA</span></label>
+<label><input class="toggle-input" data-key="cfa_available" type="checkbox"/><span class="toggle-btn">CFA</span></label>
+<label><input class="toggle-input" data-key="customer_terms" type="checkbox"/><span class="toggle-btn">Customer T&amp;Cs</span></label>
+<label><input class="toggle-input" data-key="se_standard_terms" type="checkbox"/><span class="toggle-btn">SE Standard T&amp;Cs</span></label>
+</div>
+<div class="grid two" style="margin-top:10px">
+<div class="field conditional-block"><label>MSA / CFA / T&amp;Cs links</label><textarea data-key="contract_links"></textarea></div>
+<div class="field conditional-block"><label>Commercial exceptions, deviations or approvals</label><textarea data-key="commercial_exceptions"></textarea></div>
+</div>
+</div>
+<div class="grid two">
+<div class="field"><label>Payment milestones</label><textarea data-key="payment_milestones"></textarea></div>
+<div class="field"><label>Escalation, taxes, duties, bonds, LDs and validity</label><textarea data-key="commercial_conditions"></textarea></div>
+</div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band"></div>
+<summary>2. Input Package, Specifications &amp; Information Gaps</summary>
+<div class="section-body">
+<div class="choice-grid">
+<label class="choice"><input data-key="doc_written_spec" type="checkbox"/>Written specification</label>
+<label class="choice"><input data-key="doc_rfq" type="checkbox"/>Formal RFQ / bid documents</label>
+<label class="choice"><input data-key="doc_io_list" type="checkbox"/>I/O list</label>
+<label class="choice"><input data-key="doc_existing_arch" type="checkbox"/>Existing architecture</label>
+<label class="choice"><input data-key="doc_proposed_arch" type="checkbox"/>Proposed architecture</label>
+<label class="choice"><input data-key="doc_drawings" type="checkbox"/>Electrical / cabinet drawings</label>
+<label class="choice"><input data-key="doc_program_backup" type="checkbox"/>Program / configuration backups</label>
+<label class="choice"><input data-key="doc_hmi_backup" type="checkbox"/>HMI / graphics backups</label>
+<label class="choice"><input data-key="doc_scada_backup" type="checkbox"/>SCADA / historian backups</label>
+<label class="choice"><input data-key="doc_photos" type="checkbox"/>Panel and rack photos</label>
+<label class="choice"><input data-key="doc_datasheets" type="checkbox"/>Datasheets / vendor quotes</label>
+<label class="choice"><input data-key="doc_network" type="checkbox"/>Network drawing / IP list</label>
+<label class="choice"><input data-key="doc_control_narrative" type="checkbox"/>Control narratives</label>
+<label class="choice"><input data-key="doc_cause_effect" type="checkbox"/>Cause &amp; effect / SRS</label>
+<label class="choice"><input data-key="doc_hazop" type="checkbox"/>HAZOP / LOPA / SIL verification</label>
+<label class="choice"><input data-key="doc_site_walk" type="checkbox"/>Job walk / site survey report</label>
+</div>
+<div class="grid two" style="margin-top:12px">
+<div class="field"><label>Available information and current revision</label><textarea data-key="available_information"></textarea></div>
+<div class="field"><label>Missing information / RFIs <span class="required-mark">*</span></label><textarea data-key="missing_information" data-required=""></textarea></div>
+</div>
+<div class="grid two">
+<div class="field conditional-block"><label>Existing system condition and installed base</label><textarea data-key="installed_base_summary"></textarea></div>
+<div class="field conditional-block"><label>Data accuracy / drawing validation notes</label><textarea data-key="data_validation_notes"></textarea></div>
+</div>
+<div class="note-box warning-box">Do not freeze the BOM or service estimate until current drawings, I/O data, software versions, system ownership and execution boundaries have been validated.</div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-technical"></div>
+<summary>3. General Scope, Boundaries &amp; Architecture</summary>
+<div class="section-body">
+<div class="grid two">
+<div class="field"><label>Included scope <span class="required-mark">*</span></label><textarea data-key="included_scope" data-required="" placeholder="Hardware, software, engineering, integration, testing, documentation, services..."></textarea></div>
+<div class="field"><label>Not included / exclusions <span class="required-mark">*</span></label><textarea data-key="excluded_scope" data-required="" placeholder="Explicitly state what Schneider Electric will not provide or perform."></textarea></div>
+<div class="field"><label>Customer / third-party scope</label><textarea data-key="customer_scope"></textarea></div>
+<div class="field"><label>Interfaces and battery limits</label><textarea data-key="battery_limits"></textarea></div>
+</div>
+<h3>Scope at a Glance</h3>
+<div class="choice-grid">
+<label class="choice"><input data-key="scope_new_system" type="checkbox"/>New system</label>
+<label class="choice"><input data-key="scope_modernization" type="checkbox"/>Existing-system modernization</label>
+<label class="choice"><input data-key="scope_mixed" type="checkbox"/>Mixed new + existing</label>
+<label class="choice"><input data-key="scope_new_enclosures" type="checkbox"/>New enclosures</label>
+<label class="choice"><input data-key="scope_modernize_in_place" type="checkbox"/>Modernize in place</label>
+<label class="choice"><input data-key="scope_new_hmi" type="checkbox"/>New HMI / operator stations</label>
+<label class="choice"><input data-key="scope_connect_existing_hmi" type="checkbox"/>Connect to existing HMI</label>
+<label class="choice"><input data-key="scope_replace_hmi" type="checkbox"/>Replace existing HMI</label>
+<label class="choice"><input data-key="scope_new_scada" type="checkbox"/>New SCADA / supervisory layer</label>
+<label class="choice"><input data-key="scope_modify_scada" type="checkbox"/>Modify existing SCADA</label>
+<label class="choice"><input data-key="scope_conversion" type="checkbox"/>Program / database conversion</label>
+<label class="choice"><input data-key="scope_new_configuration" type="checkbox"/>New configuration</label>
+</div>
+<h3>General Meeting Checklist</h3>
+<div class="check-row"><div class="check-row-head"><input data-key="check_scope" type="checkbox"/>Scope included and scope excluded are explicit</div><div class="editable" contenteditable="true" data-key="check_scope_notes" data-placeholder="Notes, boundaries and decisions"></div></div>
+<div class="check-row"><div class="check-row-head"><input data-key="check_delivery_fs" type="checkbox"/>Delivery vs. Field Service ownership is defined</div><div class="editable" contenteditable="true" data-key="check_delivery_fs_notes" data-placeholder="Who engineers, installs, commissions and supports?"></div></div>
+<div class="check-row"><div class="check-row-head"><input data-key="check_bom" type="checkbox"/>BOM validation and technical ownership are defined</div><div class="editable" contenteditable="true" data-key="check_bom_notes" data-placeholder="BOM owner, revision, assumptions and required validation"></div></div>
+<div class="check-row"><div class="check-row-head"><input data-key="check_commercial" type="checkbox"/>Commercial terms and proposal basis are confirmed</div><div class="editable" contenteditable="true" data-key="check_commercial_notes"></div></div>
+<div class="check-row"><div class="check-row-head"><input data-key="check_execution" type="checkbox"/>Execution plan, schedule, dependencies and approvals are realistic</div><div class="editable" contenteditable="true" data-key="check_execution_notes"></div></div>
+<h3>Architecture &amp; BOM Control</h3>
+<div class="grid four">
+<div class="field"><label>Architecture status</label><select data-key="architecture_status"><option></option><option>Not started</option><option>Existing only</option><option>Preliminary</option><option>Reviewed</option><option>Approved</option><option>Blocked</option></select></div>
+<div class="field"><label>BOM status <span class="required-mark">*</span></label><select data-key="bom_status" data-required=""><option></option><option>Not started</option><option>Partial</option><option>Preliminary</option><option>Frozen</option><option>Blocked</option></select></div>
+<div class="field"><label>BOM owner</label><input data-key="bom_owner" type="text"/></div>
+<div class="field"><label>BOM / architecture link</label><input data-key="bom_link" type="url"/></div>
+</div>
+<div class="field" style="margin-top:10px"><label>Architecture description</label><textarea data-key="architecture_description"></textarea></div>
+</div>
+</details>
+<details class="section-card platform-section" data-platform="modicon" open="">
+<div class="section-band band-modicon"></div>
+<summary>4A. Modicon PLC Specialized Scope of Work</summary>
+<div class="section-body">
+<p class="section-intro">Use for new PLC systems, expansions, CPU/I/O modernization, competitor conversions and migration projects.</p>
+<div class="grid four">
+<div class="field"><label>Modicon project scenario <span class="required-mark">*</span></label><select data-key="mod_scenario" data-required=""><option></option><option>New PLC system</option><option>CPU + I/O modernization</option><option>CPU modernization, I/O remains</option><option>I/O modernization, CPU remains</option><option>Add new I/O</option><option>Competitor conversion</option><option>Software / services only</option></select><div class="logic-hint">The PLC hardware, migration and BOM questions will adapt to the selected scenario.</div></div>
+<div class="field conditional-block"><label>Existing controller family</label><input data-key="mod_existing_controller" placeholder="Quantum, Premium, M340, M580, 984, Momentum, Compact, competitor..." type="text"/></div>
+<div class="field conditional-block"><label>Target controller family</label><input data-key="mod_target_controller" placeholder="M580, M340, Hot Standby, Safety... " type="text"/></div>
+<div class="field conditional-block"><label>Control Expert version / license</label><input data-key="mod_control_expert" type="text"/></div>
+</div>
+<div class="grid two conditional-block" id="modHardwareBlock">
+<div class="subcard white">
+<h3>Controller, Rack &amp; Power</h3>
+<div class="choice-grid">
+<label class="choice"><input data-key="mod_redundant_cpu" type="checkbox"/>Redundant / Hot Standby CPU</label>
+<label class="choice"><input data-key="mod_remote_io" type="checkbox"/>Remote I/O</label>
+<label class="choice"><input data-key="mod_new_backplanes" type="checkbox"/>New racks / backplanes</label>
+<label class="choice"><input data-key="mod_redundant_power" type="checkbox"/>Redundant power supplies</label>
+<label class="choice"><input data-key="mod_existing_rack_reuse" type="checkbox"/>Reuse existing racks / cabinets</label>
+<label class="choice"><input data-key="mod_migration_adapters" type="checkbox"/>Migration adapters / cables</label>
+</div>
+<div class="field"><label>Controller loading, memory, scan time, redundancy and growth assumptions</label><textarea data-key="mod_controller_design"></textarea></div>
+</div>
+<div class="subcard white">
+<h3>I/O Definition</h3>
+<div class="grid two">
+<div class="field"><label>Digital inputs</label><input data-key="mod_di" min="0" type="number"/></div>
+<div class="field"><label>Digital outputs</label><input data-key="mod_do" min="0" type="number"/></div>
+<div class="field"><label>Analog inputs</label><input data-key="mod_ai" min="0" type="number"/></div>
+<div class="field"><label>Analog outputs</label><input data-key="mod_ao" min="0" type="number"/></div>
+<div class="field"><label>Specialty / safety / motion I/O</label><input data-key="mod_special_io" type="text"/></div>
+<div class="field"><label>Spare capacity / growth</label><input data-key="mod_spare_capacity" type="text"/></div>
+</div>
+<div class="field"><label>Voltage levels, isolation, output current, fusing, relays and field wiring notes</label><textarea data-key="mod_io_electrical"></textarea></div>
+</div>
+</div>
+<div class="conditional-block" id="modMigrationBlock"><h3>Migration &amp; Wiring Method</h3><div class="choice-grid">
+<label class="choice"><input data-key="mod_swingarms" type="checkbox"/>Migration swing arms / adapters</label>
+<label class="choice"><input data-key="mod_manual_rewire" type="checkbox"/>Manual hardwire to new I/O</label>
+<label class="choice"><input data-key="mod_existing_terminals" type="checkbox"/>Reuse existing terminal blocks</label>
+<label class="choice"><input data-key="mod_new_terminals" type="checkbox"/>New terminal blocks / marshalling</label>
+<label class="choice"><input data-key="mod_online_migration" type="checkbox"/>Phased / online migration</label>
+<label class="choice"><input data-key="mod_shutdown_migration" type="checkbox"/>Shutdown cutover</label>
+</div><div class="grid two">
+<div class="field"><label>Existing program status, backup, password and conversion approach</label><textarea data-key="mod_program_conversion"></textarea></div>
+<div class="field"><label>Cutover plan, downtime window and rollback strategy</label><textarea data-key="mod_cutover"></textarea></div>
+</div></div>
+
+
+<div class="conditional-block" id="modCommsBlock"><h3>Communications, HMI &amp; Third Parties</h3><div class="choice-grid">
+<label class="choice"><input data-key="mod_modbus_tcp" type="checkbox"/>Modbus TCP</label>
+<label class="choice"><input data-key="mod_modbus_serial" type="checkbox"/>Modbus Serial</label>
+<label class="choice"><input data-key="mod_modbus_plus" type="checkbox"/>Modbus Plus</label>
+<label class="choice"><input data-key="mod_ethernet_io" type="checkbox"/>Ethernet I/O</label>
+<label class="choice"><input data-key="mod_opc" type="checkbox"/>OPC / OPC UA</label>
+<label class="choice"><input data-key="mod_legacy_network" type="checkbox"/>Legacy network / gateway</label>
+<label class="choice"><input data-key="mod_hmi" type="checkbox"/>Harmony HMI / OIT</label>
+<label class="choice"><input data-key="mod_scada_integration" type="checkbox"/>SCADA / DCS integration</label>
+</div><div class="grid two">
+<div class="field"><label>Network architecture, switches, media, addressing and redundancy</label><textarea data-key="mod_network"></textarea></div>
+<div class="field"><label>Third-party devices, drives, analyzers, gateways and protocols</label><textarea data-key="mod_third_party"></textarea></div>
+</div></div>
+
+
+<div class="conditional-block" id="modBomBlock"><h3>Modicon BOM / Critical Items</h3><table class="dynamic-table" data-key="mod_bom_table" id="modBomTable">
+<thead><tr><th style="width:7%">Qty</th><th style="width:19%">Part number</th><th>Description</th><th style="width:16%">Source / owner</th><th style="width:13%">Status</th><th style="width:4%"></th></tr></thead>
+<tbody>
+<tr><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td><button class="remove-row" type="button">×</button></td></tr>
+</tbody>
+</table><div class="table-actions"><button class="btn add-row" data-table="modBomTable" type="button">+ Add BOM item</button></div></div><div class="check-row conditional-block" id="modValidationBlock"><div class="check-row-head"><input data-key="mod_validation_complete" type="checkbox"/>Modicon validation complete: all I/O, wiring, communications, licenses, panels, connected devices and migration components are represented in the architecture and BOM.</div><div class="editable" contenteditable="true" data-key="mod_validation_notes"></div></div>
+
+
+
+</div>
+</details>
+<details class="section-card platform-section" data-platform="triconex" open="">
+<div class="section-band band-triconex"></div>
+<summary>4B. Triconex SIS Specialized Scope of Work</summary>
+<div class="section-body">
+<p class="section-intro">Use for safety instrumented systems and critical-control applications. Capture both hardware scope and functional-safety lifecycle obligations.</p>
+<h3>Safety Application &amp; Functional Basis</h3>
+<div class="grid four">
+<div class="field"><label>Safety application <span class="required-mark">*</span></label><select data-key="tri_application" data-required=""><option></option><option>Emergency Shutdown (ESD)</option><option>Fire &amp; Gas (F&amp;G)</option><option>Burner Management (BMS)</option><option>HIPPS</option><option>Turbine / compressor protection</option><option>Critical control</option><option>Combined applications</option><option>Other</option></select></div>
+<div class="field conditional-block"><label>Required SIL / integrity target</label><input data-key="tri_sil" placeholder="SIL 1 / 2 / 3, customer basis" type="text"/></div>
+<div class="field conditional-block"><label>Number of SIFs / functions</label><input data-key="tri_sif_count" min="0" type="number"/></div>
+<div class="field conditional-block"><label>Cause &amp; effect count / logic complexity</label><input data-key="tri_cause_effect_count" type="text"/></div>
+</div>
+<div class="choice-grid conditional-block" id="triFunctionalDocumentsBlock">
+<label class="choice"><input data-key="tri_srs_available" type="checkbox"/>Safety Requirements Specification available</label>
+<label class="choice"><input data-key="tri_hazop_available" type="checkbox"/>HAZOP / LOPA available</label>
+<label class="choice"><input data-key="tri_sil_verification" type="checkbox"/>SIL verification available</label>
+<label class="choice"><input data-key="tri_cause_effect_available" type="checkbox"/>Cause &amp; effect available</label>
+<label class="choice"><input data-key="tri_proof_test" type="checkbox"/>Proof-test requirements defined</label>
+<label class="choice"><input data-key="tri_fsa" type="checkbox"/>Functional Safety Assessment required</label>
+<label class="choice"><input data-key="tri_independent_review" type="checkbox"/>Independent verification / validation</label>
+<label class="choice"><input data-key="tri_moc" type="checkbox"/>Management of Change requirements</label>
+</div>
+<div class="grid two conditional-block" id="triFunctionalNarrativeBlock">
+<div class="field"><label>Voting, trip philosophy, bypasses, reset, first-out, SOE and response-time requirements</label><textarea data-key="tri_safety_philosophy"></textarea></div>
+<div class="field"><label>Applicable standards, customer practices and certification requirements</label><textarea data-key="tri_standards"></textarea></div>
+</div>
+<h3>Existing &amp; Target Triconex System</h3>
+<div class="grid four">
+<div class="field"><label>Project scenario <span class="required-mark">*</span></label><select data-key="tri_scenario" data-required=""><option></option><option>New SIS</option><option>Expansion</option><option>Controller upgrade</option><option>I/O expansion / replacement</option><option>Tricon / Trident migration</option><option>Software upgrade</option><option>Services only</option></select><div class="logic-hint">Hardware, migration and BOM questions will adapt to the selected SIS scenario.</div></div>
+<div class="field conditional-block"><label>Existing platform</label><select data-key="tri_existing_platform"><option></option><option>Tricon</option><option>Trident</option><option>Tri-GP</option><option>Tricon CX</option><option>Third-party SIS</option><option>None / new</option></select></div>
+<div class="field conditional-block"><label>Target platform</label><select data-key="tri_target_platform"><option></option><option>Tricon CX</option><option>Tricon</option><option>Trident</option><option>Tri-GP</option><option>To be confirmed</option></select></div>
+<div class="field conditional-block"><label>System count / chassis count</label><input data-key="tri_system_count" type="text"/></div>
+</div>
+<div class="choice-grid conditional-block" id="triHardwareChoicesBlock">
+<label class="choice"><input data-key="tri_new_chassis" type="checkbox"/>New chassis / cabinet</label>
+<label class="choice"><input data-key="tri_baseplate_existing" type="checkbox"/>Baseplate / existing cabinet</label>
+<label class="choice"><input data-key="tri_remote_io" type="checkbox"/>Remote / distributed I/O</label>
+<label class="choice"><input data-key="tri_redundant_comms" type="checkbox"/>Redundant communications</label>
+<label class="choice"><input data-key="tri_stv" type="checkbox"/>STV / termination solution</label>
+<label class="choice"><input data-key="tri_marshalling" type="checkbox"/>Marshalling included</label>
+<label class="choice"><input data-key="tri_intrinsic_safety" type="checkbox"/>IS barriers / galvanic isolation</label>
+<label class="choice"><input data-key="tri_relay_interface" type="checkbox"/>Interposing relays / output isolation</label>
+</div>
+<div class="grid two conditional-block" id="triIoSoftwareBlock">
+<div class="subcard white">
+<h3>Triconex I/O Summary</h3>
+<div class="grid two">
+<div class="field"><label>Digital inputs</label><input data-key="tri_di" min="0" type="number"/></div>
+<div class="field"><label>Digital outputs</label><input data-key="tri_do" min="0" type="number"/></div>
+<div class="field"><label>Analog inputs</label><input data-key="tri_ai" min="0" type="number"/></div>
+<div class="field"><label>Analog outputs</label><input data-key="tri_ao" min="0" type="number"/></div>
+<div class="field"><label>Pulse / speed / specialty I/O</label><input data-key="tri_special_io" type="text"/></div>
+<div class="field"><label>Spare / growth requirement</label><input data-key="tri_spares" type="text"/></div>
+</div>
+<div class="field"><label>Field power, fusing, wetting voltage, line monitoring and termination notes</label><textarea data-key="tri_io_notes"></textarea></div>
+</div>
+<div class="subcard white">
+<h3>Engineering Software &amp; Tools</h3>
+<div class="choice-grid" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+<label class="choice"><input data-key="tri_tristation" type="checkbox"/>TriStation 1131 / TX tools</label>
+<label class="choice"><input data-key="tri_emulator" type="checkbox"/>TriStation emulator / digital twin</label>
+<label class="choice"><input data-key="tri_safety_view" type="checkbox"/>Triconex Safety View</label>
+<label class="choice"><input data-key="tri_system_advisor" type="checkbox"/>System Advisor - Process Safety</label>
+<label class="choice"><input data-key="tri_psa" type="checkbox"/>PSA / additional safety software</label>
+<label class="choice"><input data-key="tri_license_server" type="checkbox"/>License server / media / support</label>
+</div>
+<div class="field"><label>Versions, licenses, quantities and ownership</label><textarea data-key="tri_software_details"></textarea></div>
+</div>
+</div>
+<div class="conditional-block" id="triIntegrationBlock"><h3>Integration, Networking &amp; Cybersecurity</h3><div class="choice-grid">
+<label class="choice"><input data-key="tri_foxboro_integration" type="checkbox"/>Foxboro DCS integration</label>
+<label class="choice"><input data-key="tri_third_party_dcs" type="checkbox"/>Third-party DCS / SCADA integration</label>
+<label class="choice"><input data-key="tri_modbus_tcp" type="checkbox"/>Modbus TCP</label>
+<label class="choice"><input data-key="tri_modbus_serial" type="checkbox"/>Modbus serial</label>
+<label class="choice"><input data-key="tri_opc" type="checkbox"/>OPC / historian interface</label>
+<label class="choice"><input data-key="tri_time_sync" type="checkbox"/>Time synchronization / SOE</label>
+<label class="choice"><input data-key="tri_firewall" type="checkbox"/>Firewall / network segmentation</label>
+<label class="choice"><input data-key="tri_remote_access" type="checkbox"/>Remote access required</label>
+</div><div class="grid two">
+<div class="field"><label>Data exchange, commands, status, bypass/alarm display and interface ownership</label><textarea data-key="tri_integration_details"></textarea></div>
+<div class="field"><label>Cybersecurity, accounts, hardening, patching, backups and remote-access requirements</label><textarea data-key="tri_cyber"></textarea></div>
+</div></div>
+
+
+<div class="conditional-block" id="triMigrationBlock"><h3>Migration, Testing &amp; Safety Validation</h3><div class="grid two">
+<div class="field conditional-block"><label>Migration / cutover strategy, shutdown limits and rollback plan</label><textarea data-key="tri_migration_plan"></textarea></div>
+<div class="field"><label>FAT / IFAT / SAT scope and acceptance criteria</label><textarea data-key="tri_test_scope" placeholder="Logic simulation, trip tests, voting, bypasses, diagnostics, failover, SOE, communications, power loss..."></textarea></div>
+<div class="field"><label>Safety lifecycle deliverables</label><textarea data-key="tri_safety_deliverables" placeholder="SRS traceability, application program, validation plan/report, proof-test procedure, certificates, FSA evidence..."></textarea></div>
+<div class="field"><label>Customer witness, approvers and sign-off authority</label><textarea data-key="tri_approvals"></textarea></div>
+</div></div>
+
+<div class="conditional-block" id="triBomBlock"><h3>Triconex BOM / Critical Items</h3><table class="dynamic-table" data-key="tri_bom_table" id="triBomTable">
+<thead><tr><th style="width:7%">Qty</th><th style="width:19%">Part number</th><th>Description</th><th style="width:16%">Source / owner</th><th style="width:13%">Status</th><th style="width:4%"></th></tr></thead>
+<tbody><tr><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td><button class="remove-row" type="button">×</button></td></tr></tbody>
+</table><div class="table-actions"><button class="btn add-row" data-table="triBomTable" type="button">+ Add BOM item</button></div></div><div class="check-row conditional-block" id="triValidationBlock"><div class="check-row-head"><input data-key="tri_validation_complete" type="checkbox"/>Triconex validation complete: SRS / C&amp;E, SIL basis, I/O, voting, termination, software, interfaces, cybersecurity, test evidence and functional-safety responsibilities are aligned.</div><div class="editable" contenteditable="true" data-key="tri_validation_notes"></div></div>
+
+
+
+</div>
+</details>
+<details class="section-card platform-section" data-platform="foxboro" open="">
+<div class="section-band band-foxboro"></div>
+<summary>4C. EcoStruxure Foxboro DCS Specialized Scope of Work</summary>
+<div class="section-body">
+<p class="section-intro">Use for DCS expansions, migrations, control-system upgrades, workstations/servers, control-network changes, I/O additions and application-engineering scope.</p>
+<h3>Installed Base &amp; Project Scenario</h3>
+<div class="grid four">
+<div class="field"><label>Foxboro project scenario <span class="required-mark">*</span></label><select data-key="fox_scenario" data-required=""><option></option><option>New DCS</option><option>System expansion</option><option>Controller migration / upgrade</option><option>I/O modernization</option><option>Workstation / server refresh</option><option>Software version upgrade</option><option>Application engineering</option><option>Services only</option></select><div class="logic-hint">Controller, network, application and BOM blocks will adapt to the selected DCS scenario.</div></div>
+<div class="field conditional-block"><label>Existing system / release</label><input data-key="fox_existing_release" placeholder="I/A Series, Foxboro Evo, EcoStruxure Foxboro DCS, release..." type="text"/></div>
+<div class="field conditional-block"><label>Target system / release</label><input data-key="fox_target_release" type="text"/></div>
+<div class="field conditional-block"><label>Installed-base support status</label><input data-key="fox_support_status" type="text"/></div>
+</div>
+<div class="grid two">
+<div class="field conditional-block"><label>Existing architecture and operational constraints</label><textarea data-key="fox_existing_architecture"></textarea></div>
+<div class="field conditional-block"><label>Target architecture and business objective</label><textarea data-key="fox_target_architecture"></textarea></div>
+</div>
+<div class="conditional-block" id="foxControllerIoBlock"><h3>Controllers, I/O &amp; Enclosures</h3><div class="grid four">
+<div class="field"><label>Controller type(s)</label><input data-key="fox_controllers" placeholder="FCP280, FDC280, existing CPs, other" type="text"/></div>
+<div class="field"><label>Controller quantity / redundancy</label><input data-key="fox_controller_qty" type="text"/></div>
+<div class="field"><label>Controller load / performance margin</label><input data-key="fox_controller_load" type="text"/></div>
+<div class="field"><label>Control domains / areas</label><input data-key="fox_control_domains" type="text"/></div>
+</div><div class="choice-grid">
+<label class="choice"><input data-key="fox_200_io" type="checkbox"/>200 Series I/O / FBMs</label>
+<label class="choice"><input data-key="fox_compact_io" type="checkbox"/>Compact 200 Series I/O</label>
+<label class="choice"><input data-key="fox_edge_io" type="checkbox"/>Edge I/O / universal I/O</label>
+<label class="choice"><input data-key="fox_remote_io" type="checkbox"/>Remote / distributed I/O</label>
+<label class="choice"><input data-key="fox_ff" type="checkbox"/>FOUNDATION Fieldbus</label>
+<label class="choice"><input data-key="fox_hart" type="checkbox"/>HART integration</label>
+<label class="choice"><input data-key="fox_profibus" type="checkbox"/>PROFIBUS / other fieldbus</label>
+<label class="choice"><input data-key="fox_intelligent_enclosures" type="checkbox"/>Intelligent / packaged enclosures</label>
+<label class="choice"><input data-key="fox_marshalling" type="checkbox"/>Marshalling cabinets</label>
+<label class="choice"><input data-key="fox_reuse_enclosures" type="checkbox"/>Reuse existing enclosures</label>
+<label class="choice"><input data-key="fox_new_enclosures" type="checkbox"/>New enclosures</label>
+<label class="choice"><input data-key="fox_card_migration" type="checkbox"/>Card / I/O migration solution</label>
+</div><div class="grid two">
+<div class="field"><label>I/O quantities, signal types, spare capacity and field-device requirements</label><textarea data-key="fox_io_summary"></textarea></div>
+<div class="field"><label>Power, grounding, environment, enclosure rating, cooling and physical layout</label><textarea data-key="fox_enclosure_design"></textarea></div>
+</div></div>
+
+
+
+<div class="conditional-block" id="foxNetworkServerBlock"><h3>Control Network, Workstations &amp; Servers</h3><div class="choice-grid">
+<label class="choice"><input data-key="fox_redundant_network" type="checkbox"/>Redundant control network</label>
+<label class="choice"><input data-key="fox_fiber" type="checkbox"/>Fiber backbone</label>
+<label class="choice"><input data-key="fox_network_switches" type="checkbox"/>New network switches</label>
+<label class="choice"><input data-key="fox_domain" type="checkbox"/>Domain / directory integration</label>
+<label class="choice"><input data-key="fox_virtualization" type="checkbox"/>Virtualized servers</label>
+<label class="choice"><input data-key="fox_engineering_station" type="checkbox"/>Engineering workstation</label>
+<label class="choice"><input data-key="fox_operator_stations" type="checkbox"/>Operator workstations</label>
+<label class="choice"><input data-key="fox_servers" type="checkbox"/>System / application servers</label>
+<label class="choice"><input data-key="fox_historian" type="checkbox"/>Historian</label>
+<label class="choice"><input data-key="fox_alarm_management" type="checkbox"/>Alarm management</label>
+<label class="choice"><input data-key="fox_reports" type="checkbox"/>Reporting</label>
+<label class="choice"><input data-key="fox_batch" type="checkbox"/>Batch / sequence application</label>
+</div><div class="grid two">
+<div class="field"><label>Network topology, addressing, media, redundancy, time synchronization and cybersecurity zones</label><textarea data-key="fox_network_details"></textarea></div>
+<div class="field"><label>Workstation / server quantities, roles, OS, virtualization, licenses and backup requirements</label><textarea data-key="fox_server_details"></textarea></div>
+</div></div>
+
+
+<div class="conditional-block" id="foxApplicationBlock"><h3>Application Engineering &amp; HMI</h3><div class="grid four">
+<div class="field"><label>Control loops / blocks</label><input data-key="fox_control_loops" type="text"/></div>
+<div class="field"><label>Sequences / batch phases</label><input data-key="fox_sequences" type="text"/></div>
+<div class="field"><label>HMI displays / graphics</label><input data-key="fox_graphics_count" type="text"/></div>
+<div class="field"><label>Tags / points / alarms / trends</label><input data-key="fox_tag_count" type="text"/></div>
+</div><div class="choice-grid">
+<label class="choice"><input data-key="fox_new_database" type="checkbox"/>New database / configuration</label>
+<label class="choice"><input data-key="fox_convert_database" type="checkbox"/>Database conversion</label>
+<label class="choice"><input data-key="fox_reuse_logic" type="checkbox"/>Reuse / port existing logic</label>
+<label class="choice"><input data-key="fox_new_logic" type="checkbox"/>New control logic</label>
+<label class="choice"><input data-key="fox_reuse_graphics" type="checkbox"/>Reuse / convert graphics</label>
+<label class="choice"><input data-key="fox_new_graphics" type="checkbox"/>New graphics</label>
+<label class="choice"><input data-key="fox_alarm_rationalization" type="checkbox"/>Alarm rationalization</label>
+<label class="choice"><input data-key="fox_reports_config" type="checkbox"/>Reports / trends configuration</label>
+</div><div class="grid two">
+<div class="field"><label>Control philosophy, narratives, libraries, standards, naming and engineering ownership</label><textarea data-key="fox_application_scope"></textarea></div>
+<div class="field"><label>HMI philosophy, display standards, faceplates, navigation, alarms and customer review cycles</label><textarea data-key="fox_hmi_scope"></textarea></div>
+</div></div>
+
+
+
+<div class="conditional-block" id="foxInterfaceMigrationBlock"><h3>Interfaces, Migration &amp; Cutover</h3><div class="choice-grid">
+<label class="choice"><input data-key="fox_triconex_interface" type="checkbox"/>Triconex SIS interface</label>
+<label class="choice"><input data-key="fox_plc_interface" type="checkbox"/>PLC interface</label>
+<label class="choice"><input data-key="fox_opc_interface" type="checkbox"/>OPC / OPC UA interface</label>
+<label class="choice"><input data-key="fox_modbus_interface" type="checkbox"/>Modbus interface</label>
+<label class="choice"><input data-key="fox_mes_interface" type="checkbox"/>MES / ERP / reporting interface</label>
+<label class="choice"><input data-key="fox_third_party_apps" type="checkbox"/>Third-party applications</label>
+<label class="choice"><input data-key="fox_phased_cutover" type="checkbox"/>Phased / unit-by-unit cutover</label>
+<label class="choice"><input data-key="fox_shutdown_cutover" type="checkbox"/>Shutdown cutover</label>
+</div><div class="grid two">
+<div class="field conditional-block"><label>Interface list, protocol, tag volume, direction, update rate and ownership</label><textarea data-key="fox_interfaces"></textarea></div>
+<div class="field conditional-block"><label>Migration sequence, compatibility, outage, temporary systems, rollback and commissioning plan</label><textarea data-key="fox_migration"></textarea></div>
+</div></div>
+
+
+<div class="conditional-block" id="foxTestBlock"><h3>Foxboro FAT / SAT &amp; Acceptance</h3><div class="field"><label>Test scope and acceptance criteria</label><textarea data-key="fox_test_scope" placeholder="Controller failover, control network failover, server redundancy, I/O simulation, logic, graphics, alarms, historian, reports, third-party communications and recovery tests."></textarea></div></div>
+
+<div class="conditional-block" id="foxBomBlock"><h3>Foxboro BOM / Critical Items</h3><table class="dynamic-table" data-key="fox_bom_table" id="foxBomTable">
+<thead><tr><th style="width:7%">Qty</th><th style="width:19%">Part number</th><th>Description</th><th style="width:16%">Source / owner</th><th style="width:13%">Status</th><th style="width:4%"></th></tr></thead>
+<tbody><tr><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td><button class="remove-row" type="button">×</button></td></tr></tbody>
+</table><div class="table-actions"><button class="btn add-row" data-table="foxBomTable" type="button">+ Add BOM item</button></div></div><div class="check-row conditional-block" id="foxValidationBlock"><div class="check-row-head"><input data-key="fox_validation_complete" type="checkbox"/>Foxboro validation complete: controllers, I/O, enclosures, control network, servers, licenses, application scope, interfaces, migration, cybersecurity and acceptance tests are represented in the architecture, BOM and estimate.</div><div class="editable" contenteditable="true" data-key="fox_validation_notes"></div></div>
+
+
+
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-hardware"></div>
+<summary>5. Cabinets, Panels, Installation &amp; Responsibility Matrix</summary>
+<div class="section-body">
+<div class="grid four">
+<div class="field"><label>Cabinets included?</label><select data-key="cabinets_included"><option></option><option>Yes</option><option>No</option><option>Partial</option><option>To be defined</option></select><div class="logic-hint">Cabinet design questions appear when cabinets are included, partial or still to be defined.</div></div>
+<div class="field conditional-block"><label>Cabinet scenario</label><select data-key="cabinet_scenario"><option></option><option>Existing</option><option>New</option><option>Mixed</option></select></div>
+<div class="field conditional-block"><label>Mounting</label><select data-key="cabinet_mounting"><option></option><option>Chassis / new cabinet</option><option>Baseplate / existing cabinet</option><option>Wall mounted</option><option>Floor mounted</option><option>Other</option></select></div>
+<div class="field conditional-block"><label>NEMA / IP rating</label><input data-key="cabinet_rating" type="text"/></div>
+<div class="field conditional-block"><label>Material / finish</label><input data-key="cabinet_material" placeholder="Steel, SS304, SS316, aluminum, paint..." type="text"/></div>
+<div class="field conditional-block"><label>Dimensions / quantity</label><input data-key="cabinet_dimensions" type="text"/></div>
+<div class="field conditional-block"><label>Cooling / ventilation</label><input data-key="cabinet_cooling" type="text"/></div>
+<div class="field conditional-block"><label>Certifications / inspection</label><input data-key="cabinet_certification" type="text"/></div>
+</div>
+<div class="field conditional-block"><label>Panel design notes: power distribution, UPS, grounding, surge protection, marshalling, terminals, labeling and cable entry</label><textarea data-key="panel_design_notes"></textarea></div>
+<h3>Responsibility Matrix</h3>
+<div class="responsibility-grid">
+<div class="head">Activity</div><div class="head center">Customer</div><div class="head center">SE</div><div class="head center">Subcontractor</div><div class="head">Notes / boundary</div>
+<div>Remove existing hardware</div><div class="center"><input data-key="resp_remove_customer" type="checkbox"/></div><div class="center"><input data-key="resp_remove_se" type="checkbox"/></div><div class="center"><input data-key="resp_remove_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_remove_notes"></div>
+<div>Install new cabinets / hardware</div><div class="center"><input data-key="resp_install_customer" type="checkbox"/></div><div class="center"><input data-key="resp_install_se" type="checkbox"/></div><div class="center"><input data-key="resp_install_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_install_notes"></div>
+<div>Conduit, cable tray and cable pulling</div><div class="center"><input data-key="resp_cable_customer" type="checkbox"/></div><div class="center"><input data-key="resp_cable_se" type="checkbox"/></div><div class="center"><input data-key="resp_cable_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_cable_notes"></div>
+<div>Field termination / loop checks</div><div class="center"><input data-key="resp_term_customer" type="checkbox"/></div><div class="center"><input data-key="resp_term_se" type="checkbox"/></div><div class="center"><input data-key="resp_term_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_term_notes"></div>
+<div>Network cabling / fiber</div><div class="center"><input data-key="resp_network_customer" type="checkbox"/></div><div class="center"><input data-key="resp_network_se" type="checkbox"/></div><div class="center"><input data-key="resp_network_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_network_notes"></div>
+<div>Power, grounding and UPS</div><div class="center"><input data-key="resp_power_customer" type="checkbox"/></div><div class="center"><input data-key="resp_power_se" type="checkbox"/></div><div class="center"><input data-key="resp_power_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_power_notes"></div>
+<div>Startup / commissioning</div><div class="center"><input data-key="resp_startup_customer" type="checkbox"/></div><div class="center"><input data-key="resp_startup_se" type="checkbox"/></div><div class="center"><input data-key="resp_startup_sub" type="checkbox"/></div><div contenteditable="true" data-key="resp_startup_notes"></div>
+</div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-services"></div>
+<summary>6. Services, Execution Plan, Schedule &amp; Travel</summary>
+<div class="section-body">
+<div class="choice-grid">
+<label class="choice"><input data-key="svc_engineering" type="checkbox"/>Engineering</label>
+<label class="choice"><input data-key="svc_configuration" type="checkbox"/>Configuration / programming</label>
+<label class="choice"><input data-key="svc_drawings" type="checkbox"/>CAD / drawings</label>
+<label class="choice"><input data-key="svc_fat" type="checkbox"/>FAT / IFAT support</label>
+<label class="choice"><input data-key="svc_sat" type="checkbox"/>SAT support</label>
+<label class="choice"><input data-key="svc_installation" type="checkbox"/>Installation</label>
+<label class="choice"><input data-key="svc_startup" type="checkbox"/>Startup / commissioning</label>
+<label class="choice"><input data-key="svc_site_support" type="checkbox"/>Site support</label>
+<label class="choice"><input data-key="svc_migration" type="checkbox"/>Migration / cutover</label>
+<label class="choice"><input data-key="svc_training" type="checkbox"/>Training</label>
+<label class="choice"><input data-key="svc_documentation" type="checkbox"/>Documentation</label>
+<label class="choice"><input data-key="svc_project_management" type="checkbox"/>Project management</label>
+</div>
+<div class="grid four conditional-block" id="serviceEstimateBlock" style="margin-top:12px">
+<div class="field conditional-block"><label>Total engineering hours</label><input data-key="svc_hours" min="0" type="number"/></div>
+<div class="field conditional-block"><label>Total service days</label><input data-key="svc_days" min="0" type="number"/></div>
+<div class="field conditional-block"><label>Number of people / roles</label><input data-key="svc_people" type="text"/></div>
+<div class="field conditional-block"><label>Execution owner</label><select data-key="svc_owner"><option></option><option>Schneider / Us</option><option>Customer</option><option>Integrator</option><option>Shared</option></select></div>
+</div>
+<div class="grid two">
+<div class="field"><label>Execution plan <span class="required-mark">*</span></label><textarea data-key="execution_plan" data-required="" placeholder="Phases, handoffs, dependencies, approvals, resources and sequence."></textarea></div>
+<div class="field"><label>Estimate basis and productivity assumptions</label><textarea data-key="estimate_basis"></textarea></div>
+</div>
+<h3>Work Schedule &amp; Downtime</h3>
+<div class="grid four">
+<div class="field"><label>Work schedule</label><select data-key="work_schedule"><option></option><option>Standard M-F</option><option>Premium nights / weekends</option><option>On-site T&amp;M</option><option>Mixed</option></select></div>
+<div class="field conditional-block"><label>Downtime window</label><input data-key="downtime_window" type="text"/></div>
+<div class="field conditional-block"><label>Site access hours</label><input data-key="site_access_hours" type="text"/></div>
+<div class="field conditional-block"><label>Schedule limitations</label><input data-key="schedule_limitations" type="text"/></div>
+</div>
+<h3>Travel &amp; Living</h3>
+<div class="grid four">
+<div class="field"><label>T&amp;L required?</label><select data-key="tl_required"><option></option><option>Yes</option><option>No</option><option>Included in fixed price</option><option>Reimbursable</option><option>To be defined</option></select><div class="logic-hint">Travel detail fields appear only when travel is applicable.</div></div>
+<div class="field conditional-block"><label>Estimated T&amp;L (USD)</label><input data-key="tl_estimate" min="0" step="0.01" type="number"/></div>
+<div class="field conditional-block"><label>Travelers / trips</label><input data-key="tl_trips" type="text"/></div>
+<div class="field conditional-block"><label>Customer travel policy / per diem</label><input data-key="tl_policy" type="text"/></div>
+</div>
+<div class="field conditional-block"><label>Travel assumptions: airfare, hotel, meals, car rental, mileage, visas and site transport</label><textarea data-key="tl_assumptions"></textarea></div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-tests"></div>
+<summary>7. FAT, IFAT, SAT, Site Testing &amp; Acceptance</summary>
+<div class="section-body">
+<div class="grid four">
+<div class="field"><label>FAT required?</label><select data-key="fat_required"><option></option><option>Yes</option><option>No</option><option>Remote</option><option>To be defined</option></select><div class="logic-hint">Testing questions appear when FAT or SAT is required.</div></div>
+<div class="field conditional-block"><label>FAT days / location</label><input data-key="fat_days_location" type="text"/></div>
+<div class="field"><label>SAT required?</label><select data-key="sat_required"><option></option><option>Yes</option><option>No</option><option>To be defined</option></select></div>
+<div class="field conditional-block"><label>SAT days / location</label><input data-key="sat_days_location" type="text"/></div>
+</div>
+<div class="choice-grid conditional-block" id="testingChecklistBlock">
+<label class="choice"><input data-key="test_hardware" type="checkbox"/>Hardware inspection</label>
+<label class="choice"><input data-key="test_io" type="checkbox"/>I/O simulation / loop tests</label>
+<label class="choice"><input data-key="test_logic" type="checkbox"/>Logic / sequence testing</label>
+<label class="choice"><input data-key="test_hmi" type="checkbox"/>HMI / graphics testing</label>
+<label class="choice"><input data-key="test_alarms" type="checkbox"/>Alarms / events / SOE</label>
+<label class="choice"><input data-key="test_network" type="checkbox"/>Network / communications testing</label>
+<label class="choice"><input data-key="test_redundancy" type="checkbox"/>Redundancy / failover</label>
+<label class="choice"><input data-key="test_power" type="checkbox"/>Power-loss / recovery testing</label>
+<label class="choice"><input data-key="test_third_party" type="checkbox"/>Third-party interfaces</label>
+<label class="choice"><input data-key="test_cyber" type="checkbox"/>Cybersecurity / hardening checks</label>
+<label class="choice"><input data-key="test_performance" type="checkbox"/>Performance / loading</label>
+<label class="choice"><input data-key="test_documentation" type="checkbox"/>Documentation review</label>
+</div>
+<div class="grid two conditional-block" id="testingNarrativeBlock">
+<div class="field"><label>Test protocol, test environment and simulation responsibility</label><textarea data-key="test_protocol"></textarea></div>
+<div class="field"><label>Entry criteria, acceptance criteria, punch list and sign-off process</label><textarea data-key="acceptance_criteria"></textarea></div>
+</div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-training"></div>
+<summary>8. Training, Safety, Security &amp; Site Requirements</summary>
+<div class="section-body">
+<h3>Training</h3>
+<div class="grid four">
+<div class="field"><label>Training required?</label><select data-key="training_required"><option></option><option>Yes</option><option>No</option><option>Option</option><option>To be defined</option></select><div class="logic-hint">Training detail fields appear when training is included, optional or to be defined.</div></div>
+<div class="field conditional-block"><label>Course / topic</label><input data-key="training_course" type="text"/></div>
+<div class="field conditional-block"><label>People / days</label><input data-key="training_people_days" type="text"/></div>
+<div class="field conditional-block"><label>Modality / location</label><select data-key="training_modality"><option></option><option>On-site</option><option>Remote</option><option>Classroom</option><option>Mixed</option></select></div>
+</div>
+<div class="field conditional-block"><label>Training objectives, prerequisites, materials, environment and acceptance</label><textarea data-key="training_details"></textarea></div>
+<div class="conditional-block" id="siteSafetyBlock"><h3>Safety / Security / Insurance</h3><div class="choice-grid">
+<label class="choice"><input data-key="safety_orientation" type="checkbox"/>Site safety orientation</label>
+<label class="choice"><input data-key="safety_ppe" type="checkbox"/>PPE requirements</label>
+<label class="choice"><input data-key="safety_drug" type="checkbox"/>Drug testing</label>
+<label class="choice"><input data-key="safety_background" type="checkbox"/>Background checks</label>
+<label class="choice"><input data-key="safety_confined" type="checkbox"/>Confined space</label>
+<label class="choice"><input data-key="safety_hot_work" type="checkbox"/>Hot-work permits</label>
+<label class="choice"><input data-key="safety_twic" type="checkbox"/>TWIC / site credential</label>
+<label class="choice"><input data-key="safety_loto" type="checkbox"/>LOTO / energized work</label>
+<label class="choice"><input data-key="safety_cyber_access" type="checkbox"/>Cybersecurity access approval</label>
+<label class="choice"><input data-key="safety_insurance" type="checkbox"/>Special insurance / COI</label>
+</div><div class="grid two">
+<div class="field conditional-block"><label>Safety, security and site-entry requirements</label><textarea data-key="safety_requirements"></textarea></div>
+<div class="field conditional-block"><label>Insurance, certifications and lead time to mobilize</label><textarea data-key="insurance_requirements"></textarea></div>
+</div></div>
+
+
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band band-docs"></div>
+<summary>9. Documentation, Handover, Spares, Warranty &amp; Support</summary>
+<div class="section-body">
+<h3>Required Deliverables</h3>
+<div class="choice-grid">
+<label class="choice"><input data-key="deliv_architecture" type="checkbox"/>System architecture</label>
+<label class="choice"><input data-key="deliv_bom" type="checkbox"/>Final BOM</label>
+<label class="choice"><input data-key="deliv_cabinet_drawings" type="checkbox"/>Cabinet drawings</label>
+<label class="choice"><input data-key="deliv_schematics" type="checkbox"/>Electrical schematics</label>
+<label class="choice"><input data-key="deliv_io_list" type="checkbox"/>I/O list</label>
+<label class="choice"><input data-key="deliv_network" type="checkbox"/>Network architecture / IP list</label>
+<label class="choice"><input data-key="deliv_functional_spec" type="checkbox"/>Functional specification</label>
+<label class="choice"><input data-key="deliv_configuration_backup" type="checkbox"/>Configuration / program backup</label>
+<label class="choice"><input data-key="deliv_fat_plan" type="checkbox"/>FAT plan / report</label>
+<label class="choice"><input data-key="deliv_sat_plan" type="checkbox"/>SAT plan / report</label>
+<label class="choice"><input data-key="deliv_commissioning" type="checkbox"/>Commissioning plan / report</label>
+<label class="choice"><input data-key="deliv_asbuilt" type="checkbox"/>As-built documentation</label>
+<label class="choice"><input data-key="deliv_manuals" type="checkbox"/>Product manuals / certificates</label>
+<label class="choice"><input data-key="deliv_training_material" type="checkbox"/>Training materials</label>
+<label class="choice"><input data-key="deliv_test_protocols" type="checkbox"/>Test protocols</label>
+<label class="choice"><input data-key="deliv_cyber" type="checkbox"/>Cybersecurity / hardening record</label>
+</div>
+<div class="grid two">
+<div class="field conditional-block"><label>Deliverable format, templates, language, revision cycles and storage location</label><textarea data-key="deliverable_requirements"></textarea></div>
+<div class="field conditional-block"><label>Document preparer, reviewer and approver</label><textarea data-key="deliverable_owners"></textarea></div>
+</div>
+<h3>Spares, Warranty &amp; Lifecycle Support</h3>
+<div class="grid four">
+<div class="field"><label>Spare-parts basis</label><select data-key="spares_basis"><option></option><option>None</option><option>Critical spares only</option><option>10%</option><option>15%</option><option>20%</option><option>Per specification</option><option>Separate option</option></select></div>
+<div class="field"><label>Warranty basis</label><select data-key="warranty_basis"><option></option><option>Standard</option><option>2 years</option><option>3 years</option><option>4 years</option><option>5 years</option><option>Per specification</option></select></div>
+<div class="field"><label>Support agreement / service plan</label><input data-key="support_plan" type="text"/></div>
+<div class="field"><label>Software support / subscriptions</label><input data-key="software_support" type="text"/></div>
+</div>
+<div class="field conditional-block"><label>Recommended spares, lifecycle risks, obsolescence and long-term support notes</label><textarea data-key="lifecycle_notes"></textarea></div>
+</div>
+</details>
+<details class="section-card" open="">
+<div class="section-band"></div>
+<summary>10. Risks, Assumptions, Exclusions, Clarifications &amp; Next Steps</summary>
+<div class="section-body">
+<div class="grid two">
+<div class="field"><label>Assumptions <span class="required-mark">*</span></label><textarea data-key="assumptions" data-required=""></textarea></div>
+<div class="field"><label>Exclusions <span class="required-mark">*</span></label><textarea data-key="exclusions" data-required=""></textarea></div>
+<div class="field"><label>Clarifications / exceptions</label><textarea data-key="clarifications"></textarea></div>
+<div class="field"><label>Risks and recommended mitigations</label><textarea data-key="risks"></textarea></div>
+<div class="field"><label>Primary blocker</label><textarea data-key="primary_blocker"></textarea></div>
+<div class="field"><label>Next critical action</label><textarea data-key="next_critical_action"></textarea></div>
+</div>
+<h3>Open Actions</h3>
+<table class="dynamic-table" data-key="actions_table" id="actionsTable">
+<thead><tr><th style="width:7%">ID</th><th>Action / pending information</th><th style="width:18%">Owner</th><th style="width:14%">Due date</th><th style="width:14%">Status</th><th style="width:4%"></th></tr></thead>
+<tbody>
+<tr><td contenteditable="true">A-001</td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true">Open</td><td><button class="remove-row" type="button">×</button></td></tr>
+</tbody>
+</table>
+<div class="table-actions"><button class="btn add-row" data-table="actionsTable" type="button">+ Add action</button></div>
+<h3>Proposal Readiness Checklist</h3>
+<div class="choice-grid">
+<label class="choice"><input data-key="ready_scope" type="checkbox"/>Scope and exclusions approved</label>
+<label class="choice"><input data-key="ready_inputs" type="checkbox"/>Critical inputs received</label>
+<label class="choice"><input data-key="ready_architecture" type="checkbox"/>Architecture reviewed</label>
+<label class="choice"><input data-key="ready_bom" type="checkbox"/>BOM validated</label>
+<label class="choice"><input data-key="ready_services" type="checkbox"/>Service estimate validated</label>
+<label class="choice"><input data-key="ready_lead_times" type="checkbox"/>Lead times confirmed</label>
+<label class="choice"><input data-key="ready_commercial" type="checkbox"/>Commercial basis approved</label>
+<label class="choice"><input data-key="ready_contracts" type="checkbox"/>T&amp;Cs / MSA / CFA reviewed</label>
+<label class="choice"><input data-key="ready_risks" type="checkbox"/>Risks and assumptions documented</label>
+<label class="choice"><input data-key="ready_deliverables" type="checkbox"/>Deliverables defined</label>
+<label class="choice"><input data-key="ready_schedule" type="checkbox"/>Schedule and milestones feasible</label>
+<label class="choice"><input data-key="ready_approvals" type="checkbox"/>Internal approvals complete</label>
+</div>
+<hr/>
+<h3>Comments</h3>
+<div class="editable" contenteditable="true" data-key="comments" data-placeholder="Meeting notes, decisions, context and anything that must remain visible to the proposal team." style="min-height:90px"></div>
+</div>
+</details>
+<div id="customSectionsContainer"></div>
+</div>
+<dialog class="builder-dialog" id="questionDialog">
+<form id="questionForm">
+<div class="dialog-head"><h2 id="questionDialogTitle">Add question</h2><button class="icon-btn" data-close-dialog="questionDialog" type="button">×</button></div>
+<div class="dialog-body">
+<input id="questionEditId" type="hidden"/>
+<div class="grid two">
+<div class="field"><label>Section <span class="required-mark">*</span></label><select id="questionSection" required></select></div>
+<div class="field"><label>Question type <span class="required-mark">*</span></label><select id="questionType" required>
+<option value="text">Short text</option><option value="long_text">Long text</option><option value="number">Number</option><option value="currency">Currency</option><option value="date">Date</option><option value="boolean">Yes / No dropdown</option><option value="single_select">Dropdown list</option><option value="multi_select">Checkbox list</option><option value="checkbox">Single checkbox</option><option value="link">Label + hyperlink</option><option value="instruction">Instruction / note</option>
+</select></div>
+</div>
+<div class="field" style="margin-top:10px"><label>Question or instruction text <span class="required-mark">*</span></label><textarea id="questionLabel" required></textarea></div>
+<div class="grid two" style="margin-top:10px">
+<div class="field"><label>Subsection / group</label><input id="questionSubsection" type="text"/></div>
+<div class="field"><label>Owner / responsible area</label><input id="questionOwner" list="trackedAreasOptions" type="text"/><datalist id="trackedAreasOptions"></datalist></div>
+</div>
+<div class="field" id="questionOptionsWrap" style="margin-top:10px"><label>Options — one per line</label><textarea id="questionOptions" placeholder="Option 1&#10;Option 2&#10;Option 3"></textarea></div>
+<div class="grid two" style="margin-top:10px">
+<div class="field"><label>Help / purpose</label><textarea id="questionHelp"></textarea></div>
+<div class="field"><label>Output / where the answer is used</label><textarea id="questionOutput"></textarea></div>
+</div>
+<label class="single-check-answer" style="margin-top:10px"><input id="questionRequired" type="checkbox"/>This answer is mandatory when the question is visible</label>
+<label class="single-check-answer" style="margin-top:10px"><input id="questionGlobal" type="checkbox"/>Guardar en la biblioteca global</label>
+<h3>Question dependency</h3>
+<div class="grid two"><div class="field"><label>Show this question when</label><select id="questionConditionMatch"><option value="all">ALL conditions are true</option><option value="any">ANY condition is true</option></select></div></div>
+<div class="condition-editor"><div id="questionConditions"></div><button class="btn" id="addQuestionConditionBtn" type="button">+ Add condition</button></div>
+</div>
+<div class="dialog-actions"><button class="btn" data-close-dialog="questionDialog" type="button">Cancel</button><button class="btn primary" type="submit">Save question</button></div>
+</form>
+</dialog>
+
+<dialog class="builder-dialog" id="sectionDialog">
+<form id="sectionForm">
+<div class="dialog-head"><h2 id="sectionDialogTitle">Add section</h2><button class="icon-btn" data-close-dialog="sectionDialog" type="button">×</button></div>
+<div class="dialog-body">
+<input id="sectionEditId" type="hidden"/>
+<div class="grid two">
+<div class="field"><label>Section title <span class="required-mark">*</span></label><input id="sectionTitle" required type="text"/></div>
+<div class="field"><label>Accent color</label><input id="sectionColor" type="color" value="#2c7be5"/></div>
+</div>
+<div class="field" style="margin-top:10px"><label>Description / instructions</label><textarea id="sectionDescription"></textarea></div>
+<h3>Section dependency</h3>
+<div class="grid two"><div class="field"><label>Show this section when</label><select id="sectionConditionMatch"><option value="all">ALL conditions are true</option><option value="any">ANY condition is true</option></select></div></div>
+<div class="condition-editor"><div id="sectionConditions"></div><button class="btn" id="addSectionConditionBtn" type="button">+ Add condition</button></div>
+</div>
+<div class="dialog-actions"><button class="btn" data-close-dialog="sectionDialog" type="button">Cancel</button><button class="btn primary" type="submit">Save section</button></div>
+</form>
+</dialog>
+<script>(() => {
+  const FLOW_DATA = {"steps":[{"Step":1,"Section":"Base Data","Goal":"Identify the opportunity and proposal deadline","KeyQuestions":"B001:B010","ShownWhen":"Always","Notes":"Start here. This should feel like opening an expediente."},{"Step":2,"Section":"Commercial","Goal":"Clarify commercial model, milestones and internal references","KeyQuestions":"C001:C011","ShownWhen":"After Base Data","Notes":"Keep commercial dates visible early."},{"Step":3,"Section":"Technical Scope","Goal":"Define platform, modernization intent, HMIs, configuration and integration","KeyQuestions":"T001:T010","ShownWhen":"After Commercial","Notes":"Core technical scoping block."},{"Step":4,"Section":"Hardware & Cabinets","Goal":"Clarify cabinets, marshaling, mounting type and Triconex software","KeyQuestions":"H001:H009","ShownWhen":"If hardware/cabinets/systems apply","Notes":"Important conditional branch."},{"Step":5,"Section":"Services & Execution","Goal":"Define services, hours/days, execution owner and travel costs","KeyQuestions":"S001:S007","ShownWhen":"If services apply","Notes":"Use repeatable ownership questions by context."},{"Step":6,"Section":"Tests & Site Activities","Goal":"Capture FAT/SAT/site activities","KeyQuestions":"P001:P007","ShownWhen":"If tests/site work apply","Notes":"Split FAT and SAT explicitly."},{"Step":7,"Section":"Training","Goal":"Capture training requirements","KeyQuestions":"TR001:TR004","ShownWhen":"If training applies","Notes":"Always ask course type + people count."},{"Step":8,"Section":"Documentation & Deliverables","Goal":"Capture current docs and required handover docs","KeyQuestions":"D001:D005","ShownWhen":"Always","Notes":"Close scope and handover requirements."}],"questions":[{"id":"B001","key":"flow_B001","section":"Base Data","subsection":"Opportunity Identity","label":"Opportunity / OP ID","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify opportunity","output":"Header, tracking, exports"},{"id":"B002","key":"flow_B002","section":"Base Data","subsection":"Opportunity Identity","label":"Investigative alias / short alias","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Quick identification","output":"Header, search"},{"id":"B003","key":"flow_B003","section":"Base Data","subsection":"Customer","label":"Customer / company name","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Commercial identity","output":"Header, proposal"},{"id":"B004","key":"flow_B004","section":"Base Data","subsection":"Commercial Timing","label":"Proposal due date","type":"date","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Proposal deadline","output":"Planning, priority"},{"id":"B005","key":"flow_B005","section":"Base Data","subsection":"Commercial Timing","label":"When is the proposal delivery expected?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Clarify required submission date","output":"Planning"},{"id":"B006","key":"flow_B006","section":"Base Data","subsection":"Commercial Contacts","label":"Who is the seller / CSE?","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify owner","output":"Follow-up"},{"id":"B007","key":"flow_B007","section":"Base Data","subsection":"Site","label":"Client site / plant location","type":"text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Site context","output":"Travel, FAT/SAT, execution"},{"id":"B008","key":"flow_B008","section":"Base Data","subsection":"Opportunity Type","label":"What type of opportunity is it?","type":"multi_select","options":["Greenfield","Modernization","Migration","Upgrade","Expansion","Services Only"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Classify opportunity","output":"Conditional flow"},{"id":"B009","key":"flow_B009","section":"Base Data","subsection":"Modernization","label":"If this is a modernization, what does the client want to modernize?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"Tender/TSC","purpose":"Scope definition","output":"Technical definition, commercial assumptions"},{"id":"B010","key":"flow_B010","section":"Base Data","subsection":"Stakeholders","label":"Who has the most important decision-making role?","type":"single_select","options":["Customer","Seller / CSE","TSC","Delivery","Service","Integrator"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify key decision-maker","output":"Communication strategy"},{"id":"C001","key":"flow_C001","section":"Commercial","subsection":"Commercial Structure","label":"What is the commercial structure?","type":"single_select","options":["Hardware + Software + Services","Services Only","Migration / Modernization","Change Order / Revision"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Define commercial model","output":"Pricing, milestones"},{"id":"C002","key":"flow_C002","section":"Commercial","subsection":"Commercial Structure","label":"What are the payment milestones?","type":"long_text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Define milestone logic","output":"Commercial summary"},{"id":"C003","key":"flow_C003","section":"Commercial","subsection":"Commercial Structure","label":"When does the order enter?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Execution starting point","output":"Schedule"},{"id":"C004","key":"flow_C004","section":"Commercial","subsection":"Commercial Structure","label":"When is project execution expected to start?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Plan execution window","output":"Schedule, resources"},{"id":"C005","key":"flow_C005","section":"Commercial","subsection":"Commercial Structure","label":"When is the project expected to finish?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Plan project end","output":"Schedule, escalators"},{"id":"C006","key":"flow_C006","section":"Commercial","subsection":"Internal IDs","label":"Do you already have the SR?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check internal readiness","output":"SR, workflow"},{"id":"C007","key":"flow_C007","section":"Commercial","subsection":"Internal IDs","label":"SR number","type":"text","options":[],"required":true,"shownWhenText":"Shown if Do you already have the SR? = Yes","logic":{"op":"equals","source":"flow_C006","value":"Yes"},"repeatableContext":"SR","owner":"Tender","purpose":"Track internal request","output":"SR field, versions"},{"id":"C008","key":"flow_C008","section":"Commercial","subsection":"Internal IDs","label":"Do you have DSO?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Link to commercial reference","output":"Commercial references"},{"id":"C009","key":"flow_C009","section":"Commercial","subsection":"Internal IDs","label":"Do you have MSA?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check contract basis","output":"T&Cs"},{"id":"C010","key":"flow_C010","section":"Commercial","subsection":"Internal IDs","label":"Do you have CFA?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check contract basis","output":"T&Cs"},{"id":"C011","key":"flow_C011","section":"Commercial","subsection":"Forecast","label":"Cost / revenue forecast (USD)","type":"currency","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Initial sizing","output":"Commercial view"},{"id":"T001","key":"flow_T001","section":"Technical Scope","subsection":"System","label":"What system(s) are being offered?","type":"multi_select","options":["Foxboro","Triconex","Modicon","AVEVA","Cyber"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Identify platform","output":"Conditional technical flow"},{"id":"T002","key":"flow_T002","section":"Technical Scope","subsection":"System","label":"How many systems are included and which ones are they?","type":"long_text","options":[],"required":true,"shownWhenText":"Shown if System(s) offered has any value","logic":{"op":"has_value","source":"flow_T001"},"repeatableContext":null,"owner":"TSC","purpose":"Define system scope","output":"Architecture, pricing"},{"id":"T003","key":"flow_T003","section":"Technical Scope","subsection":"Modernization","label":"What is the current system type?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"TSC","purpose":"Understand starting point","output":"Migration strategy"},{"id":"T004","key":"flow_T004","section":"Technical Scope","subsection":"Modernization","label":"Which controllers will be updated?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"TSC","purpose":"Define controller scope","output":"Hardware BOM"},{"id":"T005","key":"flow_T005","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Will there be configuration work?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC/Delivery","purpose":"Enable services/configuration branch","output":"Services, engineering"},{"id":"T006","key":"flow_T006","section":"Technical Scope","subsection":"HMIs & Configuration","label":"How many HMIs are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Sizing","output":"Engineering, licensing"},{"id":"T007","key":"flow_T007","section":"Technical Scope","subsection":"HMIs & Configuration","label":"What type of system / architecture is involved?","type":"single_select","options":["DCS","SIS","PLC","Hybrid"],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify architecture","output":"Engineering definition"},{"id":"T008","key":"flow_T008","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Who will perform the configuration?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":"Configuration","owner":"TSC/Delivery","purpose":"Define responsibility","output":"Services"},{"id":"T009","key":"flow_T009","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Who will perform the site configuration / commissioning?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":"Site configuration","owner":"TSC/Delivery","purpose":"Define site responsibility","output":"Services, assumptions"},{"id":"T010","key":"flow_T010","section":"Technical Scope","subsection":"Integration","label":"Who will perform the integration?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":"General integration","owner":"TSC/Delivery","purpose":"Clarify ownership","output":"Execution model"},{"id":"H001","key":"flow_H001","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Are cabinets included in the scope?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Enable cabinet branch","output":"Hardware flow"},{"id":"H002","key":"flow_H002","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cabinet scenario applies?","type":"single_select","options":["Existing","New","Mixed"],"required":true,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Define cabinet approach","output":"Mechanical/electrical design"},{"id":"H003","key":"flow_H003","section":"Hardware & Cabinets","subsection":"Cabinets","label":"If cabinets are included, is marshaling required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify cabinet content","output":"Cabinet design"},{"id":"H004","key":"flow_H004","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What type of cabinet is required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify cabinet type","output":"Cabinet engineering"},{"id":"H005","key":"flow_H005","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cabinet dimensions are required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Sizing","output":"Cabinet engineering"},{"id":"H006","key":"flow_H006","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cooling / ventilation is required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Environmental needs","output":"Cabinet engineering"},{"id":"H007","key":"flow_H007","section":"Hardware & Cabinets","subsection":"Foxboro / Triconex Mounting","label":"For Foxboro / Triconex, what mounting type applies?","type":"single_select","options":["Chassis (new cabinet)","Baseplate (existing cabinet)"],"required":true,"shownWhenText":"Shown if System(s) offered includes Foxboro or Triconex","logic":{"op":"includes_any","source":"flow_T001","value":["Foxboro","Triconex"]},"repeatableContext":null,"owner":"TSC","purpose":"Correct hardware selection","output":"BOM"},{"id":"H008","key":"flow_H008","section":"Hardware & Cabinets","subsection":"Triconex Software","label":"For Triconex, is STV required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex","logic":{"op":"includes","source":"flow_T001","value":"Triconex"},"repeatableContext":null,"owner":"TSC","purpose":"Identify extra software","output":"Software BOM"},{"id":"H009","key":"flow_H009","section":"Hardware & Cabinets","subsection":"Triconex Software","label":"What TX / Triconex software is required?","type":"multi_select","options":["STV","TriStation / TX tools"],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex","logic":{"op":"includes","source":"flow_T001","value":"Triconex"},"repeatableContext":null,"owner":"TSC","purpose":"Software detail","output":"Software BOM"},{"id":"S001","key":"flow_S001","section":"Services & Execution","subsection":"Services","label":"Are services included?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Enable services branch","output":"Services scope"},{"id":"S002","key":"flow_S002","section":"Services & Execution","subsection":"Services","label":"What type of services are required?","type":"multi_select","options":["Engineering","Configuration","FAT","SAT","IFAT","Site Support","Commissioning","Migration","Training","Documentation"],"required":true,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define service scope","output":"Services BOM"},{"id":"S003","key":"flow_S003","section":"Services & Execution","subsection":"Services","label":"How many total service hours are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Effort sizing","output":"Costing"},{"id":"S004","key":"flow_S004","section":"Services & Execution","subsection":"Services","label":"How many total service days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Effort sizing","output":"Costing"},{"id":"S005","key":"flow_S005","section":"Services & Execution","subsection":"Services","label":"Who will execute the services?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":"Service execution","owner":"Delivery","purpose":"Clarify responsibility","output":"Services assumptions"},{"id":"S006","key":"flow_S006","section":"Services & Execution","subsection":"Travel","label":"Are travel and living costs required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Travel applicability","output":"Commercial/services"},{"id":"S007","key":"flow_S007","section":"Services & Execution","subsection":"Travel","label":"What is the estimated travel and living cost?","type":"currency","options":[],"required":false,"shownWhenText":"Shown if Are travel and living costs required? = Yes","logic":{"op":"equals","source":"flow_S006","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Travel estimate","output":"Commercial/services"},{"id":"P001","key":"flow_P001","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Is FAT required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Delivery/TSC","purpose":"Enable FAT branch","output":"Services/testing"},{"id":"P002","key":"flow_P002","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"How many FAT days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Is FAT required? = Yes","logic":{"op":"equals","source":"flow_P001","value":"Yes"},"repeatableContext":"FAT days","owner":"Delivery","purpose":"Effort sizing","output":"Services/testing"},{"id":"P003","key":"flow_P003","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Where will FAT take place?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Is FAT required? = Yes","logic":{"op":"equals","source":"flow_P001","value":"Yes"},"repeatableContext":"FAT location","owner":"Delivery","purpose":"Travel/logistics","output":"Execution"},{"id":"P004","key":"flow_P004","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Is SAT required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Delivery/TSC","purpose":"Enable SAT branch","output":"Services/testing"},{"id":"P005","key":"flow_P005","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"How many SAT days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Is SAT required? = Yes","logic":{"op":"equals","source":"flow_P004","value":"Yes"},"repeatableContext":"SAT days","owner":"Delivery","purpose":"Effort sizing","output":"Services/testing"},{"id":"P006","key":"flow_P006","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Where will SAT take place?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Is SAT required? = Yes","logic":{"op":"equals","source":"flow_P004","value":"Yes"},"repeatableContext":"SAT location","owner":"Delivery","purpose":"Travel/logistics","output":"Execution"},{"id":"P007","key":"flow_P007","section":"Tests & Site Activities","subsection":"Site Activities","label":"Who will perform site work / commissioning?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":"Site services","owner":"Delivery","purpose":"Clarify site responsibility","output":"Assumptions"},{"id":"TR001","key":"flow_TR001","section":"Training","subsection":"Courses","label":"Are training courses required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Enable training branch","output":"Training scope"},{"id":"TR002","key":"flow_TR002","section":"Training","subsection":"Courses","label":"Which training courses are required?","type":"multi_select","options":["Foxboro Operation","Foxboro Maintenance","Triconex Operation","Triconex Maintenance","System Administration"],"required":true,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define training scope","output":"Training BOM"},{"id":"TR003","key":"flow_TR003","section":"Training","subsection":"Courses","label":"How many people will attend each course?","type":"number","options":[],"required":true,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Sizing","output":"Training BOM"},{"id":"TR004","key":"flow_TR004","section":"Training","subsection":"Courses","label":"What training modality is required?","type":"single_select","options":["On-site","Remote","Classroom"],"required":false,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Delivery model","output":"Training assumptions"},{"id":"D001","key":"flow_D001","section":"Documentation & Deliverables","subsection":"Input Documentation","label":"What documentation do we currently have available?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/TSC","purpose":"Assess input quality","output":"Engineering assumptions"},{"id":"D002","key":"flow_D002","section":"Documentation & Deliverables","subsection":"Input Documentation","label":"If PT2 / Triconex applies, what PT2 documentation is available?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex and configuration/site work by us = Yes","logic":{"all":[{"op":"includes","source":"flow_T001","value":"Triconex"},{"any":[{"op":"equals","source":"flow_T008","value":"Schneider / Us"},{"op":"equals","source":"flow_T009","value":"Schneider / Us"},{"op":"equals","source":"flow_P007","value":"Schneider / Us"}]}]},"repeatableContext":null,"owner":"TSC","purpose":"Assess readiness","output":"Engineering assumptions"},{"id":"D003","key":"flow_D003","section":"Documentation & Deliverables","subsection":"Deliverables","label":"What documentation is required at handover / delivery?","type":"multi_select","options":["As-built documentation","Configuration backup","Test protocols","Training material","Cabinet drawings","I/O list","Network architecture"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define deliverables","output":"Proposal scope"},{"id":"D004","key":"flow_D004","section":"Documentation & Deliverables","subsection":"Deliverables","label":"Who will prepare the deliverable documentation?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if What documentation is required at handover / delivery? has any value","logic":{"op":"has_value","source":"flow_D003"},"repeatableContext":"Deliverables","owner":"Delivery","purpose":"Clarify responsibility","output":"Assumptions"},{"id":"D005","key":"flow_D005","section":"Documentation & Deliverables","subsection":"Deliverables","label":"Who will review / approve the deliverables?","type":"text","options":[],"required":false,"shownWhenText":"Shown if What documentation is required at handover / delivery? has any value","logic":{"op":"has_value","source":"flow_D003"},"repeatableContext":"Deliverables review","owner":"Tender/Customer","purpose":"Clarify approval path","output":"Schedule / communication"}],"catalogs":{"Opportunity Types":["Greenfield","Modernization","Migration","Upgrade","Expansion","Services Only"],"Systems":["Foxboro","Triconex","Modicon","AVEVA","Cyber"],"Commercial Structures":["Hardware + Software + Services","Services Only","Migration / Modernization","Change Order / Revision"],"Stakeholder Roles":["Customer","Seller / CSE","TSC","Delivery","Service","Integrator"],"Architecture Types":["DCS","SIS","PLC","Hybrid"],"Execution Owners":["Schneider / Us","Customer","Integrator","Shared"],"Service Types":["Engineering","Configuration","FAT","SAT","IFAT","Site Support","Commissioning","Migration","Training","Documentation"],"Course Types":["Foxboro Operation","Foxboro Maintenance","Triconex Operation","Triconex Maintenance","System Administration"],"Triconex Software":["STV","TriStation / TX tools"],"Deliverable Types":["As-built documentation","Configuration backup","Test protocols","Training material","Cabinet drawings","I/O list","Network architecture"]}};
+  const STORAGE_KEY = 'define-scope-multiplatform-v3';
+  const LEGACY_STORAGE_KEY = 'define-scope-multiplatform-v1';
+  const $ = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+  let guidedMode = true;
+  let designerMode = false;
+  let flaggedQuestions = new Set();
+  let syncing = false;
+  let customForm = {sections:[], questions:[]};
+  let globalForm = {sections:[], questions:[]};
+  let hostPrefill = {};
+  let receivedParentInit = false;
+
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const slugify = value => String(value || 'section').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80) || 'section';
+  const uid = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+
+  function fields(){ return $$('[data-key]').filter(el => !el.classList.contains('dynamic-table')); }
+  function keyEl(key){ return $(`[data-key="${String(key).replace(/"/g,'\\"')}"]`); }
+  function getValue(el){
+    if(!el) return '';
+    if(el.classList.contains('multi-choice')) return $$('input[type="checkbox"]:checked', el).map(i => i.value);
+    if(el.classList.contains('link-answer')) return {label: $('[data-part="label"]',el)?.value || '', url: $('[data-part="url"]',el)?.value || ''};
+    if(el.type === 'checkbox' || el.type === 'radio') return el.checked;
+    if(el.matches('[contenteditable="true"]')) return el.innerHTML;
+    return el.value;
+  }
+  function setValue(el, value){
+    if(!el) return;
+    if(el.classList.contains('multi-choice')){
+      const wanted = new Set(Array.isArray(value) ? value.map(String) : String(value || '').split('|').filter(Boolean));
+      $$('input[type="checkbox"]',el).forEach(i => i.checked = wanted.has(i.value));
+    } else if(el.classList.contains('link-answer')){
+      const obj = value && typeof value === 'object' ? value : {label:'',url:String(value || '')};
+      const label = $('[data-part="label"]',el), url = $('[data-part="url"]',el);
+      if(label) label.value = obj.label || ''; if(url) url.value = obj.url || '';
+    } else if(el.type === 'checkbox' || el.type === 'radio') el.checked = !!value;
+    else if(el.matches('[contenteditable="true"]')) el.innerHTML = value || '';
+    else el.value = value ?? '';
+  }
+  function value(key){ return getValue(keyEl(key)); }
+  function checked(key){ const v=value(key); return v === true || String(v).toLowerCase()==='yes'; }
+  function anyChecked(keys){ return keys.some(k => checked(k)); }
+  function filledValue(v){
+    if(Array.isArray(v)) return v.length > 0;
+    if(v && typeof v === 'object') return Object.values(v).some(x => String(x || '').trim());
+    if(typeof v === 'boolean') return v;
+    return String(v ?? '').replace(/<[^>]*>/g,'').trim().length > 0;
+  }
+  function hasText(key){ return filledValue(value(key)); }
+  function isFilled(el){ return filledValue(getValue(el)); }
+
+  function serializeTable(table){ return $$('tbody tr', table).map(tr => $$('td', tr).slice(0,-1).map(td => td.innerHTML)); }
+  function restoreTable(table, rows){
+    if(!Array.isArray(rows) || !rows.length) return;
+    const body = $('tbody', table); body.innerHTML=''; rows.forEach(cells => addTableRow(table, cells));
+  }
+  function captureFieldValues(){ const data={}; fields().forEach(el => {const key=el.dataset.key,val=getValue(el);if(!Object.prototype.hasOwnProperty.call(data,key)||filledValue(val)||!filledValue(data[key]))data[key]=val;}); return data; }
+  function restoreFieldValues(data){ if(!data) return; fields().forEach(el => { if(Object.prototype.hasOwnProperty.call(data,el.dataset.key)) setValue(el,data[el.dataset.key]); }); }
+  // scope_summary (Overview quick view) and included_scope (detailed guided question) are
+  // the same answer. syncChangedKey() only mirrors them as the user types, so notes loaded
+  // with only one of the two filled (older data, or a save made before the other was typed)
+  // must be reconciled here too, otherwise Overview and the SOW question show different text.
+  function reconcileScopeFields(){
+    const summaryEl=keyEl('scope_summary'), includedEl=keyEl('included_scope');
+    if(!summaryEl||!includedEl) return;
+    const summary=String(getValue(summaryEl)||''), included=String(getValue(includedEl)||'');
+    if(included.trim()){ if(!summary.trim()) setValue(summaryEl,included); }
+    else if(summary.trim()){ setValue(includedEl,summary); }
+  }
+
+  function collectState(){
+    const data = {version:4, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), flags:[...flaggedQuestions], ui:{guidedMode}, savedAt:new Date().toISOString()};
+    $$('.dynamic-table').forEach(t => data.tables[t.dataset.key] = serializeTable(t));
+    return data;
+  }
+  function normalizeCustomForm(model){
+    const clean = model && typeof model === 'object' ? model : {};
+    return {sections:Array.isArray(clean.sections)?clean.sections:[],questions:Array.isArray(clean.questions)?clean.questions:[],flowOverrides:clean.flowOverrides&&typeof clean.flowOverrides==='object'?clean.flowOverrides:{}};
+  }
+  function mergeGlobalForm(localModel){
+    const local=normalizeCustomForm(localModel), global=normalizeCustomForm(globalForm);
+    const unique=(items,key)=>{const seen=new Set();return items.filter(item=>{const id=item?.[key];if(!id||seen.has(id))return false;seen.add(id);return true;});};
+    return {sections:unique([...global.sections,...local.sections],'id'),questions:unique([...global.questions,...local.questions],'key'),flowOverrides:{...(global.flowOverrides||{}),...(local.flowOverrides||{})}};
+  }
+  function applyState(data){
+    if(!data) return;
+    customForm = mergeGlobalForm(data.customForm);
+    flaggedQuestions = new Set(Array.isArray(data.flags) ? data.flags : []);
+    if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
+    rebuildCustomForm(null, false);
+    restoreFieldValues(data.fields || {});
+    reconcileScopeFields();
+    $$('.dynamic-table').forEach(t => { if(data.tables && data.tables[t.dataset.key]) restoreTable(t,data.tables[t.dataset.key]); });
+    updateGuidedButton(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
+  }
+
+  let saveTimer;
+  function persistNow(){
+    const state = collectState();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+    try{ window.parent.postMessage({source:'tenderloop-sow', type:'save', payload: state}, '*'); }catch(e){}
+  }
+  function save(){ clearTimeout(saveTimer); saveTimer=setTimeout(() => { persistNow(); updateProgress(); },180); }
+
+  function isLogicVisible(el){ return !el.closest('.hidden-by-platform,.conditional-hidden'); }
+  function requiredAndVisible(){ return $$('[data-required]').filter(isLogicVisible); }
+  function updateProgress(){
+    const req=requiredAndVisible(), filled=req.filter(isFilled).length, pct=req.length?Math.round(filled/req.length*100):100;
+    $('#progressBar').style.width=pct+'%'; $('#progressText').textContent=`${pct}% (${filled}/${req.length} required)`;
+    renderOverview();
+  }
+  function renderOverview(){
+    const body=$('#overviewBody'); if(!body) return;
+    const query=String($('#overviewSearch')?.value||'').toLowerCase().trim();
+    const allRows=fields().map(el=>({key:el.dataset.key,label:fieldLabel(el),section:sectionLabel(el),value:getValue(el)}));
+    const filter=$('#overviewSectionFilter'); const sections=[...new Set(allRows.map(row=>row.section))].sort();
+    if(filter){const current=filter.value;filter.innerHTML='<option value="">All sections</option>'+sections.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join('');filter.value=sections.includes(current)?current:'';}
+    const selected=filter?.value||'';
+    const rows=allRows.filter(row=>(filledValue(row.value)||flaggedQuestions.has(row.key))&&(!selected||row.section===selected)).filter(row=>`${row.label} ${row.section} ${Array.isArray(row.value)?row.value.join(' '):typeof row.value==='object'?Object.values(row.value).join(' '):row.value}`.toLowerCase().includes(query));
+    const displayValue=value=>value===true?'Yes':value===false?'No':Array.isArray(value)?value.join(', '):typeof value==='object'?Object.values(value).filter(Boolean).map(v=>v===true?'Yes':v===false?'No':v).join(' — '):String(value).replace(/<[^>]*>/g,' ');
+    body.innerHTML=rows.length?rows.map(row=>{const tbd=flaggedQuestions.has(row.key);return `<div class="terminal-line"><div class="terminal-question">${esc(row.section)} · ${esc(row.label)}</div><div><span class="terminal-tag ${tbd?'tbd':''}">[${tbd?'TBD 🚩':'CONFIRMED'}]</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}">${esc(displayValue(row.value))}</textarea></div>`;}).join(''):'<div class="terminal-line">No captured information matches this search.</div>';
+    $$('.overview-edit',body).forEach(input=>input.addEventListener('change',()=>{const el=keyEl(input.dataset.overviewKey);if(!el)return;const raw=input.value.trim();if(el.type==='checkbox')setValue(el,/^(yes|true|1)$/i.test(raw));else if(el.classList.contains('multi-choice'))setValue(el,raw.split(',').map(v=>v.trim()).filter(Boolean));else setValue(el,raw);syncChangedKey(el.dataset.key);updateConditionalVisibility();persistNow();}));
+  }
+  function fieldLabel(el){
+    const explicit=el.dataset.questionLabel;
+    if(explicit) return explicit;
+    const field=el.closest('.field');
+    const label=field && $('label',field);
+    return (label?.textContent || el.dataset.key || 'Campo pendiente').replace(/\*/g,'').trim();
+  }
+  function sectionLabel(el){
+    const flow=el.closest('details.flow-step'); if(flow)return flow.dataset.sectionTitle || 'Base Data';
+    const section=el.closest('details.section-card');
+    const summary=section ? $('summary',section) : null;
+    return (summary?.childNodes?.[0]?.textContent || 'Datos base').trim();
+  }
+  function updateDraftReadiness(required, filled){
+    const missing=required.filter(el=>!isFilled(el));
+    const status=$('#draftReadiness'), list=$('#draftGaps');
+    if(!status || !list) return;
+    list.innerHTML='';
+    if(!missing.length){ status.textContent='Draft ready: all applicable required information is complete.'; status.className='draft-ready'; return; }
+    status.className=''; status.textContent=`${missing.length} required item${missing.length===1?'':'s'} still needed to complete the draft. Use them as the agenda for the next KOM or meeting.`;
+    const grouped=new Map(); missing.forEach(el=>{const section=sectionLabel(el); if(!grouped.has(section))grouped.set(section,[]); grouped.get(section).push(fieldLabel(el));});
+    [...grouped.entries()].slice(0,5).forEach(([section,labels])=>{const item=document.createElement('li');item.textContent=`${section}: ${labels.slice(0,3).join(', ')}${labels.length>3?` and ${labels.length-3} more`:''}`;list.appendChild(item);});
+    if(grouped.size>5){const item=document.createElement('li');item.textContent=`More pending items in ${grouped.size-5} section(s).`;list.appendChild(item);}
+  }
+  function generateMeetingNote(){
+    const pending=requiredAndVisible().filter(el=>!isFilled(el));
+    const questions=pending.length?`<ol>${pending.map(el=>`<li><b>${esc(sectionLabel(el))}</b> — ${esc(fieldLabel(el))}</li>`).join('')}</ol>`:'<p>All applicable required questions have been answered. Use this meeting to validate decisions, risks and next steps.</p>';
+    const content=`<h1>KOM</h1><p>Questions to resolve during this meeting:</p>${questions}`;
+    try{window.parent.postMessage({source:'tenderloop-sow',type:'generated-note',payload:{title:'KOM',content}},'*');const btn=$('#generateMeetingNoteBtn');btn.textContent='KOM note created';setTimeout(()=>btn.textContent='Generate meeting note',1600);}catch(e){}
+  }
+  function focusTarget(el){ return el.matches('input,select,textarea,[contenteditable="true"]') ? el : $('input,select,textarea,[contenteditable="true"]',el); }
+  function reviewGaps(){
+    const req=requiredAndVisible(); req.forEach(el => el.classList.toggle('missing',!isFilled(el)));
+    const first=req.find(el=>!isFilled(el));
+    if(first){ let parent=first.closest('details'); while(parent){ parent.open=true; parent=parent.parentElement?.closest('details'); } first.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>focusTarget(first)?.focus(),350); }
+    else alert('All required fields currently applicable to this scope are complete.');
+  }
+
+  function renderNavigation(){
+    const host=$('#navigationResults'); if(!host)return;
+    const query=String($('#navigationSearch')?.value||'').trim().toLowerCase();
+    const groups=new Map();
+    $$('.question-card').forEach(card=>{
+      const field=$('[data-key]',card); if(!field)return;
+      const section=sectionLabel(field), subsection=card.querySelector('.question-meta span:nth-child(3)')?.textContent || 'Questions';
+      const label=card.dataset.questionLabel||fieldLabel(field), answer=String(getValue(field)??'').replace(/<[^>]*>/g,' ');
+      const haystack=`${section} ${subsection} ${label} ${answer}`.toLowerCase();
+      if(query&&!haystack.includes(query))return;
+      if(!groups.has(section))groups.set(section,new Map());
+      const children=groups.get(section); if(!children.has(subsection))children.set(subsection,[]);
+      children.get(subsection).push({key:field.dataset.key,label,answer,flagged:flaggedQuestions.has(field.dataset.key)});
+    });
+    host.innerHTML='';
+    if(!groups.size){host.innerHTML='<p class="help">No section, question or answer matches this search.</p>';return;}
+    groups.forEach((subsections,section)=>{const sectionEl=document.createElement('details');sectionEl.className='nav-section';sectionEl.open=!!query;sectionEl.innerHTML=`<summary>${esc(section)}</summary>`;subsections.forEach((questions,subsection)=>{const sub=document.createElement('details');sub.className='nav-subsection';sub.open=!!query;sub.innerHTML=`<summary>${esc(subsection)}</summary>`;questions.forEach(q=>{const row=document.createElement('div');row.className=`nav-question ${query?'match':''}`;row.dataset.navigateKey=q.key;row.innerHTML=`${q.flagged?'<span class="nav-flag">⚑</span>':''}<span><b>${esc(q.label)}</b>${q.answer?`<span class="nav-snippet">${esc(q.answer.slice(0,120))}</span>`:''}</span>`;sub.appendChild(row);});sectionEl.appendChild(sub);});host.appendChild(sectionEl);});
+  }
+  function openNavigation(){ $('#navigationPanel').classList.add('open'); document.body.classList.add('nav-panel-open'); renderNavigation(); $('#navigationSearch').focus(); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-open'},'*');}catch(e){} }
+  function closeNavigation(){ $('#navigationPanel').classList.remove('open'); document.body.classList.remove('nav-panel-open'); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-close'},'*');}catch(e){} }
+  function toggleFlag(key){ if(flaggedQuestions.has(key))flaggedQuestions.delete(key);else flaggedQuestions.add(key); const card=$(`.question-card[data-question-id="${key}"]`);if(card){card.classList.toggle('flagged',flaggedQuestions.has(key));const btn=$('[data-flag-question]',card);if(btn){btn.classList.toggle('active',flaggedQuestions.has(key));btn.title=flaggedQuestions.has(key)?'Remove follow-up flag':'Mark for follow-up';}}renderOverview();renderNavigation();persistNow(); }
+
+  function renderAnswerControl(def){
+    const key=def.key, req=def.required?' data-required=""':'', labelAttr=` data-question-label="${esc(def.label)}"`;
+    const options=Array.isArray(def.options)?def.options:[];
+    if(def.type==='instruction') return `<div class="instruction-answer">${esc(def.help || def.label)}</div>`;
+    if(def.type==='long_text') return `<textarea data-key="${esc(key)}"${labelAttr}${req}></textarea>`;
+    if(def.type==='number') return `<input data-key="${esc(key)}"${labelAttr}${req} type="number" step="any"/>`;
+    if(def.type==='currency') return `<input data-key="${esc(key)}"${labelAttr}${req} type="number" min="0" step="0.01" placeholder="0.00"/>`;
+    if(def.type==='date') return `<input data-key="${esc(key)}"${labelAttr}${req} type="date"/>`;
+    if(def.type==='boolean') return `<select data-key="${esc(key)}"${labelAttr}${req}><option value=""></option><option>Yes</option><option>No</option><option>To be defined</option></select>`;
+    if(def.type==='single_select') return `<select data-key="${esc(key)}"${labelAttr}${req}><option value=""></option>${options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
+    if(def.type==='multi_select') return `<div class="multi-choice" data-key="${esc(key)}"${labelAttr}${req}>${options.map(o=>`<label><input type="checkbox" value="${esc(o)}"/>${esc(o)}</label>`).join('') || '<span class="help">No options configured.</span>'}</div>`;
+    if(def.type==='checkbox') return `<label class="single-check-answer"><input data-key="${esc(key)}"${labelAttr}${req} type="checkbox"/>${esc(def.checkboxText || 'Confirmed / Included')}</label>`;
+    if(def.type==='link') return `<div class="link-answer" data-key="${esc(key)}"${labelAttr}${req}><input data-part="label" type="text" placeholder="Link label"/><input data-part="url" type="url" placeholder="https://..."/><button class="quick-link-action" type="button">Add to Overview Quick Links</button></div>`;
+    return `<input data-key="${esc(key)}"${labelAttr}${req} type="text"/>`;
+  }
+
+  function createQuestionCard(def, kind='flow'){
+    const card=document.createElement('div');
+    card.className=`question-card ${kind==='custom'?'custom-question-card':''}`;
+    card.dataset.questionId=def.key; card.dataset.questionLabel=def.label;
+    card.classList.toggle('flagged', flaggedQuestions.has(def.key));
+    if(def.logic){ card.classList.add('dependency-node'); card.dataset.logic=JSON.stringify(def.logic); }
+    const controls=kind==='custom'?`<div class="custom-question-controls builder-only"><button class="icon-btn edit-custom-question" data-question-id="${esc(def.key)}" type="button">Edit</button><button class="icon-btn danger delete-custom-question" data-question-id="${esc(def.key)}" type="button">Delete</button></div>`:`<div class="custom-question-controls builder-only"><button class="icon-btn edit-flow-question" data-question-id="${esc(def.key)}" type="button">Edit</button></div>`;
+    const badges=[];
+    if(def.id) badges.push(`<span>${esc(def.id)}</span>`);
+    if(def.owner) badges.push(`<span>Owner: ${esc(def.owner)}</span>`);
+    if(def.subsection) badges.push(`<span>${esc(def.subsection)}</span>`);
+    if(def.repeatableContext) badges.push(`<span>Context: ${esc(def.repeatableContext)}</span>`);
+    if(def.required) badges.push('<span style="background:#fee4e2;color:#b42318">Required</span>');
+    if(def.logic) badges.push('<span style="background:#ecfdf3;color:#027a48">Conditional</span>');
+    card.innerHTML=`<div class="question-header"><span class="question-id">${esc(def.id || 'CUSTOM')}</span><div class="question-title">${esc(def.label)}${def.required?' <span class="required-mark">*</span>':''}</div><button class="question-flag ${flaggedQuestions.has(def.key)?'active':''}" data-flag-question="${esc(def.key)}" title="${flaggedQuestions.has(def.key)?'Remove follow-up flag':'Mark for follow-up'}" type="button" aria-label="Flag question">⚑</button>${controls}</div><div class="question-meta">${badges.join('')}</div><div style="margin-top:9px">${renderAnswerControl(def)}</div>${(def.help||def.purpose||def.output)?`<div class="question-help">${esc(def.help || def.purpose || '')}${def.output?` • Used for: ${esc(def.output)}`:''}</div>`:''}`;
+    return card;
+  }
+
+  // Upgrade has its own workflow. It must not activate modernization/migration
+  // questions merely because an existing installed base is involved.
+  FLOW_DATA.questions.filter(q=>['B009','T003','T004'].includes(q.id)).forEach(q=>{
+    q.logic={op:'includes_any',source:'flow_B008',value:['Modernization','Migration']};
+    q.shownWhenText='Shown if Opportunity Type includes Modernization / Migration';
+  });
+  const LINKED_COMMERCIAL_QUESTIONS=[
+    {id:'C012',key:'flow_C012',section:'Commercial',subsection:'CQA Commercials',label:'CQA selling price',type:'currency',options:[],required:false,owner:'Tender',purpose:'Linked to Commercial CQA sell price',output:'Commercial section'},
+    {id:'C013',key:'flow_C013',section:'Commercial',subsection:'CQA Commercials',label:'Expected CCO margin',type:'number',options:[],required:false,owner:'Tender',purpose:'Linked to Commercial CCO margin',output:'Commercial section'},
+    {id:'C014',key:'flow_C014',section:'Commercial',subsection:'CQA Commercials',label:'Commercial notes',type:'long_text',options:[],required:false,owner:'Tender',purpose:'Linked to Commercial notes',output:'Commercial section'}
+  ];
+  // Retired from the standard questionnaire. Existing saved answers are kept
+  // in the note for backwards compatibility, but the question is not rendered.
+  const REMOVED_FLOW_QUESTIONS=new Set(['flow_C011','flow_T001','flow_T007']);
+  const FLOW_COPY_OVERRIDES={
+    flow_C001:'What are we offering to the customer?'
+  };
+  function renderFlow(){
+    const host=$('#flowStepsContainer'); host.innerHTML='';
+    FLOW_DATA.steps.forEach((step,index)=>{
+      const sec=document.createElement('details'); sec.className='flow-step'; sec.open=index===0;
+      const sectionId=`flow_${slugify(step.Section)}`; sec.dataset.builderSectionId=sectionId; sec.dataset.sectionTitle=step.Section;
+      const body=document.createElement('div'); body.className='flow-step-body';
+      const summary=document.createElement('summary'); summary.innerHTML=`<span>Step ${esc(step.Step)} — ${esc(step.Section)}</span><span class="flow-count"></span>`;
+      body.innerHTML=`<div class="flow-step-goal"><b>Goal:</b> ${esc(step.Goal)}${step.Notes?`<br/><b>Design note:</b> ${esc(step.Notes)}`:''}</div>`;
+      const baseDataAlreadyShown=new Set(['flow_B001','flow_B002','flow_B003','flow_B005','flow_B006','flow_B007']);
+      const qs=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
+      let current='', subsection, grid;
+      qs.forEach(q=>{
+        if(q.subsection!==current){
+          current=q.subsection;
+          subsection=document.createElement('div'); subsection.className='flow-subsection';
+          const h=document.createElement('h4'); h.className='subsection-title'; h.textContent=current || 'Questions';
+          grid=document.createElement('div'); grid.className='question-grid';
+          subsection.append(h,grid); body.appendChild(subsection);
+        }
+        grid.appendChild(createQuestionCard(q,'flow'));
+      });
+      sec.append(summary,body); host.appendChild(sec);
+    });
+  }
+
+  function sectionBody(sec){ return sec.querySelector(':scope > .section-body, :scope > .flow-step-body'); }
+  function sectionTitle(sec){ return sec.dataset.sectionTitle || sec.querySelector(':scope > summary')?.childNodes[0]?.textContent.trim() || 'Section'; }
+  function prepareBuilderSections(){
+    $$('details.section-card, details.flow-step').forEach((sec,index)=>{
+      if(!sec.dataset.builderSectionId){ const title=sectionTitle(sec); sec.dataset.builderSectionId=`builtin_${slugify(title)}`; sec.dataset.sectionTitle=title; }
+      const body=sectionBody(sec); if(!body) return;
+      if(!body.querySelector(':scope > .custom-question-container')){ const c=document.createElement('div'); c.className='custom-question-container'; body.appendChild(c); }
+      if(!body.querySelector(':scope > .builder-section-tools')){ const tools=document.createElement('div'); tools.className='builder-section-tools builder-only'; tools.innerHTML=`<button class="btn open-add-question" data-section-id="${esc(sec.dataset.builderSectionId)}" type="button">+ Add question to this section</button>`; body.appendChild(tools); }
+    });
+  }
+
+  function renderCustomSection(def){
+    const sec=document.createElement('details'); sec.className='section-card custom-section-card dependency-node'; sec.open=true;
+    sec.dataset.builderSectionId=def.id; sec.dataset.sectionTitle=def.title;
+    if(def.logic) sec.dataset.logic=JSON.stringify(def.logic); else sec.classList.remove('dependency-node');
+    sec.innerHTML=`<div class="section-band" style="background:${esc(def.color || '#2c7be5')}"></div><summary><span>${esc(def.title)}</span><span class="section-logic-label">Custom section</span><span class="custom-section-summary-tools"><button class="icon-btn edit-custom-section" data-section-id="${esc(def.id)}" type="button">Edit</button><button class="icon-btn danger delete-custom-section" data-section-id="${esc(def.id)}" type="button">Delete</button></span></summary><div class="section-body">${def.description?`<div class="custom-section-description">${esc(def.description)}</div>`:''}</div>`;
+    return sec;
+  }
+
+  function rebuildCustomForm(answerSnapshot=null, runUpdate=true){
+    const snapshot=answerSnapshot || captureFieldValues();
+    $$('.custom-section-card').forEach(el=>el.remove());
+    $$('.custom-question-container').forEach(c=>c.innerHTML='');
+    const host=$('#customSectionsContainer');
+    customForm.sections.forEach(sec=>host.appendChild(renderCustomSection(sec)));
+    prepareBuilderSections();
+    customForm.questions.forEach(q=>{
+      const sec=$(`[data-builder-section-id="${q.sectionId}"]`); const container=sec && sectionBody(sec)?.querySelector(':scope > .custom-question-container');
+      if(container) container.appendChild(createQuestionCard(q,'custom'));
+    });
+    restoreFieldValues(snapshot); applyDesignerMode();
+    if(runUpdate){ updateConditionalVisibility(); updateProgress(); }
+  }
+
+  function updatePlatformVisibility(){
+    const state={modicon:$('#platform-modicon').checked,triconex:$('#platform-triconex').checked,foxboro:$('#platform-foxboro').checked};
+    $$('.platform-section').forEach(sec=>sec.classList.toggle('hidden-by-platform',!state[sec.dataset.platform]));
+  }
+  function fieldBox(key){ const el=keyEl(key); return el?(el.closest('.field')||el.closest('.choice')||el.closest('.check-row')||el):null; }
+  function showElement(el,shouldShow){ if(!el)return; const visible=!guidedMode||!!shouldShow; el.classList.toggle('conditional-hidden',!visible); el.setAttribute('aria-hidden',visible?'false':'true'); }
+  function showField(key,show){ showElement(fieldBox(key),show); }
+  function showBlock(id,show){ showElement($('#'+id),show); }
+
+  function conditionAnswer(source){
+    const el=keyEl(source);
+    if(!el && source==='flow_T001') return ['Modicon','Triconex','Foxboro'].filter(name=>checked(`platform_${name.toLowerCase()}`)).concat(checked('platform_other')?['Other']:[]);
+    if(!el)return '';
+    if(guidedMode && !isLogicVisible(el)) return '';
+    return getValue(el);
+  }
+  function lower(v){ return String(v ?? '').trim().toLowerCase(); }
+  function listValue(v){ if(Array.isArray(v))return v.map(lower); if(v&&typeof v==='object')return Object.values(v).map(lower).filter(Boolean); return String(v??'').split(/[,|\n]/).map(lower).filter(Boolean); }
+  function evaluateLogic(logic){
+    if(!logic) return true;
+    if(Array.isArray(logic.all)) return logic.all.every(evaluateLogic);
+    if(Array.isArray(logic.any)) return logic.any.some(evaluateLogic);
+    const ans=conditionAnswer(logic.source), target=logic.value;
+    switch(logic.op){
+      case 'has_value': return filledValue(ans);
+      case 'is_empty': return !filledValue(ans);
+      case 'checked': return ans===true || ['yes','true','included','confirmed'].includes(lower(ans));
+      case 'not_checked': return !(ans===true || ['yes','true','included','confirmed'].includes(lower(ans)));
+      case 'equals': return Array.isArray(ans)?listValue(ans).includes(lower(target)):lower(ans)===lower(target);
+      case 'not_equals': return Array.isArray(ans)?!listValue(ans).includes(lower(target)):lower(ans)!==lower(target);
+      case 'includes': return listValue(ans).some(v=>v===lower(target) || v.includes(lower(target)));
+      case 'not_includes': return !listValue(ans).some(v=>v===lower(target) || v.includes(lower(target)));
+      case 'includes_any': { const targets=Array.isArray(target)?target:listValue(target); return targets.some(t=>listValue(ans).includes(lower(t))); }
+      case 'greater_than': return Number(ans)>Number(target);
+      case 'less_than': return Number(ans)<Number(target);
+      default: return true;
+    }
+  }
+  function updateGenericDependencies(){
+    for(let pass=0;pass<6;pass++){
+      let changed=false;
+      $$('.dependency-node[data-logic]').forEach(node=>{ let logic=null; try{logic=JSON.parse(node.dataset.logic);}catch(e){} const before=node.classList.contains('conditional-hidden'); showElement(node,evaluateLogic(logic)); if(before!==node.classList.contains('conditional-hidden'))changed=true; });
+      if(!changed) break;
+    }
+    updateFlowCounts();
+  }
+  function updateFlowCounts(){
+    $$('details.flow-step').forEach(sec=>{ const cards=$$('.question-card',sec), applicable=cards.filter(c=>!c.classList.contains('conditional-hidden')).length; const required=$$('[data-required]',sec).filter(isLogicVisible), done=required.filter(isFilled).length; const badge=$('.flow-count',sec); if(badge) badge.textContent=`${applicable}/${cards.length} applicable • ${done}/${required.length} required`; });
+  }
+
+  function updateConditionalVisibility(){
+    showField('team_tsc_modicon',checked('platform_modicon')); showField('team_tsc_triconex',checked('platform_triconex')); showField('team_tsc_foxboro',checked('platform_foxboro'));
+    const contractSelected=anyChecked(['msa_available','cfa_available','customer_terms','se_standard_terms']);
+    showField('contract_links',contractSelected); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||'')));
+    const opp=String(value('opp_type')||''), existingScope=!opp||opp!=='Greenfield'||anyChecked(['scope_modernization','scope_mixed','scope_modernize_in_place']);
+    showField('installed_base_summary',existingScope); showField('data_validation_notes',existingScope);
+    const mod=String(value('mod_scenario')||''), modChosen=!!mod, modSoftwareOnly=mod==='Software / services only', modExisting=modChosen&&!['New PLC system','Software / services only'].includes(mod), modMigration=modChosen&&['CPU + I/O modernization','CPU modernization, I/O remains','I/O modernization, CPU remains','Add new I/O','Competitor conversion'].includes(mod);
+    showField('mod_existing_controller',modExisting); showField('mod_target_controller',modChosen&&!modSoftwareOnly); showField('mod_control_expert',modChosen); showBlock('modHardwareBlock',modChosen&&!modSoftwareOnly); showBlock('modMigrationBlock',modMigration); showBlock('modCommsBlock',modChosen); showBlock('modBomBlock',modChosen&&!modSoftwareOnly); showBlock('modValidationBlock',modChosen);
+    const triApp=String(value('tri_application')||''), triAppChosen=!!triApp; ['tri_sil','tri_sif_count','tri_cause_effect_count'].forEach(k=>showField(k,triAppChosen)); showBlock('triFunctionalDocumentsBlock',triAppChosen); showBlock('triFunctionalNarrativeBlock',triAppChosen);
+    const tri=String(value('tri_scenario')||''), triChosen=!!tri, triServicesOnly=tri==='Services only', triExisting=triChosen&&!['New SIS','Services only'].includes(tri), triHardware=triChosen&&!triServicesOnly;
+    showField('tri_existing_platform',triExisting); showField('tri_target_platform',triHardware); showField('tri_system_count',triHardware); showBlock('triHardwareChoicesBlock',triHardware); showBlock('triIoSoftwareBlock',triHardware); showBlock('triIntegrationBlock',triChosen); showBlock('triMigrationBlock',triChosen); showField('tri_migration_plan',triChosen&&!['New SIS','Services only'].includes(tri)); showBlock('triBomBlock',triHardware); showBlock('triValidationBlock',triChosen);
+    const fox=String(value('fox_scenario')||''), foxChosen=!!fox, foxNew=fox==='New DCS', foxServices=fox==='Services only';
+    const foxControllerScenarios=['New DCS','System expansion','Controller migration / upgrade','I/O modernization'], foxNetworkScenarios=['New DCS','System expansion','Controller migration / upgrade','Workstation / server refresh','Software version upgrade'], foxApplicationScenarios=['New DCS','System expansion','Controller migration / upgrade','Software version upgrade','Application engineering'], foxBomScenarios=['New DCS','System expansion','Controller migration / upgrade','I/O modernization','Workstation / server refresh'];
+    showField('fox_existing_release',foxChosen&&!foxNew); showField('fox_support_status',foxChosen&&!foxNew); showField('fox_existing_architecture',foxChosen&&!foxNew); showField('fox_target_release',foxChosen&&!foxServices); showField('fox_target_architecture',foxChosen&&!foxServices); showBlock('foxControllerIoBlock',foxControllerScenarios.includes(fox)); showBlock('foxNetworkServerBlock',foxNetworkScenarios.includes(fox)); showBlock('foxApplicationBlock',foxApplicationScenarios.includes(fox)); showBlock('foxInterfaceMigrationBlock',foxChosen);
+    const foxHasInterface=anyChecked(['fox_triconex_interface','fox_plc_interface','fox_opc_interface','fox_modbus_interface','fox_mes_interface','fox_third_party_apps']), foxHasMigration=anyChecked(['fox_phased_cutover','fox_shutdown_cutover'])||/migration|modernization|upgrade|refresh/i.test(fox);
+    showField('fox_interfaces',foxHasInterface); showField('fox_migration',foxHasMigration); showBlock('foxTestBlock',foxChosen&&!foxServices); showBlock('foxBomBlock',foxBomScenarios.includes(fox)); showBlock('foxValidationBlock',foxChosen);
+    const cabinets=String(value('cabinets_included')||''), cabinetDetails=['Yes','Partial','To be defined'].includes(cabinets)||anyChecked(['scope_new_enclosures','scope_modernize_in_place']); ['cabinet_scenario','cabinet_mounting','cabinet_rating','cabinet_material','cabinet_dimensions','cabinet_cooling','cabinet_certification','panel_design_notes'].forEach(k=>showField(k,cabinetDetails));
+    const serviceKeys=['svc_engineering','svc_configuration','svc_drawings','svc_fat','svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration','svc_training','svc_documentation','svc_project_management'], anyService=anyChecked(serviceKeys); showBlock('serviceEstimateBlock',anyService);
+    const onsite=anyChecked(['svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration'])||['Premium nights / weekends','On-site T&M','Mixed'].includes(String(value('work_schedule')||'')); ['downtime_window','site_access_hours','schedule_limitations'].forEach(k=>showField(k,onsite));
+    const travel=String(value('tl_required')||''), travelDetails=!!travel&&travel!=='No'; ['tl_estimate','tl_trips','tl_policy','tl_assumptions'].forEach(k=>showField(k,travelDetails));
+    const fat=String(value('fat_required')||''), sat=String(value('sat_required')||''), fatPositive=!!fat&&fat!=='No', satPositive=!!sat&&sat!=='No'; showField('fat_days_location',fatPositive); showField('sat_days_location',satPositive); const testing=fatPositive||satPositive||anyChecked(['svc_fat','svc_sat']); showBlock('testingChecklistBlock',testing); showBlock('testingNarrativeBlock',testing);
+    const training=String(value('training_required')||''), trainingDetails=(!!training&&training!=='No')||checked('svc_training'); ['training_course','training_people_days','training_modality','training_details'].forEach(k=>showField(k,trainingDetails));
+    const safetyKeys=['safety_orientation','safety_ppe','safety_drug','safety_background','safety_confined','safety_hot_work','safety_twic','safety_loto','safety_cyber_access','safety_insurance'], siteSafety=onsite||['On-site','Mixed'].includes(String(value('training_modality')||''))||anyChecked(safetyKeys); showBlock('siteSafetyBlock',siteSafety); showField('safety_requirements',siteSafety&&anyChecked(safetyKeys.filter(k=>k!=='safety_insurance'))); showField('insurance_requirements',siteSafety&&checked('safety_insurance'));
+    const deliverableKeys=['deliv_architecture','deliv_bom','deliv_cabinet_drawings','deliv_schematics','deliv_io_list','deliv_network','deliv_functional_spec','deliv_configuration_backup','deliv_fat_plan','deliv_sat_plan','deliv_commissioning','deliv_asbuilt','deliv_manuals','deliv_training_material','deliv_test_protocols','deliv_cyber'], anyDeliverable=anyChecked(deliverableKeys); showField('deliverable_requirements',anyDeliverable); showField('deliverable_owners',anyDeliverable);
+    const lifecycle=(!!value('spares_basis')&&value('spares_basis')!=='None')||(!!value('warranty_basis')&&value('warranty_basis')!=='Standard')||hasText('support_plan')||hasText('software_support'); showField('lifecycle_notes',lifecycle);
+    updateGenericDependencies(); updateProgress();
+  }
+
+  const SYNC_PAIRS={flow_B001:'op_id',flow_B002:'alias',flow_B003:'customer',flow_B004:'proposal_delivery',flow_B006:'team_cse',flow_B007:'site',flow_C003:'order_entry',flow_C004:'execution_start',flow_C005:'project_completion',flow_C011:'forecast_usd'};
+  const EXPEDIENTE_SYNC_KEYS=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','proposal_delivery','flow_C012','flow_C013','flow_C014',...Object.keys(SYNC_PAIRS)]);
+  let opportunitySyncTimer;
+  function syncOpportunityNow(){
+    const data=captureFieldValues();
+    try{window.parent.postMessage({source:'tenderloop-sow',type:'sync-opportunity',payload:{op_name:data.op_name,alias:data.alias,sr_qlk:data.sr_qlk,customer:data.customer,team_cse:data.team_cse,site:data.site,proposal_type:data.proposal_type,proposal_delivery:data.proposal_delivery||data.flow_B004,objective:String(data.objective||'').replace(/<[^>]*>/g,' ').trim(),commercialSell:data.flow_C012,commercialMargin:data.flow_C013,commercialNotes:data.flow_C014}},'*');}catch(e){}
+  }
+  function scheduleOpportunitySync(key){ if(!EXPEDIENTE_SYNC_KEYS.has(key))return; clearTimeout(opportunitySyncTimer); opportunitySyncTimer=setTimeout(syncOpportunityNow,350); }
+  function syncChangedKey(key){
+    if(syncing||!key)return; syncing=true;
+    try{
+      // Some base fields appear in two sections. Keep their controls in lockstep
+      // and never let an empty duplicate overwrite the value the user just entered.
+      const matching=fields().filter(el=>el.dataset.key===key), source=matching.find(el=>el===document.activeElement)||matching[0];
+      if(source) matching.forEach(el=>{if(el!==source)setValue(el,getValue(source));});
+      if(key==='scope_summary'&&keyEl('included_scope'))setValue(keyEl('included_scope'),getValue(source));
+      if(key==='included_scope'&&keyEl('scope_summary'))setValue(keyEl('scope_summary'),getValue(source));
+      const direct=SYNC_PAIRS[key], reverse=Object.entries(SYNC_PAIRS).find(([,v])=>v===key)?.[0];
+      if(direct&&keyEl(direct)) setValue(keyEl(direct),value(key));
+      if(reverse&&keyEl(reverse)) setValue(keyEl(reverse),value(key));
+      if(key==='flow_T001'){ const selected=new Set(value(key)||[]); ['modicon','triconex','foxboro'].forEach(p=>{ const el=keyEl(`platform_${p}`); if(el)el.checked=selected.has(p[0].toUpperCase()+p.slice(1)); }); const other=keyEl('platform_other'); if(other)other.checked=['AVEVA','Cyber'].some(x=>selected.has(x)); updatePlatformVisibility(); }
+      if(/^platform_/.test(key)){ const current=new Set(Array.isArray(value('flow_T001'))?value('flow_T001'):[]); ['Modicon','Triconex','Foxboro'].forEach(name=>{ const el=keyEl(`platform_${name.toLowerCase()}`); if(el?.checked)current.add(name);else current.delete(name); }); if(keyEl('platform_other')?.checked){ if(!current.has('AVEVA')&&!current.has('Cyber'))current.add('AVEVA'); } else {current.delete('AVEVA');current.delete('Cyber');} setValue(keyEl('flow_T001'),[...current]); }
+      if(key==='flow_B008'){ const vals=value(key); if(Array.isArray(vals)&&vals.length===1&&keyEl('opp_type')) setValue(keyEl('opp_type'),vals[0]); }
+      if(key==='opp_type'&&value(key)){ setValue(keyEl('flow_B008'),[String(value(key))]); }
+    } finally { syncing=false; }
+    scheduleOpportunitySync(key);
+  }
+
+  function addTableRow(table,cells=[]){ const colCount=$$('thead th',table).length,tr=document.createElement('tr'); for(let i=0;i<colCount-1;i++){const td=document.createElement('td');td.contentEditable='true';td.innerHTML=cells[i]||'';tr.appendChild(td);} const action=document.createElement('td');action.innerHTML='<button type="button" class="remove-row">×</button>';tr.appendChild(action);$('tbody',table).appendChild(tr); }
+
+  function getQuestionRegistry(excludeKey=''){
+    const seen=new Set(), result=[];
+    fields().forEach(el=>{ const key=el.dataset.key; if(!key||key===excludeKey||seen.has(key))return; seen.add(key); const label=el.dataset.questionLabel||el.closest('.question-card')?.dataset.questionLabel||el.closest('.field')?.querySelector('label')?.textContent.trim()||el.closest('.choice')?.textContent.trim()||key; const sec=el.closest('[data-builder-section-id]'); result.push({key,label:label.replace(/\s*\*\s*$/,''),section:sec?sectionTitle(sec):'General'}); });
+    return result.sort((a,b)=>(a.section+a.label).localeCompare(b.section+b.label));
+  }
+  const OPERATORS=[['has_value','Has any answer'],['is_empty','Is empty'],['equals','Equals'],['not_equals','Does not equal'],['includes','Includes / selected'],['not_includes','Does not include'],['includes_any','Includes any (comma-separated)'],['checked','Is checked / Yes'],['not_checked','Is not checked / No'],['greater_than','Is greater than'],['less_than','Is less than']];
+  function addConditionRow(container,condition={},excludeKey=''){
+    const row=document.createElement('div');row.className='condition-row';
+    const source=document.createElement('select');source.className='condition-source'; source.innerHTML='<option value="">Choose source question...</option>'+getQuestionRegistry(excludeKey).map(q=>`<option value="${esc(q.key)}">${esc(q.section)} — ${esc(q.label)}</option>`).join('');source.value=condition.source||'';
+    const op=document.createElement('select');op.className='condition-operator';op.innerHTML=OPERATORS.map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('');op.value=condition.op||'equals';
+    const val=document.createElement('input');val.className='condition-value';val.type='text';val.placeholder='Comparison value';val.value=Array.isArray(condition.value)?condition.value.join(', '):(condition.value??'');
+    const remove=document.createElement('button');remove.className='icon-btn danger';remove.type='button';remove.textContent='×';remove.addEventListener('click',()=>row.remove());
+    const toggle=()=>{ const noValue=['has_value','is_empty','checked','not_checked'].includes(op.value);val.style.display=noValue?'none':''; };op.addEventListener('change',toggle);toggle();row.append(source,op,val,remove);container.appendChild(row);
+  }
+  function logicToEditor(logic){ if(!logic)return{match:'all',rules:[]}; if(Array.isArray(logic.all))return{match:'all',rules:logic.all}; if(Array.isArray(logic.any))return{match:'any',rules:logic.any}; return{match:'all',rules:[logic]}; }
+  function readConditions(container,match){
+    const rules=$$('.condition-row',container).map(row=>{ const source=$('.condition-source',row).value,op=$('.condition-operator',row).value,raw=$('.condition-value',row).value.trim(); if(!source)return null; const rule={source,op}; if(!['has_value','is_empty','checked','not_checked'].includes(op))rule.value=op==='includes_any'?raw.split(',').map(x=>x.trim()).filter(Boolean):raw; return rule; }).filter(Boolean);
+    if(!rules.length)return null; if(rules.length===1)return rules[0]; return match==='any'?{any:rules}:{all:rules};
+  }
+  function populateSectionSelect(selected=''){ const select=$('#questionSection');select.innerHTML=$$('[data-builder-section-id]').filter((s,i,a)=>a.findIndex(x=>x.dataset.builderSectionId===s.dataset.builderSectionId)===i).map(s=>`<option value="${esc(s.dataset.builderSectionId)}">${esc(sectionTitle(s))}</option>`).join(''); if(selected)select.value=selected; }
+  function updateOptionsVisibility(){ $('#questionOptionsWrap').style.display=['single_select','multi_select'].includes($('#questionType').value)?'block':'none'; }
+  function openQuestionDialog(sectionId='',questionId=''){
+    const base=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].find(q=>q.key===questionId);
+    const existing=customForm.questions.find(q=>q.key===questionId)|| (base?{...base,...(customForm.flowOverrides?.[questionId]||{}),sectionId:`flow_${slugify(base.section)}`,isFlow:true}:null);
+    $('#questionDialogTitle').textContent=existing?'Edit question':'Add question'; $('#questionEditId').value=existing?.key||''; populateSectionSelect(existing?.sectionId||sectionId); $('#questionType').value=existing?.type||'text'; $('#questionLabel').value=existing?.label||''; $('#questionSubsection').value=existing?.subsection||''; $('#questionOwner').value=existing?.owner||''; $('#questionOptions').value=(existing?.options||[]).join('\n'); $('#questionHelp').value=existing?.help||existing?.purpose||''; $('#questionOutput').value=existing?.output||''; $('#questionRequired').checked=!!existing?.required; $('#questionGlobal').checked=globalForm.questions.some(q=>q.key===existing?.key); const parsed=logicToEditor(existing?.logic); $('#questionConditionMatch').value=parsed.match; const host=$('#questionConditions');host.innerHTML='';parsed.rules.forEach(r=>addConditionRow(host,r,existing?.key||'')); updateOptionsVisibility(); $('#questionDialog').showModal();
+  }
+  function openSectionDialog(sectionId=''){
+    const existing=customForm.sections.find(s=>s.id===sectionId); $('#sectionDialogTitle').textContent=existing?'Edit section':'Add section'; $('#sectionEditId').value=existing?.id||''; $('#sectionTitle').value=existing?.title||''; $('#sectionColor').value=existing?.color||'#2c7be5'; $('#sectionDescription').value=existing?.description||''; const parsed=logicToEditor(existing?.logic); $('#sectionConditionMatch').value=parsed.match; const host=$('#sectionConditions');host.innerHTML='';parsed.rules.forEach(r=>addConditionRow(host,r)); $('#sectionDialog').showModal();
+  }
+
+  function applyDesignerMode(){ document.body.classList.toggle('designer-mode',designerMode); const btn=$('#designerModeBtn');btn.textContent=designerMode?'Form designer: ON':'Form designer: OFF';btn.classList.toggle('logic-active',designerMode);btn.setAttribute('aria-pressed',designerMode?'true':'false'); }
+  function updateGuidedButton(){ const btn=$('#guidedModeBtn');btn.textContent=guidedMode?'Guided mode: ON':'Show all: ON';btn.classList.toggle('logic-active',guidedMode);btn.setAttribute('aria-pressed',guidedMode?'true':'false'); }
+
+  document.addEventListener('input',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility(); save(); } });
+  document.addEventListener('change',e=>{ if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();save(); } });
+  // FLUSH-ON-BLUR: save() debounces 180ms so typing doesn't spam postMessage/localStorage.
+  // But switching tabs/notes in the host unmounts this iframe (and its 'message' listener)
+  // synchronously the instant the click is handled — if the debounce timer hasn't fired yet,
+  // the edit is lost, and the Overview Scope panel (which reads the persisted note) shows
+  // stale data. Clicking outside the iframe always fires focusout on the field that had
+  // focus BEFORE the host's click handler runs, so flushing here — bypassing the debounce
+  // entirely — guarantees the save reaches the host before any unmount can happen.
+  document.addEventListener('focusout',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]') && e.target.closest('[data-key]')){ clearTimeout(saveTimer); persistNow(); } });
+  document.addEventListener('click',e=>{
+    const quickLink=e.target.closest('.quick-link-action');if(quickLink){const answer=quickLink.closest('.link-answer'),label=$('[data-part="label"]',answer)?.value.trim()||answer?.dataset.questionLabel||'SOW link',url=$('[data-part="url"]',answer)?.value.trim();if(!url){alert('Enter the link URL first.');return;}try{window.parent.postMessage({source:'tenderloop-sow',type:'add-quick-link',payload:{label,url}},'*');quickLink.textContent='Added to Quick Links';setTimeout(()=>quickLink.textContent='Add to Overview Quick Links',1600);}catch(e){}return;}
+    const flag=e.target.closest('[data-flag-question]');if(flag){toggleFlag(flag.dataset.flagQuestion);return;}
+    const navigate=e.target.closest('[data-navigate-key]');if(navigate){const target=keyEl(navigate.dataset.navigateKey);let parent=target?.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}target?.scrollIntoView({behavior:'smooth',block:'center'});return;}
+    const add=e.target.closest('.add-row');if(add){addTableRow(document.getElementById(add.dataset.table));save();return;}
+    const remove=e.target.closest('.remove-row');if(remove){const tbody=remove.closest('tbody');if(tbody.rows.length>1)remove.closest('tr').remove();else $$('td',remove.closest('tr')).slice(0,-1).forEach(td=>td.innerHTML='');save();return;}
+    const openQ=e.target.closest('.open-add-question');if(openQ){openQuestionDialog(openQ.dataset.sectionId);return;}
+    const editQ=e.target.closest('.edit-custom-question');if(editQ){openQuestionDialog('',editQ.dataset.questionId);return;}
+    const editFlow=e.target.closest('.edit-flow-question');if(editFlow){openQuestionDialog('',editFlow.dataset.questionId);return;}
+    const deleteQ=e.target.closest('.delete-custom-question');if(deleteQ){if(confirm('Delete this custom question?')){const snap=captureFieldValues();customForm.questions=customForm.questions.filter(q=>q.key!==deleteQ.dataset.questionId);rebuildCustomForm(snap);persistNow();}return;}
+    const editS=e.target.closest('.edit-custom-section');if(editS){e.preventDefault();e.stopPropagation();openSectionDialog(editS.dataset.sectionId);return;}
+    const deleteS=e.target.closest('.delete-custom-section');if(deleteS){e.preventDefault();e.stopPropagation();if(confirm('Delete this section and all custom questions inside it?')){const id=deleteS.dataset.sectionId,snap=captureFieldValues();customForm.sections=customForm.sections.filter(s=>s.id!==id);customForm.questions=customForm.questions.filter(q=>q.sectionId!==id);rebuildCustomForm(snap);persistNow();}return;}
+    const close=e.target.closest('[data-close-dialog]');if(close){document.getElementById(close.dataset.closeDialog).close();return;}
+  });
+
+  $('#designerModeBtn').addEventListener('click',()=>{designerMode=!designerMode;applyDesignerMode();});
+  $('#addSectionBtn').addEventListener('click',()=>openSectionDialog());
+  $('#guidedModeBtn').addEventListener('click',()=>{guidedMode=!guidedMode;updateGuidedButton();updateConditionalVisibility();save();});
+  $('#reviewGapsBtn').addEventListener('click',reviewGaps);
+  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'Show all questions':'🚩 Flagged questions';if(active){const first=$('.question-card.flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
+  $('#navigationBtn').addEventListener('click',openNavigation);
+  $('#closeNavigationBtn').addEventListener('click',closeNavigation);
+  $('#navigationSearch').addEventListener('input',renderNavigation);
+  $('#generateMeetingNoteBtn').addEventListener('click',generateMeetingNote);
+  function closeOverview(){ $('#terminalOverview').classList.remove('open');try{window.parent.postMessage({source:'tenderloop-sow',type:'overview-close'},'*');}catch(e){} }
+  $('#overviewBtn').addEventListener('click',()=>{try{window.parent.postMessage({source:'tenderloop-sow',type:'overview-open'},'*');}catch(e){ $('#terminalOverview').classList.add('open');renderOverview(); } });
+  $('#closeOverviewBtn').addEventListener('click',closeOverview);
+  $('#overviewSearch').addEventListener('input',renderOverview);
+  $('#overviewSectionFilter').addEventListener('change',renderOverview);
+  $('#terminalOverview').addEventListener('click',e=>{if(e.target===e.currentTarget)closeOverview();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverview();});
+  $('#printBtn').addEventListener('click',()=>window.print());
+  $('#expandFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=true));
+  $('#collapseFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=false));
+  $('#questionType').addEventListener('change',updateOptionsVisibility);
+  $('#addQuestionConditionBtn').addEventListener('click',()=>addConditionRow($('#questionConditions'),{},$('#questionEditId').value));
+  $('#addSectionConditionBtn').addEventListener('click',()=>addConditionRow($('#sectionConditions')));
+  $('#questionForm').addEventListener('submit',e=>{e.preventDefault();const editId=$('#questionEditId').value,key=editId||uid('custom_q'),type=$('#questionType').value,label=$('#questionLabel').value.trim(),sectionId=$('#questionSection').value;if(!label||!sectionId)return;const options=$('#questionOptions').value.split('\n').map(x=>x.trim()).filter(Boolean);if(['single_select','multi_select'].includes(type)&&!options.length){alert('Add at least one option for this question type.');return;}const base=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].find(q=>q.key===key);const def={...(base||{}),id:base?.id||(editId?(customForm.questions.find(q=>q.key===editId)?.id||'CUSTOM'):`CQ-${String(customForm.questions.length+1).padStart(3,'0')}`),key,sectionId,section:sectionTitle($(`[data-builder-section-id="${sectionId}"]`))||base?.section,label,type,options,required:$('#questionRequired').checked,subsection:$('#questionSubsection').value.trim(),owner:$('#questionOwner').value.trim(),help:$('#questionHelp').value.trim(),output:$('#questionOutput').value.trim(),logic:readConditions($('#questionConditions'),$('#questionConditionMatch').value)};const snap=captureFieldValues();if(base){customForm.flowOverrides=customForm.flowOverrides||{};customForm.flowOverrides[key]=def;renderFlow();prepareBuilderSections();}else{const idx=customForm.questions.findIndex(q=>q.key===key);if(idx>=0)customForm.questions[idx]=def;else customForm.questions.push(def);}if($('#questionGlobal').checked&&!base){const gidx=globalForm.questions.findIndex(q=>q.key===key);if(gidx>=0)globalForm.questions[gidx]=def;else globalForm.questions.push(def);try{window.parent.postMessage({source:'tenderloop-sow',type:'global-form-save',payload:globalForm},'*');}catch(e){}}rebuildCustomForm(snap);$('#questionDialog').close();persistNow();});
+  $('#sectionForm').addEventListener('submit',e=>{e.preventDefault();const editId=$('#sectionEditId').value,id=editId||uid('custom_section'),title=$('#sectionTitle').value.trim();if(!title)return;const def={id,title,color:$('#sectionColor').value||'#2c7be5',description:$('#sectionDescription').value.trim(),logic:readConditions($('#sectionConditions'),$('#sectionConditionMatch').value)};const snap=captureFieldValues();const idx=customForm.sections.findIndex(s=>s.id===id);if(idx>=0)customForm.sections[idx]=def;else customForm.sections.push(def);rebuildCustomForm(snap);$('#sectionDialog').close();persistNow();});
+
+  // Do not lose the last edit if the note, tab, or browser is closed before the debounce completes.
+  window.addEventListener('pagehide',persistNow);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persistNow();});
+
+  const beforePrintState=new Map();window.addEventListener('beforeprint',()=>{$$('details').forEach(d=>{beforePrintState.set(d,d.open);d.open=true;});});window.addEventListener('afterprint',()=>{beforePrintState.forEach((v,d)=>d.open=v);beforePrintState.clear();});
+
+  renderFlow(); prepareBuilderSections(); rebuildCustomForm(null,false); applyDesignerMode(); updateGuidedButton();
+
+  // --- TenderLoop host handshake -------------------------------------------------
+  // This form is embedded in a sandboxed iframe by TenderLoop (one instance per
+  // opportunity note). It has no reliable persistent storage of its own inside that
+  // sandbox, so instead of relying on localStorage it asks its host window for the
+  // saved state on load, and reports every change back via postMessage so the host
+  // can persist it as part of that specific note. If opened standalone (outside the
+  // TenderLoop iframe, e.g. exported and opened directly in a browser tab), it falls
+  // back to the original localStorage behavior below.
+  function applyHostOptions(config){
+    const people=Array.isArray(config?.people)?config.people:[];
+    const directoryPeople=Array.isArray(config?.directoryPeople)?config.directoryPeople:[];
+    const suggestions=[...people,...directoryPeople].filter((person,index,list)=>list.findIndex(candidate=>String(candidate.email||candidate.name||'').trim().toLowerCase()===String(person.email||person.name||'').trim().toLowerCase())===index);
+    const areas=Array.isArray(config?.areas)?config.areas:[];
+    let peopleList=$('#tenderloopPeopleOptions');
+    if(!peopleList){peopleList=document.createElement('datalist');peopleList.id='tenderloopPeopleOptions';document.body.appendChild(peopleList);}
+    peopleList.innerHTML=suggestions.flatMap(p=>[p.name,...(Array.isArray(p.aliases)?p.aliases:[])].filter(Boolean).map(name=>`<option value="${esc(name)}" label="${esc([(p.roles||[]).join(', ')||p.role,p.email].filter(Boolean).join(' - '))}"></option>`)).join('');
+    $$('input[data-key^="team_"]').forEach(input=>input.setAttribute('list','tenderloopPeopleOptions'));
+    const seller=keyEl('team_cse');
+    if(seller&&!seller.dataset.directoryCheck){seller.dataset.directoryCheck='1';seller.addEventListener('blur',()=>{const name=String(getValue(seller)||'').trim().toLowerCase();if(!name)return;const found=suggestions.some(p=>[p.name,...(Array.isArray(p.aliases)?p.aliases:[])].some(candidate=>String(candidate||'').trim().toLowerCase()===name));if(!found)try{window.parent.postMessage({source:'tenderloop-sow',type:'seller-contact-missing',name:String(getValue(seller)).trim()},'*');}catch(e){}});}
+    const areaSelect=$('#teamPrimaryArea');
+    if(areaSelect){const current=areaSelect.value;areaSelect.innerHTML='<option value=""></option>'+areas.map(area=>`<option value="${esc(area)}">${esc(area)}</option>`).join('');areaSelect.value=current;}
+    const trackedAreasList=$('#trackedAreasOptions'); if(trackedAreasList)trackedAreasList.innerHTML=areas.map(area=>`<option value="${esc(area)}"></option>`).join('');
+    const stakeholderRows=$('#expedienteStakeholders');
+    if(stakeholderRows){
+      stakeholderRows.innerHTML=people.length ? people.map(person=>`<tr><td>${esc(person.role || (person.roles||[]).join(', ') || 'Stakeholder')}</td><td>${esc(person.name || '')}</td></tr>`).join('') : '<tr><td colspan="2">No stakeholders registered yet.</td></tr>';
+    }
+  }
+  function applyHostPrefill(prefill){
+    if(!prefill || typeof prefill!=='object') return;
+    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(el && !isFilled(el) && val){ setValue(el,val); syncChangedKey(key); }});
+  }
+  function applyLinkedPrefill(prefill){
+    if(!prefill || typeof prefill!=='object') return;
+    const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C012','flow_C013','flow_C014']);
+    // A parent rerender may carry an empty legacy value. Never let that erase
+    // a value just selected in the SOW (notably Proposal type and Seller).
+    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el&&val!==undefined&&val!==null&&val!=='')setValue(el,val);});
+    updateConditionalVisibility(); persistNow();
+  }
+  window.addEventListener('message', (e) => {
+    if(!e.data || e.data.source !== 'tenderloop-sow-host') return;
+    if(e.data.type === 'init' && !receivedParentInit){
+      receivedParentInit = true;
+      applyHostOptions(e.data);
+      hostPrefill=e.data.prefill || {};
+      globalForm=normalizeCustomForm(e.data.globalForm);
+      if(e.data.payload){ applyState(e.data.payload); applyHostPrefill(hostPrefill); updateConditionalVisibility(); persistNow(); }
+      else { customForm=mergeGlobalForm(customForm); applyHostPrefill(hostPrefill); rebuildCustomForm(null,false); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); persistNow(); }
+    }
+    if(e.data.type === 'open-overview'){ $('#terminalOverview').classList.add('open');renderOverview(); }
+    if(e.data.type === 'update-prefill'){ hostPrefill=e.data.prefill || hostPrefill; applyLinkedPrefill(hostPrefill); }
+    if(e.data.type === 'update-fields' && e.data.fields){ restoreFieldValues(e.data.fields); reconcileScopeFields(); updateConditionalVisibility(); updateProgress(); }
+  });
+  try{ window.parent.postMessage({source:'tenderloop-sow', type:'ready'}, '*'); }catch(e){}
+
+  window.setTimeout(() => {
+    if(receivedParentInit) return;
+    let stored=null;try{stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem(LEGACY_STORAGE_KEY)||'null');}catch(e){}
+    if(stored)applyState(stored);else{updatePlatformVisibility();updateConditionalVisibility();updateProgress();}
+  }, 400);
+})();</script>
+</body>
+</html>
