@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, CommercialRow, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskOwner, ExternalArea, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, QuickLinks, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent } from '../types';
-import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, GripVertical, Maximize2, Minimize2, MessageCircle, ChevronUp, ChevronDown, Highlighter, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitCommit, GitPullRequest, Database, MoreHorizontal, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip, Bell } from 'lucide-react';
+import { Opportunity, Task, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent } from '../types';
+import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, Maximize2, Minimize2, ChevronUp, ChevronDown, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitPullRequest, Database, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip, Bell } from 'lucide-react';
 import { SearchableSelect, DateTimePicker, SearchableOption } from './RemindersBell';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
@@ -15,18 +15,18 @@ import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers
 import { resolveEffectiveRootPath, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { getMeta, saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
-import { ImportSrEmailModal } from './ImportSrEmailModal';
+import { ImportSrEmailModal, type SrImportDecision } from './ImportSrEmailModal';
 import { RevisionCarryoverModal } from './RevisionCarryoverModal';
 import { normalizeOpportunityId, SrPrefill } from '../services/srEmailParser';
 import { OpportunityExportImportButtons } from '../features/opportunity-export/OpportunityExportImportButtons';
-import { NoteTemplate, SimpleMultiSelect, OPPORTUNITY_DETAIL_SECTIONS, normalizeOpportunityDetailSectionOrder, type OpportunityDetailSectionKey, type TaskStandard } from './SettingsModal';
+import { NoteTemplate, SimpleMultiSelect, OPPORTUNITY_DETAIL_SECTIONS, normalizeOpportunityDetailSectionOrder, visibleTaskStandards, type OpportunityDetailSectionKey, type TaskStandard } from './SettingsModal';
 import { countBusinessDays, countCalendarDays } from '../services/dateUtils';
 import { moveAndReorderNote, moveAndReorderFolder, isFolderDescendantOf, sortWithOrderFallback } from '../services/noteUtils';
 import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { Play, Pause } from 'lucide-react';
 import { CopyTasksModal } from './CopyTasksModal';
 import { getNextTask, compareTasksGlobal, reorderTaskStrict, syncAssignmentSubtasks } from '../services/taskUtils';
-import { OptimizedInput, OptimizedTextArea, DebouncedInput } from './OptimizedInput';
+import { OptimizedInput, OptimizedTextArea } from './OptimizedInput';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { EmailComposeModal } from './EmailComposeModal';
 import { mergeEmailComposeSettings, type EmailComposeSettings } from '../services/emailTemplates';
@@ -34,7 +34,7 @@ import { sanitizeHtml } from '../services/sanitizeHtml';
 import { sortHistoryEntriesNewestFirst } from '../services/historyUtils';
 import type { GeneratedEmailRecord, GeneratedEmailKind } from '../types';
 import { ChangeRevisionModal, type ChangeRevisionFormValue } from './ChangeRevisionModal';
-import { buildDocumentRevisionName, createChangeRevisionFiles, normalizeDocumentRevision } from '../services/changeRevisionFiles';
+import { createChangeRevisionFiles, normalizeDocumentRevision } from '../services/changeRevisionFiles';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -65,6 +65,61 @@ const sortHistoryEntries = sortHistoryEntriesNewestFirst;
 
 const approvalEventsForTask = (history: HistoryEntry[], taskId: string) =>
     history.filter(entry => entry.approval?.taskId === taskId).map(entry => entry.approval!);
+
+/** "Ana", "Ana and Luis", "Ana, Luis and Marta" — used in history/approval wording. */
+const formatNameList = (names: string[]): string => {
+    if (names.length <= 1) return names[0] || '';
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+};
+
+/**
+ * Crash-backup key for a SOW note. Scoped to the note, not just the opportunity: with the old
+ * opportunity-only key a second SOW note read back the first one's answers and re-saved them as
+ * its own, which is how duplicated SOWs appeared in Notes.
+ */
+const sowBackupKey = (opportunityId: string, noteId: string) => `tenderloop-sow-backup-${opportunityId}-${noteId}`;
+/** Pre-note-scoping key, still read once as a fallback for the primary SOW note. */
+const legacySowBackupKey = (opportunityId: string) => `tenderloop-sow-backup-${opportunityId}`;
+
+/**
+ * The single SOW note an opportunity works against. Duplicates could be created before
+ * `addSowNote` became idempotent (and a carried-over revision can bring another one), and a
+ * plain `.find()` would silently bind the Overview Scope button to an empty leftover while the
+ * user edits the filled one in Notes. Always prefer the SOW that actually holds answers, and
+ * fall back to document order so the choice is stable.
+ */
+const pickPrimarySowNote = (notes: MeetingNote[] | undefined): MeetingNote | null => {
+    const sowNotes = (notes || []).filter(note => note.format === 'sow');
+    if (sowNotes.length <= 1) return sowNotes[0] ?? null;
+    const weight = (note: MeetingNote) => {
+        try {
+            const parsed = JSON.parse(note.content || '');
+            return Object.keys(parsed?.fields || {}).filter(key => {
+                const v = parsed.fields[key];
+                return Array.isArray(v) ? v.length > 0 : typeof v === 'boolean' ? v : String(v ?? '').trim().length > 0;
+            }).length;
+        } catch {
+            return 0;
+        }
+    };
+    return sowNotes.reduce((best, note) => weight(note) > weight(best) ? note : best, sowNotes[0]);
+};
+
+/**
+ * Sentinel returned by `resolveCompletionDate` when the "when did you finish this?" dialog was
+ * opened: the caller must abort and let the dialog re-run the action with the picked date.
+ */
+const PENDING_COMPLETION_DATE = Symbol('pending-completion-date');
+
+/**
+ * A correction task closed with Done behaves like pressing "Send Back for Approval": the whole
+ * point of the rework is to return the deliverable to its approvers.
+ */
+const shouldAutoSendBackForApproval = (task: Task, opportunity: Opportunity): boolean =>
+    task.status === 'Done'
+    && !!task.reworkForTaskId
+    && !task.sentBackForApprovalAt
+    && opportunity.tasks.some(candidate => candidate.id === task.reworkForTaskId);
 
 const migrateLegacyApprovalEvents = (opportunity: Opportunity): Opportunity => {
     const legacy = (opportunity as Opportunity & { approvalHistory?: ApprovalEvent[] }).approvalHistory;
@@ -258,8 +313,8 @@ const isolateCaretLine = (editor: HTMLElement | null) => {
     sel.addRange(restored);
 };
 
-export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onAttach?: () => void, disabled?: boolean, mentionOptions?: Person[] }>(
-    ({ content, onChange, onAttach, disabled, mentionOptions = [] }, ref) => {
+export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string, onChange: (val: string) => void, onAttach?: () => void, onToggleLinkedTasks?: () => void, disabled?: boolean, mentionOptions?: Person[] }>(
+    ({ content, onChange, onAttach, onToggleLinkedTasks, disabled, mentionOptions = [] }, ref) => {
         const editorRef = useRef<HTMLDivElement>(null);
         const isInternalUpdate = useRef(false);
         const plainTextPasteRef = useRef(false);
@@ -524,7 +579,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
             };
         }, []);
 
-        const MAX_IMAGE_BYTES = 150 * 1024;
         const MAX_IMAGE_DIMENSION = 1280;
         const IMAGE_QUALITY = 0.75;
 
@@ -588,7 +642,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
         return (
             <div className={`flex flex-1 flex-col h-full min-h-0 min-w-0 relative border rounded-lg ${disabled ? 'bg-gray-50 border-gray-100' : 'border-gray-200 shadow-sm'}`}>
                 {!disabled && (
-                    <div className="flex items-center gap-1 border-b border-gray-200 p-2 bg-gray-50 overflow-x-auto shrink-0 select-none sticky top-0 z-10">
+                    <div className="flex items-center gap-0.5 border-b border-gray-200 p-1 bg-gray-50 overflow-x-auto shrink-0 select-none sticky top-0 z-10 [&>button:not(.note-tasks-trigger)]:p-1 [&>select]:h-6">
                         <select
                             onChange={(e) => exec('fontName', e.target.value)}
                             className="p-1 px-2 pr-6 text-[10px] bg-white border border-gray-200 rounded text-gray-700 h-7 focus:ring-0 focus:outline-none cursor-pointer appearance-none bg-no-repeat bg-[right_0.25rem_center] bg-[length:1em_1em]"
@@ -647,6 +701,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
 
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
                         <button onClick={onAttach} className="p-1.5 hover:bg-gray-200 rounded text-[#3DCD58] flex items-center gap-1" title="Attach Doc"><LinkIcon className="w-4 h-4" /> <span className="text-[10px] font-bold uppercase">Attach</span></button>
+                        {onToggleLinkedTasks && <button onClick={onToggleLinkedTasks} className="note-tasks-trigger ml-1 inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-white shadow-sm hover:bg-blue-700" title="Open linked tasks panel"><CheckSquare className="w-3.5 h-3.5" /> <span className="text-[10px] font-black uppercase">Tasks</span></button>}
                         {mentionOptions.length > 0 && <select defaultValue="" onChange={e => { const person = mentionOptions.find(p => p.id === e.target.value); if (person) insertHtml(`<span contenteditable="false" data-stakeholder-id="${person.id}" style="color:#2563eb;font-weight:700">@${person.name}</span>&nbsp;`); e.currentTarget.value = ''; }} className="h-7 max-w-36 text-[10px] border-gray-200 rounded bg-white" title="Mention opportunity stakeholder">
                             <option value="">@ Mention</option>
                             {mentionOptions.map(p => <option key={p.id} value={p.id}>{p.name} Â· {(p.roles || (p.role ? [p.role] : [])).join(', ')}</option>)}
@@ -668,7 +723,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, { content: string
                 )}
                 <div
                     ref={editorRef}
-                    className={`flex-1 p-6 overflow-auto overscroll-contain focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content ${disabled ? 'cursor-default' : 'bg-white cursor-text'}`}
+                    className={`flex-1 p-6 overflow-y-scroll overflow-x-auto overscroll-contain focus:outline-none text-sm text-gray-800 leading-relaxed prose prose-sm max-w-none min-h-0 editor-content ${disabled ? 'cursor-default' : 'bg-white cursor-text'}`}
+                    style={{ scrollbarGutter: 'stable' }}
                     contentEditable={!disabled}
                     onInput={handleInput}
                     onPaste={handlePaste}
@@ -788,6 +844,85 @@ const InlineTaskTextInput = React.memo(({ value, onCommit, disabled, className, 
         />
     );
 });
+
+/**
+ * Asked whenever a task with a due date is marked Done: the due date is a commitment, not proof
+ * of when the work actually finished, so the user confirms the real day (due date / today / any
+ * other date) and it is stored on `task.completionDate` for tracking.
+ */
+const CompletionDateModal = ({ taskTitle, dueDate, onConfirm, onCancel }: {
+    taskTitle: string;
+    dueDate: string;
+    onConfirm: (date: string) => void;
+    onCancel: () => void;
+}) => {
+    const today = getTodayStr();
+    // The custom picker is capped at today, so never seed it with a future due date.
+    const [customDate, setCustomDate] = useState(dueDate <= today ? dueDate : today);
+    const late = dueDate < today;
+    const options: { date: string; label: string; hint: string }[] = [
+        { date: dueDate, label: 'On its due date', hint: `${dueDate}${late ? ' · the committed date' : ''}` },
+        { date: today, label: 'Today', hint: `${today}${late ? ' · finished late' : ' · finished early'}` },
+    ];
+    return (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onCancel}>
+            <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                <div className="p-8 space-y-6">
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600"><CalendarDays className="w-6 h-6" /></div>
+                            <div>
+                                <h3 className="text-xl font-black text-gray-900">When was it finished?</h3>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Completion tracking</p>
+                            </div>
+                        </div>
+                        <p className="text-sm text-gray-500 font-medium leading-relaxed truncate" title={taskTitle}>{taskTitle}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        {options.map(option => (
+                            <button
+                                key={option.label}
+                                onClick={() => onConfirm(option.date)}
+                                className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-gray-100 hover:border-[#3DCD58] hover:bg-[#3DCD58]/5 transition-all text-left"
+                            >
+                                <span className="text-sm font-black text-gray-800">{option.label}</span>
+                                <span className="text-[11px] font-bold text-gray-400">{option.hint}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-gray-100">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Another date</label>
+                        <div className="flex gap-2">
+                            <input
+                                type="date"
+                                value={customDate}
+                                max={today}
+                                onChange={e => setCustomDate(e.target.value)}
+                                className="flex-1 border-gray-100 bg-gray-50 rounded-2xl text-sm font-bold p-3 focus:bg-white transition-all"
+                            />
+                            <button
+                                onClick={() => customDate && onConfirm(customDate)}
+                                disabled={!customDate}
+                                className="px-5 rounded-2xl bg-gray-900 text-white font-black text-[10px] uppercase tracking-widest hover:bg-black disabled:opacity-40 transition-all"
+                            >
+                                Use
+                            </button>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={onCancel}
+                        className="w-full py-3 rounded-2xl border border-gray-100 text-gray-500 font-black text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 /**
  * Picker for the SOW "Team Involved" people, used to assign task responsibles.
@@ -1347,7 +1482,10 @@ const KpiCalendarModal = ({
 const FullCalendarModal = ({
     areas,
     tasks,
+    stakeholders,
+    userName,
     onClose,
+    onOpenTask,
     onSaveAreaCalendar,
     onAddArea,
     onRemoveArea,
@@ -1362,7 +1500,10 @@ const FullCalendarModal = ({
 }: {
     areas: KPIArea[],
     tasks: Task[],
+    stakeholders: Person[],
+    userName: string,
     onClose: () => void,
+    onOpenTask: (taskId: string) => void,
     onSaveAreaCalendar: (areaId: string, calendar: Record<string, AreaDayRecord>) => void,
     onAddArea: (area: string) => void,
     onRemoveArea: (id: string) => void,
@@ -1387,12 +1528,31 @@ const FullCalendarModal = ({
 
     const [viewDate, setViewDate] = useState(getInitialDate());
     const [viewingHistoryDate, setViewingHistoryDate] = useState<string | null>(null);
+    const [viewingDayDetails, setViewingDayDetails] = useState<string | null>(null);
+    const [viewingAreaDetails, setViewingAreaDetails] = useState<string | null>(null);
+    const [collapsedWorkflowTaskIds, setCollapsedWorkflowTaskIds] = useState<Set<string>>(() => new Set(tasks.map(task => task.id)));
     const [isInternalAddAreaOpen, setIsInternalAddAreaOpen] = useState(false);
     const [visibleAreaIds, setVisibleAreaIds] = useState<string[]>(areas.map(a => a.id));
     const [selectionStart, setSelectionStart] = useState<{ areaId: string, date: string } | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<{ areaId: string, date: string } | null>(null);
 
     const [selectedCells, setSelectedCells] = useState<string[]>([]);
+    const ensuredTenderingAreaRef = useRef(false);
+    const revealedAutoTenderingRef = useRef(false);
+
+    useEffect(() => {
+        if (ensuredTenderingAreaRef.current || areas.some(area => area.area === 'Tendering')) return;
+        ensuredTenderingAreaRef.current = true;
+        onAddArea('Tendering');
+    }, [areas, onAddArea]);
+
+    useEffect(() => {
+        if (!ensuredTenderingAreaRef.current || revealedAutoTenderingRef.current) return;
+        const tendering = areas.find(area => area.area === 'Tendering');
+        if (!tendering) return;
+        revealedAutoTenderingRef.current = true;
+        setVisibleAreaIds(current => current.includes(tendering.id) ? current : [...current, tendering.id]);
+    }, [areas]);
 
     // The grid scrolls horizontally (one column per day), so jumping to "today" needs both a
     // month change and a scroll. The scroll has to happen after the re-render that the new
@@ -1439,50 +1599,156 @@ const FullCalendarModal = ({
     };
 
     const days = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
+    const todayKey = getTodayStr();
 
-    type AssignmentTimelineRow = {
+    const logDate = (log: TimeLog) => normalizeHistoryDate((log as TimeLog & { startTime?: string }).startTime || log.start);
+    const taskCompletionDate = (task: Task) => {
+        const value = task.completionDate || task.completedAt || task.responsibleDeliveredDate || task.approvalDeliveredDate;
+        return value ? normalizeHistoryDate(value) : '';
+    };
+    const taskParticipantNames = (task: Task) => {
+        const names = (task.responsibleTeamMemberIds || []).map(id => stakeholders.find(person => person.id === id)?.name).filter(Boolean) as string[];
+        if (task.owner === 'Me') names.unshift(userName || 'Me');
+        if (!names.length && task.responsible?.trim()) names.push(task.responsible.trim());
+        return Array.from(new Set(names));
+    };
+    const durationLabel = (seconds: number) => `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+    const stakeholdersForArea = (areaName: string) => stakeholders.filter(person =>
+        (person.roles?.length ? person.roles : (person.role ? [person.role] : []))
+            .some(role => role.localeCompare(areaName, undefined, { sensitivity: 'accent' }) === 0)
+    );
+    const taskMatchesArea = (task: Task, areaName: string) => {
+        if (areaName === 'Tendering' && task.owner === 'Me') return true;
+        if ((task.externalAreas || []).some(area => area.localeCompare(areaName, undefined, { sensitivity: 'accent' }) === 0)) return true;
+        const areaPeople = new Set(stakeholdersForArea(areaName).map(person => person.id));
+        return (task.responsibleTeamMemberIds || []).some(id => areaPeople.has(id));
+    };
+
+    const selectedDaySummary = React.useMemo(() => {
+        if (!viewingDayDetails) return null;
+        const date = viewingDayDetails;
+        const events = sortHistoryEntries(history).filter(entry => normalizeHistoryDate(entry.date) === date);
+        const completed = tasks.filter(task => taskCompletionDate(task) === date || task.responsibleDeliveredDate === date || task.approvalDeliveredDate === date);
+        const expected = tasks.filter(task => task.dueDate === date || task.responsibleDueDate === date || task.approvalDueDate === date);
+        const missed = expected.filter(task => {
+            const delivered = taskCompletionDate(task);
+            return task.status !== 'Done' || !delivered || delivered > date;
+        });
+        const worked = tasks.flatMap(task => (task.timeLogs || [])
+            .filter(log => logDate(log) === date)
+            // The built-in timer belongs to the current OpportunityOS user. External
+            // participants are tracked by assignment/delivery dates, not by this timer.
+            .map(log => ({ task, log, people: [userName || 'Me'] })));
+        const scheduled = tasks.filter(task => (task.executionBlocks || []).some(block => block.date === date));
+        const totalSeconds = worked.reduce((sum, item) => sum + (item.log.durationSeconds || 0), 0);
+        const hasRecordedWork = worked.length > 0 || completed.length > 0 || events.length > 0;
+        const hasAnything = hasRecordedWork || expected.length > 0 || scheduled.length > 0;
+        return { date, events, completed, expected, missed, worked, scheduled, totalSeconds, hasRecordedWork, hasAnything };
+    }, [viewingDayDetails, history, tasks, stakeholders, userName]);
+
+    const dailyOverview = React.useMemo(() => Object.fromEntries(days.map(date => {
+        const completedTasks = tasks.filter(task => taskCompletionDate(task) === date || task.responsibleDeliveredDate === date || task.approvalDeliveredDate === date);
+        const expectedTasks = tasks.filter(task => task.dueDate === date || task.responsibleDueDate === date || task.approvalDueDate === date);
+        const missedTasks = expectedTasks.filter(task => {
+            const delivered = taskCompletionDate(task);
+            return task.status !== 'Done' || !delivered || delivered > date;
+        });
+        return [date, {
+            timerSessions: tasks.reduce((sum, task) => sum + (task.timeLogs || []).filter(log => logDate(log) === date).length, 0),
+            completed: completedTasks.length,
+            missed: missedTasks.length,
+            events: history.filter(entry => normalizeHistoryDate(entry.date) === date).length,
+        }];
+    })), [days.join('|'), tasks, history]);
+
+    const selectedAreaSummary = React.useMemo(() => {
+        if (!viewingAreaDetails) return null;
+        const area = viewingAreaDetails === '__me__'
+            ? (areas.find(item => item.area === 'Tendering') || { id: '__me__', area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} })
+            : areas.find(item => item.id === viewingAreaDetails);
+        if (!area) return null;
+        const people = stakeholdersForArea(area.area);
+        const areaTasks = tasks.filter(task => taskMatchesArea(task, area.area));
+        return { area, people, tasks: areaTasks };
+    }, [viewingAreaDetails, areas, stakeholders, tasks]);
+
+    type WorkflowTimelineRow = {
         id: string;
-        taskTitle: string;
+        taskId: string;
         phase: 'Execution' | 'Approval';
         cycle: number;
+        people: string[];
+        unresolvedPeople: boolean;
         start?: string;
         committed?: string;
         end?: string;
         active: boolean;
         result: 'On time' | 'Late' | 'Overdue' | 'Open' | 'Completed' | 'Changes requested';
+        evidence: 'Confirmed' | 'Calculated' | 'Incomplete';
+        seconds?: number;
     };
 
-    const assignmentRows = React.useMemo<AssignmentTimelineRow[]>(() => {
+    type WorkflowTimelineGroup = { task: Task; rows: WorkflowTimelineRow[] };
+
+    const resolveParticipantIds = (ids: string[] = [], fallback?: string) => {
+        let unresolved = false;
+        const names = ids.map(id => {
+            const person = stakeholders.find(item => item.id === id || item.directoryContactId === id);
+            if (person) return person.name;
+            unresolved = true;
+            // Older SOW assignments used a stable "name|area" key instead of a stakeholder id.
+            return id.includes('|') ? id.split('|')[0].trim() : id;
+        }).filter(Boolean);
+        if (!names.length && fallback?.trim()) {
+            names.push(fallback.trim());
+            unresolved = true;
+        }
+        return { names: Array.from(new Set(names)), unresolved };
+    };
+
+    const workflowGroups = React.useMemo<WorkflowTimelineGroup[]>(() => {
         const today = getTodayStr();
-        const rows: AssignmentTimelineRow[] = [];
-        tasks.filter(task => task.isAssignment).forEach(task => {
+        const groups: WorkflowTimelineGroup[] = [];
+        tasks.filter(task => (
+            task.owner === 'External Area'
+            || task.isAssignment
+            || (task.externalAreas || []).length > 0
+            || (task.responsibleTeamMemberIds || []).length > 0
+        )).forEach(task => {
+            const rows: WorkflowTimelineRow[] = [];
+            const executionPeople = resolveParticipantIds(task.responsibleTeamMemberIds || [], task.responsible);
+            const approvalPeople = resolveParticipantIds(task.approverTeamMemberIds || []);
+            const externalLabels = executionPeople.names.length ? executionPeople.names : (task.externalAreas || []);
+            const hasExternalAssignment = task.owner === 'External Area' || !!task.isAssignment || (task.externalAreas || []).length > 0 || (task.responsibleTeamMemberIds || []).length > 0;
+
             (task.assignmentCycles || []).forEach((cycle, index) => {
                 if (cycle.executionRequested || cycle.executionDelivered || cycle.executionRequired) {
                     const late = !!cycle.executionDelivered && !!cycle.executionRequired && cycle.executionDelivered > cycle.executionRequired;
-                    rows.push({ id: `${task.id}-cycle-${index}-execution`, taskTitle: task.title, phase: 'Execution', cycle: index + 1, start: cycle.executionRequested, committed: cycle.executionRequired, end: cycle.executionDelivered, active: false, result: late ? 'Late' : 'On time' });
+                    rows.push({ id: `${task.id}-cycle-${index}-execution`, taskId: task.id, phase: 'Execution', cycle: index + 1, people: externalLabels, unresolvedPeople: executionPeople.unresolved || !executionPeople.names.length, start: cycle.executionRequested, committed: cycle.executionRequired, end: cycle.executionDelivered, active: false, result: late ? 'Late' : 'On time', evidence: cycle.executionRequested && cycle.executionDelivered ? 'Confirmed' : 'Incomplete' });
                 }
                 if (cycle.approvalRequested || cycle.approved || cycle.approvalRequired || cycle.changesRequestedAt) {
-                    rows.push({ id: `${task.id}-cycle-${index}-approval`, taskTitle: task.title, phase: 'Approval', cycle: index + 1, start: cycle.approvalRequested, committed: cycle.approvalRequired, end: cycle.approved || cycle.changesRequestedAt, active: false, result: cycle.reviewOutcome === 'changes_requested' ? 'Changes requested' : 'Completed' });
+                    rows.push({ id: `${task.id}-cycle-${index}-approval`, taskId: task.id, phase: 'Approval', cycle: index + 1, people: approvalPeople.names, unresolvedPeople: approvalPeople.unresolved || !approvalPeople.names.length, start: cycle.approvalRequested, committed: cycle.approvalRequired, end: cycle.approved || cycle.changesRequestedAt, active: false, result: cycle.reviewOutcome === 'changes_requested' ? 'Changes requested' : 'Completed', evidence: cycle.approvalRequested && (cycle.approved || cycle.changesRequestedAt) ? 'Confirmed' : 'Incomplete' });
                 }
             });
 
             const cycle = (task.assignmentCycles?.length || 0) + 1;
             const executionActive = task.status === 'Missing Info' || task.status === 'On Hold';
-            if (task.responsibleRequestedDate || task.responsibleDeliveredDate || task.responsibleDueDate) {
+            if (task.responsibleRequestedDate || task.responsibleDeliveredDate || task.responsibleDueDate || (hasExternalAssignment && (!(task.assignmentCycles || []).length || !['Done', 'Canceled'].includes(task.status)))) {
                 const delivered = task.responsibleDeliveredDate;
                 const committed = task.responsibleDueDate;
                 const result = delivered
                     ? (committed && delivered > committed ? 'Late' : 'On time')
                     : (committed && today > committed ? 'Overdue' : 'Open');
-                rows.push({ id: `${task.id}-current-execution`, taskTitle: task.title, phase: 'Execution', cycle, start: task.responsibleRequestedDate, committed, end: delivered, active: executionActive && !delivered, result });
+                rows.push({ id: `${task.id}-current-execution`, taskId: task.id, phase: 'Execution', cycle, people: externalLabels, unresolvedPeople: executionPeople.unresolved || !executionPeople.names.length, start: task.responsibleRequestedDate, committed, end: delivered, active: executionActive && !delivered, result, evidence: delivered ? 'Confirmed' : (task.responsibleRequestedDate ? 'Calculated' : 'Incomplete') });
             }
             const approvalActive = task.status === 'Approval';
-            if (task.approvalRequestedDate || task.approvalDeliveredDate || task.approvalDueDate || ((task.approverTeamMemberIds?.length || 0) > 0 && approvalActive)) {
-                rows.push({ id: `${task.id}-current-approval`, taskTitle: task.title, phase: 'Approval', cycle, start: task.approvalRequestedDate, committed: task.approvalDueDate, end: task.approvalDeliveredDate, active: approvalActive && !task.approvalDeliveredDate, result: task.approvalDeliveredDate ? 'Completed' : 'Open' });
+            if (task.approvalRequestedDate || task.approvalDeliveredDate || task.approvalDueDate || ((task.approverTeamMemberIds?.length || 0) > 0 && !['Done', 'Canceled'].includes(task.status))) {
+                rows.push({ id: `${task.id}-current-approval`, taskId: task.id, phase: 'Approval', cycle, people: approvalPeople.names, unresolvedPeople: approvalPeople.unresolved || !approvalPeople.names.length, start: task.approvalRequestedDate, committed: task.approvalDueDate, end: task.approvalDeliveredDate, active: approvalActive && !task.approvalDeliveredDate, result: task.approvalDeliveredDate ? 'Completed' : 'Open', evidence: task.approvalDeliveredDate ? 'Confirmed' : (task.approvalRequestedDate ? 'Calculated' : 'Incomplete') });
             }
+            if (rows.length) groups.push({ task, rows });
         });
-        return rows;
-    }, [tasks]);
+        return groups.sort((a, b) => (a.task.order ?? 999999) - (b.task.order ?? 999999));
+    }, [tasks, stakeholders, userName]);
 
     const changeMonth = (offset: number) => {
         const next = new Date(viewDate.getFullYear(), viewDate.getMonth() + offset, 1);
@@ -1578,7 +1844,7 @@ const FullCalendarModal = ({
                                 <Table className="w-7 h-7 text-purple-600" />
                                 Implementation Timeline
                             </h2>
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Full Calendar / Project Management View</p>
+                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">External areas · execution, delivery and approval flow</p>
                         </div>
                         <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl p-1.5 shadow-sm">
                             <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-50 rounded-xl transition-colors"><ChevronLeft className="w-6 h-6 text-gray-600" /></button>
@@ -1595,6 +1861,14 @@ const FullCalendarModal = ({
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
+                        <button
+                            type="button"
+                            onClick={() => setViewingAreaDetails('__me__')}
+                            className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-black text-emerald-700 hover:bg-emerald-100"
+                            title="View my tasks, timer sessions and completion times"
+                        >
+                            <User className="h-4 w-4" /> My information
+                        </button>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-black text-gray-400 uppercase">Areas:</span>
                             <MultiSelect
@@ -1619,14 +1893,18 @@ const FullCalendarModal = ({
 
                 <div className="flex-1 flex flex-col overflow-hidden bg-gray-200">
                     <div ref={gridScrollRef} className="flex-1 overflow-auto">
-                        <div className="min-w-max">
+                        <div className="min-w-full">
                             <div
-                                className="grid gap-px bg-gray-200 border-b border-gray-200 shadow-xl"
-                                style={{ gridTemplateColumns: `220px repeat(${days.length}, minmax(60px, 1fr))` }}
+                                className="grid gap-x-px gap-y-0 bg-gray-200 border-b border-gray-200 shadow-xl"
+                                style={{
+                                    gridTemplateColumns: `minmax(220px, 260px) repeat(${days.length}, minmax(26px, 1fr))`,
+                                    minWidth: `${220 + (days.length * 26)}px`,
+                                    width: '100%',
+                                }}
                             >
                                 {/* Top-Left Corner Header */}
                                 <div className="bg-gray-100 p-4 text-[11px] font-black text-gray-500 uppercase tracking-widest border-r border-b-2 border-gray-200 flex items-center justify-between sticky top-0 left-0 z-[50]">
-                                    Area Name
+                                    Workflow / Area
                                     <Filter className="w-3 h-3" />
                                 </div>
                                 {days.map(d => {
@@ -1635,29 +1913,32 @@ const FullCalendarModal = ({
                                     const date = new Date(y, m - 1, day);
                                     const dayOfWeek = date.getDay();
                                     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                    const isToday = d === todayKey;
                                     return (
-                                        <div data-day={d} key={d} className={`p-2 text-center border-l border-b-2 border-gray-200 transition-colors sticky top-0 z-[30] shadow-sm ${isWeekend || isHoliday ? 'bg-red-50 text-red-500' : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                                        <button type="button" data-day={d} key={d} onClick={() => setViewingDayDetails(d)} className={`relative p-1.5 text-center border-l border-b-2 transition-colors sticky top-0 z-[30] shadow-sm ${isToday ? 'border-[#3DCD58] bg-[#3DCD58] text-white' : isWeekend || isHoliday ? 'border-gray-200 bg-red-50 text-red-500' : 'border-gray-200 bg-gray-50 text-gray-400 hover:bg-gray-100'}`} title="View everything recorded for this day">
                                             <div className="text-[10px] font-black uppercase">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
                                             <div className="text-sm font-black">{day}</div>
-                                        </div>
+                                            {isToday && <div className="absolute inset-x-1 -bottom-0.5 h-1 rounded-full bg-white" />}
+                                        </button>
                                     );
                                 })}
 
                                 {/* History Indicators Row Label */}
-                                <div className="p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t bg-white sticky left-0 z-[30]">
-                                    <HistoryIcon className="w-4 h-4" /> Events & Milestones
+                                <div className="p-4 text-[10px] font-black text-[#3DCD58] uppercase flex items-center gap-2 border-r border-t border-b-4 border-b-slate-300 bg-white sticky left-0 z-[30]">
+                                    <HistoryIcon className="w-4 h-4" /> Daily summary
                                 </div>
                                 {days.map(d => {
                                     const dayHistory = history.filter(h => normalizeHistoryDate(h.date) === normalizeHistoryDate(d));
                                     const isReceived = timeline.receivedAt === d;
                                     const isDelivered = timeline.deliveredAt === d;
+                                    const summary = dailyOverview[d];
 
                                     return (
                                         <div
                                             key={d}
-                                            onClick={() => setViewingHistoryDate(d)}
-                                            className="bg-white border-l border-t flex flex-col items-center justify-center min-h-[56px] cursor-pointer hover:bg-[#3DCD58]/5 group transition-all p-1"
-                                            title={isReceived ? `Received: ${new Date(d).toLocaleDateString()}` : isDelivered ? `Delivered: ${new Date(d).toLocaleDateString()}` : "Click to manage history events"}
+                                            onClick={() => setViewingDayDetails(d)}
+                                            className={`group flex min-h-[52px] cursor-pointer flex-col items-center justify-center border-l border-t border-b-4 border-b-slate-300 p-0.5 transition-all hover:bg-[#3DCD58]/5 ${d === todayKey ? 'bg-emerald-50 ring-1 ring-inset ring-[#3DCD58]/40' : 'bg-white'}`}
+                                            title={`Open ${d}: ${summary?.completed || 0} delivered, ${summary?.timerSessions || 0} timer sessions, ${summary?.missed || 0} missed, ${summary?.events || 0} events`}
                                         >
                                             <div className="flex flex-col gap-1 items-center">
                                                 {/* Milestone Markers */}
@@ -1670,61 +1951,104 @@ const FullCalendarModal = ({
                                                     )}
                                                 </div>
 
-                                                {/* History Dots */}
-                                                {dayHistory.length > 0 ? (
-                                                    <div className="flex gap-1">
-                                                        {dayHistory.map((h, i) => (
-                                                            <div key={i} title={h.content} className="w-2.5 h-2.5 rounded-full bg-[#3DCD58] shadow-sm transform group-hover:scale-125 transition-transform" />
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    (!isReceived && !isDelivered) && <Plus className="w-3 h-3 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                )}
+                                                <div className="grid grid-cols-2 gap-0.5 text-[7px] font-black leading-none">
+                                                    {!!summary?.completed && <span className="rounded bg-emerald-100 px-0.5 py-0.5 text-emerald-700" title="Delivered">✓{summary.completed}</span>}
+                                                    {!!summary?.timerSessions && <span className="rounded bg-blue-100 px-0.5 py-0.5 text-blue-700" title="Timer sessions">▶{summary.timerSessions}</span>}
+                                                    {!!summary?.missed && <span className="rounded bg-red-100 px-0.5 py-0.5 text-red-700" title="Not delivered on time">!{summary.missed}</span>}
+                                                    {!!summary?.events && <span className="flex items-center gap-0.5 rounded bg-emerald-50 px-0.5 py-0.5 text-emerald-700" title={dayHistory.map(item => item.content).join('\n')}><span className="h-1.5 w-1.5 rounded-full bg-[#3DCD58]" />{summary.events}</span>}
+                                                </div>
+                                                {!summary?.completed && !summary?.timerSessions && !summary?.missed && !summary?.events && !isReceived && !isDelivered && <Plus className="h-3 w-3 text-gray-200 opacity-0 transition-opacity group-hover:opacity-100" />}
                                             </div>
                                         </div>
                                     );
                                 })}
 
-                                {/* Assignment cycles: dates are generated from task state changes. */}
-                                {assignmentRows.map(row => (
-                                    <React.Fragment key={row.id}>
-                                        <div className="bg-slate-50 p-3 border-r border-t sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="truncate text-xs font-black text-gray-800" title={row.taskTitle}>{row.taskTitle}</span>
-                                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-100 text-red-700' : row.result === 'On time' ? 'bg-emerald-100 text-emerald-700' : row.result === 'Changes requested' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-600'}`}>{row.result}</span>
+                                {/* Workflow groups: one task owns all of its people, phases and cycles. */}
+                                {workflowGroups.map(group => {
+                                    const collapsed = collapsedWorkflowTaskIds.has(group.task.id);
+                                    const completion = taskCompletionDate(group.task);
+                                    const hasIncompleteData = group.rows.some(row => row.evidence === 'Incomplete' || row.unresolvedPeople);
+                                    return (
+                                        <React.Fragment key={group.task.id}>
+                                            <div className="order-2 sticky left-0 z-[32] flex min-h-[50px] items-center gap-2 border-r border-t border-blue-100 border-l-4 border-l-blue-500 bg-white p-2.5 text-gray-800 shadow-[2px_0_8px_-3px_rgba(15,23,42,0.2)]">
+                                                <button type="button" onClick={() => setCollapsedWorkflowTaskIds(current => { const next = new Set(current); next.has(group.task.id) ? next.delete(group.task.id) : next.add(group.task.id); return next; })} className="rounded-lg bg-blue-50 p-1 text-blue-600 hover:bg-blue-100" title={collapsed ? 'Expand workflow' : 'Collapse workflow'}>
+                                                    {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                </button>
+                                                <button type="button" onClick={() => onOpenTask(group.task.id)} className="min-w-0 flex-1 text-left" title="Open task and its tracker">
+                                                    <span className="block truncate text-xs font-black text-gray-900 hover:text-blue-700 hover:underline"><span className="mr-1 text-[8px] uppercase text-blue-500">Task</span>{group.task.order ? `${group.task.order}. ` : ''}{group.task.title}</span>
+                                                    <span className="mt-1 flex flex-wrap items-center gap-1 text-[8px] font-black uppercase tracking-wide text-gray-500">
+                                                        <span className="rounded bg-gray-100 px-1.5 py-0.5">{group.task.status}</span>
+                                                        {(group.task.externalAreas || []).slice(0, 2).map(area => <span key={area} className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{area}</span>)}
+                                                        {group.task.reworkForTaskId && <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700">Correction</span>}
+                                                        {hasIncompleteData && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">Missing data</span>}
+                                                    </span>
+                                                </button>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-wide text-gray-400">
-                                                <span className={row.phase === 'Execution' ? 'text-blue-600' : 'text-purple-600'}>{row.phase}</span>
-                                                <span>Cycle {row.cycle}</span>
-                                                {row.active && <span className="text-orange-600">Active</span>}
-                                            </div>
-                                        </div>
-                                        {days.map(d => {
-                                            const effectiveEnd = row.end || (row.active ? getTodayStr() : row.start);
-                                            const inRange = !!row.start && !!effectiveEnd && d >= row.start && d <= effectiveEnd;
-                                            const isStart = row.start === d;
-                                            const isCommitted = row.committed === d;
-                                            const isEnd = row.end === d;
-                                            return (
-                                                <div key={d} className={`relative min-h-[64px] border-l border-t flex items-center justify-center ${inRange ? (row.phase === 'Execution' ? 'bg-blue-100/70' : 'bg-purple-100/70') : 'bg-white'}`} title={`${row.taskTitle} · ${row.phase}${isCommitted ? ` · Committed ${d}` : ''}`}>
-                                                    {inRange && <div className={`absolute left-0 right-0 h-2 ${row.phase === 'Execution' ? 'bg-blue-400' : 'bg-purple-400'}`} />}
-                                                    <div className="relative z-10 flex flex-col items-center gap-1">
-                                                        {isStart && <span className="rounded bg-gray-800 px-1 py-0.5 text-[7px] font-black text-white">START</span>}
-                                                        {isCommitted && <span className={`rounded px-1 py-0.5 text-[7px] font-black text-white ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-500' : 'bg-orange-500'}`}>CMT</span>}
-                                                        {isEnd && <span className="rounded bg-emerald-600 px-1 py-0.5 text-[7px] font-black text-white">{row.phase === 'Approval' ? 'APR' : 'DEL'}</span>}
+                                            {days.map(d => {
+                                                const due = group.task.dueDate === d;
+                                                const done = completion === d;
+                                                return <div key={d} className={`order-2 relative flex min-h-[50px] items-center justify-center border-l border-t border-blue-100 ${d === todayKey ? 'bg-emerald-50 ring-1 ring-inset ring-[#3DCD58]/30' : 'bg-blue-50/30'}`} title={`${group.task.title}${due ? ` · Due ${d}` : ''}${done ? ` · Completed ${d}` : ''}`}>
+                                                    {due && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[7px] font-black text-white" title={`Task due ${d}`}>D</span>}
+                                                    {done && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[8px] font-black text-white" title={`Task completed ${d}`}>✓</span>}
+                                                </div>;
+                                            })}
+
+                                            {!collapsed && group.rows.map(row => (
+                                                <React.Fragment key={row.id}>
+                                                    <div className="order-2 sticky left-0 z-[30] min-h-[76px] border-r border-t border-gray-100 bg-gray-50/80 p-2 pl-8 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${row.phase === 'Execution' ? 'bg-blue-500' : 'bg-purple-500'}`} />
+                                                                    <span className="text-[10px] font-black uppercase text-gray-700">{row.phase}</span>
+                                                                    <span className="text-[9px] font-bold text-gray-400">Cycle {row.cycle}</span>
+                                                                </div>
+                                                                <div className="mt-1 flex min-w-0 items-center gap-1 truncate text-[10px] font-semibold text-gray-700" title={row.people.join(', ')}><User className="h-3 w-3 shrink-0 text-gray-400" /><span className="shrink-0 text-[8px] font-black uppercase text-gray-400">Who:</span>{row.people.join(', ') || 'Responsible not linked'}</div>
+                                                                <div className="mt-1.5 grid grid-cols-3 gap-1 text-center" title={`Start: ${row.start || 'Not recorded'} · Commitment: ${row.committed || 'Not recorded'} · ${row.phase === 'Approval' ? 'Approval' : 'Delivery'}: ${row.end || 'Not recorded'}`}>
+                                                                    <div className="min-w-0 rounded bg-white px-1 py-1 shadow-sm"><div className="text-[7px] font-black uppercase text-gray-400">Start</div><div className="truncate text-[9px] font-black text-gray-700">{row.start?.slice(5) || '—'}</div></div>
+                                                                    <div className="min-w-0 rounded bg-orange-50 px-1 py-1"><div className="text-[7px] font-black uppercase text-orange-500">Commit</div><div className="truncate text-[9px] font-black text-orange-700">{row.committed?.slice(5) || '—'}</div></div>
+                                                                    <div className="min-w-0 rounded bg-emerald-50 px-1 py-1"><div className="text-[7px] font-black uppercase text-emerald-500">{row.phase === 'Approval' ? 'Approved' : 'Delivered'}</div><div className="truncate text-[9px] font-black text-emerald-700">{row.end?.slice(5) || '—'}</div></div>
+                                                                </div>
+                                                                <div className="mt-1 flex flex-wrap gap-1">
+                                                                    <span className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase ${row.evidence === 'Confirmed' ? 'bg-emerald-50 text-emerald-700' : row.evidence === 'Calculated' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>{row.evidence}</span>
+                                                                    {row.unresolvedPeople && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-amber-700">Unlinked person</span>}
+                                                                    {!!row.seconds && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[8px] font-black text-gray-600">{durationLabel(row.seconds)}</span>}
+                                                                </div>
+                                                            </div>
+                                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-100 text-red-700' : row.result === 'On time' || row.result === 'Completed' ? 'bg-emerald-100 text-emerald-700' : row.result === 'Changes requested' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-600'}`}>{row.result}</span>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </React.Fragment>
-                                ))}
+                                                    {days.map(d => {
+                                                        const effectiveEnd = row.end || (row.active ? getTodayStr() : row.start);
+                                                        const inRange = !!row.start && !!effectiveEnd && d >= row.start && d <= effectiveEnd;
+                                                        const isStart = row.start === d;
+                                                        const isCommitted = row.committed === d;
+                                                        const isEnd = row.end === d;
+                                                        const phaseColor = row.phase === 'Execution' ? 'bg-blue-400' : 'bg-purple-400';
+                                                        const rangeColor = row.phase === 'Execution' ? 'bg-blue-100/70' : 'bg-purple-100/70';
+                                                        return (
+                                                            <button type="button" key={d} onClick={() => setViewingDayDetails(d)} className={`order-2 relative flex min-h-[76px] items-center justify-center border-l border-t ${inRange ? rangeColor : d === todayKey ? 'bg-emerald-50/60' : 'bg-white'} ${d === todayKey ? 'ring-1 ring-inset ring-[#3DCD58]/25' : ''}`} title={`${group.task.title} · ${row.phase} · ${row.people.join(', ') || 'Unlinked responsible'} · ${row.evidence}`}>
+                                                                {inRange && <div className={`absolute left-0 right-0 h-2 ${phaseColor} ${row.evidence === 'Calculated' ? 'opacity-50' : ''}`} />}
+                                                                <div className="relative z-10 flex flex-col items-center gap-1">
+                                                                    {isStart && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-800 text-[7px] font-black text-white" title={`Started ${d}`}>S</span>}
+                                                                    {isCommitted && <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[7px] font-black text-white ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-500' : 'bg-orange-500'}`} title={`Committed ${d}`}>C</span>}
+                                                                    {isEnd && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[7px] font-black text-white" title={`${row.phase === 'Approval' ? 'Approved' : 'Delivered'} ${d}`}>{row.phase === 'Approval' ? 'A' : 'D'}</span>}
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </React.Fragment>
+                                            ))}
+                                        </React.Fragment>
+                                    );
+                                })}
 
                                 {/* Area Rows */}
                                 {areas.filter(a => visibleAreaIds.includes(a.id)).map(area => (
                                     <React.Fragment key={area.id}>
-                                        <div className="bg-white p-4 text-sm font-black text-gray-700 border-r border-t flex flex-col justify-center sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                        <div className="order-1 min-h-[76px] self-stretch bg-white p-4 text-sm font-black text-gray-700 border-r flex flex-col justify-center sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <div className="flex items-center justify-between group">
-                                                <span className="truncate pr-2">{area.area}</span>
+                                                <button type="button" onClick={() => setViewingAreaDetails(area.id)} className="truncate pr-2 text-left hover:text-purple-600 hover:underline" title="View people and tasks for this area">{area.area}</button>
                                                 <button
                                                     onClick={() => onRemoveArea(area.id)}
                                                     className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition-all"
@@ -1736,6 +2060,11 @@ const FullCalendarModal = ({
                                                 <span className="text-[10px] text-[#3DCD58] bg-[#3DCD58]/10 px-2 py-0.5 rounded-full font-black uppercase">{area.daysSpent}d Work</span>
                                                 {area.waitingDays > 0 && <span className="text-[10px] text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full font-black uppercase">{area.waitingDays}d Wait</span>}
                                             </div>
+                                            <div className="mt-1 truncate text-[9px] font-semibold text-gray-400" title={stakeholdersForArea(area.area).map(person => person.name).join(', ')}>
+                                                {area.area === 'Tendering' && <span>{userName || 'Me'} · Tender (me)</span>}
+                                                {area.area === 'Tendering' && stakeholdersForArea(area.area).length > 0 && <span> · </span>}
+                                                {stakeholdersForArea(area.area).map(person => person.name).join(', ') || (area.area === 'Tendering' ? '' : 'No stakeholder assigned')}
+                                            </div>
                                         </div>
                                         {days.map(d => {
                                             const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
@@ -1745,24 +2074,25 @@ const FullCalendarModal = ({
                                             return (
                                                 <div
                                                     key={d}
-                                                    className={`border-l border-t h-20 flex flex-col items-center justify-center transition-all cursor-pointer hover:scale-[1.02] hover:z-10 hover:shadow-inner ${isSelected ? 'ring-4 ring-[#3DCD58] ring-inset z-20' : ''} ${record?.type === 'Worked' ? 'bg-blue-50/40' :
+                                                    className={`order-1 min-h-[76px] self-stretch overflow-hidden border-l flex flex-col items-center justify-center transition-all cursor-pointer hover:z-10 hover:shadow-inner ${isSelected ? 'ring-4 ring-[#3DCD58] ring-inset z-20' : d === todayKey ? 'ring-1 ring-[#3DCD58]/30 ring-inset' : ''} ${record?.type === 'Worked' ? 'bg-blue-50/40' :
                                                         record?.type === 'Waiting' ? 'bg-yellow-50/40' :
                                                             record?.type === 'Inactive' ? 'bg-red-50/30' :
-                                                                'bg-white'
+                                                                d === todayKey ? 'bg-emerald-50/60' : 'bg-white'
                                                         }`}
                                                     onClick={(e) => handleCellClick(area.id, d, e)}
                                                 >
                                                     {record?.type === 'Worked' && (
                                                         <div className="flex flex-col items-center gap-1 animate-in fade-in zoom-in duration-300">
-                                                            <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md">
-                                                                <Zap className="w-4 h-4" />
+                                                            <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-sm">
+                                                                <Zap className="w-3 h-3" />
                                                             </div>
                                                             {area.area === 'Tendering' && (
-                                                                <div className="flex items-center gap-1 mt-1 px-1 bg-blue-50/50 rounded-lg border border-blue-100/50" onClick={(e) => e.stopPropagation()}>
-                                                                    <div className="flex items-center gap-0.5">
+                                                                <div className="mt-1 flex w-full max-w-[28px] flex-col items-center rounded border border-blue-100/60 bg-white/70 px-0 py-0.5" onClick={(e) => e.stopPropagation()} title={`${(record as AreaDayRecord).hours || 0}h ${(record as AreaDayRecord).minutes || 0}m`}>
+                                                                    <div className="flex w-full items-center justify-center gap-px">
                                                                         <input
-                                                                            type="number"
-                                                                            className="w-6 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
+                                                                            type="text"
+                                                                            inputMode="numeric"
+                                                                            className="h-3 w-4 min-w-0 border-none bg-transparent p-0 text-center text-[8px] font-black text-blue-700 focus:ring-0"
                                                                             placeholder="0"
                                                                             value={(record as AreaDayRecord).hours || ''}
                                                                             onChange={(e) => {
@@ -1772,13 +2102,13 @@ const FullCalendarModal = ({
                                                                                 onSaveAreaCalendar(area.id, newCal);
                                                                             }}
                                                                         />
-                                                                        <span className="text-[8px] font-black text-blue-400 uppercase">h</span>
+                                                                        <span className="text-[7px] font-black text-blue-400 uppercase">h</span>
                                                                     </div>
-                                                                    <div className="w-[1px] h-3 bg-blue-200/50 mx-0.5" />
-                                                                    <div className="flex items-center gap-0.5">
+                                                                    <div className="flex w-full items-center justify-center gap-px border-t border-blue-100/60">
                                                                         <input
-                                                                            type="number"
-                                                                            className="w-6 text-[10px] text-center border-none bg-transparent focus:ring-0 font-black p-0 h-4 text-blue-700"
+                                                                            type="text"
+                                                                            inputMode="numeric"
+                                                                            className="h-3 w-4 min-w-0 border-none bg-transparent p-0 text-center text-[8px] font-black text-blue-700 focus:ring-0"
                                                                             placeholder="0"
                                                                             value={(record as AreaDayRecord).minutes || ''}
                                                                             onChange={(e) => {
@@ -1788,20 +2118,20 @@ const FullCalendarModal = ({
                                                                                 onSaveAreaCalendar(area.id, newCal);
                                                                             }}
                                                                         />
-                                                                        <span className="text-[8px] font-black text-blue-400 uppercase">m</span>
+                                                                        <span className="text-[7px] font-black text-blue-400 uppercase">m</span>
                                                                     </div>
                                                                 </div>
                                                             )}
                                                         </div>
                                                     )}
                                                     {record?.type === 'Waiting' && (
-                                                        <div className="w-7 h-7 rounded-full bg-yellow-500 text-white flex items-center justify-center shadow-md animate-in fade-in zoom-in duration-300">
-                                                            <Clock className="w-4 h-4" />
+                                                        <div className="w-5 h-5 rounded-full bg-yellow-500 text-white flex items-center justify-center shadow-sm animate-in fade-in zoom-in duration-300">
+                                                            <Clock className="w-3 h-3" />
                                                         </div>
                                                     )}
                                                     {record?.type === 'Inactive' && (
-                                                        <div className="w-7 h-7 rounded-full bg-red-100 text-red-500 flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                                                            <X className="w-4 h-4" />
+                                                        <div className="w-5 h-5 rounded-full bg-red-100 text-red-500 flex items-center justify-center animate-in fade-in zoom-in duration-300">
+                                                            <X className="w-3 h-3" />
                                                         </div>
                                                     )}
                                                 </div>
@@ -1911,13 +2241,93 @@ const FullCalendarModal = ({
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
-                            <p className="text-[10px] font-black text-gray-400 bg-white px-4 py-2 rounded-xl border border-gray-200 italic shadow-sm">
-                                Tip: Continuous work blocks create the project execution flow.
-                            </p>
+                            <div className="flex flex-wrap items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[8px] font-black uppercase shadow-sm">
+                                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">Confirmed</span>
+                                <span className="rounded bg-sky-50 px-1.5 py-0.5 text-sky-700">Calculated</span>
+                                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">Incomplete</span>
+                                <span className="ml-1 text-gray-400">START · CMT commitment · DEL delivery · APR approval</span>
+                            </div>
                             <button onClick={onClose} className="bg-gray-900 text-white px-10 py-3.5 rounded-2xl font-black shadow-2xl hover:bg-black transition-all active:scale-95 text-lg">Close Dashboard</button>
                         </div>
                     </div>
                 </div>
+
+                {selectedDaySummary && (
+                    <div className="fixed inset-0 z-[260] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm" onClick={() => setViewingDayDetails(null)}>
+                        <div className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+                            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white p-5">
+                                <div><h3 className="text-lg font-black text-gray-900">Daily activity · {selectedDaySummary.date}</h3><p className="text-xs text-gray-500">Timer work, deliveries, commitments, schedule and history events.</p></div>
+                                <button onClick={() => setViewingDayDetails(null)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"><X className="h-5 w-5" /></button>
+                            </div>
+                            <div className="p-5">
+                                {!selectedDaySummary.hasAnything ? (
+                                    <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-14 text-center">
+                                        <CalendarDays className="mx-auto mb-3 h-9 w-9 text-gray-300" />
+                                        <h4 className="text-base font-black text-gray-700">No work was recorded for this project on this day</h4>
+                                        <p className="mt-1 text-xs text-gray-400">There are no timer sessions, deliveries, commitments, scheduled work or project events.</p>
+                                        <button onClick={() => setViewingHistoryDate(selectedDaySummary.date)} className="mt-5 rounded-xl bg-[#3DCD58] px-4 py-2 text-xs font-black text-white hover:bg-[#32b94b]">Add an event</button>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-5">
+                                        <section className="rounded-2xl border border-gray-200 bg-gradient-to-r from-gray-50 to-white p-5">
+                                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                                <div className="max-w-2xl">
+                                                    <h4 className="text-xs font-black uppercase tracking-widest text-gray-500">Executive summary</h4>
+                                                    <p className="mt-2 text-sm font-semibold leading-6 text-gray-800">
+                                                        {selectedDaySummary.hasRecordedWork
+                                                            ? `${selectedDaySummary.worked.length} work session${selectedDaySummary.worked.length === 1 ? '' : 's'} (${durationLabel(selectedDaySummary.totalSeconds)}), ${selectedDaySummary.completed.length} deliverable${selectedDaySummary.completed.length === 1 ? '' : 's'} completed and ${selectedDaySummary.events.length} project event${selectedDaySummary.events.length === 1 ? '' : 's'} recorded.`
+                                                            : `No executed work was recorded. The day contained ${selectedDaySummary.expected.length} commitment${selectedDaySummary.expected.length === 1 ? '' : 's'} and ${selectedDaySummary.scheduled.length} planned task${selectedDaySummary.scheduled.length === 1 ? '' : 's'}.`}
+                                                    </p>
+                                                </div>
+                                                <div className="grid grid-cols-4 gap-2 text-center">
+                                                    <div className="rounded-xl bg-blue-50 px-3 py-2"><div className="text-lg font-black text-blue-700">{durationLabel(selectedDaySummary.totalSeconds)}</div><div className="text-[8px] font-black uppercase text-blue-500">Logged</div></div>
+                                                    <div className="rounded-xl bg-emerald-50 px-3 py-2"><div className="text-lg font-black text-emerald-700">{selectedDaySummary.completed.length}</div><div className="text-[8px] font-black uppercase text-emerald-500">Delivered</div></div>
+                                                    <div className="rounded-xl bg-red-50 px-3 py-2"><div className="text-lg font-black text-red-700">{selectedDaySummary.missed.length}</div><div className="text-[8px] font-black uppercase text-red-500">Missed</div></div>
+                                                    <div className="rounded-xl bg-purple-50 px-3 py-2"><div className="text-lg font-black text-purple-700">{selectedDaySummary.events.length}</div><div className="text-[8px] font-black uppercase text-purple-500">Events</div></div>
+                                                </div>
+                                            </div>
+                                        </section>
+
+                                        <div className="grid gap-4 lg:grid-cols-2">
+                                            {!!selectedDaySummary.worked.length && <section className="rounded-xl border border-blue-100 bg-blue-50/40 p-4"><h4 className="mb-3 text-xs font-black uppercase text-blue-700">Work performed · who and what</h4><div className="space-y-2">{selectedDaySummary.worked.map(({ task, log, people }) => <button key={`${task.id}-${log.id}`} onClick={() => onOpenTask(task.id)} className="flex w-full items-center justify-between rounded-lg bg-white p-3 text-left shadow-sm hover:ring-2 hover:ring-blue-200"><span><span className="block text-xs font-bold text-gray-800">{task.title}</span><span className="text-[10px] text-gray-500">{people.join(', ') || 'Unassigned'} · click to open tracker</span></span><span className="text-xs font-black text-blue-700">{durationLabel(log.durationSeconds || 0)}</span></button>)}</div></section>}
+
+                                            {!!selectedDaySummary.completed.length && <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4"><h4 className="mb-3 text-xs font-black uppercase text-emerald-700">Delivered / completed</h4><div className="space-y-2">{selectedDaySummary.completed.map(task => <button key={task.id} onClick={() => onOpenTask(task.id)} className="block w-full rounded-lg bg-white p-3 text-left text-xs font-bold text-gray-800 shadow-sm hover:underline">{task.title}<span className="mt-1 block text-[10px] font-normal text-gray-500">{taskParticipantNames(task).join(', ') || 'Unassigned'}</span></button>)}</div></section>}
+
+                                            {!!selectedDaySummary.expected.length && <section className="rounded-xl border border-amber-100 bg-amber-50/40 p-4"><h4 className="mb-3 text-xs font-black uppercase text-amber-700">Commitments expected that day</h4><div className="space-y-2">{selectedDaySummary.expected.map(task => <button key={task.id} onClick={() => onOpenTask(task.id)} className="flex w-full items-center justify-between rounded-lg bg-white p-3 text-left text-xs font-bold text-gray-800 shadow-sm"><span>{task.title}</span>{selectedDaySummary.missed.some(item => item.id === task.id) ? <span className="rounded-full bg-red-100 px-2 py-1 text-[9px] font-black uppercase text-red-700">Not delivered on time</span> : <span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black uppercase text-emerald-700">Delivered</span>}</button>)}</div></section>}
+
+                                            {(!!selectedDaySummary.events.length || !!selectedDaySummary.scheduled.length) && <section className="rounded-xl border border-purple-100 bg-purple-50/40 p-4"><div className="mb-3 flex items-center justify-between gap-3"><h4 className="text-xs font-black uppercase text-purple-700">Events and planned work</h4><button onClick={() => setViewingHistoryDate(selectedDaySummary.date)} className="rounded-lg border border-purple-200 bg-white px-2.5 py-1 text-[9px] font-black uppercase text-purple-700 hover:bg-purple-50">Add / edit events</button></div><div className="space-y-2">{selectedDaySummary.events.map(event => <button key={event.id} onClick={() => setViewingHistoryDate(selectedDaySummary.date)} className="flex w-full items-start gap-2 rounded-lg bg-white p-3 text-left text-xs text-gray-700 shadow-sm hover:ring-2 hover:ring-purple-100"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#3DCD58]" /><span>{event.content}</span></button>)}{selectedDaySummary.scheduled.map(task => <button key={task.id} onClick={() => onOpenTask(task.id)} className="block w-full rounded-lg bg-white p-3 text-left text-xs font-bold text-gray-800 shadow-sm hover:underline">Scheduled: {task.title}</button>)}</div></section>}
+                                        </div>
+
+                                        {!selectedDaySummary.events.length && <div className="flex justify-end"><button onClick={() => setViewingHistoryDate(selectedDaySummary.date)} className="rounded-xl border border-[#3DCD58]/30 bg-[#3DCD58]/5 px-4 py-2 text-xs font-black text-[#278a3b] hover:bg-[#3DCD58]/10">+ Add project event</button></div>}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {selectedAreaSummary && (
+                    <div className="fixed inset-0 z-[255] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm" onClick={() => setViewingAreaDetails(null)}>
+                        <div className="max-h-[86vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+                            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white p-5"><div><h3 className="text-lg font-black text-gray-900">{selectedAreaSummary.area.area}</h3><p className="text-xs text-gray-500">People in this proposal and every task attributed to the area.</p></div><button onClick={() => setViewingAreaDetails(null)} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"><X className="h-5 w-5" /></button></div>
+                            <div className="p-5">
+                                <div className="mb-5 flex flex-wrap gap-2">
+                                    {selectedAreaSummary.area.area === 'Tendering' && <span className="rounded-full bg-[#3DCD58]/10 px-3 py-1 text-xs font-bold text-[#278a3b]">{userName || 'Me'} · Tender (me)</span>}
+                                    {selectedAreaSummary.people.map(person => <span key={person.id} className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">{person.name}</span>)}
+                                    {selectedAreaSummary.area.area !== 'Tendering' && !selectedAreaSummary.people.length && <span className="text-xs italic text-gray-400">No opportunity stakeholder has this area in Roles.</span>}
+                                </div>
+                                <div className="space-y-2">{selectedAreaSummary.tasks.map(task => {
+                                    const seconds = (task.timeLogs || []).reduce((sum, log) => sum + (log.durationSeconds || 0), 0);
+                                    const requested = task.responsibleRequestedDate || task.approvalRequestedDate;
+                                    const delivered = taskCompletionDate(task);
+                                    const elapsed = requested && delivered ? Math.max(0, Math.round((new Date(`${delivered}T00:00:00`).getTime() - new Date(`${requested}T00:00:00`).getTime()) / 86400000)) : null;
+                                    return <button key={task.id} onClick={() => onOpenTask(task.id)} className="grid w-full grid-cols-[1fr_auto] gap-3 rounded-xl border border-gray-100 p-4 text-left hover:border-purple-200 hover:bg-purple-50/30"><span><span className="block text-sm font-black text-gray-800">{task.title}</span><span className="mt-1 block text-[10px] text-gray-500">{taskParticipantNames(task).join(', ') || selectedAreaSummary.area.area} · {task.status}</span></span><span className="text-right text-[10px] font-bold text-gray-500">My timer: {durationLabel(seconds)}<br />Assignment cycle: {elapsed === null ? 'Open / no dates' : `${elapsed} days`}</span></button>;
+                                })}</div>
+                                {!selectedAreaSummary.tasks.length && <p className="rounded-xl bg-gray-50 p-6 text-center text-xs italic text-gray-400">No tasks are assigned to this area or its stakeholders.</p>}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {viewingHistoryDate && (
                     <HistoryEventsModal
@@ -2441,10 +2851,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showVersionMenu, setShowVersionMenu] = useState(false);
     const [showMoreActionsMenu, setShowMoreActionsMenu] = useState(false);
     const [showCreateVersionModal, setShowCreateVersionModal] = useState(false);
-    const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(taskStandards.length === 1 ? taskStandards[0].id : '');
+    // Lists flagged as hidden in Settings stay out of the picker until the user asks for them.
+    const selectableStandards = useMemo(() => visibleTaskStandards(taskStandards), [taskStandards]);
+    const hasHiddenStandards = taskStandards.some(standard => standard.hidden);
+    const [showHiddenRevisionStandards, setShowHiddenRevisionStandards] = useState(false);
+    const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(selectableStandards.length === 1 ? selectableStandards[0].id : '');
     const [newVersionData, setNewVersionData] = useState({ commitMessage: '', tags: '', srId: '' });
     const [showDiffModal, setShowDiffModal] = useState(false);
-    const [diffBaseId, setDiffBaseId] = useState<string | null>(null);
     const [diffCompareId, setDiffCompareId] = useState<string | null>(null);
     const [showCopyTasksModal, setShowCopyTasksModal] = useState(false);
     const [showRevisionCarryoverModal, setShowRevisionCarryoverModal] = useState(false);
@@ -2453,6 +2866,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         notes: MeetingNote[];
         defaultLinks: { id: string; label: string; url: string }[];
         customLinks: QuickLinkItem[];
+        targetOppId?: string;
+        initialDefaultUrls?: Record<DefaultQuickLinkId, string>;
+        deleteCurrentOppAfterClose?: boolean;
     } | null>(null);
     const [showSrImport, setShowSrImport] = useState(false);
     const [versionSearchTerm, setVersionSearchTerm] = useState('');
@@ -2486,6 +2902,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
     };
     const [searchTerm, setSearchTerm] = useState('');
+    const [isNoteTasksExpanded, setIsNoteTasksExpanded] = useState(false);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const noteEditorRef = useRef<RichTextEditorHandle>(null);
@@ -2615,6 +3032,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
     const setSelectedNoteIdSafe = (id: string | null) => {
         flushActiveNoteNow();
+        setIsNoteTasksExpanded(false);
         setSelectedNoteId(id);
     };
     const setActiveTabSafe = (tab: OpportunityDetailTab) => {
@@ -2673,6 +3091,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [isNoteFullScreen, setIsNoteFullScreen] = useState(false);
     const [sowNavigationOpen, setSowNavigationOpen] = useState(false);
     const [selectedTaskForEdit, setSelectedTaskForEdit] = useState<{ task: Task } | null>(null);
+    /** Open "when was this finished?" dialog; `onPick` replays the aborted Done with the chosen day. */
+    const [completionPrompt, setCompletionPrompt] = useState<{ taskTitle: string; dueDate: string; onPick: (date: string) => void } | null>(null);
     const [taskViewMode, setTaskViewMode] = useState<'list' | 'calendar' | 'kanban'>('list');
     const [taskFilter, setTaskFilter] = useState('');
     const filterKey = `opportunityTasksFilters:${opportunity.id}`;
@@ -2736,8 +3156,38 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
     const [folderNavTarget, setFolderNavTarget] = useState<string | null>(null);
     const [currentFolderPath, setCurrentFolderPath] = useState<string[]>([]);
+    const [selectedFolderEntryPath, setSelectedFolderEntryPath] = useState<string[] | null>(null);
     const [showLabelMenu, setShowLabelMenu] = useState(false);
     const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
+
+    // This component exists only while an expediente is open, which naturally scopes
+    // the shortcut to expediente views. In Folder it follows the current selection or
+    // directory; from every other section it opens the opportunity's root folder.
+    useEffect(() => {
+        const openExpedienteFolder = async (event: KeyboardEvent) => {
+            if (!(event.ctrlKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e')) return;
+            // A split-view expediente can remain mounted behind the full expediente
+            // overlay. Only the visible/topmost expediente may consume the shortcut.
+            if (isSubView && document.querySelector('[data-opportunity-detail-overlay="true"]')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            try {
+                const rootPath = await resolveEffectiveRootPath(opportunity.id, localOppRef.current.revision);
+                if (!rootPath) {
+                    alert('This expediente does not have a saved folder path yet. Link its folder once from the Folder section.');
+                    return;
+                }
+                const relativePath = activeTab === 'folder'
+                    ? (selectedFolderEntryPath || currentFolderPath)
+                    : [];
+                await openInNativeApp(rootPath, relativePath);
+            } catch (error: any) {
+                alert(error?.message || 'Could not open the expediente folder.');
+            }
+        };
+        window.addEventListener('keydown', openExpedienteFolder, true);
+        return () => window.removeEventListener('keydown', openExpedienteFolder, true);
+    }, [opportunity.id, activeTab, currentFolderPath, selectedFolderEntryPath, isSubView]);
 
     useEffect(() => {
         const closeCurrentLayer = (e: KeyboardEvent) => {
@@ -3062,6 +3512,55 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const normalizedQuickLinks = useMemo(() => normalizeQuickLinks(localOpp.links), [localOpp.links]);
+    const commercialCqaUrl = normalizedQuickLinks.defaultUrls.cqaLink.trim();
+    const sowPrefill = useMemo(() => {
+        const customUrl = (...labels: string[]) => {
+            const keys = new Set(labels.map(normalizeQuickLinkKey));
+            return normalizedQuickLinks.customLinks.find(link => keys.has(normalizeQuickLinkKey(link.label)))?.url || '';
+        };
+        const srNumber = localOpp.srId?.trim() || '';
+        const dsoUrl = customUrl('SharePoint / DSO', 'DSO');
+        const rfqUrl = customUrl('RFQ / Specifications', 'RFQ', 'Specifications');
+        const installedBaseUrl = customUrl('Installed base / prior opportunity', 'Installed-base / prior opportunity');
+        const msaUrl = customUrl('MSA');
+        const cfaUrl = customUrl('CFA');
+        const bfoUrl = normalizedQuickLinks.defaultUrls.bfo || '';
+        return {
+            op_id: localOpp.id,
+            op_name: localOpp.title,
+            alias: localOpp.alias || '',
+            sr_qlk: localOpp.qlk || '',
+            customer: localOpp.customer,
+            team_cse: localOpp.seller || '',
+            site: localOpp.customerAddress || '',
+            objective: localOpp.description || '',
+            proposal_type: localOpp.quoteType === 'Firm' ? 'Firm' : localOpp.quoteType || '',
+            flow_B001: localOpp.id,
+            flow_B002: localOpp.alias || '',
+            flow_B003: localOpp.customer,
+            flow_B004: localOpp.dates?.expected || '',
+            flow_B006: localOpp.seller || '',
+            flow_B007: localOpp.customerAddress || '',
+            flow_C006: srNumber ? 'Yes' : 'No',
+            flow_C007: srNumber,
+            flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''),
+            flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''),
+            flow_C014: localOpp.commercial?.discountsAndNotes || '',
+            sr_link: normalizedQuickLinks.defaultUrls.srLink || '',
+            link_bfo: bfoUrl,
+            link_dso: dsoUrl,
+            link_rfq: rfqUrl,
+            link_installed_base: installedBaseUrl,
+            msa_link: msaUrl,
+            cfa_link: cfaUrl,
+            quick_link_exists_link_bfo: bfoUrl ? 'true' : 'false',
+            quick_link_exists_link_dso: dsoUrl ? 'true' : 'false',
+            quick_link_exists_link_rfq: rfqUrl ? 'true' : 'false',
+            quick_link_exists_link_installed_base: installedBaseUrl ? 'true' : 'false',
+            quick_link_exists_msa_link: msaUrl ? 'true' : 'false',
+            quick_link_exists_cfa_link: cfaUrl ? 'true' : 'false',
+        };
+    }, [localOpp.id, localOpp.title, localOpp.alias, localOpp.qlk, localOpp.customer, localOpp.seller, localOpp.customerAddress, localOpp.description, localOpp.quoteType, localOpp.dates?.expected, localOpp.srId, localOpp.commercial, normalizedQuickLinks]);
 
     // All default quick links â€” locked (SRLink, BFO, CQA) and unlocked (Folder, BA, GEET)
     // alike â€” render in the single manual order stored in quickLinksOrder. Any link not yet
@@ -3186,8 +3685,57 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
      * up half-filled if the user closes right after applying. Parsed values win
      * over placeholders; existing values are kept when the email had no data.
      */
-    const applySrPrefill = (prefill: SrPrefill) => {
+    const applySrPrefill = (prefill: SrPrefill, decision: SrImportDecision = { kind: 'new' }) => {
         if (viewingVersionId) return;
+        if (decision.kind === 'revision') {
+            const target = (opportunities || []).find(candidate => candidate.id === decision.targetOppId);
+            if (!target) return alert('The existing opportunity is no longer available. Please try again.');
+            if ((target.versions?.length || 0) >= 10) return alert('Maximum revision limit (10) reached for this opportunity.');
+
+            const targetLinks = normalizeQuickLinks(target.links);
+            const previousRevision = target.revision || 'R1';
+            const nextRevision = incrementRevision(previousRevision);
+            const snapshot = JSON.parse(JSON.stringify(target));
+            delete snapshot.versions;
+            const targetSnapshot: OpportunityVersion = {
+                id: crypto.randomUUID(), opportunityId: target.id, srId: target.srId || '',
+                commitMessage: decision.commitMessage.trim(), tags: decision.tags.split(',').map(tag => tag.trim()).filter(Boolean),
+                createdAt: new Date().toISOString(), createdBy: 'User', source: 'live', snapshot: snapshot as any
+            };
+            const standard = taskStandards.find(item => item.id === decision.taskStandardId) || (selectableStandards.length === 1 ? selectableStandards[0] : undefined);
+            const today = getTodayStr();
+            const importNote: MeetingNote = { id: crypto.randomUUID(), title: prefill.noteTitle, date: today, type: 'General', content: prefill.noteHtml, attendees: '' };
+            const requestedDate = prefill.requestedDate || today;
+            const initialDefaultUrls: Record<DefaultQuickLinkId, string> = {
+                folder: '', ba: '', geet: '', srLink: prefill.srLink?.trim() || '', cqaLink: '', bfo: ''
+            };
+            const revised: Opportunity = {
+                ...target, revision: nextRevision, srId: prefill.srId?.trim() || '', qlk: '', description: prefill.comments?.trim() || '',
+                title: prefill.title?.trim() || target.title, alias: prefill.alias?.trim() || target.alias,
+                customer: prefill.customer?.trim() || target.customer, seller: prefill.seller?.trim() || target.seller,
+                quoteType: prefill.quoteType || target.quoteType, statusLabel: 'In Progress', detailedStatus: 'Working on it', stage: '1. Intake', priority: 'Medium',
+                dates: { requested: requestedDate, expected: prefill.expectedDate || '', assigned: '' }, links: composeQuickLinks(initialDefaultUrls, []),
+                presentation: resetPresentationData(), history: [{ id: crypto.randomUUID(), date: today, content: 'Se me asigna el SR y empiezo a trabajar en él.', createdAt: new Date().toISOString() }],
+                notes: [importNote], emails: target.emails || createEmptyEmailsData(), kpis: {
+                    ...resetKPIData(target.kpis), ...(prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD) ? { proposalAmountUSD: prefill.proposalAmountUSD } : {}),
+                    timeline: { ...resetKPIData(target.kpis).timeline, receivedAt: requestedDate }
+                } as KPIs,
+                commercial: prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD) ? { ...resetCommercialData(), cqaOfficialSellPrice: prefill.proposalAmountUSD } : resetCommercialData(),
+                folderLinked: false,
+                tasks: standard ? instantiateTaskStandard(standard, '1. Intake') : (target.tasks || []).map(task => ({ ...task, status: 'Pending', dueDate: '', description: '', timeLogs: [], subtasks: (task.subtasks || []).map(subtask => ({ ...subtask, completed: false })) })),
+                versions: [targetSnapshot, ...(target.versions || [])], lastUpdated: new Date().toISOString()
+            };
+            moveLegacyFolderLinkToRevision(target.id, previousRevision).catch(() => {});
+            onUpdate(revised, target.id, true);
+            setRevisionCarryoverSource({
+                sourceLabel: `${previousRevision}${target.title ? ` - ${target.title}` : ''}`,
+                notes: JSON.parse(JSON.stringify(target.notes || [])),
+                defaultLinks: DEFAULT_QUICK_LINKS.map(link => ({ id: link.id, label: link.label, url: targetLinks.defaultUrls[link.id] || '' })).filter(link => !!link.url),
+                customLinks: JSON.parse(JSON.stringify(targetLinks.customLinks)), targetOppId: target.id, initialDefaultUrls, deleteCurrentOppAfterClose: true
+            });
+            setShowRevisionCarryoverModal(true);
+            return;
+        }
         const today = new Date().toISOString().split('T')[0];
         const importNote: MeetingNote = {
             id: crypto.randomUUID(),
@@ -3249,6 +3797,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const defaultLink = findDefaultQuickLink(label);
         if (defaultLink) {
             setDefaultQuickLinkUrl(defaultLink.id, url);
+            return;
+        }
+        const labelKey = normalizeQuickLinkKey(label);
+        const equivalentLabelKeys = new Set([labelKey]);
+        if (labelKey === 'dso') equivalentLabelKeys.add('sharepointdso');
+        const existing = normalizedQuickLinks.customLinks.find(link => equivalentLabelKeys.has(normalizeQuickLinkKey(link.label)));
+        if (existing) {
+            updateQuickLinks(
+                normalizedQuickLinks.defaultUrls,
+                normalizedQuickLinks.customLinks.map(link => link.id === existing.id ? { ...link, label, url } : link)
+            );
             return;
         }
         addQuickLinkItem({ id: crypto.randomUUID(), type: 'link', label, url });
@@ -3642,18 +4201,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const filteredNotes = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
+        // Hidden notes keep their data but are not part of the browsable list (see setNoteHidden).
+        const visible = deferredNotes.filter(n => !n.hidden);
         // Skip the expensive HTML strip + content scan when there's no search term.
         // On opportunities with 50+ heavy notes this was the dominant cost of the
         // Notes tab render and made tab navigation feel sticky.
         const filtered = term
-            ? deferredNotes.filter(n => {
+            ? visible.filter(n => {
                 if (n.title.toLowerCase().includes(term)) return true;
                 const plainContent = n.content.replace(/<[^>]*>/g, '').toLowerCase();
                 return plainContent.includes(term);
             })
-            : deferredNotes;
+            : visible;
         return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [deferredNotes, searchTerm]);
+
+    const hiddenNotes = useMemo(() => (localOpp.notes || []).filter(n => n.hidden), [localOpp.notes]);
 
     const filteredTasks = useMemo(() => deferredTasks.filter(t => {
         const matchesText = t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||
@@ -3685,7 +4248,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         );
     }), [deferredTasks, localOpp.statusLabel, localOpp.priorityOrder, taskFilter, taskStatusFilters, taskSort]);
 
-    const displayValue = (val: number) => val === 0 ? '' : val;
     const commercialTotals = useMemo(() => {
         const sections = localOpp.commercial.customSections || [];
         const t = sections.reduce((acc, sec) => {
@@ -3762,7 +4324,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }, true);
     };
 
-    const totals = { cost: commercialTotals.cost, sellPrice: commercialTotals.sellPrice, finalPrice: commercialTotals.finalPrice };
     const totalMargin = commercialTotals.margin;
 
     useEffect(() => {
@@ -4059,7 +4620,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     // Older opportunities predate the auto-created SOW note (only new ones get it â€” see App.tsx
     // createOpportunity). This lets the user add one manually to any existing opportunity.
+    // An opportunity has exactly ONE SOW: clicking the button again reopens it (un-hiding it if
+    // needed) instead of piling up copies that then compete for the Overview Scope button.
     const addSowNote = () => {
+        const existing = pickPrimarySowNote(localOppRef.current.notes);
+        if (existing) {
+            if (existing.hidden) setNoteHidden(existing.id, false);
+            setTeamPanelOpen(false);
+            setSelectedNoteIdSafe(existing.id);
+            return;
+        }
         const newNote: MeetingNote = {
             id: crypto.randomUUID(),
             title: 'SOW - Scope of Work',
@@ -4072,7 +4642,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         addAndSelectNote(newNote);
     };
 
-    const sowNote = useMemo(() => (localOpp.notes || []).find(n => n.format === 'sow') ?? null, [localOpp.notes]);
+    const sowNote = useMemo(() => pickPrimarySowNote(localOpp.notes), [localOpp.notes]);
     const saveSowContent = useCallback((noteId: string, json: string) => {
         if (viewingVersionIdRef.current) return;
         const current = localOppRef.current;
@@ -4129,20 +4699,103 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         upsertQuickLinkFromPrompt(label, url);
     }, [localOpp.links]);
 
+    const openSowTask = useCallback((taskId: string) => {
+        const task = localOppRef.current.tasks.find(candidate => candidate.id === taskId);
+        if (!task) return;
+        setActiveTabSafe('tasks');
+        setSelectedTaskForEdit({ task });
+    }, []);
+
+    const updateSowTaskRaci = useCallback((patch: { taskId: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => {
+        if (viewingVersionIdRef.current) return;
+        const current = localOppRef.current;
+        const responsibleNames = patch.responsibleTeamMemberIds
+            .map(id => current.stakeholders?.find(person => person.id === id)?.name)
+            .filter(Boolean)
+            .join(', ');
+        const tasks = current.tasks.map(task => task.id === patch.taskId ? syncAssignmentSubtasks({
+            ...task,
+            responsibleTeamMemberIds: patch.responsibleTeamMemberIds,
+            approverTeamMemberIds: patch.approverTeamMemberIds,
+            informedTeamMemberIds: patch.informedTeamMemberIds,
+            responsible: responsibleNames,
+            owner: patch.responsibleTeamMemberIds.length ? 'External Area' : task.owner,
+            isAssignment: patch.responsibleTeamMemberIds.length > 0 || patch.approverTeamMemberIds.length > 0,
+        }) : task);
+        const updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+    }, [opportunity.id]);
+
+    const convertSowTaskToAssignment = useCallback((taskId: string) => {
+        if (viewingVersionIdRef.current) return;
+        const current = localOppRef.current;
+        const tasks = current.tasks.map(task => task.id === taskId ? syncAssignmentSubtasks({
+            ...task,
+            isAssignment: true,
+            owner: 'External Area',
+            responsibleRequestedDate: task.responsibleRequestedDate || getTodayStr(),
+        }) : task);
+        const updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+    }, [opportunity.id]);
+
+    const createSowTask = useCallback((draft: { title: string; description: string; priority: Task['priority']; dueDate: string; responsibleRequestedDate: string; responsibleDueDate: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => {
+        if (viewingVersionIdRef.current) return;
+        const current = localOppRef.current;
+        const orders = current.tasks.map(task => task.order || 0).filter(Boolean);
+        const responsibleNames = draft.responsibleTeamMemberIds
+            .map(id => current.stakeholders?.find(person => person.id === id)?.name)
+            .filter(Boolean)
+            .join(', ');
+        const task = syncAssignmentSubtasks({
+            id: crypto.randomUUID(),
+            title: draft.title.trim() || 'New Task',
+            description: draft.description || '',
+            status: 'Pending',
+            priority: draft.priority || 'Medium',
+            owner: draft.responsibleTeamMemberIds.length ? 'External Area' : 'Me',
+            externalAreas: [],
+            responsible: responsibleNames,
+            responsibleTeamMemberIds: draft.responsibleTeamMemberIds,
+            approverTeamMemberIds: draft.approverTeamMemberIds,
+            informedTeamMemberIds: draft.informedTeamMemberIds,
+            isAssignment: draft.responsibleTeamMemberIds.length > 0 || draft.approverTeamMemberIds.length > 0,
+            dueDate: draft.dueDate || '',
+            responsibleRequestedDate: draft.responsibleRequestedDate || getTodayStr(),
+            responsibleDueDate: draft.responsibleDueDate || draft.dueDate || '',
+            stageContext: current.stage,
+            subtasks: [],
+            linkedNoteIds: [],
+            order: orders.length ? Math.max(...orders) + 1 : 1,
+            dependsOnTaskIds: [],
+            blockDoneUntilDependenciesDone: false,
+        });
+        const updated = { ...current, tasks: [...current.tasks, task], lastUpdated: new Date().toISOString() };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+    }, [opportunity.id]);
+
     // Patches fields inside the SOW note's serialized JSON (used by the Overview
     // SCOPE quick-view modal). Also refreshes the SowFormEmbed localStorage backup
     // so a stale backup can never resurrect pre-patch values.
     const saveScopeFields = (patch: Record<string, unknown>) => {
         if (isSnapshot) return;
         const current = localOppRef.current;
-        const latestSowNote = (current.notes || []).find(note => note.format === 'sow');
+        // Must resolve the SOW exactly like the `sowNote` memo the modal was rendered from,
+        // otherwise Scope edits land on a different note than the one it is showing.
+        const latestSowNote = pickPrimarySowNote(current.notes);
         if (!latestSowNote) return;
         let parsed: any = null;
         try { parsed = latestSowNote.content ? JSON.parse(latestSowNote.content) : null; } catch { parsed = null; }
         const base = parsed && typeof parsed === 'object' ? parsed : { version: 3, fields: {}, tables: {} };
         const next = { ...base, fields: { ...(base.fields || {}), ...patch }, savedAt: new Date().toISOString() };
         const serialized = JSON.stringify(next);
-        try { localStorage.setItem(`tenderloop-sow-backup-${current.id}`, serialized); } catch { /* non-critical backup */ }
+        try { localStorage.setItem(sowBackupKey(current.id, latestSowNote.id), serialized); } catch { /* non-critical backup */ }
         saveSowContent(latestSowNote.id, serialized);
     };
 
@@ -4157,6 +4810,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const updatedNotes = localOpp.notes.filter(n => !idsToDelete.has(n.id));
         handleFieldChange('notes', updatedNotes, true);
         if (selectedNoteId && idsToDelete.has(selectedNoteId)) setSelectedNoteIdSafe(null);
+    };
+
+    /**
+     * Hides a note from the Notes list without touching its content. Everything that reads the
+     * note keeps working (the Overview Scope button still finds a hidden SOW), and it can be
+     * brought back from the "Hidden" strip under the list.
+     */
+    const setNoteHidden = (noteId: string, hidden: boolean) => {
+        const base = localOppRef.current;
+        const updatedNotes = base.notes.map(note => note.id === noteId ? { ...note, hidden } : note);
+        handleFieldChange('notes', updatedNotes, true);
+        if (hidden && selectedNoteId === noteId) setSelectedNoteIdSafe(null);
     };
 
     const addFolder = (parentFolderId?: string) => {
@@ -4519,10 +5184,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         setLocalOpp(updated); onUpdate(updated);
     };
 
-    const updateKpiArea = (id: string, field: keyof KPIArea, value: any) => {
-        const newAreas = (localOpp.kpis?.areasInvolved || []).map(a => a.id === id ? { ...a, [field]: value } : a);
-        updateKpiField('areasInvolved', newAreas);
-    };
 
     const removeKpiArea = (id: string) => {
         const newAreas = (localOpp.kpis?.areasInvolved || []).filter(a => a.id !== id);
@@ -4609,26 +5270,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const totalAreaDays = (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
 
-    const suggestWaitingDaysFromHistory = () => {
-        const waitingKeywords = ['on hold', 'waiting for', 'missing information', 'pending response'];
-        const suggestedDates = new Set<string>();
-        (localOpp.history || []).forEach(h => {
-            const content = h.content.toLowerCase();
-            if (waitingKeywords.some(key => content.includes(key))) {
-                suggestedDates.add(h.date.split('T')[0]);
-            }
-        });
-        return Array.from(suggestedDates);
-    };
 
     // Validation value for Business Days elapsed (workable time) â€” safe access for null kpis
     const totalElapsedBusinessDays = (kpisTimeline?.deliveredAt
         ? countBusinessDays(kpisTimeline.receivedAt || getTodayStr(), kpisTimeline.deliveredAt, holidays)
         : countBusinessDays(kpisTimeline?.receivedAt || getTodayStr(), getTodayStr(), holidays)) + 1;
 
-    const totalTrackedDays = (localOpp.kpis?.execution.myWorkDays || 0) +
-        (localOpp.kpis?.execution.waitingOnOthersDays || 0) +
-        (localOpp.kpis?.areasInvolved || []).reduce((sum, a) => sum + (a.daysSpent || 0), 0);
 
     const addTask = () => {
         const baseOpp = localOppRef.current;
@@ -4714,11 +5361,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const today = getTodayStr();
         const people = opp.stakeholders || [];
         const idsForPhase = task.status === 'Approval' ? (task.approverTeamMemberIds || []) : (task.responsibleTeamMemberIds || []);
-        const selectedPeople = people.filter(p => idsForPhase.includes(p.id));
-        const areas = Array.from(new Set([
-            ...(task.externalAreas || []),
-            ...selectedPeople.flatMap(p => p.roles?.length ? p.roles : (p.role ? [p.role] : []))
-        ])).filter(Boolean);
         const baseKpis = opp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
         let nextAreas = [...(baseKpis.areasInvolved || [])];
         if (!nextAreas.some(area => area.area === 'Tendering')) nextAreas.push({ id: crypto.randomUUID(), area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} });
@@ -4976,7 +5618,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         localOppRef.current = newOpp;
         setLocalOpp(newOpp);
         onUpdate(newOpp, baseOpp.id, true);
-        setSelectedTaskForEdit({ task: tasks.find(task => task.id === correction.id)! });
+        // Refresh the open modal, but never pop it open: this also runs automatically when a
+        // correction is checked off from the board or from a note.
+        setSelectedTaskForEdit(prev => prev?.task.id === correction.id ? { task: tasks.find(task => task.id === correction.id)! } : prev);
     };
 
     const approveTask = async (taskId: string) => {
@@ -4988,7 +5632,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const activeAttachments = (await listLinkedForTask(baseOpp.id, task.id)).map(item => item.fileKey);
         const latestResubmission = [...(baseOpp.history || [])].reverse().find(entry => entry.approval?.taskId === task.id && entry.approval.outcome === 'resubmitted')?.approval;
         const cycle = latestResubmission?.cycle || (approvalEventsForTask(baseOpp.history || [], task.id).reduce((max, entry) => Math.max(max, entry.cycle), 0) + 1);
-        const approvedTask = syncAssignmentSubtasks({ ...task, status: 'Done', approvalDeliveredDate: today, completedAt: new Date().toISOString() });
+        const approvedTask = syncAssignmentSubtasks({ ...task, status: 'Done', approvalDeliveredDate: today, completedAt: new Date().toISOString(), completionDate: today });
+        const approverIds = task.approverTeamMemberIds || [];
+        const approverNames = teamMemberNames(approverIds);
         const approvalEvent: ApprovalEvent = {
             taskId: task.id, correctionTaskId: latestResubmission?.correctionTaskId,
             changeRevisionId: latestResubmission?.changeRevisionId, cycle, outcome: 'approved',
@@ -4996,15 +5642,25 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             requestedByIds: latestResubmission?.requestedByIds || [], informedIds: latestResubmission?.informedIds || [],
             assignedTo: latestResubmission?.assignedTo || task.owner,
             responsibleTeamMemberIds: latestResubmission?.responsibleTeamMemberIds || task.responsibleTeamMemberIds || [],
+            approverTeamMemberIds: approverIds,
             requestedAt: task.approvalRequestedDate || today, deliveredAt: latestResubmission?.deliveredAt,
             sentBackAt: latestResubmission?.sentBackAt, approvedAt: today,
             previousAttachmentKeys: latestResubmission?.previousAttachmentKeys || [], activeAttachmentKeys: activeAttachments,
         };
+        // History wording: who signed off + what exactly was approved, so the feed is readable
+        // without opening the task.
+        const approvedBy = approverNames.length ? formatNameList(approverNames) : 'the approver';
+        const approvedWhat = [
+            `"${task.title}"`,
+            task.deliverable?.trim() ? `(deliverable: ${task.deliverable.trim()})` : '',
+            cycle > 1 ? `— approval cycle ${cycle}` : '',
+        ].filter(Boolean).join(' ');
+        const approvalHistoryContent = `Approved by ${approvedBy}: ${approvedWhat}.`;
         let newOpp = {
             ...baseOpp,
             tasks: baseOpp.tasks.map(item => item.id === task.id ? approvedTask : item),
-            notes: appendChangeRevisionNoteEvent(baseOpp.notes || [], latestResubmission?.changeRevisionId, 'Approved', `The revised deliverable for "${task.title}" was approved.`, today),
-            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), approval: approvalEvent, content: `Approved "${task.title}".` }, ...(baseOpp.history || [])]),
+            notes: appendChangeRevisionNoteEvent(baseOpp.notes || [], latestResubmission?.changeRevisionId, 'Approved', `${approvedBy} approved the revised deliverable for "${task.title}".`, today),
+            history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), approval: approvalEvent, content: approvalHistoryContent }, ...(baseOpp.history || [])]),
             lastUpdated: new Date().toISOString(),
         };
         newOpp = withTenderingWorkedDay(newOpp, today);
@@ -5015,13 +5671,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     /**
+     * Decides the day a task is recorded as finished. When the task carries a due date that is not
+     * today we can't guess, so the confirmation dialog is opened and the caller aborts; the dialog
+     * then replays the original action through `retry` with the date the user picked.
+     */
+    const resolveCompletionDate = ({ task, isStatusChange, nextStatus, provided, retry }: {
+        task: Task;
+        isStatusChange: boolean;
+        nextStatus?: TaskStatus;
+        provided?: string;
+        retry: (date: string) => void;
+    }): string | undefined | typeof PENDING_COMPLETION_DATE => {
+        if (provided) return provided;
+        if (!isStatusChange || nextStatus !== 'Done') return undefined;
+        const today = getTodayStr();
+        if (!task.dueDate || task.dueDate === today) return today;
+        setCompletionPrompt({ taskTitle: task.title, dueDate: task.dueDate, onPick: retry });
+        return PENDING_COMPLETION_DATE;
+    };
+
+    /**
      * Board-level task patcher (checkbox toggles, subtask toggles, quick-assign) that works
      * without the task-detail modal being open. Mirrors updateTaskInModal's status side effects
      * (dependency block, timer stop, doneDate/worked-day bookkeeping, inline-task sync) but applies
      * the whole patch atomically so a status change bundled with e.g. a subtasks change can't clobber
      * each other from two separate setState calls reading the same stale `localOpp`.
      */
-    const applyTaskFieldsDirect = (taskId: string, patch: Partial<Task>) => {
+    const applyTaskFieldsDirect = (taskId: string, patch: Partial<Task>, completionDate?: string) => {
         // Always build from the latest committed/ref value. A prior task edit may still
         // be inside a React transition and therefore not be present in this render's
         // `localOpp` closure yet.
@@ -5058,6 +5734,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
         }
 
+        // Ask when the work actually finished before committing the Done. The prompt re-enters
+        // this same call with the picked date, so every caller (checkbox, subtasks, quick-assign)
+        // gets the confirmation for free.
+        const resolvedCompletion = resolveCompletionDate({ task, isStatusChange, nextStatus: finalPatch.status, provided: completionDate, retry: date => applyTaskFieldsDirect(taskId, patch, date) });
+        if (resolvedCompletion === PENDING_COMPLETION_DATE) return;
+        if (resolvedCompletion) finalPatch.completionDate = resolvedCompletion;
+        else if (isStatusChange && task.status === 'Done') finalPatch.completionDate = undefined;
+
         const updatedTaskData: Task = syncAssignmentSubtasks({ ...task, ...finalPatch });
         let updatedTasks = baseOpp.tasks.map(t => t.id === taskId ? updatedTaskData : t);
 
@@ -5077,7 +5761,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         let newOpp = { ...baseOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
-        if (isStatusChange && updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId) {
+        const autoSendsBack = isStatusChange && shouldAutoSendBackForApproval(updatedTaskData, baseOpp);
+        if (isStatusChange && updatedTaskData.status === 'Done' && updatedTaskData.reworkForTaskId && !autoSendsBack) {
             const today = getTodayStr();
             newOpp = {
                 ...newOpp,
@@ -5087,12 +5772,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
         newOpp = syncAssignmentKpi(newOpp, updatedTaskData);
         if (isStatusChange && finalPatch.status === 'Done' && updatedTaskData.owner === 'Me') {
-            newOpp = withTenderingWorkedDay(newOpp, updatedTaskData.dueDate || getTodayStr());
+            newOpp = withTenderingWorkedDay(newOpp, updatedTaskData.completionDate || updatedTaskData.dueDate || getTodayStr());
         }
         localOppRef.current = newOpp;
         setLocalOpp(newOpp);
         onUpdate(newOpp);
         if (selectedTaskForEdit?.task.id === taskId) setSelectedTaskForEdit({ task: updatedTaskData });
+        if (autoSendsBack) void sendCorrectionBackForApproval(taskId);
     };
 
     const toggleTaskDoneDirect = (task: Task) => {
@@ -5124,7 +5810,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         });
     };
 
-    const updateTaskInModal = (field: keyof Task, value: any, extraPatch?: Partial<Task>) => {
+    const updateTaskInModal = (field: keyof Task, value: any, extraPatch?: Partial<Task>, completionDate?: string) => {
         if (!selectedTaskForEdit) return;
 
         const baseOpp = localOppRef.current;
@@ -5156,8 +5842,20 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const isMarkingDone = field === 'status'
             && value === 'Done'
             && selectedTaskForEdit.task.status !== 'Done';
+
+        // Confirm the real completion day before committing (see resolveCompletionDate).
+        const resolvedCompletion = resolveCompletionDate({
+            task: selectedTaskForEdit.task,
+            isStatusChange: field === 'status' && value !== selectedTaskForEdit.task.status,
+            nextStatus: field === 'status' ? value : undefined,
+            provided: completionDate,
+            retry: date => updateTaskInModal(field, value, extraPatch, date),
+        });
+        if (resolvedCompletion === PENDING_COMPLETION_DATE) return;
+        const clearsCompletion = field === 'status' && value !== 'Done' && selectedTaskForEdit.task.status === 'Done';
+
         const doneDate = isMarkingDone
-            ? (selectedTaskForEdit.task.dueDate || getTodayStr())
+            ? (resolvedCompletion || selectedTaskForEdit.task.dueDate || getTodayStr())
             : '';
 
         // Optimistically update selected task in modal â€” this is the ONLY update that
@@ -5170,6 +5868,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             ...(isMarkingDone && !selectedTaskForEdit.task.dueDate
                 ? { dueDate: doneDate }
                 : {}),
+            ...(resolvedCompletion ? { completionDate: resolvedCompletion } : {}),
+            ...(clearsCompletion ? { completionDate: undefined } : {}),
         });
         setSelectedTaskForEdit({ task: updatedTaskData });
 
@@ -5200,7 +5900,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // setSelectedTaskForEdit above; the task list + other tabs behind the modal can
         // re-render at low priority without freezing the UI on rapid edits.
         let newOpp = { ...baseOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
-        if (isMarkingDone && updatedTaskData.reworkForTaskId) {
+        const autoSendsBack = isMarkingDone && shouldAutoSendBackForApproval(updatedTaskData, baseOpp);
+        if (isMarkingDone && updatedTaskData.reworkForTaskId && !autoSendsBack) {
             const today = getTodayStr();
             newOpp = {
                 ...newOpp,
@@ -5219,6 +5920,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             setLocalOpp(newOpp);
             onUpdate(newOpp);
         });
+        if (autoSendsBack) void sendCorrectionBackForApproval(updatedTaskData.id);
     };
 
     const deleteTaskInModal = () => {
@@ -5878,7 +6580,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         handleFieldChange('notes', updatedNotes);
     };
 
-    const handleInlineTaskChange = (noteId: string, taskId: string, changes: Partial<InlineTask>) => {
+    const handleInlineTaskChange = (noteId: string, taskId: string, changes: Partial<InlineTask>, completionDate?: string) => {
         const noteIndex = localOpp.notes.findIndex(n => n.id === noteId);
         if (noteIndex === -1) return;
         const note = localOpp.notes[noteIndex];
@@ -5905,6 +6607,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 return;
             }
         }
+
+        // Ticking an inline checkbox completes the linked task too, so it goes through the same
+        // "when did you finish this?" confirmation (see resolveCompletionDate).
+        const linkedForCompletion = updatedTask.linkedTaskId && changes.hasOwnProperty('isDone') && updatedTask.isDone
+            ? localOpp.tasks.find(task => task.id === updatedTask.linkedTaskId)
+            : undefined;
+        const resolvedCompletion = linkedForCompletion
+            ? resolveCompletionDate({
+                task: linkedForCompletion,
+                isStatusChange: linkedForCompletion.status !== 'Done',
+                nextStatus: 'Done',
+                provided: completionDate,
+                retry: date => handleInlineTaskChange(noteId, taskId, changes, date),
+            })
+            : undefined;
+        if (resolvedCompletion === PENDING_COMPLETION_DATE) return;
 
         const newInlineTasks = [...inlineTasks];
         newInlineTasks[taskIndex] = updatedTask;
@@ -5934,9 +6652,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         }
                         if (newStatus === 'Done') {
                             taskUpdates.completedAt = new Date().toISOString();
+                            if (resolvedCompletion) {
+                                taskUpdates.completionDate = resolvedCompletion;
+                                doneDate = resolvedCompletion;
+                            }
                             if (linkedTask.reworkForTaskId && linkedTask.owner === 'External Area') taskUpdates.responsibleDeliveredDate = getTodayStr();
                         } else if (linkedTask.status === 'Done') {
                             taskUpdates.completedAt = undefined;
+                            taskUpdates.completionDate = undefined;
                         }
                     }
                 }
@@ -5955,24 +6678,33 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // mark the heavy setLocalOpp as a transition so React can interrupt the
         // expediente-wide re-render when the user interacts with something else.
         let newOpp = { ...localOpp, notes: updatedNotes, tasks: updatedTasks, lastUpdated: new Date().toISOString() };
+        let autoSendBackTaskId = '';
         if (updatedTask.linkedTaskId && changes.hasOwnProperty('isDone') && updatedTask.isDone) {
             const linkedTask = localOpp.tasks.find(t => t.id === updatedTask.linkedTaskId);
-            newOpp = withTenderingWorkedDay(newOpp, linkedTask?.dueDate || getTodayStr());
+            newOpp = withTenderingWorkedDay(newOpp, resolvedCompletion || linkedTask?.dueDate || getTodayStr());
             if (linkedTask?.reworkForTaskId) {
-                const today = getTodayStr();
-                newOpp = {
-                    ...newOpp,
-                    notes: appendChangeRevisionNoteEvent(newOpp.notes || [], linkedTask.changeRevisionId, 'Correction Completed', `The corrective task "${linkedTask.title}" is ready to send back for approval.`, today),
-                    history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), content: `Correction "${linkedTask.title}" completed; ready to send back for approval.` }, ...(newOpp.history || [])]),
-                };
                 const completedCorrection = newOpp.tasks.find(task => task.id === linkedTask.id);
+                const autoSendsBack = !!completedCorrection && shouldAutoSendBackForApproval(completedCorrection, newOpp);
+                if (autoSendsBack) autoSendBackTaskId = linkedTask.id;
+                else {
+                    const today = getTodayStr();
+                    newOpp = {
+                        ...newOpp,
+                        notes: appendChangeRevisionNoteEvent(newOpp.notes || [], linkedTask.changeRevisionId, 'Correction Completed', `The corrective task "${linkedTask.title}" is ready to send back for approval.`, today),
+                        history: sortHistoryEntries([{ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), content: `Correction "${linkedTask.title}" completed; ready to send back for approval.` }, ...(newOpp.history || [])]),
+                    };
+                }
                 if (completedCorrection) newOpp = syncAssignmentKpi(newOpp, completedCorrection);
             }
         }
+        // sendCorrectionBackForApproval reads localOppRef, so the completed correction has to be
+        // visible there before it runs.
+        localOppRef.current = newOpp;
         React.startTransition(() => {
             setLocalOpp(newOpp);
             onUpdate(newOpp);
         });
+        if (autoSendBackTaskId) void sendCorrectionBackForApproval(autoSendBackTaskId);
     };
 
     const handleCreateLinkedTask = (noteId: string, inlineTask: InlineTask) => {
@@ -6006,6 +6738,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newOpp = { ...localOpp, tasks: updatedTasks, notes: updatedNotes, lastUpdated: new Date().toISOString() };
         setLocalOpp(newOpp);
         onUpdate(newOpp);
+    };
+
+    const createLinkedTaskForNote = (noteId: string) => {
+        const newTask: Task = {
+            id: crypto.randomUUID(), title: 'New note task', description: '', status: 'Pending', priority: 'Medium',
+            owner: 'Me', externalAreas: [], responsible: '', dueDate: getTodayStr(), stageContext: localOpp.stage,
+            subtasks: [], linkedNoteIds: [noteId], order: null, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false
+        };
+        const noteIndex = localOpp.notes.findIndex(note => note.id === noteId);
+        if (noteIndex < 0) return;
+        const note = localOpp.notes[noteIndex];
+        const inlineTask: InlineTask = { id: crypto.randomUUID(), text: newTask.title, isDone: false, linkedTaskId: newTask.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        const notes = [...localOpp.notes];
+        notes[noteIndex] = { ...note, inlineTasks: [...(note.inlineTasks || []), inlineTask] };
+        const updated = { ...localOpp, tasks: [...localOpp.tasks, newTask], notes, lastUpdated: new Date().toISOString() };
+        setLocalOpp(updated);
+        onUpdate(updated);
     };
 
     const handleUnlinkInlineTask = (noteId: string, inlineTask: InlineTask) => {
@@ -6121,6 +6870,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return [...fromStakeholders, ...fromSow].filter(m => !seen.has(m.id) && !!seen.add(m.id));
     }, [localOpp.notes, localOpp.stakeholders]);
 
+    /**
+     * Resolves team-member ids (SOW `name|area` keys or stakeholder ids) to display names.
+     * Falls back to the name embedded in a SOW id so history events never end up empty when a
+     * member was later removed from the SOW note.
+     */
+    const teamMemberNames = (ids?: string[]): string[] => Array.from(new Set((ids || [])
+        .map(id => sowTeamMembers.find(m => m.id === id)?.name || (id.includes('|') ? id.split('|')[0] : ''))
+        .map(name => name.trim())
+        .filter(Boolean)));
+
     useEffect(() => {
         if (!localOpp.kpis) return;
         const normalized = Array.from(new Set(sowTeamMembers.map(m => {
@@ -6165,16 +6924,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return totalWaiting;
     }, [localOpp.kpis?.areasInvolved]);
 
-    const suggestedEffortScore = React.useMemo(() => {
-        if (!localOpp.kpis) return 0;
-        const myDays = myWorkStats.days;
-        const totalWorked = totalAreaDays;
-        const otherTeamsDays = Math.max(0, totalWorked - myDays);
-        const waiting = waitingOnOthersDays;
-        // Formula: My Effort (10pts/day) + Team (5pts/day) - Waiting Penalty (2pts/day)
-        const score = (myDays * 10) + (otherTeamsDays * 5) - (waiting * 2);
-        return Math.min(100, Math.max(0, score));
-    }, [myWorkStats.days, totalAreaDays, waitingOnOthersDays, localOpp.kpis]);
 
     const nextTask = useMemo(() => getNextTask(localOpp.tasks || []), [localOpp.tasks]);
 
@@ -6471,8 +7220,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const handleCreateVersion = async () => {
         if (!newVersionData.commitMessage) return alert("Commit message is required");
-        if (!versionToRestore && taskStandards.length > 1 && !revisionTaskStandardId) {
-            return alert("Selecciona el estándar de tareas para la nueva revisión.");
+        if (!versionToRestore && selectableStandards.length !== 1 && taskStandards.length > 0 && !revisionTaskStandardId) {
+            return alert("Select the task list for the new revision.");
         }
 
         if ((localOpp.versions?.length || 0) >= 10) {
@@ -6536,7 +7285,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             })).filter(link => !!link.url);
             const sourceCustomLinks = JSON.parse(JSON.stringify(normalizedQuickLinks.customLinks)) as QuickLinkItem[];
             const selectedRevisionStandard = taskStandards.find(standard => standard.id === revisionTaskStandardId)
-                || (taskStandards.length === 1 ? taskStandards[0] : undefined);
+                || (selectableStandards.length === 1 ? selectableStandards[0] : undefined);
             const resetOpp: Opportunity = {
                 ...localOpp,
                 revision: nextRev,
@@ -6592,7 +7341,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const selectedNotes = JSON.parse(JSON.stringify(
             revisionCarryoverSource.notes.filter(note => selection.noteIds.includes(note.id))
         )) as MeetingNote[];
-        const selectedDefaultUrls = { ...normalizedQuickLinks.defaultUrls };
+        const selectedDefaultUrls = { ...(revisionCarryoverSource.initialDefaultUrls || normalizedQuickLinks.defaultUrls) };
         revisionCarryoverSource.defaultLinks.forEach(link => {
             if (selection.defaultLinkIds.includes(link.id)) selectedDefaultUrls[link.id as DefaultQuickLinkId] = link.url;
         });
@@ -6607,17 +7356,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         if (Object.keys(updates).length > 0) {
+            const baseOpportunity = revisionCarryoverSource.targetOppId
+                ? (opportunities || []).find(candidate => candidate.id === revisionCarryoverSource.targetOppId)
+                : localOpp;
+            if (!baseOpportunity) return;
             const updated = {
-                ...localOpp,
+                ...baseOpportunity,
                 ...updates,
                 lastUpdated: new Date().toISOString()
             } as Opportunity;
-            setLocalOpp(updated);
-            onUpdate(updated, opportunity.id, true);
+            if (!revisionCarryoverSource.targetOppId) setLocalOpp(updated);
+            onUpdate(updated, revisionCarryoverSource.targetOppId || opportunity.id, true);
         }
 
+        const targetOppId = revisionCarryoverSource.targetOppId;
+        const shouldDeleteCurrent = revisionCarryoverSource.deleteCurrentOppAfterClose;
         setShowRevisionCarryoverModal(false);
         setRevisionCarryoverSource(null);
+        if (shouldDeleteCurrent && targetOppId) {
+            onDelete();
+            onSelectOpp?.(targetOppId);
+        }
     };
 
     const handleRestoreFromSnapshot = (ver: OpportunityVersion) => {
@@ -6637,12 +7396,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         handleFieldChange('versions', updatedVersions, true);
     };
 
-    const handleUpdateSnapshotMeta = (vId: string, updates: Partial<OpportunityVersion>) => {
-        // Exclude snapshot from meta updates â€” snapshots are immutable once created
-        const { snapshot: _ignored, ...safeMeta } = updates as any;
-        const updatedVersions = (localOpp.versions || []).map(v => v.id === vId ? { ...v, ...safeMeta } : v);
-        handleFieldChange('versions', updatedVersions, true);
-    };
 
 
     return (
@@ -6661,25 +7414,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         </div>
                     )}
 
-                    <div className="p-3 border-b border-gray-100 bg-gray-50/50 shrink-0">
+                    <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50/50 shrink-0">
                         <div className="w-full px-4">
-                            <div className="flex flex-col md:flex-row justify-between items-start mb-1 gap-2">
+                            <div className="flex flex-col md:flex-row justify-between items-start mb-0.5 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        onClick={(e) => {
-                                            // Ignore click if the user just finished a text selection drag
-                                            if (window.getSelection()?.toString()) {
-                                                window.getSelection()?.removeAllRanges();
-                                                return;
-                                            }
-                                            if (isSubView && onCloseTab) onCloseTab();
-                                            else onBack();
-                                        }}
-                                        className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"
-                                        title={isSubView ? "Close Tab" : "Back"}
-                                    >
-                                        {isSubView ? <X className="w-5 h-5 text-gray-500" /> : <ArrowLeft className="w-5 h-5 text-gray-500" />}
-                                    </button>
+                                    {!(isSubView && deepLink?.tab === 'tasks') && (
+                                        <button
+                                            onClick={(e) => {
+                                                // Ignore click if the user just finished a text selection drag
+                                                if (window.getSelection()?.toString()) {
+                                                    window.getSelection()?.removeAllRanges();
+                                                    return;
+                                                }
+                                                if (isSubView && onCloseTab) onCloseTab();
+                                                else onBack();
+                                            }}
+                                            className="p-1 hover:bg-gray-200 rounded-lg transition-colors mr-1"
+                                            title={isSubView ? "Close Tab" : "Back"}
+                                        >
+                                            {isSubView ? <X className="w-5 h-5 text-gray-500" /> : <ArrowLeft className="w-5 h-5 text-gray-500" />}
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => {
                                             // Always minimize the whole opportunity expediente by default
@@ -6763,7 +7518,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 <div className="flex justify-between items-center">
                                                                     <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Revision History</h4>
                                                                     <button onClick={() => {
-                                                                        setRevisionTaskStandardId(taskStandards.length === 1 ? taskStandards[0].id : '');
+                                                                        setRevisionTaskStandardId(selectableStandards.length === 1 ? selectableStandards[0].id : '');
+                                                                        setShowHiddenRevisionStandards(selectableStandards.length === 0);
                                                                         setShowCreateVersionModal(true);
                                                                         setShowVersionMenu(false);
                                                                     }} className="text-[10px] bg-green-50 text-green-700 px-2 py-1 rounded border border-green-200 hover:bg-green-100 font-bold flex items-center gap-1">
@@ -6867,27 +7623,28 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                             </div>
 
-                            <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-4 my-1 px-1">
+                            <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-3 my-0.5 px-1">
                                 <div data-tutorial="opp-title" className="flex-1 w-full md:w-auto min-w-[200px]">
-                                    <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <div className="flex items-center gap-2 w-full mt-1">
-                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
+                                    <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-lg font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
+                                    <div className="flex items-center gap-2 w-full">
+                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
                                         {!hiddenHeaderFields.has('address') && (
                                             <>
-                                                <span className="text-gray-300 text-sm">·</span>
-                                                <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                                <span className="text-gray-300 text-xs">·</span>
+                                                <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
+                                            </>
+                                        )}
+                                        {!hiddenHeaderFields.has('seller') && (
+                                            <>
+                                                <span className="text-gray-300 text-xs">·</span>
+                                                <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
                                             </>
                                         )}
                                     </div>
-                                    {!hiddenHeaderFields.has('seller') && (
-                                        <div className="flex items-center gap-2 w-full mt-1">
-                                            <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-sm text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
-                                        </div>
-                                    )}
 
                                     {nextTask && !hiddenHeaderFields.has('nextStep') ? (
                                             <div
-                                                className="mt-2 inline-flex items-center gap-3 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
+                                                className="mt-1 inline-flex items-center gap-2 px-2.5 py-1 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-lg border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
                                                 onClick={() => {
                                                     focusTaskInTasksList(nextTask.id);
                                                 }}
@@ -6905,8 +7662,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         ) : null}
 
-                                    {(!hiddenHeaderFields.has('quoteType') || !hiddenHeaderFields.has('alias')) && (
-                                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                                    {(!hiddenHeaderFields.has('quoteType') || !hiddenHeaderFields.has('labels')) && (
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
                                         {localOpp.quoteType && !hiddenHeaderFields.has('quoteType') && (
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${
                                                 localOpp.quoteType === 'Firm'
@@ -6916,12 +7673,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 {localOpp.quoteType} Proposal
                                             </span>
                                         )}
-                                        {opportunity.alias && !hiddenHeaderFields.has('alias') && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
-                                    </div>
-                                    )}
-
-                                    {!hiddenHeaderFields.has('labels') && (
-                                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                                        {!hiddenHeaderFields.has('labels') && (<>
                                         {(localOpp.labels || []).map(l => (
                                             <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
                                                 {l.text}
@@ -6971,6 +7723,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </>
                                             )}
                                         </div>
+                                        </>)}
                                     </div>
                                     )}
                                 </div>
@@ -7029,7 +7782,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 )}
             </div>
 
-            <div ref={scrollContainerRef} className={`flex-1 ${isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId)) ? 'overflow-hidden' : 'overflow-y-auto'} p-0 md:p-4 bg-gray-50/30 min-h-0`}>
+            <div ref={scrollContainerRef} className={`flex-1 min-h-0 ${isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId)) || activeTab === 'notes' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'} p-0 md:p-4 bg-gray-50/30`}>
                 {(isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId))) ? (
                     <div className="h-full w-full">
                         {/* Only render Task/Note content in isolated mode */}
@@ -7052,12 +7805,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             people={localOpp.stakeholders || []}
                                                             directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                             areas={trackedAreas}
-                                                    prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm' : localOpp.quoteType || '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
+                                                    prefill={sowPrefill}
                                                             globalForm={globalSowForm}
                                                             onGlobalFormChange={onGlobalSowFormChange}
                                                             onOpportunitySync={syncSowOpportunityFields}
                                                             onGeneratedNote={addGeneratedSowNote}
                                                             onQuickLinkRequest={addSowLinkToOverview}
+                                                            tasks={localOpp.tasks}
+                                                            onTaskOpen={openSowTask}
+                                                            onTaskConvert={convertSowTaskToAssignment}
+                                                            onTaskRaciUpdate={updateSowTaskRaci}
+                                                            onTaskCreate={createSowTask}
+                                                            backupKey={sowBackupKey(localOpp.id, currentNote.id)}
+                                                            legacyBackupKey={sowNote?.id === currentNote.id ? legacySowBackupKey(localOpp.id) : undefined}
                                                             disabled={isSnapshot}
                                                             onChange={(json: string) => saveSowContent(currentNote.id, json)}
                                                         />
@@ -7091,7 +7851,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div>
                                                 <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
                                                     {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
                                                     {isSubView && (
                                                         <button
@@ -7107,6 +7866,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => onCloseTab ? onCloseTab() : onBack()}
+                                                className="p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors shrink-0"
+                                                title="Close task sub view"
+                                            >
+                                                <X className="w-5 h-5" />
+                                            </button>
                                             {timerEnabled && <TaskTimerButtonModal task={selectedTaskForEdit.task} oppId={opportunity.id} />}
                                             <button
                                                 onClick={() => openEmailCompose(emailKindForTask(selectedTaskForEdit.task), [selectedTaskForEdit.task.id])}
@@ -7173,11 +7939,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                                 <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
+                                                {selectedTaskForEdit.task.status === 'Done' && selectedTaskForEdit.task.completionDate && (
+                                                    <p className={`text-[10px] font-black uppercase tracking-widest px-1 ${selectedTaskForEdit.task.completionDate > (selectedTaskForEdit.task.dueDate || '') ? 'text-orange-500' : 'text-emerald-600'}`}>
+                                                        Finished {selectedTaskForEdit.task.completionDate}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
 
                                         <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
-                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">{selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework' ? 'Approval' : 'Assignment'}</label>
+                                            {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' && <>
                                             <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area' } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                             <div className="flex gap-4 items-center">
                                                 <select className="border-gray-200 rounded-lg text-sm bg-white font-bold p-2" value={selectedTaskForEdit.task.owner} onChange={(e) => updateTaskInModal('owner', e.target.value)} >
@@ -7213,8 +7985,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                             )}
-                                            {selectedTaskForEdit.task.isAssignment && <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-200 pt-3">
+                                            </>}
+                                            {(selectedTaskForEdit.task.isAssignment || selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework') && <div className={`${selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework' ? '' : 'mt-3 border-t border-gray-200 pt-3'} grid grid-cols-1 md:grid-cols-2 gap-3`}>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids, ids.length > 0 ? { isAssignment: true } : {})} /></div>
+                                                {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' && <>
                                                 <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
                                                 <details className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-2">
                                                     <summary className="cursor-pointer text-[9px] font-black uppercase text-gray-500">Advanced automatic date correction</summary>
@@ -7226,8 +8000,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         </>}
                                                     </div>
                                                 </details>
+                                                </>}
                                                 {(selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Done') && !selectedTaskForEdit.task.reworkForTaskId && <button type="button" onClick={() => requestApprovalChanges(selectedTaskForEdit.task.id)} className="md:col-span-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-black text-orange-700 hover:bg-orange-100"><GitPullRequest className="mr-1.5 inline h-4 w-4" /> Create Change Revision</button>}
+                                                {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' &&
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                                }
                                             </div>}
                                         </div>
 
@@ -7412,7 +8189,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         )}
                     </div>
                 ) : (
-                    <div className="w-full px-2 md:px-6">
+                    <div className={activeTab === 'notes' ? 'w-full h-full min-h-0 flex flex-col' : 'w-full px-2 md:px-6'}>
                         {activeTab === 'overview' && (
                             <>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -7536,7 +8313,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
                                 </div>
-                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 h-[420px] overflow-hidden">
+                                {/* No fixed height: the grid stretches this card to match the left column. */}
+                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 min-h-[420px] overflow-hidden">
                                     {/* Title + action buttons always at top */}
                                     <div className="flex justify-between items-center shrink-0">
                                         <h3 className="text-sm font-semibold">Quick Links</h3>
@@ -7557,21 +8335,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 onClick={() => {
                                                     addQuickLinkItem({ id: crypto.randomUUID(), type: 'separator', label: '---' });
                                                 }}
-                                                className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add Separator"
+                                                className="px-1.5 py-1 text-[10px] font-bold leading-none hover:bg-gray-100 rounded text-gray-500" title="Add Line"
                                             >
-                                                <Minus className="w-4 h-4" />
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    const views = ['overview', 'kpi', 'presentation', 'history', 'tasks', 'commercial', 'notes', 'folder'];
-                                                    const view = prompt(`Enter view name (${views.join(', ')}):`);
-                                                    if (view && views.includes(view.toLowerCase())) {
-                                                        addQuickLinkItem({ id: crypto.randomUUID(), type: 'view', label: `View: ${view.toUpperCase()}`, url: view.toLowerCase() });
-                                                    }
-                                                }}
-                                                className="p-1 hover:bg-gray-100 rounded text-gray-500" title="Add View Link"
-                                            >
-                                                <Layout className="w-4 h-4" />
+                                                Line
                                             </button>
                                             <button
                                                 onClick={() => {
@@ -8077,6 +8843,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <FullCalendarModal
                                 areas={localOpp.kpis?.areasInvolved || []}
                                 tasks={localOpp.tasks || []}
+                                stakeholders={localOpp.stakeholders || []}
+                                userName={userName}
                                 holidays={holidays}
                                 history={localOpp.history}
                                 onSaveAreaCalendar={handleSaveAreaCalendar}
@@ -8086,6 +8854,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
                                 onDeleteHistory={deleteHistoryEntry}
                                 onClose={() => setShowFullCalendar(false)}
+                                onOpenTask={(taskId) => {
+                                    const task = localOpp.tasks.find(item => item.id === taskId);
+                                    if (!task) return;
+                                    setShowFullCalendar(false);
+                                    setActiveTabSafe('tasks');
+                                    setSelectedTaskForEdit({ task });
+                                }}
                                 trackedAreas={trackedAreas || []}
                                 timeline={localOpp.kpis?.timeline || { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }}
                                 onUpdateTimeline={(field, val) => updateKpiField('timeline', { ...localOpp.kpis?.timeline, [field]: val })}
@@ -8447,15 +9222,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 )}
                                             </div>
                                         </div>
-                                        {commercialCqaLinkVisible && normalizedQuickLinks.defaultUrls.cqaLink && (
+                                        {commercialCqaLinkVisible && commercialCqaUrl && (
                                             <div className="flex items-center justify-between gap-3 rounded-lg border border-[#3DCD58]/30 bg-[#3DCD58]/5 px-4 py-2.5 mb-4">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <LinkIcon className="w-4 h-4 text-[#3DCD58] shrink-0" />
                                                     <span className="text-xs font-bold text-gray-700 shrink-0">CQA:</span>
-                                                    <span className="text-xs text-gray-500 truncate">{normalizedQuickLinks.defaultUrls.cqaLink}</span>
+                                                    <span className="text-xs text-gray-500 truncate">{commercialCqaUrl}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 shrink-0">
-                                                    <button onClick={() => window.open(normalizedQuickLinks.defaultUrls.cqaLink, '_blank', 'noopener,noreferrer')} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">Open CQA</button>
+                                                    <button onClick={() => window.open(commercialCqaUrl, '_blank', 'noopener,noreferrer')} className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors">Open CQA</button>
                                                     {onHideCommercialCqaLink && (
                                                         <button onClick={onHideCommercialCqaLink} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-white rounded-lg transition-colors" title="Hide this link (re-enable in Settings > Expediente > Commercial Tab)">
                                                             <EyeOff className="w-3.5 h-3.5" />
@@ -8464,7 +9239,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </div>
                                             </div>
                                         )}
-                                        {!commercialCqaLinkVisible && normalizedQuickLinks.defaultUrls.cqaLink && onShowCommercialCqaLink && (
+                                        {!commercialCqaUrl && !hiddenQuickLinkIds.has('cqaLink') && (
+                                            <div className="flex items-center justify-between gap-3 rounded-lg border border-[#3DCD58]/30 bg-[#3DCD58]/5 px-4 py-2.5 mb-4">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <LinkIcon className="w-4 h-4 text-[#3DCD58] shrink-0" />
+                                                    <span className="text-xs font-bold text-gray-700">No CQA link has been added yet.</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => window.open('https://cqaweb.se.com/', '_blank', 'noopener,noreferrer')}
+                                                    className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors shrink-0"
+                                                >
+                                                    Create CQA
+                                                </button>
+                                            </div>
+                                        )}
+                                        {!commercialCqaLinkVisible && commercialCqaUrl && onShowCommercialCqaLink && (
                                             <button
                                                 onClick={onShowCommercialCqaLink}
                                                 className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 hover:text-[#3DCD58] uppercase mb-4 px-1"
@@ -8818,16 +9607,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         })()}
 
                         {activeTab === 'folder' && (
-                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} isSnapshot={isSnapshot} onPathChange={setCurrentFolderPath} />
+                            <OpportunityFolderTab opportunityId={opportunity.id} opportunity={localOpp} onUpdate={onUpdate} initialFileKey={folderNavTarget || undefined} isSnapshot={isSnapshot} onPathChange={setCurrentFolderPath} onSelectionChange={setSelectedFolderEntryPath} />
                         )}
 
                         {activeTab === 'notes' && (
-                            <div className={`flex min-h-0 gap-6 overflow-hidden ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : 'h-[calc(100vh-190px)]'}`}>
+                            <div className={`${!isNoteFullScreen && !sowNavigationOpen ? 'grid grid-cols-[280px_minmax(0,1fr)]' : 'flex'} flex-1 min-h-0 gap-6 overflow-hidden ${isNoteFullScreen ? 'fixed inset-0 z-50 bg-white p-6' : ''}`}>
                                 {!isNoteFullScreen && !sowNavigationOpen && (
                                     /* SCROLL PERF: overscroll-contain stops the wheel from chaining into the
                                        expediente's own scroll container once this list hits its end - that
                                        chaining is what made scrolling here feel sticky/laggy. */
-                                    <div className="w-[280px] shrink-0 flex flex-col gap-3 overflow-y-auto overflow-x-hidden overscroll-contain border-r border-gray-100 pr-4">
+                                    <div className="min-h-0 flex flex-col gap-3 overflow-hidden border-r border-gray-100 pr-4">
                                         {/* Search Bar for Notes */}
                                         <div className="relative mb-1">
                                             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -8838,6 +9627,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-lg focus:ring-[#3DCD58] focus:border-[#3DCD58]"
                                             />
                                         </div>
+
+                                        {/* Everything except search belongs to the scrollable navigation area. */}
+                                        <div className="h-0 min-h-0 flex-1 overflow-y-scroll overflow-x-hidden overscroll-contain pr-1" style={{ scrollbarGutter: 'stable' }}>
 
                                         <div className="grid grid-cols-2 gap-2 mb-2">
                                             {noteTemplates.map(tmpl => (
@@ -8854,6 +9646,26 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <button onClick={() => addFolder()} className="p-3 bg-gray-50 hover:bg-amber-50 border border-gray-200 rounded-lg text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all text-amber-600"><FolderPlus className="w-3 h-3" /> Folder</button>
                                         </div>
                                         {stakeholdersSectionEnabled && renderTeamPanelButton()}
+                                        {false && isNoteTasksExpanded && currentNote && (
+                                            <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/50 p-2 space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-700"><CheckSquare className="w-3.5 h-3.5" /> Linked tasks</span>
+                                                    <div className="flex items-center gap-1">
+                                                        <button onClick={() => createLinkedTaskForNote(currentNote.id)} className="p-1 text-blue-600 hover:bg-blue-100 rounded" title="Create linked task"><Plus className="w-3.5 h-3.5" /></button>
+                                                        <button onClick={() => setIsNoteTasksExpanded(false)} className="p-1 text-gray-400 hover:bg-white rounded" title="Close"><X className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                </div>
+                                                {getLinkedTasksForNote(currentNote.id).length ? getLinkedTasksForNote(currentNote.id).map(task => (
+                                                    <div key={task.id} className="rounded bg-white border border-blue-100 px-2 py-1.5">
+                                                        <p className="text-xs font-bold text-gray-700 truncate" title={task.title}>{task.title}</p>
+                                                        <div className="mt-1 flex gap-2">
+                                                            <button onClick={() => { setActiveTabSafe('tasks'); setSelectedTaskForEdit({ task }); }} className="text-[10px] font-bold text-blue-600 hover:underline">Open</button>
+                                                            <button onClick={() => handleOpenSplitView(task, currentNote.id)} className="text-[10px] font-bold text-blue-600 hover:underline">Split</button>
+                                                        </div>
+                                                    </div>
+                                                )) : <p className="text-[11px] text-gray-400">No linked tasks yet.</p>}
+                                            </div>
+                                        )}
                                         {filteredNotes.length === 0 && searchTerm && (
                                             <div className="text-center text-gray-400 text-xs py-4">No notes found matching "{searchTerm}"</div>
                                         )}
@@ -8882,6 +9694,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 if (list) list.push(item); else map.set(key, [item]);
                                             };
                                             localOpp.notes.forEach(n => {
+                                                if (n.hidden) return;
                                                 if (n.parentId) pushInto(childNotesByParent, n.parentId, n);
                                                 else if (n.folderId) pushInto(rootNotesByFolder, n.folderId, n);
                                                 else rootNotesNoFolder.push(n);
@@ -8952,6 +9765,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             )}
                                                             <div className="absolute top-1.5 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <button onClick={(e) => { e.stopPropagation(); addNote(undefined, undefined, note.id, note.folderId); }} className="p-1 text-gray-300 hover:text-[#3DCD58]" title="Add sub-note"><Plus className="w-3 h-3" /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); setNoteHidden(note.id, true); }} className="p-1 text-gray-300 hover:text-blue-500" title="Hide from this list (keeps all its content)"><EyeOff className="w-3 h-3" /></button>
                                                                 <button onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }} className="p-1 text-gray-300 hover:text-red-500" title="Delete"><Trash2 className="w-3 h-3" /></button>
                                                             </div>
                                                         </div>
@@ -9042,21 +9856,49 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </div>
                                             );
                                         })()}
+                                        {hiddenNotes.length > 0 && (
+                                            <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+                                                <div className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">
+                                                    <EyeOff className="w-3 h-3" /> Hidden ({hiddenNotes.length})
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    {hiddenNotes.map(note => (
+                                                        <div key={note.id} className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-gray-50 border border-gray-100">
+                                                            <span className="flex-1 text-[11px] font-bold text-gray-400 truncate" title={note.title}>{note.title}</span>
+                                                            <button onClick={() => setNoteHidden(note.id, false)} className="p-1 text-gray-400 hover:text-[#3DCD58]" title="Show again in the list"><Eye className="w-3 h-3" /></button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <p className="text-[10px] text-gray-300 mt-1.5 italic leading-snug">Hidden notes keep every answer &mdash; a hidden SOW still feeds the Overview Scope button.</p>
+                                            </div>
+                                        )}
+                                        </div>
                                     </div>
                                 )}
                                 {/* min-w-0: without it this flex child can grow past the panel when a
                                     note holds a wide table/image, which pushed the whole expediente into
                                     a horizontal scroll instead of scrolling inside the editor. */}
-                                <div className={`flex-1 flex flex-col gap-4 min-h-0 min-w-0 bg-white overflow-hidden ${currentNote?.format === 'sow' ? '' : 'rounded-xl border border-gray-200 shadow-sm'}`}>
+                                <div className={`flex-1 min-h-0 min-w-0 flex flex-col gap-0 bg-white overflow-hidden ${currentNote?.format === 'sow' ? '' : 'rounded-xl border border-gray-200 shadow-sm'}`}>
                                     {teamPanelOpen ? (
                                         renderOpportunityTeamPanel()
                                     ) : currentNote ? (
                                         <>
-                                            {currentNote.format !== 'sow' && <div className="p-4 border-b border-gray-100 flex flex-col gap-2 bg-gray-50 shrink-0">
-                                                <div className="flex justify-between items-center">
-                                                    <NoteTitleInput value={currentNote.title} onCommit={(val) => updateSelectedNote('title', val)} className="font-black text-lg bg-transparent border-none focus:ring-0 text-gray-800 flex-1 px-0" placeholder="Note Title" />
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                                            {/* SOW notes render the guided form full-bleed, so instead of floating a button
+                                                over the iframe they get this slim bar: it sits above the content and never
+                                                covers a question. */}
+                                            {currentNote.format === 'sow' && (
+                                                <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 shrink-0">
+                                                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest truncate">{currentNote.title}</span>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button onClick={() => setNoteHidden(currentNote.id, true)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors" title="Hide the SOW from the notes list (keeps every answer)"><EyeOff className="w-4 h-4 text-gray-500" /></button>
+                                                        <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors" title={isNoteFullScreen ? 'Exit full screen' : 'Full screen'}>{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {currentNote.format !== 'sow' && <div className="p-2 border-b border-gray-100 flex items-center gap-2 bg-gray-50 shrink-0">
+                                                <div className="flex min-w-0 flex-1 items-center gap-2">
+                                                    <NoteTitleInput value={currentNote.title} onCommit={(val) => updateSelectedNote('title', val)} className="font-black text-base bg-transparent border-none focus:ring-0 text-gray-800 flex-1 min-w-0 px-0 truncate" placeholder="Note Title" />
+                                                    <div className="flex shrink-0 items-center gap-1 px-2 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">
                                                             <CalendarIcon className="w-3.5 h-3.5 text-gray-400" />
                                                             <input
                                                                 type="date"
@@ -9066,8 +9908,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             />
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
+                                                <div className="flex shrink-0 items-center gap-1">
                                                     <button
                                                         onClick={() => {
                                                             onMinimize?.({
@@ -9079,7 +9920,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             });
                                                             setSelectedNoteIdSafe(null);
                                                         }}
-                                                        className="p-2 hover:bg-gray-200 rounded-lg transition-colors mr-1"
+                                                        className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
                                                         title="Minimize note"
                                                     >
                                                         <Minus className="w-4 h-4 text-gray-400" />
@@ -9094,31 +9935,71 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             onAdd={(r) => onAddReminder?.(r)}
                                                         />
                                                     )}
-                                                    {currentNote.format !== 'sow' && <button onClick={() => handleExportNotePDF(currentNote)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>}
-                                                    <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
+                                                    {currentNote.format !== 'sow' && <button onClick={() => handleExportNotePDF(currentNote)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors" title="Download Note PDF"><FileDown className="w-4 h-4 text-gray-500" /></button>}
+                                                    <button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-500" /> : <Maximize2 className="w-4 h-4 text-gray-500" />}</button>
                                                 </div>
                                             </div>}
                                             {/* Editor Container with Vertical Flex */}
-                                            <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+                                            <div className="flex-1 flex flex-col min-h-0 min-w-0 relative overflow-hidden">
+                                                {isNoteTasksExpanded && currentNote && (
+                                                    <div className="absolute inset-0 z-20">
+                                                        <button type="button" onClick={() => setIsNoteTasksExpanded(false)} className="absolute inset-y-0 left-0 right-[min(26rem,92%)] cursor-text bg-transparent" aria-label="Return to note" title="Return to note" />
+                                                    <aside className="absolute inset-y-0 right-0 flex w-[min(26rem,92%)] flex-col border-l border-gray-200 bg-white shadow-[-12px_0_28px_rgba(15,23,42,0.12)]">
+                                                        <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-blue-50 px-4 py-3 shrink-0">
+                                                            <div className="min-w-0">
+                                                                <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Note module</p>
+                                                                <h3 className="truncate text-sm font-black text-gray-800">Linked tasks</h3>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <button onClick={() => createLinkedTaskForNote(currentNote.id)} className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Create</button>
+                                                                <button onClick={() => setIsNoteTasksExpanded(false)} className="p-1.5 text-gray-400 hover:bg-white hover:text-gray-700 rounded" title="Close tasks"><X className="w-5 h-5" /></button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-2">
+                                                            {getLinkedTasksForNote(currentNote.id).length ? getLinkedTasksForNote(currentNote.id).map(task => (
+                                                                <div key={task.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                                                                    <div className="flex items-start justify-between gap-3">
+                                                                        <div className="min-w-0">
+                                                                            <p className="truncate text-sm font-bold text-gray-800">{task.title}</p>
+                                                                            <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase ${TASK_STATUS_COLORS[task.status as TaskStatus]}`}>{task.status}</span>
+                                                                        </div>
+                                                                        <div className="flex shrink-0 gap-1">
+                                                                            <button onClick={() => { setActiveTabSafe('tasks'); setSelectedTaskForEdit({ task }); }} className="rounded px-2 py-1 text-[10px] font-bold text-blue-600 hover:bg-blue-50">Open</button>
+                                                                            <button onClick={() => handleOpenSplitView(task, currentNote.id)} className="rounded px-2 py-1 text-[10px] font-bold text-blue-600 hover:bg-blue-50">Split</button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )) : <div className="py-12 text-center text-sm text-gray-400">There are no tasks linked to this note yet.</div>}
+                                                        </div>
+                                                    </aside>
+                                                    </div>
+                                                )}
                                                 {currentNote.format === 'sow' ? (
-                                                    <><button onClick={() => setIsNoteFullScreen(!isNoteFullScreen)} className="absolute left-3 bottom-3 z-10 p-2 bg-white/90 border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50" title={isNoteFullScreen ? 'Exit full screen' : 'Full screen'}>{isNoteFullScreen ? <Minimize2 className="w-4 h-4 text-gray-600" /> : <Maximize2 className="w-4 h-4 text-gray-600" />}</button><SowFormEmbed
+                                                    <SowFormEmbed
                                                         key={currentNote.id}
                                                         content={currentNote.content}
                                                         people={localOpp.stakeholders || []}
                                                         directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                         areas={trackedAreas}
-                                                        prefill={{ op_id: localOpp.id, op_name: localOpp.title, alias: localOpp.alias || '', sr_qlk: localOpp.qlk || '', customer: localOpp.customer, team_cse: localOpp.seller || '', site: localOpp.customerAddress || '', objective: localOpp.description || '', proposal_type: localOpp.quoteType === 'Firm' ? 'Firm' : localOpp.quoteType || '', flow_B001: localOpp.id, flow_B002: localOpp.alias || '', flow_B003: localOpp.customer, flow_B004: localOpp.dates?.expected || '', flow_B006: localOpp.seller || '', flow_B007: localOpp.customerAddress || '', flow_C012: String(localOpp.commercial?.cqaOfficialSellPrice ?? ''), flow_C013: String(localOpp.commercial?.cqaOfficialMargin ?? ''), flow_C014: localOpp.commercial?.discountsAndNotes || '' }}
+                                                        prefill={sowPrefill}
                                                         globalForm={globalSowForm}
                                                         onGlobalFormChange={onGlobalSowFormChange}
                                                         onSellerMissing={(name) => {
                                                             if (window.confirm(`"${name}" is not in the contact directory. Do you want to create or link a contact now? You can skip this and resolve it later in Stakeholders.`)) createContactAndInvolve(name);
                                                         }}
                                                         onNavigationOpenChange={setSowNavigationOpen}
+                                                        backupKey={sowBackupKey(localOpp.id, currentNote.id)}
+                                                        legacyBackupKey={sowNote?.id === currentNote.id ? legacySowBackupKey(localOpp.id) : undefined}
                                                         onOpportunitySync={syncSowOpportunityFields}
                                                         onGeneratedNote={addGeneratedSowNote}
                                                         onQuickLinkRequest={addSowLinkToOverview}
+                                                        tasks={localOpp.tasks}
+                                                        onTaskOpen={openSowTask}
+                                                        onTaskConvert={convertSowTaskToAssignment}
+                                                        onTaskRaciUpdate={updateSowTaskRaci}
+                                                        onTaskCreate={createSowTask}
                                                         onChange={(json: string) => saveSowContent(currentNote.id, json)}
-                                                    /></>
+                                                    />
                                                 ) : (
                                                     <NoteEditorWrapper
                                                         key={currentNote.id}
@@ -9126,23 +10007,26 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         initialContent={activeNoteHtml}
                                                         onChange={(val: string) => updateSelectedNote('content', val)}
                                                         onAttach={() => setShowDocPicker({ type: 'note', id: currentNote.id })}
+                                                        onToggleLinkedTasks={() => setIsNoteTasksExpanded(value => !value)}
                                                         mentionOptions={localOpp.stakeholders || []}
                                                     />
                                                 )}
 
                                                 {/* Tasks in this note section â€” not applicable to the embedded SOW form */}
-                                                {currentNote.format !== 'sow' && <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0 flex flex-col max-h-[300px]">
-                                                    <div className="px-6 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0">
-                                                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">Tasks in this note</h3>
-                                                        <button
+                                                {false && currentNote.format !== 'sow' && <div className="border-t border-gray-100 bg-gray-50 flex-shrink-0">
+                                                    <div className="px-4 py-2 flex justify-between items-center bg-white">
+                                                        <button type="button" onClick={() => setIsNoteTasksExpanded(value => !value)} className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-gray-800">
+                                                            {isNoteTasksExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />} Tasks in this note ({(currentNote.inlineTasks || []).length})
+                                                        </button>
+                                                        {isNoteTasksExpanded && <button
                                                             onClick={() => handleAddInlineTask(currentNote.id)}
                                                             disabled={!currentNote}
                                                             className="text-xs flex items-center gap-1 font-bold text-[#3DCD58] hover:bg-[#3DCD58]/10 px-2 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             <Plus className="w-3 h-3" /> Add task
-                                                        </button>
+                                                        </button>}
                                                     </div>
-                                                    <div className="overflow-y-auto overscroll-contain p-4 space-y-2">
+                                                    {isNoteTasksExpanded && <div className="max-h-[260px] overflow-y-auto overscroll-contain p-4 space-y-2 border-t border-gray-200">
                                                         {(currentNote.inlineTasks || []).length === 0 && (
                                                             <div className="text-center text-gray-400 text-xs italic py-2">No tasks in this note. Add one to track actions.</div>
                                                         )}
@@ -9197,7 +10081,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 </div>
                                                             );
                                                         })}
-                                                    </div>
+                                                    </div>}
                                                 </div>}
                                             </div>
 
@@ -9762,15 +10646,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         >
                             {/* Left Column (Task Editor) */}
                             <div className="flex flex-col h-full overflow-y-auto pr-2">
-                                <div className="flex justify-between items-start mb-8 shrink-0">
+                                <div className="flex justify-between items-start mb-6 shrink-0">
                                     <div className="flex items-center gap-4">
                                         <div className={`p-3 rounded-2xl shadow-sm ${TASK_STATUS_COLORS[selectedTaskForEdit.task.status]}`}><ListChecks className="w-6 h-6" /></div>
-                                        <div>
+                                        <div className="flex items-center gap-2">
                                             <h2 className="text-2xl font-black text-gray-900">Task Detail</h2>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{selectedTaskForEdit.task.id}</p>
-                                                {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
-                                            </div>
+                                            {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
                                         </div>
                                     </div>
                                     <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
@@ -9846,11 +10727,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </div>
                                             </div>
                                             <input type="date" className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 focus:bg-white transition-all" value={selectedTaskForEdit.task.dueDate} onChange={(e) => updateTaskInModal('dueDate', e.target.value)} />
+                                            {selectedTaskForEdit.task.status === 'Done' && selectedTaskForEdit.task.completionDate && (
+                                                <p className={`text-[10px] font-black uppercase tracking-widest px-1 ${selectedTaskForEdit.task.completionDate > (selectedTaskForEdit.task.dueDate || '') ? 'text-orange-500' : 'text-emerald-600'}`}>
+                                                    Finished {selectedTaskForEdit.task.completionDate}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
 
                                     <div className="p-4 border border-gray-100 rounded-2xl bg-gray-50/50">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Assignment</label>
+                                        <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">{selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework' ? 'Approval' : 'Assignment'}</label>
+                                        {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' && <>
                                         <label className="flex items-center gap-2 mb-3 text-xs font-bold text-gray-600"><input type="checkbox" checked={selectedTaskForEdit.task.isAssignment || false} onChange={e => updateTaskInModal('isAssignment', e.target.checked, e.target.checked ? { owner: 'External Area' } : {})} className="rounded text-[#3DCD58]" /> Track as assignment</label>
                                         <div className="flex gap-4 items-center">
                                             <select
@@ -9889,8 +10776,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 </div>
                                             </div>
                                         )}
-                                        {selectedTaskForEdit.task.isAssignment && <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-200 pt-3">
+                                        </>}
+                                        {(selectedTaskForEdit.task.isAssignment || selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework') && <div className={`${selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Changes Requested / Rework' ? '' : 'mt-3 border-t border-gray-200 pt-3'} grid grid-cols-1 md:grid-cols-2 gap-3`}>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Approvers</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.approverTeamMemberIds || []} onChange={ids => updateTaskInModal('approverTeamMemberIds', ids, ids.length > 0 ? { isAssignment: true } : {})} /></div>
+                                            {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' && <>
                                             <div><label className="text-[9px] font-bold text-gray-500 uppercase">Informed (CC)</label><ResponsibleTeamPicker options={sowTeamMembers} onCreate={(name) => { createContactAndInvolve(name); return undefined; }} selected={selectedTaskForEdit.task.informedTeamMemberIds || []} onChange={ids => updateTaskInModal('informedTeamMemberIds', ids)} /></div>
                                             <details className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-2">
                                                 <summary className="cursor-pointer text-[9px] font-black uppercase text-gray-500">Advanced automatic date correction</summary>
@@ -9902,8 +10791,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </>}
                                                 </div>
                                             </details>
+                                            </>}
                                             {(selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Done') && !selectedTaskForEdit.task.reworkForTaskId && <button type="button" onClick={() => requestApprovalChanges(selectedTaskForEdit.task.id)} className="md:col-span-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-black text-orange-700 hover:bg-orange-100"><GitPullRequest className="mr-1.5 inline h-4 w-4" /> Create Change Revision</button>}
+                                            {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' &&
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
+                                            }
                                         </div>}
                                     </div>
 
@@ -10231,6 +11123,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             }
 
             {
+                completionPrompt && (
+                    <CompletionDateModal
+                        taskTitle={completionPrompt.taskTitle}
+                        dueDate={completionPrompt.dueDate}
+                        onCancel={() => setCompletionPrompt(null)}
+                        onConfirm={(date) => {
+                            const { onPick } = completionPrompt;
+                            setCompletionPrompt(null);
+                            onPick(date);
+                        }}
+                    />
+                )
+            }
+
+            {
                 changeRevisionTaskId && (
                     <ChangeRevisionModal
                         opportunityId={opportunity.id}
@@ -10503,10 +11410,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                                 {!versionToRestore && taskStandards.length > 0 && (
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Estándar de tareas *</label>
-                                        {taskStandards.length === 1 ? (
+                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Task list *</label>
+                                        {selectableStandards.length === 1 ? (
                                             <div className="w-full border border-gray-200 bg-gray-50 rounded-lg text-sm px-3 py-2">
-                                                {taskStandards[0].name} ({taskStandards[0].tasks.length} tareas)
+                                                {selectableStandards[0].name} ({selectableStandards[0].tasks.length} tasks)
                                             </div>
                                         ) : (
                                             <select
@@ -10514,11 +11421,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 onChange={e => setRevisionTaskStandardId(e.target.value)}
                                                 className="w-full border-gray-200 rounded-lg text-sm"
                                             >
-                                                <option value="">Seleccionar…</option>
-                                                {taskStandards.map(standard => (
-                                                    <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length} tareas)</option>
+                                                <option value="">Select…</option>
+                                                {(showHiddenRevisionStandards ? taskStandards : selectableStandards).map(standard => (
+                                                    <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length} tasks){standard.hidden ? ' — hidden' : ''}</option>
                                                 ))}
                                             </select>
+                                        )}
+                                        {hasHiddenStandards && selectableStandards.length !== 1 && (
+                                            <label className="flex items-center gap-2 mt-2 text-[11px] text-gray-500 cursor-pointer select-none w-fit">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={showHiddenRevisionStandards}
+                                                    onChange={e => {
+                                                        setShowHiddenRevisionStandards(e.target.checked);
+                                                        if (!e.target.checked && !selectableStandards.some(standard => standard.id === revisionTaskStandardId)) {
+                                                            setRevisionTaskStandardId('');
+                                                        }
+                                                    }}
+                                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                />
+                                                Show hidden lists
+                                            </label>
                                         )}
                                     </div>
                                 )}
@@ -10527,7 +11450,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                                 <div className="flex gap-2 justify-end mt-2">
                                     <button onClick={() => { setShowCreateVersionModal(false); setVersionToRestore(null); }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
-                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage || (!versionToRestore && taskStandards.length > 1 && !revisionTaskStandardId)} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
+                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage || (!versionToRestore && taskStandards.length > 0 && selectableStandards.length !== 1 && !revisionTaskStandardId)} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
                                         {versionToRestore ? `Confirm Restore` : `Create Revision`}
                                     </button>
                                 </div>
@@ -10584,6 +11507,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         currentOppId={localOpp.id}
                         existingOpps={(opportunities || []).map(o => ({ id: o.id, title: o.title, srId: o.srId }))}
                         currentRequestedDate={localOpp.dates.requested || getTodayStr()}
+                        taskStandards={taskStandards.map(standard => ({ id: standard.id, name: standard.name, taskCount: standard.tasks.length }))}
                         onApply={applySrPrefill}
                     />
                 )
@@ -10592,7 +11516,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 showRevisionCarryoverModal && revisionCarryoverSource && (
                     <RevisionCarryoverModal
                         isOpen={showRevisionCarryoverModal}
-                        onClose={() => { setShowRevisionCarryoverModal(false); setRevisionCarryoverSource(null); }}
+                        onClose={() => {
+                            const targetOppId = revisionCarryoverSource.targetOppId;
+                            const shouldDeleteCurrent = revisionCarryoverSource.deleteCurrentOppAfterClose;
+                            setShowRevisionCarryoverModal(false);
+                            setRevisionCarryoverSource(null);
+                            if (shouldDeleteCurrent && targetOppId) {
+                                onDelete();
+                                onSelectOpp?.(targetOppId);
+                            }
+                        }}
                         sourceLabel={revisionCarryoverSource.sourceLabel}
                         notes={revisionCarryoverSource.notes}
                         defaultLinks={revisionCarryoverSource.defaultLinks}

@@ -119,7 +119,12 @@ if not exist "node_modules\.bin\vite.cmd" (
 
 if "%MODE%"=="INSTALL" (
     echo [4/5] Creating desktop and Start Menu shortcuts... 1 step remaining.
-    echo [OK] Shortcuts were created by the installer.
+    REM This is the compatibility path for machines that block .vbs/.hta, so
+    REM shortcuts point at OPEN_OPPORTUNITYOS.bat and DESINSTALAR_OPPORTUNITYOS.bat
+    REM directly instead of the .vbs launchers used by the HTA installer's
+    REM shortcuts. Re-running this after the folder moves self-heals the
+    REM target path, since re-saving a shortcut with the same name replaces it.
+    powershell.exe -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; try { $shell = New-Object -ComObject WScript.Shell; $root = '%~dp0'.TrimEnd('\'); $desktop = $shell.SpecialFolders('Desktop'); $startMenu = Join-Path $shell.SpecialFolders('Programs') 'OpportunityOS'; if (-not (Test-Path $startMenu)) { New-Item -ItemType Directory -Path $startMenu -Force | Out-Null }; $icon = Join-Path $root 'opportunityos.ico'; $s1 = $shell.CreateShortcut((Join-Path $desktop 'OpportunityOS.lnk')); $s1.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s1.WorkingDirectory = $root; $s1.WindowStyle = 7; $s1.IconLocation = $icon + ',0'; $s1.Description = 'Open OpportunityOS'; $s1.Save(); $s2 = $shell.CreateShortcut((Join-Path $startMenu 'OpportunityOS.lnk')); $s2.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s2.WorkingDirectory = $root; $s2.WindowStyle = 7; $s2.IconLocation = $icon + ',0'; $s2.Description = 'Open OpportunityOS'; $s2.Hotkey = 'CTRL+ALT+O'; $s2.Save(); $s3 = $shell.CreateShortcut((Join-Path $startMenu 'Uninstall OpportunityOS.lnk')); $s3.TargetPath = Join-Path $root 'DESINSTALAR_OPPORTUNITYOS.bat'; $s3.WorkingDirectory = $root; $s3.IconLocation = '%SystemRoot%\System32\shell32.dll,-131'; $s3.Description = 'Uninstall OpportunityOS'; $s3.Save(); Write-Output '[OK] Shortcuts created. Ctrl+Alt+O opens OpportunityOS.' } catch { Write-Output ('[WARN] Could not create shortcuts: ' + $_.Exception.Message) }"
     echo [5/5] Setup complete. 0 steps remaining.
     echo.
     choice /c OC /n /m "Press O to Open app, or C to Close installer: "

@@ -5,7 +5,7 @@ import {
     sortBlocks,
     formatBlockTimeRange,
     isBlockAfterDueDate,
-    getPastelBlockStyle,
+    getPastelBlockStyle
 } from './executionBlockUtils';
 import { ScheduleBlockEditor } from './ScheduleBlockEditor';
 
@@ -27,7 +27,6 @@ interface Props {
     onDeleteBlock: (oppId: string, taskId: string, blockId: string) => void;
 }
 
-const fmtTodayStr = () => new Date().toLocaleDateString('en-CA');
 
 /**
  * Right-side panel for the Schedule view. Hosts the Task Details tab

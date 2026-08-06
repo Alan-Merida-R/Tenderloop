@@ -394,12 +394,12 @@
         logLine("[INFO] OpportunityOS.exe is optional. Shortcuts use the stable launcher instead.");
       }
 
-      setStep(4, "Verifying launcher");
+      setStep(4, "Creating shortcuts");
       if (!fso.FileExists(scriptDir + "\\OPEN_OPPORTUNITYOS.vbs")) {
         failInstall("OPEN_OPPORTUNITYOS.vbs was not found after setup.");
         return;
       }
-      logLine("[OK] No shortcuts were created. Open OpportunityOS with OPEN_OPPORTUNITYOS.vbs in this folder.");
+      createShortcuts();
 
       // The launcher requires this marker in addition to Vite. It prevents a
       // partial node_modules folder from bypassing this visible setup flow.
@@ -413,6 +413,59 @@
       logLine("[OK] Setup complete. Choose Open app or Close.");
       el("openBtn").disabled = false;
       el("closeBtn").disabled = false;
+    }
+
+    function createShortcuts() {
+      try {
+        var desktopDir = shell.SpecialFolders("Desktop");
+        var startMenuDir = shell.SpecialFolders("Programs") + "\\OpportunityOS";
+        if (!fso.FolderExists(startMenuDir)) fso.CreateFolder(startMenuDir);
+
+        var iconPath = scriptDir + "\\opportunityos.ico";
+        var openTarget = scriptDir + "\\OPEN_OPPORTUNITYOS.vbs";
+        var uninstallTarget = scriptDir + "\\DESINSTALAR_OPPORTUNITYOS.vbs";
+
+        // CreateShortcut + Save() always overwrites any shortcut with the
+        // same name, so re-running the installer after this folder moves or
+        // is reprovisioned self-heals the shortcut's target path instead of
+        // leaving a stale one — shortcuts were previously removed entirely
+        // to sidestep that exact failure mode on corporate machines.
+        var appShortcut = shell.CreateShortcut(desktopDir + "\\OpportunityOS.lnk");
+        appShortcut.TargetPath = "wscript.exe";
+        appShortcut.Arguments = "\"" + openTarget + "\"";
+        appShortcut.WorkingDirectory = scriptDir;
+        appShortcut.WindowStyle = 7;
+        appShortcut.IconLocation = iconPath + ",0";
+        appShortcut.Description = "Open OpportunityOS";
+        appShortcut.Save();
+
+        var startShortcut = shell.CreateShortcut(startMenuDir + "\\OpportunityOS.lnk");
+        startShortcut.TargetPath = "wscript.exe";
+        startShortcut.Arguments = "\"" + openTarget + "\"";
+        startShortcut.WorkingDirectory = scriptDir;
+        startShortcut.WindowStyle = 7;
+        startShortcut.IconLocation = iconPath + ",0";
+        startShortcut.Description = "Open OpportunityOS";
+        // Windows only honors a shortcut's hotkey while it lives on the
+        // Desktop or in the Start Menu; keep it on exactly one shortcut so
+        // there's no ambiguity about which target Ctrl+Alt+O launches.
+        startShortcut.Hotkey = "CTRL+ALT+O";
+        startShortcut.Save();
+
+        var uninstallShortcut = shell.CreateShortcut(startMenuDir + "\\Uninstall OpportunityOS.lnk");
+        uninstallShortcut.TargetPath = "wscript.exe";
+        uninstallShortcut.Arguments = "\"" + uninstallTarget + "\"";
+        uninstallShortcut.WorkingDirectory = scriptDir;
+        uninstallShortcut.WindowStyle = 1;
+        uninstallShortcut.IconLocation = "%SystemRoot%\\System32\\shell32.dll,-131";
+        uninstallShortcut.Description = "Uninstall OpportunityOS";
+        uninstallShortcut.Save();
+
+        logLine("[OK] Desktop and Start Menu shortcuts created. Ctrl+Alt+O opens OpportunityOS from anywhere.");
+        logLine("[INFO] Pin the Desktop or Start Menu shortcut to your taskbar for a stable icon — pinning the app's live window instead can lose its icon after a restart.");
+      } catch (err) {
+        logLine("[WARN] Could not create shortcuts: " + err.message + ". OpportunityOS still works via OPEN_OPPORTUNITYOS.vbs in this folder.");
+      }
     }
 
     function openApp() {

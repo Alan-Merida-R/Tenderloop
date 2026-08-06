@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Opportunity, Task, HistoryEntry, MeetingNote, KPIArea, AreaDayRecord, TaskStatus, TaskPriority, DeepLink, TASK_STATUS_ORDER } from '../../types';
+import { Opportunity, Task, HistoryEntry, MeetingNote, AreaDayRecord, DeepLink, TASK_STATUS_ORDER } from '../../types';
 import { TrackingFilters, TrackingWorkItem, TrackingViewMode, TrackingItemType } from './trackingTypes';
-import { Calendar, ChevronLeft, ChevronRight, Filter, Plus, Clock, History, FileText, CheckCircle, Search, X, LayoutGrid, CalendarDays, Timer, Briefcase, User, Info, ArrowRight, Save, Trash2, Edit2, FolderOpen, ExternalLink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, Plus, History, FileText, CheckCircle, Search, X, CalendarDays, Timer, Info, ArrowRight, Edit2, FolderOpen, ExternalLink } from 'lucide-react';
 import { OptimizedInput, DebouncedInput } from '../../components/OptimizedInput';
 import { sortHistoryEntriesNewestFirst } from '../../services/historyUtils';
 

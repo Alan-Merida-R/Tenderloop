@@ -271,6 +271,13 @@ export interface Task {
 
   /** ISO timestamp of when the task was last marked Done. Cleared if moved out of Done. */
   completedAt?: string;
+
+  /**
+   * Day the work was actually finished (YYYY-MM-DD), confirmed by the user when the task is
+   * marked Done. Independent from `dueDate` (the commitment) and from `completedAt` (the click
+   * timestamp) so a task closed late/early still reports the real completion day.
+   */
+  completionDate?: string;
 }
 
 export interface TimeLog {
@@ -402,6 +409,12 @@ export interface MeetingNote {
   order?: number; // manual sort position within its list (folder/root)
   /** When 'sow', this note renders the embedded Scope of Work builder instead of the rich text editor. */
   format?: 'sow';
+  /**
+   * Hidden from the Notes list without losing anything: content, answers and links stay on the
+   * note and keep feeding the rest of the expediente (e.g. the Overview Scope button reads the
+   * SOW whether it is visible or not). Restored from the "Hidden notes" strip.
+   */
+  hidden?: boolean;
 }
 
 /** A reusable, globally-stored stakeholder/contact (name + email), shared across all opportunities. */
@@ -449,6 +462,8 @@ export interface ApprovalEvent {
   informedIds?: string[];
   assignedTo: 'Me' | 'External Area';
   responsibleTeamMemberIds?: string[];
+  /** Team members that signed off the approval (only set on `approved` events). */
+  approverTeamMemberIds?: string[];
   requestedAt: string;
   committedAt?: string;
   deliveredAt?: string;
@@ -756,6 +771,13 @@ export interface UserSettings {
   globalContactsMigrated?: boolean;
   /** Versioned migration guard so older/partial migrations can be repaired safely. */
   globalContactsMigrationVersion?: number;
+  /** Global sticky notes. Database-owned so they survive browser/cache changes. */
+  stickyNotes?: StickyNote[];
+  /** Marks the one-time import of sticky notes from older browser-only versions. */
+  stickyNotesMigrated?: boolean;
+  /** General quick-access links configured in Settings. */
+  generalQuickLinks?: GeneralQuickLink[];
+  generalQuickLinksMigrated?: boolean;
   /** Visibility and layout choices that must travel with the TenderLoop database. */
   uiPreferences?: {
     hiddenOpportunityDetailSections?: string[];
@@ -766,6 +788,35 @@ export interface UserSettings {
     hiddenProposalProcessColumns?: string[];
     processBoardColors?: Record<string, string>;
   };
+  /** Daily Manager-report auto-export. Lives in the database so it survives browser/cache changes. */
+  managerReportSync?: ManagerReportSyncSettings;
+}
+
+export interface ManagerReportSyncSettings {
+  enabled: boolean;
+  /** Absolute path of the shared folder where the report file is overwritten. */
+  folderPath: string;
+  /** As typed by the user, e.g. "Alan Merida". */
+  fullName: string;
+  /** Derived unique id: first name + first 2 letters of last name, e.g. "Alan Me". */
+  reporterId: string;
+  /** Local YYYY-MM-DD of the last successful export. */
+  lastExportDay?: string;
+  lastExportedAt?: string;
+}
+
+export interface StickyNote {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface GeneralQuickLink {
+  id: string;
+  name: string;
+  url: string;
+  color: string;
+  icon: string;
 }
 
 export interface DatabaseSchema {

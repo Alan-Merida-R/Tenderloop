@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FolderOpen,
   ChevronRight,
-  ChevronDown,
   Plus,
   Upload,
   Trash2,
@@ -14,23 +13,16 @@ import {
   ChevronUp,
   ExternalLink,
   Info,
-  AlertTriangle,
-  MoreVertical,
   X,
   Maximize2,
   Minimize2,
   Copy,
   Check,
-  Filter,
-  Eye,
-  FileText,
   Link as LinkIcon,
   Search,
-  MapPin,
   Scissors,
   ClipboardPaste,
   ArrowRightLeft,
-  FolderInput,
   HardDrive,
   Pin,
   PinOff,
@@ -43,7 +35,7 @@ import {
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, deleteEntry, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, revealInExplorer, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -65,10 +57,10 @@ interface Props {
   /** Reports the currently browsed folder path up to the parent, so other pickers
    *  (e.g. attaching a file to a task) can default to it instead of the folder root. */
   onPathChange?: (path: string[]) => void;
+  /** Reports the single selected file/folder to the expediente-level shortcut. */
+  onSelectionChange?: (path: string[] | null) => void;
 }
 
-const CLASSIFICATIONS = ['Editable', 'Info', 'Approvals', 'Not important', 'Proposal'];
-const EDITABLE_STATUSES = ['In progress', 'Pending information', 'In approval / review', 'Not started', 'Done'];
 const REVISION_RE = /\bR(\d+)\.(\d+)\b/i;
 
 const splitFileName = (name: string) => {
@@ -113,7 +105,7 @@ const buildRevisionFileName = (sourceName: string, revision: string) => {
 const sanitizeExportName = (value: string) =>
   (value || 'file').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 80);
 
-export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey, isSnapshot, onPathChange }) => {
+export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportunity, onUpdate, initialFileKey, isSnapshot, onPathChange, onSelectionChange }) => {
   // Folder links are stored PER REVISION so each revision keeps its own folder.
   // storageKey is what we read/write in IndexedDB; opportunityId stays the key
   // for file metadata (DocMeta), which is shared across revisions.
@@ -139,7 +131,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   // Metadata & Selection
   const [metas, setMetas] = useState<Record<string, DocMeta>>({});
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
-  const [filters, setFilters] = useState<string[]>([]);
 
   // UI State
   const [isLoading, setIsLoading] = useState(false);
@@ -181,6 +172,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [anchorKey, setAnchorKey] = useState<string | null>(null);
   const [osClipBusy, setOsClipBusy] = useState(false);
+
+  useEffect(() => {
+    onSelectionChange?.(selectedKeys.size === 1 && selectedItem ? selectedItem.relativePath : null);
+  }, [selectedItem, selectedKeys, onSelectionChange]);
 
   // Quick-access pins (F5)
   const [pins, setPins] = useState<FolderPin[]>([]);
@@ -1403,17 +1398,28 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       alert(err?.message || 'Could not open the file.');
     }
   };
-  const handleSaveRootPath = async () => { if (!rootPathInput.trim()) return; await setRootPathDisplay(storageKey, rootPathInput.trim()); setRootPathDisplayVal(rootPathInput.trim()); };
+  const handleSaveRootPath = async () => {
+    if (!rootPathInput.trim()) return;
+    const value = rootPathInput.trim();
+    await setRootPathDisplay(storageKey, value);
+    setRootPathDisplayVal(value);
+    persistFolderPath(value);
+  };
 
   /** Detect the absolute base path silently (no blocking spinner). Used on load. */
   const detectPathSilently = useCallback(async (handle: FileSystemDirectoryHandle) => {
     setAutoDetecting(true);
     try {
       const p = await resolveExactFolderPath(handle);
-      if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); return p; }
+      if (p) {
+        await setRootPathDisplay(storageKey, p);
+        setRootPathDisplayVal(p);
+        persistFolderPath(p);
+        return p;
+      }
     } catch { /* ignore */ } finally { setAutoDetecting(false); }
     return null;
-  }, [storageKey]);
+  }, [storageKey, persistFolderPath]);
 
   /**
    * Return the absolute base path, resolving it on the fly if it isn't known yet.
@@ -1437,8 +1443,12 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setIsLocating(true);
     try {
       const p = await resolveExactFolderPath(rootHandle);
-      if (p) { await setRootPathDisplay(storageKey, p); setRootPathDisplayVal(p); }
-      else alert('Could not auto-detect the path. The folder may be outside the searched locations — you can set it manually.');
+      if (p) {
+        await setRootPathDisplay(storageKey, p);
+        setRootPathDisplayVal(p);
+        persistFolderPath(p);
+      }
+      else alert('The folder path could not be detected yet. Keep OpportunityOS open and try again in a few seconds. You do not need to enter the path manually.');
     } finally {
       setIsLocating(false);
     }
@@ -1872,7 +1882,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           <p className="text-sm text-gray-500 max-w-md mb-8">
             Link a local folder to sync documents directly from your operating system without uploading them.
           </p>
-          <div className="flex gap-4 flex-wrap justify-center">
+          <div data-tutorial="link-folder" className="flex gap-4 flex-wrap justify-center">
             <button onClick={handleChangeRoot} className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-6 py-2 rounded-lg font-bold shadow-sm transition-colors">
               Link Existing Folder
             </button>
@@ -2255,7 +2265,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             </button>
             {selectedKeys.size === 1 && selectedItems()[0]?.kind === 'file' && (
               <>
-                <button onClick={handleOpenCreateRevision} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-xs font-bold transition-all" title="Copy this file and register a revision history entry">
+                <button data-tutorial="create-file-revision" onClick={handleOpenCreateRevision} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-xs font-bold transition-all" title="Copy this file and register a revision history entry">
                   <GitBranch className="w-3.5 h-3.5" /> Create revision
                 </button>
                 <button onClick={handleOpenRevisionHistory} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Analyze revision history for this file">

@@ -4,11 +4,11 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { existsSync, statSync, readdirSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard, copyEmailReplyToClipboard,
-    copyDirectoryBestEffort, findDirByName, findFileByMetadata, locateByMarker
+    copyDirectoryBestEffort, findDirByName, findFileByMetadata, locateByMarker, setTimerWindowTopmost
 } from '../os/shell';
 import { composeEmail, findMissingAttachments } from '../os/outlookCompose';
 import type { ComposeMode } from '../os/outlookCompose';
@@ -30,6 +30,18 @@ const q = (req: Request, name: string): string => {
 };
 
 export const osRouter = Router();
+
+osRouter.post('/timer-window-topmost', async (req: Request, res: Response) => {
+    const title = typeof req.body?.title === 'string' ? req.body.title : '';
+    const enabled = req.body?.enabled === true;
+    try {
+        const ok = await setTimerWindowTopmost(title, enabled);
+        if (!ok) return res.status(404).json({ error: 'The timer window was not found. Open the timer popup first.' });
+        return res.json({ ok: true, enabled });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || String(err) });
+    }
+});
 
 osRouter.get('/find-db-file', async (req: Request, res: Response) => {
     const name = q(req, 'name').trim();
@@ -145,6 +157,45 @@ osRouter.get('/copy-template', (req: Request, res: Response) => {
     }
 });
 
+// --- Write a manager report JSON into a chosen folder (atomic overwrite) ---
+osRouter.post('/write-manager-report', (req: Request, res: Response) => {
+    const body = req.body || {};
+    const dirRaw = typeof body.dirPath === 'string' ? body.dirPath.trim() : '';
+    const filename = typeof body.filename === 'string' ? body.filename.trim() : '';
+    const content = typeof body.content === 'string' ? body.content : '';
+
+    if (!dirRaw) return res.status(400).json({ error: 'Missing "dirPath"' });
+    // Narrow scope: this endpoint can only ever produce manager-report files.
+    if (!/^[A-Za-z0-9 _.-]+$/.test(filename) || !filename.endsWith('_manager-report.json')) {
+        return res.status(400).json({ error: 'Invalid "filename"' });
+    }
+    if (!content) return res.status(400).json({ error: 'Missing "content"' });
+    try {
+        const parsed = JSON.parse(content);
+        if (parsed?.kind !== 'opportunityos-manager-report') {
+            return res.status(400).json({ error: 'Content is not a manager report' });
+        }
+    } catch {
+        return res.status(400).json({ error: 'Content is not valid JSON' });
+    }
+
+    const dir = path.normalize(dirRaw);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+        return res.status(404).json({ error: 'Destination folder does not exist', path: dir });
+    }
+
+    const target = path.join(dir, filename);
+    const temp = path.join(dir, `.${filename}.tmp`);
+    try {
+        writeFileSync(temp, content, 'utf8');
+        renameSync(temp, target);
+        return res.json({ ok: true, path: target, bytes: Buffer.byteLength(content, 'utf8') });
+    } catch (err: any) {
+        try { rmSync(temp, { force: true }); } catch { /* best effort */ }
+        return res.status(500).json({ error: err?.message || String(err), path: target });
+    }
+});
+
 // --- Find a directory's absolute path by NAME + child-name hints ---
 osRouter.get('/find-dir', async (req: Request, res: Response) => {
     const name = q(req, 'name').trim();
@@ -234,9 +285,11 @@ osRouter.post('/compose-email', async (req: Request, res: Response) => {
 // --- DEPRECATED: locate a folder by unique marker file ---
 osRouter.get('/locate', async (req: Request, res: Response) => {
     const marker = q(req, 'marker').trim();
+    const name = q(req, 'name').trim();
     if (!marker || /[\\/]/.test(marker)) return res.status(400).json({ error: 'Invalid "marker"' });
+    if (name && /[\\/:*?"<>|]/.test(name)) return res.status(400).json({ error: 'Invalid "name"' });
 
-    const found = await locateByMarker(marker);
+    const found = await locateByMarker(marker, name);
     if (found) return res.json({ ok: true, ...found });
     return res.status(404).json({ error: 'Marker not found in known roots', marker });
 });

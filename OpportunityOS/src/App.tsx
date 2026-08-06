@@ -1,19 +1,20 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, CommercialRow, Commercial, ExternalArea, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel, Reminder } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, Commercial, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel, Reminder, StickyNote, GeneralQuickLink } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
-import { archiveRecoveryBackup, isBackendAvailable, openDefaultBackendDb, resolveNativeDbPath, revealCurrentBackendDb, revealNativePath, saveBackendDb } from './services/backendDb';
-import { registerOpportunityFolderBridge } from './services/opportunityFolderStore';
+import { archiveRecoveryBackup, getBackendDbStatus, isBackendAvailable, openDefaultBackendDb, resolveNativeDbPath, revealCurrentBackendDb, revealNativePath, saveBackendDb } from './services/backendDb';
+import { mergeFolderPaths, registerOpportunityFolderBridge } from './services/opportunityFolderStore';
+import { getStoredFolderPaths } from './services/opportunityFolderLink';
 import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
-import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards } from './components/SettingsModal';
-import { FolderOpen, Save, HardDrive, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, X, Settings as SettingsIcon, History, ChevronDown, Trash2, CalendarDays, Maximize2, Columns, Palette, FileText, Activity, GripVertical, Minus, ExternalLink } from 'lucide-react';
+import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards, visibleTaskStandards } from './components/SettingsModal';
+import { FolderOpen, Save, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, Settings as SettingsIcon, History, ChevronDown, Trash2, Activity, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
 import { ProcessRadialWidget } from './components/ProcessRadialWidget';
-import { StickyNotesWidget } from './components/StickyNotesWidget';
+import { StickyNotesWidget, GeneralQuickLinksWidget } from './components/StickyNotesWidget';
 import { QuickNavDock } from './components/QuickNavDock';
 import { assignMissingOrders, normalizeTaskStatus, syncAssignmentSubtasks } from './services/taskUtils';
 import { useScheduleNotifications } from './features/schedule/useScheduleNotifications';
@@ -22,6 +23,8 @@ import { RemindersBell } from './components/RemindersBell';
 import { QuickOrganizerView } from './features/quickOrganizer/QuickOrganizerView';
 import { InteractiveTutorial } from './components/InteractiveTutorial';
 import { buildManagerReport, downloadManagerReport } from './services/managerReport';
+import { deriveReporterId, runDailyExportIfDue, writeManagerReportToFolder } from './services/managerReportSync';
+import { normalizeSearchText } from './components/OpportunitySearchInput';
 
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -119,7 +122,8 @@ const syncTaskAssignmentTimeline = (opp: Opportunity, task: Task, holidays: stri
 /**
  * Creates one compact, lower-cased text index for dashboard searches.  It is
  * calculated only when an opportunity changes, so searching long rich-text
- * notes never has to traverse the complete opportunity object while typing.
+ * notes, SOW answers and stakeholders never has to traverse the complete
+ * opportunity object while typing.
  */
 const buildOpportunitySearchIndex = (opportunity: Opportunity): string => {
   const values: string[] = [];
@@ -149,7 +153,19 @@ const buildOpportunitySearchIndex = (opportunity: Opportunity): string => {
   };
 
   collect(opportunity);
-  return values.join(' ').toLowerCase();
+
+  // SOW data is a serialized form. Its values are included by `collect`, and
+  // adding the field keys lets searches also find meaningful custom SOW terms
+  // without parsing that JSON on the hot, per-keystroke search path.
+  (opportunity.notes || []).forEach(note => {
+    if (note.format !== 'sow') return;
+    try {
+      const fields = JSON.parse(note.content || '')?.fields;
+      if (fields && typeof fields === 'object') values.push(...Object.keys(fields));
+    } catch { /* An incomplete SOW remains searchable through its raw content. */ }
+  });
+
+  return normalizeSearchText(values.join(' '));
 };
 
 const normalizeHistoryDate = (value?: string | null) => {
@@ -219,7 +235,6 @@ const markTenderingWorkedDay = (opp: Opportunity, date: string): Opportunity => 
   };
 };
 
-const SCHNEIDER_GREEN = '#3DCD58'; // Corporate Green
 
 // --- Local Error Boundary (fail-open: shows error instead of blank screen) ---
 interface EBProps { children: React.ReactNode; fallbackLabel?: string; }
@@ -306,10 +321,21 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showQuickOrganizer, setShowQuickOrganizer] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  // While the tutorial runs, each step activation dispatches this event so any
+  // open overlay (including the Settings modal) closes and the step's target is
+  // actually visible. Steps that need Settings reopen it right after.
+  useEffect(() => {
+    if (!showTutorial) return;
+    const closeForTutorial = () => setShowSettings(false);
+    window.addEventListener('oos-tutorial-prepare', closeForTutorial);
+    return () => window.removeEventListener('oos-tutorial-prepare', closeForTutorial);
+  }, [showTutorial]);
   // Bumped when the Quick Organizer applies a plan, forcing the Tasks dashboard into Agenda mode.
   const [agendaFocusNonce, setAgendaFocusNonce] = useState(0);
   const [appSettings, setAppSettings] = useState<AppSettings>(() => normalizeTaskStandards(DEFAULT_SETTINGS));
   const [pendingOpportunityCreation, setPendingOpportunityCreation] = useState<{ stage: ProcessStage; standardId: string } | null>(null);
+  const [showHiddenTaskStandards, setShowHiddenTaskStandards] = useState(false);
 
   const getDbUiPreferences = (settings: AppSettings): NonNullable<DatabaseSchema['userSettings']['uiPreferences']> => ({
     hiddenOpportunityDetailSections: settings.hiddenOpportunityDetailSections,
@@ -425,17 +451,31 @@ function App() {
   const handleSaveSettings = (newSettings: AppSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
+    const syncFullName = (newSettings.dailyManagerReportFullName || '').trim();
+    const syncReporterId = deriveReporterId(syncFullName) || '';
+    const syncFolder = (newSettings.dailyManagerReportFolder || '').trim();
     setDb(prev => ({
       ...prev,
       userSettings: {
         ...prev.userSettings,
+        managerReportSync: {
+          // The daily update can only stay enabled with a valid identity and folder.
+          enabled: newSettings.dailyManagerReportEnabled === true && !!syncReporterId && !!syncFolder,
+          folderPath: syncFolder,
+          fullName: syncFullName,
+          reporterId: syncReporterId,
+          lastExportDay: prev.userSettings?.managerReportSync?.lastExportDay,
+          lastExportedAt: prev.userSettings?.managerReportSync?.lastExportedAt,
+        },
         uiPreferences: getDbUiPreferences(newSettings),
         ...(newSettings.globalContacts && {
           globalContacts: mergeGlobalContacts(newSettings.globalContacts),
           globalContactsMigrated: true,
           globalContactsMigrationVersion: 1,
         }),
-        ...(newSettings.globalLabels && { globalLabels: mergeGlobalLabels(newSettings.globalLabels), globalLabelsMigrated: true })
+        ...(newSettings.globalLabels && { globalLabels: mergeGlobalLabels(newSettings.globalLabels), globalLabelsMigrated: true }),
+        generalQuickLinks: newSettings.generalQuickLinks || [],
+        generalQuickLinksMigrated: true,
       }
     }));
   };
@@ -456,6 +496,80 @@ function App() {
       userSettings: { ...prev.userSettings, uiPreferences: getDbUiPreferences(appSettingsRef.current) }
     }));
   }, [isDbLoaded, db.userSettings?.uiPreferences]);
+
+  // The daily manager-report configuration is database-owned: a fresh browser
+  // profile (cleared localStorage) restores it from the DB the moment it loads.
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const sync = db.userSettings?.managerReportSync;
+    if (!sync) return;
+    setAppSettings(prev => {
+      if (prev.dailyManagerReportEnabled === sync.enabled
+        && (prev.dailyManagerReportFolder || '') === sync.folderPath
+        && (prev.dailyManagerReportFullName || '') === sync.fullName) return prev;
+      return {
+        ...prev,
+        dailyManagerReportEnabled: sync.enabled,
+        dailyManagerReportFolder: sync.folderPath,
+        dailyManagerReportFullName: sync.fullName,
+      };
+    });
+  }, [isDbLoaded, db.userSettings?.managerReportSync]);
+
+  // Daily manager-report export: runs once per local day while the app is open.
+  // The deterministic per-user filename means the shared file is overwritten,
+  // never accumulated. Failures are surfaced in Settings and retried each tick.
+  const [managerSyncError, setManagerSyncError] = useState<string | null>(null);
+  const managerSyncWarnedRef = useRef(false);
+  const stampManagerExport = useCallback((day: string, exportedAt: string) => {
+    setDb(prev => prev.userSettings?.managerReportSync ? {
+      ...prev,
+      userSettings: {
+        ...prev.userSettings,
+        managerReportSync: { ...prev.userSettings.managerReportSync, lastExportDay: day, lastExportedAt: exportedAt },
+      },
+    } : prev);
+  }, []);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    const sync = db.userSettings?.managerReportSync;
+    if (!sync?.enabled || !sync.folderPath || !sync.reporterId) return;
+    let cancelled = false;
+    const tick = async () => {
+      const currentSync = dbRef.current.userSettings?.managerReportSync;
+      if (!currentSync?.enabled) return;
+      const result = await runDailyExportIfDue(dbRef.current, currentSync);
+      if (cancelled) return;
+      if (result.status === 'written') {
+        setManagerSyncError(null);
+        stampManagerExport(result.day, result.exportedAt);
+      } else if (result.status === 'failed') {
+        setManagerSyncError(result.error);
+        if (!managerSyncWarnedRef.current) {
+          managerSyncWarnedRef.current = true;
+          console.warn('[Manager report] Daily export failed:', result.error);
+        }
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 15 * 60 * 1000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [isDbLoaded, db.userSettings?.managerReportSync?.enabled, db.userSettings?.managerReportSync?.folderPath, db.userSettings?.managerReportSync?.reporterId, stampManagerExport]);
+
+  const handleRunDailyExportNow = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    const sync = dbRef.current.userSettings?.managerReportSync;
+    if (!sync?.enabled || !sync.folderPath || !sync.reporterId) {
+      return { ok: false, error: 'Enable the daily update and press Save first.' };
+    }
+    const result = await writeManagerReportToFolder(dbRef.current, sync);
+    if (result.status === 'written') {
+      setManagerSyncError(null);
+      stampManagerExport(result.day, result.exportedAt);
+      return { ok: true };
+    }
+    return { ok: false, error: result.status === 'failed' ? result.error : 'Export skipped.' };
+  }, [stampManagerExport]);
 
   // One-time, safe migration: import legacy browser settings and all labels already
   // assigned to opportunities into the current database. This lets old files retain
@@ -519,6 +633,40 @@ function App() {
       localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(nextSettings));
     }
   }, [isDbLoaded, db.userSettings?.globalContacts, db.userSettings?.globalContactsMigrated, db.userSettings?.globalContactsMigrationVersion]);
+
+  // Sticky notes used to live only in localStorage. Import every valid legacy note
+  // exactly once, then keep the database as the sole source of truth.
+  useEffect(() => {
+    if (!isDbLoaded || db.userSettings?.stickyNotesMigrated) return;
+    let legacyNotes: StickyNote[] = [];
+    try {
+      const raw = localStorage.getItem('tenderloop.stickynotes.v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) legacyNotes = parsed.filter(note => note && typeof note.content === 'string' && typeof note.id === 'string' && typeof note.createdAt === 'string');
+    } catch { /* A malformed legacy value must never block the database. */ }
+    const byId = new Map<string, StickyNote>();
+    [...(db.userSettings?.stickyNotes || []), ...legacyNotes].forEach(note => byId.set(note.id, note));
+    const stickyNotes = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, stickyNotes, stickyNotesMigrated: true } }));
+  }, [isDbLoaded, db.userSettings?.stickyNotesMigrated]);
+
+  // General quick links are database-owned too. This initial migration preserves
+  // any links that were saved in a browser setting during an early rollout.
+  useEffect(() => {
+    if (!isDbLoaded || db.userSettings?.generalQuickLinksMigrated) return;
+    const fromSettings = appSettingsRef.current.generalQuickLinks || [];
+    const byId = new Map<string, GeneralQuickLink>();
+    [...(db.userSettings?.generalQuickLinks || []), ...fromSettings].forEach(link => byId.set(link.id, link));
+    const generalQuickLinks = [...byId.values()];
+    setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, generalQuickLinks, generalQuickLinksMigrated: true } }));
+    if (generalQuickLinks.length) setAppSettings(prev => ({ ...prev, generalQuickLinks }));
+  }, [isDbLoaded, db.userSettings?.generalQuickLinksMigrated]);
+
+  useEffect(() => {
+    if (!isDbLoaded || !db.userSettings?.generalQuickLinksMigrated) return;
+    const databaseLinks = db.userSettings.generalQuickLinks || [];
+    setAppSettings(prev => ({ ...prev, generalQuickLinks: databaseLinks }));
+  }, [isDbLoaded, db.userSettings?.generalQuickLinks, db.userSettings?.generalQuickLinksMigrated]);
 
   // PERF FIX: Debounced sessionStorage writes (was synchronous on every render).
   // sessionStorage.setItem blocks the main thread. On low-RAM machines this
@@ -666,6 +814,37 @@ function App() {
     });
     return () => registerOpportunityFolderBridge(null);
   }, []);
+
+  // Recover every folder path stored by older releases in this browser and copy it
+  // into the shared JSON database. This deliberately runs independently from the old
+  // folderDataMigrated flag: earlier migrations covered documents/pins/history but did
+  // not copy paths, so trusting that flag would strand already-linked users.
+  const recoveredFolderPathsRef = useRef(new Set<string>());
+  const folderPathDbIdentityRef = useRef('');
+  useEffect(() => {
+    if (!isDbLoaded || !storageMode) return;
+    const dbIdentity = storageMode === 'backend'
+      ? `backend:${currentDbNativePath || backendName || 'default'}`
+      : `file:${fileHandle?.name || fallbackFileName || 'selected'}`;
+    if (folderPathDbIdentityRef.current !== dbIdentity) {
+      folderPathDbIdentityRef.current = dbIdentity;
+      recoveredFolderPathsRef.current.clear();
+    }
+
+    for (const opportunity of db.opportunities) {
+      const migrationKey = `${dbIdentity}::${opportunity.id}`;
+      if (recoveredFolderPathsRef.current.has(migrationKey)) continue;
+      recoveredFolderPathsRef.current.add(migrationKey);
+      getStoredFolderPaths(opportunity.id)
+        .then(paths => {
+          if (folderPathDbIdentityRef.current === dbIdentity) mergeFolderPaths(opportunity.id, paths);
+        })
+        .catch(err => {
+          if (folderPathDbIdentityRef.current === dbIdentity) recoveredFolderPathsRef.current.delete(migrationKey);
+          console.warn('[Folder paths] Legacy path recovery failed', err);
+        });
+    }
+  }, [isDbLoaded, storageMode, currentDbNativePath, backendName, fileHandle, fallbackFileName, db.opportunities]);
 
   /**
    * Always resolves against the latest globalContacts, not whatever a given
@@ -913,7 +1092,19 @@ function App() {
         console.error("[Autosave] Critical error:", err);
         setStatus('error');
         if (err?.status === 409) {
-          setErrorMessage("Backend database changed elsewhere. Reload the database before saving more changes.");
+          setErrorMessage("Backend database changed elsewhere. Your last edit will be saved on the next change.");
+          // Without this, every future autosave keeps sending the same stale
+          // revision and keeps failing with 409 until the user manually
+          // reloads the whole app. Re-sync the revision counter now (not the
+          // data — the in-memory `db` still holds the user's edits) so the
+          // very next autosave tick succeeds instead of looping forever.
+          try {
+            const current = await getBackendDbStatus();
+            backendRevisionRef.current = current.status.revision;
+            setBackendRevision(current.status.revision);
+          } catch {
+            // Backend still unreachable — next autosave attempt will retry this same recovery.
+          }
         } else {
           setErrorMessage(storageMode === 'backend' ? "Failed to save changes through backend." : "Failed to save changes. Check file permissions.");
         }
@@ -1191,7 +1382,6 @@ function App() {
   const migrateData = (data: DatabaseSchema): DatabaseSchema => {
     console.debug("[Migration] Starting data migration for", data.opportunities?.length || 0, "opportunities");
     try {
-      const emptyRow: CommercialRow = { cost: 0, margin: 0, sellPrice: 0, discount: 0, finalPrice: 0 };
       const emptyPrd: PrdPresentation = { executiveSummary: '', issues: '', kpis: '', requirements: '' };
 
       const migratedOpps: Opportunity[] = data.opportunities.map((o, idx) => {
@@ -1308,12 +1498,29 @@ function App() {
             kpis.proposalAmountUSD = newCommercial.cqaOfficialSellPrice;
           }
 
+          // Very old databases used one string instead of the per-revision map.
+          // Keep every modern entry and add the legacy value only as the unkeyed
+          // fallback, which all revisions can inherit without overwriting newer paths.
+          const existingFolderPaths = Object.fromEntries(
+            Object.entries((o as any).folderPaths || {})
+              .filter(([, value]) => typeof value === 'string' && !!value.trim())
+              .map(([key, value]) => [key, (value as string).trim()]),
+          ) as Record<string, string>;
+          const legacyFolderPath = [
+            (o as any).folderPath,
+            (o as any).folderBasePath,
+            (o as any).rootFolderPath,
+          ].find(value => typeof value === 'string' && !!value.trim()) as string | undefined;
+          if (legacyFolderPath && !existingFolderPaths['']) existingFolderPaths[''] = legacyFolderPath.trim();
+
           return {
             ...o,
             statusLabel: newStatus,
             detailedStatus: detailedStatus,
             qlk: o.qlk || '',
             revision: o.revision || 'R0',
+            folderPaths: existingFolderPaths,
+            folderLinked: Boolean((o as any).folderLinked || Object.keys(existingFolderPaths).length),
             priorityOrder: (o as any).priorityOrder ?? null,
             alias: (o as any).alias || '',
             presentation: o.presentation || emptyPrd,
@@ -1601,8 +1808,9 @@ function App() {
 
     let defaultTasks: Task[] = [];
 
+    const selectableStandards = visibleTaskStandards(settings.taskStandards);
     const selectedNamedStandard = settings.taskStandards?.find(standard => standard.id === taskStandardId)
-      || (settings.taskStandards?.length === 1 ? settings.taskStandards[0] : undefined);
+      || (selectableStandards.length === 1 ? selectableStandards[0] : undefined);
 
     // --- CASE A: Named task standard selected by the user ---
     if (selectedNamedStandard) {
@@ -2235,11 +2443,14 @@ function App() {
   const handleCreateOppAtRoot = useCallback((stage?: ProcessStage) => {
     const creationStage = stage || '1. Intake';
     const standards = appSettingsRef.current.taskStandards || [];
-    if (standards.length > 1) {
+    const selectable = visibleTaskStandards(standards);
+    // Every list hidden? Still ask, but start with the hidden ones revealed.
+    if (selectable.length > 1 || (selectable.length === 0 && standards.length > 1)) {
+      setShowHiddenTaskStandards(selectable.length === 0);
       setPendingOpportunityCreation({ stage: creationStage, standardId: '' });
       return;
     }
-    createOpportunity(creationStage, standards[0]?.id);
+    createOpportunity(creationStage, (selectable[0] || standards[0])?.id);
   }, [createOpportunity]);
 
   // Schedule notifications: fire 10 min before each block's start time.
@@ -2255,7 +2466,10 @@ function App() {
 
   const handleExportManagerReport = useCallback(async (userName?: string) => {
     try {
-      await downloadManagerReport(buildManagerReport(db, userName ?? appSettings.userName));
+      // The report's "tender" field is Manager Tool's per-user dedup key —
+      // prefer the stable reporterId over the free-text user name.
+      const reporterId = db.userSettings?.managerReportSync?.reporterId;
+      await downloadManagerReport(buildManagerReport(db, reporterId || userName || appSettings.userName));
     } catch (error) {
       console.error('[Manager report] Export failed', error);
       alert('Could not export the Manager Tool report. Please try again.');
@@ -2668,7 +2882,7 @@ function App() {
 
           {/* Opportunity Detail Overlay */}
           {selectedOppForDetail && (
-            <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { if (!detailMouseDownInsideRef.current) { setSelectedOppId(null); setActiveDeepLink(null); } detailMouseDownInsideRef.current = false; }}>
+            <div data-opportunity-detail-overlay="true" className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { if (!detailMouseDownInsideRef.current) { setSelectedOppId(null); setActiveDeepLink(null); } detailMouseDownInsideRef.current = false; }}>
               <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onMouseDown={() => { detailMouseDownInsideRef.current = true; }} onClick={(e) => e.stopPropagation()}>
                 <LocalErrorBoundary fallbackLabel="Opportunity Detail">
                   <OpportunityDetail
@@ -2713,22 +2927,44 @@ function App() {
           {pendingOpportunityCreation && (
             <div className="fixed inset-0 z-[160] bg-black/50 flex items-center justify-center p-4">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-                <h3 className="text-lg font-bold text-gray-900">Nueva oportunidad</h3>
-                <p className="text-sm text-gray-500 mt-1 mb-5">Selecciona la lista de tareas que se cargará en esta OP.</p>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Estándar de tareas</label>
+                <h3 className="text-lg font-bold text-gray-900">New opportunity</h3>
+                <p className="text-sm text-gray-500 mt-1 mb-5">Pick the task list that will be loaded into this opportunity.</p>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Task list</label>
                 <select
                   autoFocus
                   value={pendingOpportunityCreation.standardId}
                   onChange={e => setPendingOpportunityCreation(current => current ? { ...current, standardId: e.target.value } : null)}
                   className="w-full border border-gray-200 rounded-lg text-sm"
                 >
-                  <option value="">Seleccionar…</option>
-                  {(appSettings.taskStandards || []).map(standard => (
-                    <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length} tareas)</option>
+                  <option value="">Select…</option>
+                  {(showHiddenTaskStandards ? (appSettings.taskStandards || []) : visibleTaskStandards(appSettings.taskStandards)).map(standard => (
+                    <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length} tasks){standard.hidden ? ' — hidden' : ''}</option>
                   ))}
                 </select>
+                {(appSettings.taskStandards || []).some(standard => standard.hidden) && (
+                  <label className="flex items-center gap-2 mt-2 text-xs text-gray-500 cursor-pointer select-none w-fit">
+                    <input
+                      type="checkbox"
+                      checked={showHiddenTaskStandards}
+                      onChange={e => {
+                        setShowHiddenTaskStandards(e.target.checked);
+                        if (!e.target.checked) {
+                          // Drop a hidden selection when the hidden lists are collapsed again.
+                          setPendingOpportunityCreation(current => {
+                            if (!current) return null;
+                            const stillVisible = visibleTaskStandards(appSettingsRef.current.taskStandards)
+                              .some(standard => standard.id === current.standardId);
+                            return stillVisible ? current : { ...current, standardId: '' };
+                          });
+                        }
+                      }}
+                      className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                    />
+                    Show hidden lists
+                  </label>
+                )}
                 <div className="flex justify-end gap-2 mt-6">
-                  <button onClick={() => setPendingOpportunityCreation(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancelar</button>
+                  <button onClick={() => setPendingOpportunityCreation(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
                   <button
                     disabled={!pendingOpportunityCreation.standardId}
                     onClick={() => {
@@ -2737,7 +2973,7 @@ function App() {
                     }}
                     className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50"
                   >
-                    Crear OP
+                    Create opportunity
                   </button>
                 </div>
               </div>
@@ -2753,6 +2989,12 @@ function App() {
           opportunities={stableOpportunities}
           onOpenQuickOrganizer={() => { setShowSettings(false); setShowQuickOrganizer(true); }}
           onExportManagerReport={handleExportManagerReport}
+          onRunDailyExportNow={handleRunDailyExportNow}
+          managerSyncStatus={{
+            lastExportDay: db.userSettings?.managerReportSync?.lastExportDay,
+            lastExportedAt: db.userSettings?.managerReportSync?.lastExportedAt,
+            lastError: managerSyncError,
+          }}
           onStartTutorial={() => { setShowSettings(false); setShowTutorial(true); }}
         />
         {showTutorial && (
@@ -2768,6 +3010,8 @@ function App() {
               const latest = stableOpportunities[0];
               if (latest) handleSelectOpp(latest.id);
             }}
+            onOpenSettings={() => setShowSettings(true)}
+            quickLinksCount={(appSettings.generalQuickLinks || []).length}
           />
         )}
         {showQuickOrganizer && (
@@ -2785,7 +3029,22 @@ function App() {
             }}
           />
         )}
-        <StickyNotesWidget />
+        {isDbLoaded && (
+          <>
+            <GeneralQuickLinksWidget
+              links={db.userSettings?.generalQuickLinks || appSettings.generalQuickLinks || []}
+              timerVisible={appSettings.timerEnabled !== false}
+            />
+            <StickyNotesWidget
+              notes={db.userSettings?.stickyNotes || []}
+              timerVisible={appSettings.timerEnabled !== false}
+              onNotesChange={(updater) => setDb(prev => ({
+                ...prev,
+                userSettings: { ...prev.userSettings, stickyNotes: updater(prev.userSettings?.stickyNotes || []), stickyNotesMigrated: true },
+              }))}
+            />
+          </>
+        )}
         {appSettings.processRadialWidgetEnabled && (
           <ProcessRadialWidget
             opportunities={stableOpportunities}

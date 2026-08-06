@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Copy, Search, CheckSquare, Square } from 'lucide-react';
-import { Opportunity, Task, TaskStatus, TASK_STATUS_COLORS } from '../types';
+import { X, Copy, CheckSquare, Square } from 'lucide-react';
+import { Opportunity, TaskStatus, TASK_STATUS_COLORS } from '../types';
 import { OpportunitySearchInput } from './OpportunitySearchInput';
 
 interface CopyTasksModalProps {

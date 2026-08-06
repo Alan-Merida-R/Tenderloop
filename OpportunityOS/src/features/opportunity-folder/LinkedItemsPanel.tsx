@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, FileText, CheckSquare, ChevronRight, ArrowLeft, Calendar, User, Tag, Info } from 'lucide-react';
+import { X, FileText, CheckSquare, ArrowLeft, Calendar, Info } from 'lucide-react';
 import { Opportunity, Task, MeetingNote } from '../../types';
 import { DocMeta } from '../../services/opportunityDocMetaStore';
 import { TASK_STATUS_COLORS } from '../../types';

@@ -9,11 +9,16 @@ interface Props {
     onClose: () => void;
     /** The opportunity being auto-filled (excluded from the duplicate check). */
     currentOppId: string;
-    /** Light list used only to warn when the SR already exists elsewhere. */
+    /** Light list used to detect an already-existing OP. */
     existingOpps: { id: string; title: string; srId?: string }[];
     currentRequestedDate: string;
-    onApply: (prefill: SrPrefill) => void;
+    taskStandards?: { id: string; name: string; taskCount: number }[];
+    onApply: (prefill: SrPrefill, decision: SrImportDecision) => void;
 }
+
+export type SrImportDecision =
+    | { kind: 'new' }
+    | { kind: 'revision'; targetOppId: string; commitMessage: string; tags: string; taskStandardId: string };
 
 type EditableField = 'opId' | 'title' | 'alias' | 'customer' | 'seller' | 'srId' | 'requestedDate' | 'expectedDate' | 'srLink';
 
@@ -29,7 +34,7 @@ const FIELD_LABELS: { key: EditableField; label: string; type?: 'date' }[] = [
     { key: 'srLink', label: 'SR Link' },
 ];
 
-export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOppId, existingOpps, currentRequestedDate, onApply }) => {
+export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOppId, existingOpps, currentRequestedDate, taskStandards = [], onApply }) => {
     const [pasteText, setPasteText] = useState('');
     const [prefill, setPrefill] = useState<SrPrefill | null>(null);
     const [sourceLabel, setSourceLabel] = useState('');
@@ -37,13 +42,17 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
     const [busy, setBusy] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const [showNotePreview, setShowNotePreview] = useState(false);
+    const [duplicateAction, setDuplicateAction] = useState<'new' | 'revision'>('revision');
+    const [revisionMessage, setRevisionMessage] = useState('');
+    const [revisionTags, setRevisionTags] = useState('');
+    const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(taskStandards.length === 1 ? taskStandards[0].id : '');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const duplicateOpp = useMemo(() => {
-        if (!prefill?.srId) return undefined;
-        const srId = prefill.srId.trim().toUpperCase();
-        return existingOpps.find(o => o.id !== currentOppId && (o.srId || '').trim().toUpperCase() === srId);
-    }, [prefill?.srId, existingOpps, currentOppId]);
+        if (!prefill?.opId) return undefined;
+        const opId = prefill.opId.trim().toUpperCase();
+        return existingOpps.find(o => o.id !== currentOppId && o.id.trim().toUpperCase() === opId);
+    }, [prefill?.opId, existingOpps, currentOppId]);
 
     if (!isOpen) return null;
 
@@ -53,6 +62,10 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
         setSourceLabel('');
         setError('');
         setShowNotePreview(false);
+        setDuplicateAction('revision');
+        setRevisionMessage('');
+        setRevisionTags('');
+        setRevisionTaskStandardId(taskStandards.length === 1 ? taskStandards[0].id : '');
     };
 
     const handleClose = () => { reset(); onClose(); };
@@ -181,9 +194,18 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
                             </div>
 
                             {duplicateOpp && (
-                                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                                    <span>This SR (<b>{prefill.srId}</b>) already exists in <b>{duplicateOpp.id}</b> — “{duplicateOpp.title}”. Applying will still fill THIS expediente, not that one.</span>
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-3">
+                                    <div className="flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>The OP <b>{prefill.opId}</b> already exists in <b>{duplicateOpp.id}</b>. Choose how to continue.</span></div>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setDuplicateAction('revision')} className={`px-3 py-1.5 rounded-lg font-bold border ${duplicateAction === 'revision' ? 'bg-[#3DCD58] text-white border-[#3DCD58]' : 'bg-white border-amber-200'}`}>Create revision</button>
+                                        <button type="button" onClick={() => setDuplicateAction('new')} className={`px-3 py-1.5 rounded-lg font-bold border ${duplicateAction === 'new' ? 'bg-[#3DCD58] text-white border-[#3DCD58]' : 'bg-white border-amber-200'}`}>Keep as new OP</button>
+                                    </div>
+                                    {duplicateAction === 'revision' && <div className="grid grid-cols-1 gap-2 pt-1">
+                                        <input value={revisionMessage} onChange={e => setRevisionMessage(e.target.value)} placeholder="Commit message for current work *" className="w-full rounded-lg border-amber-200 text-sm" />
+                                        <input value={revisionTags} onChange={e => setRevisionTags(e.target.value)} placeholder="Tags (comma separated)" className="w-full rounded-lg border-amber-200 text-sm" />
+                                        {taskStandards.length > 1 && <select value={revisionTaskStandardId} onChange={e => setRevisionTaskStandardId(e.target.value)} className="w-full rounded-lg border-amber-200 text-sm"><option value="">Task standard for the revision…</option>{taskStandards.map(s => <option key={s.id} value={s.id}>{s.name} ({s.taskCount} tasks)</option>)}</select>}
+                                        {taskStandards.length === 1 && <p className="text-[10px] text-amber-700">Task standard: <b>{taskStandards[0].name}</b></p>}
+                                    </div>}
                                 </div>
                             )}
 
@@ -277,8 +299,8 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
                 <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
                     <button onClick={handleClose} className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors">Cancel</button>
                     <button
-                        onClick={() => { if (prefill) { onApply(prefill); handleClose(); } }}
-                        disabled={!prefill}
+                        onClick={() => { if (prefill) { onApply(prefill, duplicateOpp && duplicateAction === 'revision' ? { kind: 'revision', targetOppId: duplicateOpp.id, commitMessage: revisionMessage, tags: revisionTags, taskStandardId: revisionTaskStandardId } : { kind: 'new' }); handleClose(); } }}
+                        disabled={!prefill || (!!duplicateOpp && duplicateAction === 'revision' && (!revisionMessage.trim() || (taskStandards.length > 1 && !revisionTaskStandardId)))}
                         className="flex items-center gap-2 px-4 py-2 bg-[#3DCD58] hover:bg-[#2db64a] disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg text-sm font-bold shadow-sm transition-colors"
                     >
                         <Sparkles className="w-4 h-4" /> Apply to expediente

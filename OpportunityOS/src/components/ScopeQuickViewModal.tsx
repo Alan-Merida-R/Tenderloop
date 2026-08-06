@@ -4,10 +4,16 @@ import { MeetingNote } from '../types';
 
 export const SOW_PLATFORM_OPTIONS: { key: string; label: string }[] = [
     { key: 'platform_modicon', label: 'Modicon PLC' },
-    { key: 'platform_triconex', label: 'Triconex SIS' },
+    { key: 'platform_triconex', label: 'Triconex' },
     { key: 'platform_foxboro', label: 'Foxboro DCS' },
     { key: 'platform_other', label: 'Other / AVEVA / Cyber' },
 ];
+
+/**
+ * Follow-up question shown right under the platforms when Triconex is selected. Mirrors the
+ * `triconex_products` multi-choice in sowTemplate.html — keep both lists identical.
+ */
+export const SOW_TRICONEX_PRODUCTS = ['Tricon CX', 'Tricon', 'SIS', 'TMC', 'BMS'];
 
 // Matches the SOW's flow_B008 "What type of opportunity is it?" catalog exactly
 // (services_only spelling and casing included) — that question is multi_select,
@@ -116,11 +122,20 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSav
         return Object.fromEntries(SOW_PLATFORM_OPTIONS.map(p => [p.key, fields[p.key] === true || flowFallback[p.key]]));
     }, [fields]);
     const [platforms, setPlatforms] = useState<Record<string, boolean>>(platformsFromSow);
+    const triconexFromSow = useMemo(() => {
+        const saved = Array.isArray(fields.triconex_products) ? fields.triconex_products.map(String) : [];
+        return SOW_TRICONEX_PRODUCTS.filter(p => saved.includes(p));
+    }, [fields]);
+    const [triconexProducts, setTriconexProducts] = useState<string[]>(triconexFromSow);
     useEffect(() => { setScope(scopeFromSow); }, [scopeFromSow]);
     useEffect(() => { setOppTypes(oppTypesFromSow); }, [oppTypesFromSow]);
     useEffect(() => { setPlatforms(platformsFromSow); }, [platformsFromSow]);
+    useEffect(() => { setTriconexProducts(triconexFromSow); }, [triconexFromSow]);
     const toggleOppType = (type: string) => {
         setOppTypes(prev => prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]);
+    };
+    const toggleTriconexProduct = (product: string) => {
+        setTriconexProducts(prev => prev.includes(product) ? prev.filter(p => p !== product) : [...prev, product]);
     };
 
     const handleSave = () => {
@@ -134,6 +149,9 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSav
             // it (mirrors how the SOW's own flow_B008 -> opp_type sync behaves).
             opp_type: oppTypes.length === 1 ? oppTypes[0] : (typeof fields.opp_type === 'string' ? fields.opp_type : ''),
             ...platforms,
+            // Kept even when Triconex is unchecked, matching the SOW's "hidden answers are
+            // preserved" rule — re-checking the platform brings the products back.
+            triconex_products: triconexProducts,
             ...buildMirroredFlowKeys(fields, platforms, oppTypes),
         });
         onClose();
@@ -212,6 +230,26 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSav
                                             </label>
                                         ))}
                                     </div>
+                                    {platforms.platform_triconex && (
+                                        <div className="mt-3">
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Which Triconex product(s)?</label>
+                                            <div className="flex flex-wrap gap-2">
+                                                {SOW_TRICONEX_PRODUCTS.map(product => (
+                                                    <label key={product} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${triconexProducts.includes(product) ? 'bg-emerald-50 border-emerald-200 text-[#2db64a]' : 'bg-gray-50 border-gray-200 text-gray-500'} ${disabled ? 'opacity-60 cursor-default' : 'hover:border-emerald-300'}`}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={triconexProducts.includes(product)}
+                                                            onChange={() => toggleTriconexProduct(product)}
+                                                            disabled={disabled}
+                                                            className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                                        />
+                                                        {product}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <p className="text-[11px] text-gray-400 mt-1 italic">Linked to "Which Triconex product(s) are included?" in the SOW.</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

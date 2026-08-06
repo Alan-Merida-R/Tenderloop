@@ -106,11 +106,25 @@ export const importBackendDb = async (data: DatabaseSchema) =>
     body: await serializeJson({ data }),
   });
 
-export const saveBackendDb = async (data: DatabaseSchema, expectedRevision?: number) =>
-  request<BackendDbStatusResponse>('/db/current?compact=1', {
-    method: 'PUT',
-    body: await serializeJson({ data, expectedRevision }),
-  });
+export const getBackendDbStatus = () =>
+  request<BackendDbStatusResponse>('/db/status');
+
+export const saveBackendDb = async (data: DatabaseSchema, expectedRevision?: number) => {
+  const body = await serializeJson({ data, expectedRevision });
+  const init: RequestInit = { method: 'PUT', body };
+  try {
+    return await request<BackendDbStatusResponse>('/db/current?compact=1', init);
+  } catch (err: any) {
+    // err.status is only set when the backend actually responded (e.g. a 409
+    // revision conflict) — a missing status means the request never reached
+    // it at all, most often a momentary loopback hiccup right after the
+    // laptop wakes from sleep or the app window regains focus. One short
+    // retry avoids surfacing a "failed to save" banner for what is transient.
+    if (err?.status != null) throw err;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    return request<BackendDbStatusResponse>('/db/current?compact=1', init);
+  }
+};
 
 export const archiveRecoveryBackup = async (data: DatabaseSchema, name: string) =>
   request<{ ok: true; backup: { path: string } | null }>('/db/recovery-backup', {

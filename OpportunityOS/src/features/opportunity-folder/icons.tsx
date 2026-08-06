@@ -9,7 +9,6 @@ import {
   File as FileIcon, 
   Folder, 
   Box,
-  FileQuestion,
   Mail
 } from 'lucide-react';
 

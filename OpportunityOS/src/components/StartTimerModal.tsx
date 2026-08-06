@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Play } from 'lucide-react';
 import { Opportunity } from '../types';
 import { OpportunitySearchInput } from './OpportunitySearchInput';
@@ -23,6 +23,22 @@ export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClos
         }
     }, [isOpen]);
 
+    // Keep the timer's opportunity picker aligned with the manual Rank from
+    // General. Unranked opportunities retain chronological order.
+    const orderedOpportunities = useMemo(() => [...opportunities].sort((a, b) => {
+        const aRank = Number(a.priorityOrder);
+        const bRank = Number(b.priorityOrder);
+        const aHasRank = Number.isFinite(aRank) && aRank > 0;
+        const bHasRank = Number.isFinite(bRank) && bRank > 0;
+        if (aHasRank || bHasRank) {
+            if (aHasRank && bHasRank && aRank !== bRank) return aRank - bRank;
+            if (aHasRank !== bHasRank) return aHasRank ? -1 : 1;
+        }
+        const aDate = a.kpis?.timeline?.receivedAt || a.dates?.requested || a.dates?.expected || '';
+        const bDate = b.kpis?.timeline?.receivedAt || b.dates?.requested || b.dates?.expected || '';
+        return aDate.localeCompare(bDate) || a.title.localeCompare(b.title);
+    }), [opportunities]);
+
     if (!isOpen) return null;
 
     return (
@@ -36,7 +52,7 @@ export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClos
                     <div className="space-y-1">
                         <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Opportunity</label>
                         <OpportunitySearchInput
-                            opportunities={opportunities}
+                            opportunities={orderedOpportunities}
                             selectedIds={startTimerData.oppId ? [startTimerData.oppId] : []}
                             onSelect={(id) => {
                                 setStartTimerData({ ...startTimerData, oppId: id, taskId: '' });
@@ -84,7 +100,7 @@ export const StartTimerModal: React.FC<StartTimerModalProps> = ({ isOpen, onClos
                     <button
                         onClick={() => {
                             if (startTimerData.oppId && startTimerData.taskId) {
-                                const opp = opportunities.find(o => o.id === startTimerData.oppId);
+                                const opp = orderedOpportunities.find(o => o.id === startTimerData.oppId);
                                 const task = opp?.tasks.find(t => t.id === startTimerData.taskId);
                                 if (opp && task) {
                                     onStart(task.id, opp.id, task.title);

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Columns, Check, Filter, ChevronUp, ChevronDown } from 'lucide-react';
+import { Columns, Check, Filter, ChevronUp, ChevronDown, CalendarDays } from 'lucide-react';
 
 interface EditableCellProps {
     value: string | number;
@@ -9,12 +9,20 @@ interface EditableCellProps {
     options?: string[];
     className?: string;
     displayValue?: React.ReactNode;
+    /** Optional colored menu for status-like selects. */
+    optionClassName?: (option: string) => string;
+    /** Optional UI label while retaining the original value for storage. */
+    optionLabel?: (option: string) => React.ReactNode;
+    /** Keep a date field open in a table: native calendar + keyboard entry. */
+    direct?: boolean;
 }
 
-export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, type = 'text', options, className, displayValue }) => {
+export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, type = 'text', options, className, displayValue, direct = false, optionClassName, optionLabel }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [tempValue, setTempValue] = useState(value);
     const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+    const calendarRef = useRef<HTMLInputElement>(null);
+    const selectMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         setTempValue(value);
@@ -25,6 +33,18 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
             inputRef.current.focus();
         }
     }, [isEditing]);
+
+    useEffect(() => {
+        if (!isEditing || type !== 'select' || !optionClassName) return;
+        const closeMenu = (event: MouseEvent) => {
+            if (!selectMenuRef.current?.contains(event.target as Node)) {
+                setTempValue(value);
+                setIsEditing(false);
+            }
+        };
+        document.addEventListener('mousedown', closeMenu);
+        return () => document.removeEventListener('mousedown', closeMenu);
+    }, [isEditing, optionClassName, type, value]);
 
     const handleCommit = () => {
         onChange(tempValue);
@@ -44,12 +64,75 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
         }
     };
 
+    const normalizeTypedDate = (raw: string): string | null => {
+        const value = raw.trim();
+        if (!value) return '';
+        const isoMatch = value.match(/^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$/);
+        if (isoMatch) {
+            const [, year, month, day] = isoMatch;
+            const normalized = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            const parsed = new Date(`${normalized}T00:00:00`);
+            return !Number.isNaN(parsed.getTime()) && parsed.getDate() === Number(day) && parsed.getMonth() + 1 === Number(month) ? normalized : null;
+        }
+        // Day-first entry: DD/MM/YYYY or DD-MM-YYYY (dots are accepted too).
+        const match = value.match(/^(\d{1,2})[/\.\-](\d{1,2})[/\.\-](\d{4})$/);
+        if (!match) return null;
+        const [, day, month, year] = match;
+        const normalized = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        const parsed = new Date(`${normalized}T00:00:00`);
+        return !Number.isNaN(parsed.getTime()) && parsed.getDate() === Number(day) && parsed.getMonth() + 1 === Number(month) ? normalized : null;
+    };
+
+    // Dates in the General table are regular text fields. The native calendar
+    // is intentionally exposed only through its dedicated icon button.
+    if (direct && type === 'date') {
+        const commitTypedDate = () => {
+            const normalized = normalizeTypedDate(String(tempValue));
+            if (normalized === null) { setTempValue(value); return; }
+            setTempValue(normalized);
+            if (normalized !== value) onChange(normalized);
+        };
+        return (
+            <div className="flex min-w-[92px] items-center rounded border border-transparent bg-transparent pr-0 transition-colors hover:bg-gray-100/50 focus-within:border-gray-200 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#3DCD58]">
+                <input
+                    type="text"
+                    value={String(tempValue || '')}
+                    placeholder="DD/MM/YYYY"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onBlur={commitTypedDate}
+                    onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); if (e.key === 'Escape') { setTempValue(value); (e.currentTarget as HTMLInputElement).blur(); } }}
+                    aria-label="Date"
+                    className={`min-w-0 flex-1 border-0 bg-transparent px-1 py-1 text-xs font-mono text-gray-700 outline-none focus:ring-0 ${className || ''}`}
+                />
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.stopPropagation(); const picker = calendarRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; picker?.showPicker ? picker.showPicker() : picker?.click(); }} className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-[#278a3b]" title="Choose from calendar"><CalendarDays className="h-3 w-3" /></button>
+                <input ref={calendarRef} type="date" value={String(value || '')} onChange={(e) => { setTempValue(e.target.value); onChange(e.target.value); }} tabIndex={-1} aria-hidden="true" className="absolute h-px w-px opacity-0 pointer-events-none" />
+            </div>
+        );
+    }
+
     if (isEditing) {
         if (type === 'select' && options) {
+            if (optionClassName) {
+                return (
+                    <div ref={selectMenuRef} className="relative" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+                        <div className="absolute left-0 top-0 z-50 min-w-[170px] overflow-hidden rounded-lg border border-gray-200 bg-white p-1 shadow-xl">
+                            {options.map(option => (
+                                <button key={option} type="button" onClick={() => { onChange(option); setIsEditing(false); }} className={`mb-1 flex w-full items-center rounded px-2 py-1.5 text-left text-[10px] font-bold uppercase last:mb-0 ${optionClassName(option)}`}>
+                                    {optionLabel?.(option) ?? option}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
             return (
                 <select
                     ref={inputRef as any}
                     value={tempValue}
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onChange={(e) => setTempValue(e.target.value)}
                     onBlur={handleCommit}
                     onKeyDown={handleKeyDown}
@@ -65,6 +148,8 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
                 ref={inputRef as any}
                 type={type}
                 value={tempValue}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 onChange={(e) => setTempValue(e.target.value)}
                 onBlur={handleCommit}
                 onKeyDown={handleKeyDown}
@@ -76,7 +161,11 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
 
     return (
         <div
-            onClick={() => setIsEditing(true)}
+            onClick={(e) => {
+                // The table row opens the expediente; entering inline edit must remain local.
+                e.stopPropagation();
+                setIsEditing(true);
+            }}
             className={`cursor-pointer hover:bg-gray-100/50 p-1 rounded border border-transparent hover:border-gray-200 min-h-[20px] flex items-center ${className}`}
             title="Click to edit"
         >
@@ -137,13 +226,13 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
         <div className="relative" ref={ref}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors"
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
                 <Columns className="w-3.5 h-3.5" /> Columns
             </button>
 
             {isOpen && (
-                <div className="fixed inset-x-3 top-16 bottom-3 flex flex-col bg-white border border-gray-200 rounded-lg shadow-xl z-[500] p-3 animate-in fade-in zoom-in duration-200 md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-64 md:p-2">
+                <div className="fixed inset-x-3 top-16 bottom-3 z-[1000] flex flex-col rounded-lg border border-gray-200 bg-white p-3 shadow-xl animate-in fade-in zoom-in duration-200 md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-64 md:p-2">
                     <div className="flex items-center justify-between gap-3 text-xs font-bold text-gray-400 uppercase mb-2 px-2 shrink-0">
                         <span>Visible Columns</span>
                         <button type="button" onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-900 normal-case md:hidden">Close</button>
@@ -152,7 +241,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
                         {orderedColumns.map((col, index) => (
                             <div
                                 key={col.key}
-                                className="flex items-center w-full px-2 py-1.5 text-xs text-left rounded hover:bg-gray-50 transition-colors gap-2"
+                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${visibleColumns.includes(col.key) ? 'bg-emerald-50/70 hover:bg-emerald-100/70' : 'hover:bg-gray-50'}`}
                             >
                                 {onOrderChange && (
                                     <div className="flex flex-col">
@@ -164,7 +253,7 @@ export const ColumnSelector: React.FC<ColumnSelectorProps> = ({ columns, visible
                                         </button>
                                     </div>
                                 )}
-                                <button type="button" onClick={() => toggleColumn(col.key)} className="flex items-center flex-1 min-w-0 gap-2 text-left">
+                                <button type="button" onClick={() => toggleColumn(col.key)} aria-pressed={visibleColumns.includes(col.key)} className="flex items-center flex-1 min-w-0 gap-2 text-left">
                                     <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${visibleColumns.includes(col.key) ? 'bg-[#3DCD58] border-[#3DCD58] text-white' : 'border-gray-300'}`}>
                                         {visibleColumns.includes(col.key) && <Check className="w-2.5 h-2.5" />}
                                     </div>

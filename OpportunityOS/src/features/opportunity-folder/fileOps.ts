@@ -267,6 +267,11 @@ export const openInNativeApp = async (
   relativePath: string[]
 ): Promise<void> => {
   const absolute = buildAbsolutePath(rootPathDisplay, relativePath);
+  return openAbsolutePath(absolute);
+};
+
+/** Open an absolute Windows file or folder path through the local OS helper. */
+export const openAbsolutePath = async (absolute: string): Promise<void> => {
   const qs = new URLSearchParams({ path: absolute }).toString();
 
   let resp: Response;
@@ -434,11 +439,17 @@ export const locateFolderPathWithMarker = async (dirHandle: FileSystemDirectoryH
     await writable.write('marker');
     await writable.close();
 
-    const qs = new URLSearchParams({ marker }).toString();
-    const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
-    if (resp && resp.ok) {
-      const body = await resp.json().catch(() => null);
-      if (body?.path) return body.path as string;
+    const qs = new URLSearchParams({ marker, name: dirHandle.name }).toString();
+    // Windows Search indexes a newly-created marker asynchronously. The old
+    // one-shot request raced the index and incorrectly forced manual path entry.
+    // Keep the unique marker alive while retrying so a match is always exact.
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
+      if (resp && resp.ok) {
+        const body = await resp.json().catch(() => null);
+        if (body?.path) return body.path as string;
+      }
+      if (attempt < 11) await new Promise(resolve => window.setTimeout(resolve, 750));
     }
     return null;
   } finally {

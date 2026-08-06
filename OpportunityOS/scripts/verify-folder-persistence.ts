@@ -29,6 +29,7 @@ import {
   deleteDoc,
   listDocsForTask,
   setFolderPath,
+  mergeFolderPaths,
 } from '../src/services/opportunityFolderStore';
 
 let passed = 0;
@@ -253,6 +254,23 @@ test('store: a path write does not clobber a pin written in the same tick', () =
   bridge.flush();
   assert.equal(bridge.current().folderPaths?.R1, 'C:\\Projects\\Opp');
   assert.equal(bridge.current().folderPins?.['opp-1::R1']?.length, 1);
+});
+
+test('store: legacy paths are imported additively into the shared database', () => {
+  const bridge = makeBridge('sync');
+  mergeFolderPaths('opp-1', { '': 'C:\\Legacy\\Opp', R0: 'C:\\Legacy\\Opp\\R0' });
+  assert.equal(bridge.current().folderPaths?.[''], 'C:\\Legacy\\Opp');
+  assert.equal(bridge.current().folderPaths?.R0, 'C:\\Legacy\\Opp\\R0');
+  assert.equal(bridge.current().folderLinked, true);
+});
+
+test('store: legacy recovery never overwrites a newer database path', () => {
+  const bridge = makeBridge('sync');
+  setFolderPath('opp-1', 'R1', 'D:\\Current\\R1');
+  mergeFolderPaths('opp-1', { R1: 'C:\\Old\\R1', R0: 'C:\\Old\\R0', R2: '   ' });
+  assert.equal(bridge.current().folderPaths?.R1, 'D:\\Current\\R1');
+  assert.equal(bridge.current().folderPaths?.R0, 'C:\\Old\\R0');
+  assert.equal(bridge.current().folderPaths?.R2, undefined);
 });
 
 test('pins: add/remove round-trip and no duplicates', () => {

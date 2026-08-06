@@ -1,17 +1,20 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, Trash2, Save, GripVertical, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail, Sparkles, Timer } from 'lucide-react';
-import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, GlobalContact } from '../types';
+import { X, Plus, Trash2, Save, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail, Sparkles, Timer, EyeOff, Link as LinkIcon, FolderOpen, RefreshCw } from 'lucide-react';
+import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, GlobalContact, GeneralQuickLink } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
 import { playSound } from '../services/soundService';
 import { sanitizeHtml } from '../services/sanitizeHtml';
 import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
+import { GENERAL_QUICK_LINK_ICON_OPTIONS } from './StickyNotesWidget';
 import {
   mergeEmailComposeSettings, resolveTemplates, variablesForKind,
   DEFAULT_EMAIL_TEMPLATES, DEFAULT_SUBJECT_FORMAT, DEFAULT_FULLNAME_FORMAT,
-  type EmailComposeSettings, type EmailTemplate,
+  type EmailComposeSettings, type EmailTemplate
 } from '../services/emailTemplates';
+import { deriveReporterId, reportFilename, checkFolderPath } from '../services/managerReportSync';
+import { locateFolderPath } from '../features/opportunity-folder/fileOps';
 
 const DEFAULT_SOW_FLOW: { steps: any[]; questions: any[] } = (() => {
   try {
@@ -19,6 +22,12 @@ const DEFAULT_SOW_FLOW: { steps: any[]; questions: any[] } = (() => {
     return match ? JSON.parse(match[1]) : { steps: [], questions: [] };
   } catch { return { steps: [], questions: [] }; }
 })();
+const RETIRED_DUPLICATE_SOW_KEYS = new Set([
+  'flow_B001','flow_B002','flow_B003','flow_B004','flow_B005','flow_B006','flow_B007','flow_C001','flow_C002','flow_C003','flow_C004','flow_C005','flow_C008','flow_C009','flow_C010','flow_C011','flow_T001','flow_T007',
+  'flow_H001','flow_H002','flow_H005','flow_H006','flow_H007','flow_H008','flow_H009','flow_S002','flow_S003','flow_S004','flow_S005','flow_S006','flow_S007',
+  'flow_P001','flow_P002','flow_P003','flow_P004','flow_P005','flow_P006','flow_TR001','flow_TR002','flow_TR003','flow_TR004','flow_D001','flow_D003','flow_D004','flow_D005'
+]);
+const VISIBLE_DEFAULT_SOW_QUESTIONS = DEFAULT_SOW_FLOW.questions.filter(question => !RETIRED_DUPLICATE_SOW_KEYS.has(question.key));
 
 export interface TaskTemplate {
   id: string;
@@ -40,7 +49,13 @@ export interface TaskStandard {
   id: string;
   name: string;
   tasks: TaskTemplate[];
+  /** Hidden lists stay available but are left out of the pickers unless the user asks to see them. */
+  hidden?: boolean;
 }
+
+/** Lists offered by default in the pickers (new opportunity, new revision). */
+export const visibleTaskStandards = (standards?: TaskStandard[]): TaskStandard[] =>
+  (standards || []).filter(standard => !standard.hidden);
 
 export interface NoteTemplate {
   id: string;
@@ -78,7 +93,7 @@ export const APP_VIEWS: { key: AppViewKey; label: string }[] = [
 ];
 
 export type OpportunityHeaderFieldKey =
-  | 'address' | 'seller' | 'nextStep' | 'quoteType' | 'alias' | 'labels'
+  | 'address' | 'seller' | 'nextStep' | 'quoteType' | 'labels'
   | 'emailButton' | 'exportImport' | 'revisions' | 'exportPdf' | 'copySummary' | 'autoFillEmail' | 'delete'
   | 'principalStatus' | 'processStatus' | 'priority';
 
@@ -87,7 +102,6 @@ export const OPPORTUNITY_HEADER_FIELDS: { key: OpportunityHeaderFieldKey; label:
   { key: 'seller', label: 'Seller' },
   { key: 'nextStep', label: 'Next Step badge' },
   { key: 'quoteType', label: 'Quote type badge' },
-  { key: 'alias', label: 'Alias badge' },
   { key: 'labels', label: 'Labels' },
   { key: 'emailButton', label: 'Email button' },
   { key: 'exportImport', label: 'Export / Import buttons' },
@@ -159,7 +173,15 @@ export interface AppSettings {
   processBoardColors?: Record<string, string>;
   /** Global variables usable across the app (e.g. the user name stamped when copying History). */
   userName?: string;
+  /** Daily Manager-report auto-export toggle. Off by default; canonical copy lives in the database. */
+  dailyManagerReportEnabled?: boolean;
+  /** Absolute path of the shared folder where the daily report is overwritten. */
+  dailyManagerReportFolder?: string;
+  /** Full name used to derive the unique reporter id (first name + 2 letters of last name). */
+  dailyManagerReportFullName?: string;
   globalContacts?: GlobalContact[];
+  /** General quick-access spheres shown above Sticky Notes. */
+  generalQuickLinks?: GeneralQuickLink[];
   /** Email composer configuration: subject format, Outlook mode and template overrides/customs. */
   emailCompose?: EmailComposeSettings;
   /** Reusable SOW sections/questions shared by every opportunity. */
@@ -223,6 +245,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hiddenProposalProcessColumns: ['Info Needed'],
   processBoardColors: {},
   userName: 'User',
+  dailyManagerReportEnabled: false,
+  dailyManagerReportFolder: '',
+  dailyManagerReportFullName: '',
   globalContacts: [],
   globalSowForm: { sections: [], questions: [] },
   alarms: [
@@ -241,7 +266,7 @@ export const normalizeTaskStandards = (settings: AppSettings): AppSettings => {
     ...settings,
     taskStandards: [{
       id: crypto.randomUUID(),
-      name: 'Estándar general',
+      name: 'General standard',
       tasks: settings.defaultTasks || [],
     }],
   };
@@ -256,6 +281,10 @@ interface Props {
   onOpenQuickOrganizer?: () => void;
   /** Export the entire local DB as the read-only report consumed by Manager Tool. */
   onExportManagerReport?: (userName?: string) => void;
+  /** Force one immediate daily-report write to the configured shared folder. */
+  onRunDailyExportNow?: () => Promise<{ ok: boolean; error?: string }>;
+  /** Read-only status of the daily export, sourced from the database. */
+  managerSyncStatus?: { lastExportDay?: string; lastExportedAt?: string; lastError?: string | null };
   /** Close Settings and launch the interactive first-steps tour. */
   onStartTutorial?: () => void;
 }
@@ -312,11 +341,13 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
   );
 };
 
-export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities, onOpenQuickOrganizer, onExportManagerReport, onStartTutorial }) => {
+export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initialSettings, opportunities, onOpenQuickOrganizer, onExportManagerReport, onRunDailyExportNow, managerSyncStatus, onStartTutorial }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'contacts' | 'expediente' | 'tasks' | 'notes' | 'sow' | 'labels' | 'taskview' | 'alarms' | 'emailTemplates'>('general');
   const [emailTplSelectedId, setEmailTplSelectedId] = useState<string>('status_report');
   const emailBodyRef = React.useRef<HTMLTextAreaElement>(null);
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
+  const [syncMessage, setSyncMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [sowEditorText, setSowEditorText] = useState(() => JSON.stringify(initialSettings.globalSowForm || { sections: [], questions: [] }, null, 2));
   const [holidaysText, setHolidaysText] = useState('');
   const [trackedAreasText, setTrackedAreasText] = useState('');
@@ -325,6 +356,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   const [contactRoleFilter, setContactRoleFilter] = useState('');
   const [templateMsg, setTemplateMsg] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [selectedTaskStandardId, setSelectedTaskStandardId] = useState('');
+  const [quickLinkIconPickerId, setQuickLinkIconPickerId] = useState<string | null>(null);
 
   // Reset internal state when modal opens
   useEffect(() => {
@@ -337,6 +369,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
       setTrackedAreasText((initialSettings.trackedAreas || DEFAULT_TRACKED_AREAS).join('\n'));
       setContactSearch('');
       setContactRoleFilter('');
+      setQuickLinkIconPickerId(null);
     }
   }, [isOpen, initialSettings]);
 
@@ -401,13 +434,22 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
     if (duplicate) { alert(`Duplicate contact: ${duplicate.name}. Select the existing person instead of creating another one.`); return; }
     const standards = (settings.taskStandards || []).map((standard, index) => ({
       ...standard,
-      name: standard.name.trim() || `Estándar ${index + 1}`,
+      name: standard.name.trim() || `List ${index + 1}`,
     }));
+    const generalQuickLinks = (settings.generalQuickLinks || []).map(link => ({ ...link, name: link.name.trim(), url: link.url.trim() }));
+    const invalidQuickLink = generalQuickLinks.find(link => {
+      if (!link.name || link.name.split(/\s+/).length > 2) return true;
+      const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(link.url) || link.url.startsWith('\\\\') || /^file:\/\//i.test(link.url);
+      if (isWindowsPath) return false;
+      try { const url = new URL(link.url); return !['http:', 'https:'].includes(url.protocol); } catch { return true; }
+    });
+    if (invalidQuickLink) { alert('Each quick link needs a valid web URL or an absolute Windows file/folder path, plus a name of up to two words.'); return; }
     onSave({
       ...settings,
       defaultTasks: standards[0]?.tasks || settings.defaultTasks,
       taskStandards: standards,
       globalContacts: contacts,
+      generalQuickLinks,
       holidays,
       trackedAreas,
       opportunityDetailSectionOrder: normalizeOpportunityDetailSectionOrder(settings.opportunityDetailSectionOrder)
@@ -677,6 +719,151 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 <p className="mt-2 text-[11px] text-gray-500">Export one complete read-only report for Manager Tool. Upload the downloaded file to the shared report folder when requested.</p>
               </div>
 
+              {(() => {
+                const fullName = settings.dailyManagerReportFullName || '';
+                const reporterId = deriveReporterId(fullName);
+                const folder = (settings.dailyManagerReportFolder || '').trim();
+                const enabled = settings.dailyManagerReportEnabled === true;
+                const pickFolder = async () => {
+                  setSyncMessage(null);
+                  try {
+                    if (typeof (window as any).showDirectoryPicker !== 'function') {
+                      setSyncMessage({ kind: 'error', text: 'This browser cannot pick folders. Type the folder path below instead.' });
+                      return;
+                    }
+                    const handle = await (window as any).showDirectoryPicker({ mode: 'read' });
+                    const located = await locateFolderPath(handle);
+                    if (!located) {
+                      setSyncMessage({ kind: 'error', text: `Could not resolve the full path of "${handle.name}". Type the folder path below instead.` });
+                      return;
+                    }
+                    setSettings(prev => ({ ...prev, dailyManagerReportFolder: located }));
+                  } catch (error: any) {
+                    if (error?.name !== 'AbortError') setSyncMessage({ kind: 'error', text: 'Folder selection failed. Type the folder path below instead.' });
+                  }
+                };
+                const toggle = async () => {
+                  setSyncMessage(null);
+                  if (enabled) {
+                    // Turning OFF is always allowed and keeps folder/name stored for one-click re-enabling.
+                    setSettings(prev => ({ ...prev, dailyManagerReportEnabled: false }));
+                    return;
+                  }
+                  if (!reporterId) {
+                    setSyncMessage({ kind: 'error', text: 'Enter your full name (first and last name) before enabling the daily update.' });
+                    return;
+                  }
+                  if (!folder) {
+                    setSyncMessage({ kind: 'error', text: 'Select the destination folder before enabling the daily update.' });
+                    return;
+                  }
+                  setSyncBusy(true);
+                  const folderOk = await checkFolderPath(folder);
+                  setSyncBusy(false);
+                  if (!folderOk) {
+                    setSyncMessage({ kind: 'error', text: 'The selected folder does not exist or the local helper is not running.' });
+                    return;
+                  }
+                  setSettings(prev => ({ ...prev, dailyManagerReportEnabled: true }));
+                  setSyncMessage({ kind: 'ok', text: 'Daily update enabled. Remember to press Save.' });
+                };
+                const exportNow = async () => {
+                  if (!onRunDailyExportNow) return;
+                  setSyncBusy(true);
+                  setSyncMessage(null);
+                  const result = await onRunDailyExportNow();
+                  setSyncBusy(false);
+                  setSyncMessage(result.ok
+                    ? { kind: 'ok', text: 'Report exported to the shared folder.' }
+                    : { kind: 'error', text: result.error || 'Export failed.' });
+                };
+                return (
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2">
+                          <RefreshCw className="w-4 h-4 text-[#3DCD58]" /> Daily manager report update
+                        </h3>
+                        <p className="text-xs text-gray-500 max-w-2xl">
+                          Once per day, while OpportunityOS is open, the full read-only report is written to a shared folder so Manager Tool always sees the latest data.
+                          The same file is overwritten every time — one file per user, never one per day.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggle}
+                        disabled={syncBusy}
+                        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${enabled ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                        title="Toggle daily manager report update"
+                      >
+                        <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Full name</label>
+                        <input
+                          type="text"
+                          value={fullName}
+                          onChange={(e) => setSettings(prev => ({ ...prev, dailyManagerReportFullName: e.target.value }))}
+                          className="mt-1 w-full border-gray-200 rounded-lg text-sm p-2.5 focus:border-[#3DCD58] focus:ring-0"
+                          placeholder="e.g. Alan Merida"
+                        />
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          {reporterId
+                            ? <>Reports will be saved as <span className="font-mono font-bold">{reportFilename(reporterId)}</span></>
+                            : 'First name + last name. The report is identified as "FirstName La" (2 letters of the last name).'}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Destination folder</label>
+                        <div className="mt-1 flex gap-2">
+                          <input
+                            type="text"
+                            value={settings.dailyManagerReportFolder || ''}
+                            onChange={(e) => setSettings(prev => ({ ...prev, dailyManagerReportFolder: e.target.value }))}
+                            className="min-w-0 flex-1 border-gray-200 rounded-lg text-sm p-2.5 font-mono focus:border-[#3DCD58] focus:ring-0"
+                            placeholder="C:\Shared\ManagerReports"
+                          />
+                          <button
+                            type="button"
+                            onClick={pickFolder}
+                            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100"
+                          >
+                            <FolderOpen className="w-4 h-4" /> {folder ? 'Change folder…' : 'Choose folder…'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      {enabled && (
+                        <button
+                          type="button"
+                          onClick={exportNow}
+                          disabled={syncBusy || !onRunDailyExportNow}
+                          className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          <FileText className="w-4 h-4" /> Export now
+                        </button>
+                      )}
+                      {managerSyncStatus?.lastExportedAt && (
+                        <span className="text-[11px] text-gray-500">
+                          Last export: {new Date(managerSyncStatus.lastExportedAt).toLocaleString()}
+                        </span>
+                      )}
+                      {managerSyncStatus?.lastError && (
+                        <span className="text-[11px] font-bold text-red-600">Last export failed — check the folder.</span>
+                      )}
+                    </div>
+                    {syncMessage && (
+                      <p className={`mt-2 text-[11px] font-bold ${syncMessage.kind === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>{syncMessage.text}</p>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -696,6 +883,27 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.timerEnabled === false ? 'translate-x-1' : 'translate-x-6'}`} />
                   </button>
                 </div>
+              </div>
+
+              <div data-tutorial="quicklinks-card" className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><LinkIcon className="w-4 h-4 text-[#3DCD58]" /> Quick links</h3>
+                    <p className="mt-1 text-xs text-gray-500">Create the round shortcuts shown above Sticky Notes. Use a web URL or an absolute Windows path to a file or folder.</p>
+                  </div>
+                  <button type="button" onClick={() => setSettings(prev => ({ ...prev, generalQuickLinks: [...(prev.generalQuickLinks || []), { id: crypto.randomUUID(), name: '', url: '', color: '#3DCD58', icon: 'link' }] }))} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#3DCD58] px-3 py-2 text-xs font-bold text-white hover:bg-[#32b84d]"><Plus className="w-3.5 h-3.5" /> Add link</button>
+                </div>
+                {(settings.generalQuickLinks || []).length === 0 ? null : <div className="space-y-3">
+                  {(settings.generalQuickLinks || []).map((quickLink, index) => (
+                    <div key={quickLink.id} className="grid grid-cols-1 gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 sm:grid-cols-[auto_1fr_1fr_110px_auto] sm:items-center">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-black text-white" style={{ backgroundColor: quickLink.color || '#3DCD58' }}>{quickLink.name.trim().slice(0, 2).toUpperCase() || '•'}</span>
+                      <input value={quickLink.name} maxLength={24} placeholder="Short name" onChange={e => setSettings(prev => ({ ...prev, generalQuickLinks: (prev.generalQuickLinks || []).map((item, i) => i === index ? { ...item, name: e.target.value } : item) }))} className="rounded-lg border-gray-200 p-2 text-xs focus:border-[#3DCD58] focus:ring-0" />
+                      <input value={quickLink.url} type="text" placeholder="https://... or C:\\Folder\\File" onChange={e => setSettings(prev => ({ ...prev, generalQuickLinks: (prev.generalQuickLinks || []).map((item, i) => i === index ? { ...item, url: e.target.value } : item) }))} className="rounded-lg border-gray-200 p-2 text-xs focus:border-[#3DCD58] focus:ring-0" />
+                      <div className="flex items-center gap-2"><div className="relative"><button type="button" onClick={() => setQuickLinkIconPickerId(prev => prev === quickLink.id ? null : quickLink.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:border-[#3DCD58] hover:text-[#3DCD58]" title="Choose icon">{GENERAL_QUICK_LINK_ICON_OPTIONS.filter(option => option.id === quickLink.icon).map(({ Icon }) => <Icon key={quickLink.icon} className="h-4 w-4" />)}{!GENERAL_QUICK_LINK_ICON_OPTIONS.some(option => option.id === quickLink.icon) && <LinkIcon className="h-4 w-4" />}</button>{quickLinkIconPickerId === quickLink.id && <div className="absolute right-0 top-10 z-50 w-52 rounded-xl border border-gray-200 bg-white p-3 shadow-2xl"><div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">Choose an icon</div><div className="grid grid-cols-4 gap-2">{GENERAL_QUICK_LINK_ICON_OPTIONS.map(({ id, label, Icon }) => <button key={id} type="button" onClick={() => { setSettings(prev => ({ ...prev, generalQuickLinks: (prev.generalQuickLinks || []).map((item, i) => i === index ? { ...item, icon: id } : item) })); setQuickLinkIconPickerId(null); }} className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${quickLink.icon === id ? 'bg-[#3DCD58] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`} title={label} aria-label={`Use ${label} icon`}><Icon className="h-4 w-4" /></button>)}</div></div>}</div><input type="color" value={quickLink.color || '#3DCD58'} onChange={e => setSettings(prev => ({ ...prev, generalQuickLinks: (prev.generalQuickLinks || []).map((item, i) => i === index ? { ...item, color: e.target.value } : item) }))} className="h-8 w-8 cursor-pointer rounded border-0 bg-transparent p-0" title="Color" /></div>
+                      <button type="button" onClick={() => setSettings(prev => ({ ...prev, generalQuickLinks: (prev.generalQuickLinks || []).filter((_, i) => i !== index) }))} className="justify-self-end rounded p-2 text-red-400 hover:bg-red-50 hover:text-red-600" title="Remove link"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  ))}
+                </div>}
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
@@ -1226,19 +1434,19 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                   <div className="flex-1">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Lista de tareas</label>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Task list</label>
                     <select
                       value={selectedTaskStandard?.id || ''}
                       onChange={e => setSelectedTaskStandardId(e.target.value)}
                       className="w-full border border-gray-200 rounded-lg text-sm"
                     >
                       {(settings.taskStandards || []).map(standard => (
-                        <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length})</option>
+                        <option key={standard.id} value={standard.id}>{standard.name} ({standard.tasks.length}){standard.hidden ? ' — hidden' : ''}</option>
                       ))}
                     </select>
                   </div>
                   <div className="flex-[2]">
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Nombre del estándar</label>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">List name</label>
                     <input
                       value={selectedTaskStandard?.name || ''}
                       onChange={e => setSettings(prev => ({
@@ -1248,33 +1456,62 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           : standard)
                       }))}
                       className="w-full border border-gray-200 rounded-lg text-sm"
-                      placeholder="Ej. Propuesta estándar"
+                      placeholder="e.g. Standard proposal"
                     />
                   </div>
                   <button
                     onClick={() => {
-                      const standard: TaskStandard = { id: crypto.randomUUID(), name: `Nuevo estándar ${(settings.taskStandards?.length || 0) + 1}`, tasks: [] };
+                      const standard: TaskStandard = { id: crypto.randomUUID(), name: `New list ${(settings.taskStandards?.length || 0) + 1}`, tasks: [] };
                       setSettings(prev => ({ ...prev, taskStandards: [...(prev.taskStandards || []), standard] }));
                       setSelectedTaskStandardId(standard.id);
                     }}
                     className="px-3 py-2 rounded-lg bg-[#3DCD58] text-white text-xs font-bold flex items-center justify-center gap-1"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Nueva lista
+                    <Plus className="w-3.5 h-3.5" /> New list
                   </button>
                   <button
                     disabled={(settings.taskStandards?.length || 0) <= 1}
                     onClick={() => {
-                      if (!selectedTaskStandard || !confirm(`¿Eliminar la lista "${selectedTaskStandard.name}"?`)) return;
+                      if (!selectedTaskStandard || !confirm(`Delete the list "${selectedTaskStandard.name}"?`)) return;
                       const remaining = (settings.taskStandards || []).filter(standard => standard.id !== selectedTaskStandard.id);
                       setSettings(prev => ({ ...prev, taskStandards: remaining, defaultTasks: remaining[0]?.tasks || [] }));
                       setSelectedTaskStandardId(remaining[0]?.id || '');
                     }}
                     className="px-3 py-2 rounded-lg border border-red-200 text-red-600 text-xs font-bold disabled:opacity-40 flex items-center justify-center gap-1"
                   >
-                    <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-3">Crea y nombra distintas listas. Al iniciar una OP o una revisión podrás elegir cuál usar.</p>
+                <p className="text-xs text-gray-500 mt-3">Create and name different lists. When you start an opportunity or a revision you can pick which one to use.</p>
+
+                <label className="flex items-start gap-3 mt-3 rounded-lg border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    disabled={!selectedTaskStandard}
+                    checked={selectedTaskStandard?.hidden || false}
+                    onChange={e => setSettings(prev => ({
+                      ...prev,
+                      taskStandards: (prev.taskStandards || []).map(standard => standard.id === selectedTaskStandard?.id
+                        ? { ...standard, hidden: e.target.checked }
+                        : standard)
+                    }))}
+                    className="mt-0.5 rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                      <EyeOff className="w-3.5 h-3.5 text-gray-400" /> Hide this list from the pickers
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      The list stays saved and usable, but it won't appear when creating an opportunity or a revision unless
+                      the user ticks "Show hidden lists" there.
+                    </span>
+                  </span>
+                </label>
+                {(settings.taskStandards || []).some(standard => standard.hidden) && (
+                  <p className="text-[10px] font-bold text-amber-600 mt-2">
+                    {(settings.taskStandards || []).filter(standard => standard.hidden).length} list(s) hidden from the pickers.
+                  </p>
+                )}
               </div>
 
               {/* NEW TEMPLATE FROM AN EXISTING OPPORTUNITY */}
@@ -1345,7 +1582,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               </div>
 
               <div className="flex justify-between items-center bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
-                <p className="text-xs text-blue-700">Editando <b>{selectedTaskStandard?.name || 'lista'}</b>. Si sólo existe una lista, se usará automáticamente.</p>
+                <p className="text-xs text-blue-700">Editing <b>{selectedTaskStandard?.name || 'list'}</b>. If only one visible list exists, it is used automatically.</p>
                 <div className="flex gap-2">
                   <button title="Sort by Due Date (Not available for templates)" disabled className="flex items-center gap-1 bg-white border border-gray-200 text-gray-300 px-2 py-1 rounded text-[10px] font-bold shadow-sm cursor-not-allowed">
                     <Calendar className="w-3 h-3" /> Sort by due date
@@ -1522,8 +1759,8 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 </div>
                 <div className="space-y-2">
                   {DEFAULT_SOW_FLOW.steps.map(step => <details key={step.Section} className="border border-gray-200 rounded-xl bg-white" open={false}>
-                    <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-gray-800">Step {step.Step} — {step.Section} <span className="ml-2 text-xs font-normal text-gray-500">({DEFAULT_SOW_FLOW.questions.filter(q => q.section === step.Section).length} questions)</span></summary>
-                    <div className="p-3 pt-0 space-y-3">{DEFAULT_SOW_FLOW.questions.filter(q => q.section === step.Section).map(base => {
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-gray-800">Step {step.Step} — {step.Section} <span className="ml-2 text-xs font-normal text-gray-500">({VISIBLE_DEFAULT_SOW_QUESTIONS.filter(q => q.section === step.Section).length} questions)</span></summary>
+                    <div className="p-3 pt-0 space-y-3">{VISIBLE_DEFAULT_SOW_QUESTIONS.filter(q => q.section === step.Section).map(base => {
                       const question = { ...base, ...((settings.globalSowForm as any)?.flowOverrides?.[base.key] || {}) };
                       const saveOverride = (patch: any) => updateGlobalSowForm(form => ({ ...form, flowOverrides: { ...(form.flowOverrides || {}), [base.key]: { ...base, ...((form.flowOverrides || {})[base.key] || {}), ...patch } } }));
                       const logic = question.logic || null;
@@ -1531,7 +1768,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                         <div className="flex items-center gap-2"><span className="text-[10px] font-mono font-bold text-gray-400">{base.id}</span><input value={question.label || ''} onChange={e => saveOverride({ label: e.target.value })} className="flex-1 text-sm font-semibold border-gray-200 rounded-lg" /><button type="button" className="text-[10px] text-gray-500 hover:text-red-600" onClick={() => updateGlobalSowForm(form => { const overrides = { ...(form.flowOverrides || {}) }; delete overrides[base.key]; return { ...form, flowOverrides: overrides }; })}>Reset</button></div>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-2"><select value={question.type || 'text'} onChange={e => saveOverride({ type: e.target.value })} className="text-xs border-gray-200 rounded-lg">{['text','long_text','number','currency','date','boolean','single_select','multi_select','checkbox','link'].map(type => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}</select><select value={question.owner || ''} onChange={e => saveOverride({ owner: e.target.value })} className="text-xs border-gray-200 rounded-lg"><option value="">Responsible area</option>{(settings.trackedAreas || DEFAULT_TRACKED_AREAS).map(area => <option key={area}>{area}</option>)}</select><input value={question.subsection || ''} onChange={e => saveOverride({ subsection: e.target.value })} className="text-xs border-gray-200 rounded-lg" placeholder="Subsection" /><label className="flex items-center gap-2 text-xs px-2"><input type="checkbox" checked={!!question.required} onChange={e => saveOverride({ required: e.target.checked })} /> Required</label></div>
                         {['single_select','multi_select'].includes(question.type) && <textarea value={(question.options || []).join('\n')} onChange={e => saveOverride({ options: e.target.value.split('\n').map(v => v.trim()).filter(Boolean) })} className="w-full text-xs border-gray-200 rounded-lg" placeholder="Options — one per line" />}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-t border-gray-200 pt-2"><select value={logic?.source || ''} onChange={e => saveOverride({ logic: e.target.value ? { op: logic?.op || 'equals', source: e.target.value, value: logic?.value || '' } : null })} className="text-xs border-gray-200 rounded-lg"><option value="">Always visible (no relationship)</option>{DEFAULT_SOW_FLOW.questions.filter(q => q.key !== base.key).map(q => <option key={q.key} value={q.key}>{q.id} — {q.label}</option>)}</select><select disabled={!logic} value={logic?.op || 'equals'} onChange={e => saveOverride({ logic: { ...(logic || {}), op: e.target.value } })} className="text-xs border-gray-200 rounded-lg"><option value="equals">Equals</option><option value="includes">Includes</option><option value="includes_any">Includes any</option><option value="has_value">Has any answer</option><option value="is_empty">Is empty</option></select><input disabled={!logic || ['has_value','is_empty'].includes(logic?.op)} value={Array.isArray(logic?.value) ? logic.value.join(', ') : logic?.value || ''} onChange={e => saveOverride({ logic: { ...(logic || {}), value: logic?.op === 'includes_any' ? e.target.value.split(',').map(v => v.trim()).filter(Boolean) : e.target.value } })} className="text-xs border-gray-200 rounded-lg" placeholder="Expected answer, e.g. Modicon" /></div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-t border-gray-200 pt-2"><select value={logic?.source || ''} onChange={e => saveOverride({ logic: e.target.value ? { op: logic?.op || 'equals', source: e.target.value, value: logic?.value || '' } : null })} className="text-xs border-gray-200 rounded-lg"><option value="">Always visible (no relationship)</option>{VISIBLE_DEFAULT_SOW_QUESTIONS.filter(q => q.key !== base.key).map(q => <option key={q.key} value={q.key}>{q.id} — {q.label}</option>)}</select><select disabled={!logic} value={logic?.op || 'equals'} onChange={e => saveOverride({ logic: { ...(logic || {}), op: e.target.value } })} className="text-xs border-gray-200 rounded-lg"><option value="equals">Equals</option><option value="includes">Includes</option><option value="includes_any">Includes any</option><option value="has_value">Has any answer</option><option value="is_empty">Is empty</option></select><input disabled={!logic || ['has_value','is_empty'].includes(logic?.op)} value={Array.isArray(logic?.value) ? logic.value.join(', ') : logic?.value || ''} onChange={e => saveOverride({ logic: { ...(logic || {}), value: logic?.op === 'includes_any' ? e.target.value.split(',').map(v => v.trim()).filter(Boolean) : e.target.value } })} className="text-xs border-gray-200 rounded-lg" placeholder="Expected answer, e.g. Modicon" /></div>
                       </div>;
                     })}</div>
                   </details>)}
@@ -1548,7 +1785,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2"><select value={question.sectionId} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, sectionId: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg"><optgroup label="Steps">{sowStepOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</optgroup><optgroup label="Custom sections">{(settings.globalSowForm?.sections || []).map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</optgroup></select><select value={question.type} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, type: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg">{['text','long_text','number','currency','date','boolean','single_select','multi_select','checkbox','link'].map(type => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}</select><select value={question.owner || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, owner: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg"><option value="">Responsible area</option>{(settings.trackedAreas || DEFAULT_TRACKED_AREAS).map(area => <option key={area}>{area}</option>)}</select></div>
                     {['single_select', 'multi_select'].includes(question.type) && <textarea value={(question.options || []).join('\n')} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, options: e.target.value.split('\n').map(v => v.trim()).filter(Boolean) } : q) }))} className="w-full text-xs border-gray-200 rounded-lg" placeholder="Options — one per line" />}
                     <div className="flex flex-wrap items-center gap-3 text-xs"><label className="flex items-center gap-2"><input type="checkbox" checked={!!question.required} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, required: e.target.checked } : q) }))} /> Required answer</label><input value={question.subsection || ''} onChange={e => updateGlobalSowForm(form => ({ ...form, questions: form.questions.map(q => q.key === question.key ? { ...q, subsection: e.target.value } : q) }))} className="text-xs border-gray-200 rounded-lg" placeholder="Subsection (optional)" /></div>
-                    <p className="text-[11px] text-gray-500">To add a dependency: open any SOW → Design questions → Edit this question → add “Show this question when”. You can use answers such as System offered = Modicon.</p>
+                    <p className="text-[11px] text-gray-500">To add a dependency: open any SOW → Designer → Edit this question → add “Show this question when”. You can use answers such as System offered = Modicon.</p>
                   </div>)}
                 </div>
                 {!settings.globalSowForm?.questions?.length && !settings.globalSowForm?.sections?.length && <p className="text-xs text-gray-500 text-center py-8">Start with “Add question”. Use a custom section when the question group does not belong to one of the eight Steps.</p>}

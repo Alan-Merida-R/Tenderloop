@@ -1,5 +1,5 @@
 
-import { Opportunity, Task, MeetingNote, HistoryEntry, FolderDocRecord, INITIAL_DB } from '../types';
+import { Opportunity, FolderDocRecord } from '../types';
 import { listAllDocs, DocMeta } from './opportunityDocMetaStore';
 import { OpportunityExportPackage, CURRENT_SCHEMA_VERSION } from '../features/opportunity-export/schema';
 

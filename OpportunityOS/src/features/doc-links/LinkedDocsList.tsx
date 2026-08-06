@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { FileText, X, ExternalLink, RefreshCw, Copy, Check, FolderSearch, Eye, AlertTriangle } from 'lucide-react';
+import { FileText, X, RefreshCw, Copy, Check, FolderSearch, Eye, AlertTriangle } from 'lucide-react';
 import { listLinkedForTask, listLinkedForNote, saveMeta, DocMeta } from '../../services/opportunityDocMetaStore';
 import { resolveEffectiveRootPath } from '../../services/opportunityFolderLink';
 import { openInNativeApp } from '../opportunity-folder/fileOps';

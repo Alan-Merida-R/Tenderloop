@@ -9,6 +9,19 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 motorPath = scriptDir & "\engine_opportunityos.bat"
 viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
 
+' If OpportunityOS is already open, toggle its window (restore/focus it, or
+' minimize it if it's already the active window) instead of opening another
+' one on top. This runs directly in response to the user's click/hotkey, so
+' Windows grants it foreground-activation rights.
+Dim togglePath, toggleCommand
+togglePath = scriptDir & "\scripts\toggle-app-window.ps1"
+If fso.FileExists(togglePath) Then
+    toggleCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & togglePath & """"
+    If shell.Run(toggleCommand, 0, True) = 0 Then
+        WScript.Quit 0
+    End If
+End If
+
 If Not fso.FileExists(motorPath) Then
     MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "OpportunityOS"
     WScript.Quit 1

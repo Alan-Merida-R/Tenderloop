@@ -1,7 +1,14 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, X, Check } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { Opportunity } from '../types';
+
+/** Normalize once when building an index, rather than doing accent work for
+ * every opportunity on every keyboard stroke. */
+export const normalizeSearchText = (value: unknown) => String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
 interface Props {
     opportunities: Opportunity[];
@@ -38,9 +45,9 @@ export const parseBooleanQuery = (query: string) => {
 
             if (cleanTerm.startsWith('"') && cleanTerm.endsWith('"')) {
                 isExact = true;
-                cleanTerm = cleanTerm.slice(1, -1).toLowerCase();
+                cleanTerm = normalizeSearchText(cleanTerm.slice(1, -1));
             } else {
-                cleanTerm = cleanTerm.toLowerCase();
+                cleanTerm = normalizeSearchText(cleanTerm);
             }
 
             // Prepare wildcard if needed
@@ -54,8 +61,8 @@ export const parseBooleanQuery = (query: string) => {
         }).filter(t => !t.isOrToken);
     });
 
-    return (text: string) => {
-        const lowerText = text.toLowerCase();
+    return (text: string, alreadyNormalized = false) => {
+        const lowerText = alreadyNormalized ? text : normalizeSearchText(text);
 
         return preCompiledGroups.some(group => {
             return group.every(t => {
@@ -107,7 +114,7 @@ export const OpportunitySearchInput: React.FC<Props> = ({
     // Typeahead suggestions
     const suggestions = useMemo(() => {
         // Always return suggestions, filtered by text if present
-        const lower = deferredValue.toLowerCase().trim();
+        const lower = normalizeSearchText(deferredValue).trim();
 
         return opportunities
             .filter(o => {
@@ -119,12 +126,14 @@ export const OpportunitySearchInput: React.FC<Props> = ({
                 // notes, seller, location and every other stored field.
                 // Other dialogs can pass full records without this cache, so
                 // retain a small compatibility fallback for their typeahead.
-                const searchable = o._searchIndex || [
+                const searchable = o._searchIndex || normalizeSearchText([
                     o.title, o.id, o.customer, o.customerAddress, o.seller,
                     o.srId, o.alias, o.description, o.kanbanNote,
                     ...(o.labels || []).map(label => label.text),
+                    ...(o.stakeholders || []).flatMap(person => [person.name, person.email, person.role, ...(person.roles || []), ...(person.aliases || [])]),
+                    ...(o.notes || []).flatMap(note => [note.title, note.attendees, note.content]),
                     ...(o.versions || []).map(version => version.srId),
-                ].filter(Boolean).join(' ').toLowerCase();
+                ].filter(Boolean).join(' '));
                 return searchable.includes(lower);
             })
             .slice(0, 50); // Increased limit

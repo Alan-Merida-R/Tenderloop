@@ -23,6 +23,8 @@ const DB_NAME = 'OpportunityFolderDB';
 const STORE_NAME = 'Handles';
 const META_STORE = 'Meta';
 const DB_VERSION = 2;
+const LEGACY_DB_NAME = 'TenderLoopFolders';
+const LEGACY_HANDLE_STORE = 'handles';
 
 const getDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -65,6 +67,61 @@ const listHandleKeys = async (opportunityId: string): Promise<string[]> => {
   });
 };
 
+/** Read the single-folder handle used before OpportunityFolderDB existed. */
+const getLegacyFolderHandle = async (opportunityId: string): Promise<FileSystemDirectoryHandle | null> =>
+  new Promise(resolve => {
+    try {
+      const request = indexedDB.open(LEGACY_DB_NAME, 1);
+      request.onsuccess = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(LEGACY_HANDLE_STORE)) {
+          db.close();
+          resolve(null);
+          return;
+        }
+        const read = db.transaction(LEGACY_HANDLE_STORE, 'readonly').objectStore(LEGACY_HANDLE_STORE).get(opportunityId);
+        read.onsuccess = () => { const handle = read.result || null; db.close(); resolve(handle); };
+        read.onerror = () => { db.close(); resolve(null); };
+      };
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+
+/**
+ * Read every absolute path left by older app versions in this browser's IndexedDB.
+ * The bare opportunity id is the legacy single-folder key; `id::revision` is the
+ * newer per-revision form. Nothing is deleted, so this import is safe to repeat.
+ */
+export const getStoredFolderPaths = async (opportunityId: string): Promise<Record<string, string>> => {
+  const db = await getDB();
+  return new Promise(resolve => {
+    const paths: Record<string, string> = {};
+    try {
+      const request = db.transaction(META_STORE, 'readonly').objectStore(META_STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(paths);
+          return;
+        }
+        const key = String(cursor.primaryKey);
+        const value = typeof cursor.value === 'string' ? cursor.value.trim() : '';
+        if (value && keyBelongsTo(key, opportunityId)) {
+          const revision = key === opportunityId ? '' : key.slice(opportunityId.length + 2).trim();
+          if (revision || key === opportunityId) paths[revision] = value;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => resolve(paths);
+    } catch {
+      resolve(paths);
+    }
+  });
+};
+
 /**
  * Read a handle for a specific revision.
  *
@@ -77,7 +134,11 @@ const listHandleKeys = async (opportunityId: string): Promise<string[]> => {
 export const getFolderHandleForRevision = async (opportunityId: string, revision?: string): Promise<FileSystemDirectoryHandle | null> => {
   const primary = await getFolderHandle(folderKey(opportunityId, revision));
   if (primary) return primary;
-  if (!revision || !revision.trim()) return null;
+  if (!revision || !revision.trim()) {
+    const oldHandle = await getLegacyFolderHandle(opportunityId);
+    if (oldHandle) await setFolderHandle(opportunityId, oldHandle);
+    return oldHandle;
+  }
 
   const legacy = await getFolderHandle(opportunityId);
   if (legacy) return legacy;
@@ -90,6 +151,16 @@ export const getFolderHandleForRevision = async (opportunityId: string, revision
     }
   } catch {
     // Enumeration is a best-effort convenience; never fail the lookup over it.
+  }
+
+  // Last-resort upgrade path from releases that stored one handle in
+  // TenderLoopFolders/handles. Preserve it under both the legacy key and the current
+  // revision so the normal path auto-detection can subsequently write its path to DB.
+  const oldHandle = await getLegacyFolderHandle(opportunityId);
+  if (oldHandle) {
+    await setFolderHandle(opportunityId, oldHandle);
+    if (revision?.trim()) await setFolderHandle(folderKey(opportunityId, revision), oldHandle);
+    return oldHandle;
   }
   return null;
 };

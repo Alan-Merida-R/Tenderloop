@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, AlertCircle, Table as TableIcon, FileText } from 'lucide-react';
+import { Loader2, AlertCircle, Table as TableIcon } from 'lucide-react';
 import { FileItem } from '../types';
 
 interface Props {
@@ -14,7 +14,6 @@ export const OfficePreview: React.FC<Props> = ({ item, sizeLimit }) => {
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [sheets, setSheets] = useState<{ name: string; html: string }[]>([]);
   const [activeSheetIdx, setActiveSheetIdx] = useState(0);
-  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
     const parseFile = async () => {

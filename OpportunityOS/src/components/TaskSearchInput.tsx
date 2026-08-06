@@ -1,8 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, X, ListChecks } from 'lucide-react';
-import { Task } from '../types';
-import { parseBooleanQuery } from './OpportunitySearchInput';
+import { X, ListChecks } from 'lucide-react';
 
 interface Props {
     tasks: any[]; // These are the tasks with .opp context

@@ -23,6 +23,24 @@ export const revealInExplorer = (target: string): void => {
     exec(`explorer /select,"${target.replace(/"/g, '')}"`, { windowsHide: true }, () => { });
 };
 
+/** Pin/unpin the dedicated timer popup above every Windows window. The title is
+ * supplied by the local app and matched exactly, so no unrelated window is touched. */
+export const setTimerWindowTopmost = async (title: string, enabled: boolean): Promise<boolean> => {
+    if (!title.trim() || title.length > 500) return false;
+    const typeDefinition = 'using System; using System.Runtime.InteropServices; public static class OpportunityOSTimerWindow { [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr FindWindow(string className, string windowName); [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags); }';
+    const script = [
+        `$title=${psSingleQuote(title)}`,
+        `Add-Type -TypeDefinition ${psSingleQuote(typeDefinition)}`,
+        `$h=[OpportunityOSTimerWindow]::FindWindow($null,$title)`,
+        `if($h -eq [IntPtr]::Zero){ Write-Output 'NOT_FOUND'; exit }`,
+        `$after=if(${enabled ? '$true' : '$false'}){[IntPtr](-1)}else{[IntPtr](-2)}`,
+        `$ok=[OpportunityOSTimerWindow]::SetWindowPos($h,$after,0,0,0,0,0x0003)`,
+        `if($ok){Write-Output 'OK'}else{Write-Output 'FAILED'}`,
+    ].join("; ");
+    const out = await runPowerShell(script, 5000).catch(() => '');
+    return out.includes('OK');
+};
+
 /** Resolve a browser-selected file to one unambiguous indexed Windows path. */
 export const findFileByMetadata = async (name: string, size: number, mtime: number): Promise<string | null> => {
     const out = await runPowerShell(
@@ -222,7 +240,30 @@ export const findDirByName = async (name: string, hints: string[]): Promise<Find
  * DEPRECATED (kept for parity): find a folder by a unique marker file inside
  * it. Slow full-tree scan; superseded by findDirByName.
  */
-export const locateByMarker = async (marker: string): Promise<{ path: string; searchedRoot: string } | null> => {
+export const locateByMarker = async (marker: string, folderName = ''): Promise<{ path: string; searchedRoot: string } | null> => {
+    // The marker itself may take several seconds to enter Windows Search. The folder
+    // normally already exists in the index, though, so enumerate every same-named
+    // folder and test for the unique marker directly on disk. This is deterministic
+    // even when several opportunities use an identical revision folder name.
+    if (folderName) {
+        try {
+            const out = await runPowerShell(
+                `$ErrorActionPreference='SilentlyContinue';` +
+                `$n=${psSingleQuote(folderName)};` +
+                `$sql='SELECT TOP 100 System.ItemUrl FROM SYSTEMINDEX WHERE System.FileName = ''' + $n.Replace("'","''") + ''' AND System.ItemType = ''Directory''';` +
+                `$c=New-Object System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows'");` +
+                `$c.Open();$q=$c.CreateCommand();$q.CommandText=$sql;` +
+                `$r=$q.ExecuteReader();while($r.Read()){[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\'};$c.Close()`,
+                2500
+            );
+            const matches = (out || '')
+                .split(/\r?\n/)
+                .map(candidate => path.normalize(candidate.trim()))
+                .filter(candidate => candidate && existsSync(path.join(candidate, marker)));
+            const unique = Array.from(new Set(matches));
+            if (unique.length === 1) return { path: unique[0], searchedRoot: 'folder-index' };
+        } catch { /* fall through to querying the marker itself */ }
+    }
     try {
         const out = await runPowerShell(
             `$ErrorActionPreference='SilentlyContinue';` +

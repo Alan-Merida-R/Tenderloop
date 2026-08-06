@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Folder, File, ChevronRight, HardDrive, RefreshCw, Check, ArrowLeft, ChevronUp } from 'lucide-react';
+import { X, Search, ChevronRight, RefreshCw, Check, ArrowLeft, ChevronUp } from 'lucide-react';
 import { getFolderHandleForRevision, verifyPermission } from '../../services/opportunityFolderLink';
 import { listDirectory, searchFiles } from '../opportunity-folder/fileOps';
 import { getFileIcon } from '../opportunity-folder/icons';
@@ -124,7 +124,7 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
   const displayedItems = search.trim() ? searchResults : items;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-2xl h-[75vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-in-right">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <h3 className="font-bold text-gray-800">{title}</h3>

@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
-import { Person } from '../types';
+import { Person, Task } from '../types';
 
 interface Props {
     /** Serialized JSON state of the SOW form (MeetingNote.content when format === 'sow'), or '' if never filled in yet. */
     content: string;
     onChange: (json: string) => void;
     people?: Person[];
+    tasks?: Task[];
     areas?: string[];
     /** Opportunity values used to start a new SOW without retyping its basic data. */
     prefill?: Record<string, string>;
@@ -15,12 +16,27 @@ interface Props {
     onOpportunitySync?: (fields: Record<string, unknown>) => void;
     onGeneratedNote?: (note: { title?: string; content?: string }) => void;
     onQuickLinkRequest?: (link: { label: string; url: string }) => void;
+    onTaskOpen?: (taskId: string) => void;
+    onTaskConvert?: (taskId: string) => void;
+    onTaskRaciUpdate?: (patch: { taskId: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => void;
+    onTaskCreate?: (task: { title: string; description: string; priority: Task['priority']; dueDate: string; responsibleRequestedDate: string; responsibleDueDate: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => void;
     /** Contacts from the shared directory, used by the SOW seller autocomplete. */
     directoryPeople?: Person[];
     onSellerMissing?: (name: string) => void;
     disabled?: boolean;
     /** Called when the SOW's own in-document search/navigation panel opens or closes, so the host can free up space for it (e.g. hide the notes list) instead of letting it overlap content. */
     onNavigationOpenChange?: (open: boolean) => void;
+    /**
+     * localStorage key for this note's crash backup. Must be note-scoped: an opportunity-scoped
+     * key made a second (empty) SOW note load the first one's answers and save them as its own,
+     * which is how duplicate SOWs appeared in Notes.
+     */
+    backupKey?: string;
+    /**
+     * Opportunity-scoped key written before backups became note-scoped. Only passed for the
+     * opportunity's primary SOW note, and only read when that note has no content of its own.
+     */
+    legacyBackupKey?: string;
 }
 
 /**
@@ -31,13 +47,14 @@ interface Props {
  * reported back via 'save' so it can be written into that note's content field. This
  * keeps each opportunity's SOW form fully isolated from every other opportunity's.
  */
-export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onSellerMissing, onNavigationOpenChange, disabled }) => {
+export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], tasks = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onTaskOpen, onTaskConvert, onTaskRaciUpdate, onTaskCreate, onSellerMissing, onNavigationOpenChange, backupKey, legacyBackupKey, disabled }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const overviewIframeRef = useRef<HTMLIFrameElement>(null);
     const [overviewOpen, setOverviewOpen] = useState(false);
     const contentRef = useRef(content);
     const onChangeRef = useRef(onChange);
     const peopleRef = useRef(people);
+    const tasksRef = useRef(tasks);
     const directoryPeopleRef = useRef(directoryPeople);
     const areasRef = useRef(areas);
     const prefillRef = useRef(prefill);
@@ -46,13 +63,22 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     const onOpportunitySyncRef = useRef(onOpportunitySync);
     const onGeneratedNoteRef = useRef(onGeneratedNote);
     const onQuickLinkRequestRef = useRef(onQuickLinkRequest);
+    const onTaskOpenRef = useRef(onTaskOpen);
+    const onTaskConvertRef = useRef(onTaskConvert);
+    const onTaskRaciUpdateRef = useRef(onTaskRaciUpdate);
+    const onTaskCreateRef = useRef(onTaskCreate);
     const onSellerMissingRef = useRef(onSellerMissing);
     const onNavigationOpenChangeRef = useRef(onNavigationOpenChange);
     const lastPrefillSyncRef = useRef('');
+    const backupKeyRef = useRef(backupKey);
+    const legacyBackupKeyRef = useRef(legacyBackupKey);
+    useEffect(() => { backupKeyRef.current = backupKey; }, [backupKey]);
+    useEffect(() => { legacyBackupKeyRef.current = legacyBackupKey; }, [legacyBackupKey]);
 
     useEffect(() => { contentRef.current = content; }, [content]);
     useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
     useEffect(() => { peopleRef.current = people; }, [people]);
+    useEffect(() => { tasksRef.current = tasks; }, [tasks]);
     useEffect(() => { directoryPeopleRef.current = directoryPeople; }, [directoryPeople]);
     useEffect(() => { areasRef.current = areas; }, [areas]);
     useEffect(() => { prefillRef.current = prefill; }, [prefill]);
@@ -76,8 +102,17 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     useEffect(() => { onOpportunitySyncRef.current = onOpportunitySync; }, [onOpportunitySync]);
     useEffect(() => { onGeneratedNoteRef.current = onGeneratedNote; }, [onGeneratedNote]);
     useEffect(() => { onQuickLinkRequestRef.current = onQuickLinkRequest; }, [onQuickLinkRequest]);
+    useEffect(() => { onTaskOpenRef.current = onTaskOpen; }, [onTaskOpen]);
+    useEffect(() => { onTaskConvertRef.current = onTaskConvert; }, [onTaskConvert]);
+    useEffect(() => { onTaskRaciUpdateRef.current = onTaskRaciUpdate; }, [onTaskRaciUpdate]);
+    useEffect(() => { onTaskCreateRef.current = onTaskCreate; }, [onTaskCreate]);
     useEffect(() => { onSellerMissingRef.current = onSellerMissing; }, [onSellerMissing]);
     useEffect(() => { onNavigationOpenChangeRef.current = onNavigationOpenChange; }, [onNavigationOpenChange]);
+    useEffect(() => {
+        const message = { source: 'tenderloop-sow-host', type: 'update-task-context', tasks, people };
+        iframeRef.current?.contentWindow?.postMessage(message, '*');
+        overviewIframeRef.current?.contentWindow?.postMessage(message, '*');
+    }, [tasks, people]);
     useEffect(() => {
         if (!overviewOpen) return;
         const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOverviewOpen(false); };
@@ -97,15 +132,19 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                 sentInit = true;
                 let payload: any = null;
                 try {
-                    const backupKey = `tenderloop-sow-backup-${prefillRef.current?.op_id || ''}`;
-                    const source = contentRef.current || (prefillRef.current?.op_id ? localStorage.getItem(backupKey) || '' : '');
+                    // Only fall back to a backup when this note is genuinely empty, and never to
+                    // another note's backup — that is what used to clone the SOW.
+                    const noteKey = backupKeyRef.current;
+                    const legacyKey = legacyBackupKeyRef.current;
+                    const backup = noteKey ? localStorage.getItem(noteKey) : null;
+                    const source = contentRef.current || backup || (legacyKey ? localStorage.getItem(legacyKey) || '' : '');
                     payload = source ? JSON.parse(source) : null;
                 } catch { payload = null; }
-                iframeRef.current.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
+                iframeRef.current.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
             } else if (data.type === 'ready' && isOverviewFrame) {
                 let payload: any = null;
                 try { payload = contentRef.current ? JSON.parse(contentRef.current) : null; } catch { payload = null; }
-                overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
+                overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
                 overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'open-overview' }, '*');
             } else if (data.type === 'save' && !disabled) {
                 // Canonicalize the two representations used by the detailed SOW
@@ -123,7 +162,7 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                     fields.scope_summary = scope;
                 }
                 const serialized = JSON.stringify(data.payload);
-                try { if (prefillRef.current?.op_id) localStorage.setItem(`tenderloop-sow-backup-${prefillRef.current.op_id}`, serialized); } catch { /* non-critical backup */ }
+                try { if (backupKeyRef.current) localStorage.setItem(backupKeyRef.current, serialized); } catch { /* non-critical backup */ }
                 onChangeRef.current(serialized);
             } else if (data.type === 'global-form-save' && !disabled && data.payload) {
                 onGlobalFormChangeRef.current?.(data.payload);
@@ -133,6 +172,16 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                 onGeneratedNoteRef.current?.(data.payload);
             } else if (data.type === 'add-quick-link' && !disabled && data.payload?.url) {
                 onQuickLinkRequestRef.current?.({ label: String(data.payload.label || 'SOW link'), url: String(data.payload.url) });
+            } else if (data.type === 'open-link' && data.url) {
+                window.open(String(data.url), '_blank', 'noopener,noreferrer');
+            } else if (data.type === 'open-task' && data.taskId) {
+                onTaskOpenRef.current?.(String(data.taskId));
+            } else if (data.type === 'convert-task-assignment' && !disabled && data.taskId) {
+                onTaskConvertRef.current?.(String(data.taskId));
+            } else if (data.type === 'update-task-raci' && !disabled && data.payload?.taskId) {
+                onTaskRaciUpdateRef.current?.(data.payload);
+            } else if (data.type === 'create-task' && !disabled && data.payload?.title) {
+                onTaskCreateRef.current?.(data.payload);
             } else if (data.type === 'seller-contact-missing' && !disabled && data.name) {
                 onSellerMissingRef.current?.(String(data.name));
             } else if (data.type === 'overview-open') {

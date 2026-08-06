@@ -46,12 +46,18 @@
     backdrop-filter:blur(10px);
     padding:10px 0 12px;
   }
+  /* Single-row toolbar: nothing wraps, the title and progress bar give up
+     their space first, and only a genuinely tiny panel gets a scroll rail. */
   .toolbar{
-    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;
     background:#fff;border:1px solid var(--line);border-radius:12px;
-    padding:10px 12px;box-shadow:var(--shadow)
+    padding:8px 10px;box-shadow:var(--shadow)
   }
-  .toolbar-title{font-weight:700;margin-right:auto}
+  .toolbar::-webkit-scrollbar{height:6px}
+  .toolbar::-webkit-scrollbar-thumb{background:#d5dbe5;border-radius:999px}
+  .toolbar-title{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .toolbar .btn{padding:6px 9px;font-size:12px;white-space:nowrap;flex:0 0 auto}
+  @media (max-width:1150px){.toolbar-title{display:none}}
   .btn{
     border:1px solid #cbd5e1;background:white;color:#263247;
     border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:13px
@@ -59,7 +65,8 @@
   .btn:hover{background:#f8fafc}
   .btn.primary{background:var(--primary);border-color:var(--primary);color:white}
   .btn.danger{background:#fff1f0;border-color:#ffc9c5;color:#b42318}
-  .progress-wrap{display:flex;align-items:center;gap:9px;min-width:240px}
+  .progress-wrap{display:flex;align-items:center;gap:8px;flex:1 1 120px;min-width:84px;margin-right:auto}
+  @media (max-width:900px){.progress-text{display:none}}
   .progress-track{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;flex:1}
   .progress-bar{height:100%;width:0;background:var(--green);transition:width .2s}
   .progress-text{font-size:12px;color:var(--muted);white-space:nowrap}
@@ -138,6 +145,7 @@
   #platform-foxboro:checked + .platform-chip{background:#005eb8}
   #platform-other:checked + .platform-chip{background:#475569}
   .platform-section.hidden-by-platform{display:none}
+  .platform-hidden-field{display:none}
 
   .status-select{min-width:130px}
   .inline-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -251,6 +259,26 @@
   .link-answer{display:grid;grid-template-columns:1fr 2fr;gap:8px}
   .link-answer .quick-link-action{grid-column:1/-1;justify-self:start;border:1px solid #b7e4c0;background:#f0fff4;color:#278a3b;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:800;cursor:pointer}
   .link-answer .quick-link-action:disabled{opacity:.45;cursor:not-allowed}
+  .commercial-link{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center}
+  .commercial-link input{min-width:0}
+  .commercial-link .quick-link-action,.commercial-link .open-link-action{border:1px solid #b7e4c0;background:#f0fff4;color:#278a3b;border-radius:8px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap}
+  .commercial-link .open-link-action{border-color:#bfdbfe;background:#eff6ff;color:#2563eb}
+  .commercial-link input[readonly]{background:#f3f4f6;color:#6b7280;cursor:default}
+  .raci-wrap{overflow-x:auto;border:1px solid #e4e7ec;border-radius:12px;background:#fff}
+  .raci-table{min-width:940px;margin:0;border:0}
+  .raci-table th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc;color:#475467}
+  .raci-table td{vertical-align:top}
+  .raci-table select[multiple]{min-height:66px;font-size:11px;padding:4px}
+  .raci-task-button{border:0;background:transparent;color:#175cd3;font-weight:800;text-align:left;cursor:pointer;padding:0}
+  .raci-status{display:inline-flex;border-radius:999px;background:#f2f4f7;color:#475467;padding:3px 7px;font-size:10px;font-weight:800}
+  .raci-create{display:none;margin-top:10px;padding:12px;border:1px solid #d0d5dd;border-radius:12px;background:#f8fafc}
+  .raci-create.open{display:block}
+  .raci-toolbar{display:flex;gap:8px;align-items:center;margin:0 0 10px}
+  .raci-toolbar input{flex:1}
+  .raci-search-results{display:none;margin:-2px 0 12px;border:1px solid #d0d5dd;border-radius:10px;background:#fff;overflow:hidden}
+  .raci-search-results.open{display:block}
+  .raci-search-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border-bottom:1px solid #eef2f6}
+  .raci-search-row:last-child{border-bottom:0}
   .instruction-answer{padding:10px 12px;border-left:4px solid #7c3aed;background:#f5f3ff;border-radius:7px;font-size:12px;color:#4c1d95}
   .custom-question-card{border-style:dashed;border-color:#94a3b8}
   .custom-question-controls{display:flex;gap:4px}
@@ -288,13 +316,13 @@
 <div class="page-shell">
 <div class="sticky-tools">
 <div class="toolbar">
-<div class="toolbar-title">Scope Definition Workspace</div>
+<div class="toolbar-title">Scope Workspace</div>
 <div class="progress-wrap">
 <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
 <span class="progress-text" id="progressText">0% complete</span>
 </div>
-<button aria-pressed="false" class="btn" id="designerModeBtn" type="button">Design questions</button><button class="btn builder-only" id="addSectionBtn" type="button">+ New section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" type="button">Meeting mode</button><button class="btn" id="generateMeetingNoteBtn" type="button">Generate meeting note</button><button class="btn" id="reviewGapsBtn" type="button">Review gaps</button><button class="btn" id="flaggedBtn" type="button">🚩 Flagged questions</button><button class="btn" id="navigationBtn" type="button">☰ Navigation</button><button class="btn" id="overviewBtn" type="button">Overview</button>
-<button class="btn primary" id="printBtn" type="button">Print / PDF</button>
+<button aria-pressed="false" class="btn" id="designerModeBtn" title="Design questions (form designer)" type="button">Designer</button><button class="btn builder-only" id="addSectionBtn" title="Add a new section" type="button">+ Section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" title="Guided mode: show only the questions that apply" type="button">Guided</button><button class="btn" id="generateMeetingNoteBtn" title="Generate meeting note (KOM)" type="button">Meeting note</button><button class="btn" id="reviewGapsBtn" title="Review gaps: list unanswered required questions" type="button">Gaps</button><button class="btn" id="flaggedBtn" title="Show only flagged questions" type="button">🚩 Flagged</button><button class="btn" id="navigationBtn" title="Navigation panel / search in document" type="button">☰ Nav</button><button class="btn" id="overviewBtn" title="Overview of captured information" type="button">Overview</button>
+<button class="btn primary" id="printBtn" title="Print / export to PDF" type="button">PDF</button>
 </div>
 </div>
 <aside class="terminal-overview" id="terminalOverview"><div class="terminal-head"><b>▣ OVERVIEW / CAPTURED INFORMATION</b><button class="btn" id="closeOverviewBtn" type="button">Close</button></div><div class="terminal-filters"><input class="terminal-search" id="overviewSearch" placeholder="Search BOM, scope, delivery..."/><select class="terminal-section-filter" id="overviewSectionFilter"><option value="">All sections</option></select></div><div class="terminal-body" id="overviewBody"></div></aside>
@@ -306,7 +334,7 @@
 <div class="field"><label>Opportunity / OP ID <span class="required-mark">*</span></label><input data-key="op_id" data-required="" placeholder="OP-... " type="text"/></div>
 <div class="field"><label>Opportunity name <span class="required-mark">*</span></label><input data-key="op_name" data-required="" type="text"/></div>
 <div class="field"><label>Investigative alias</label><input data-key="alias" type="text"/></div>
-<div class="field"><label>SR / QLK</label><input data-key="sr_qlk" type="text"/></div>
+<div class="field"><label>QLK</label><input data-key="sr_qlk" type="text"/></div>
 <div class="field"><label>Customer / company <span class="required-mark">*</span></label><input data-key="customer" data-required="" type="text"/></div>
 <div class="field"><label>End user</label><input data-key="end_user" type="text"/></div>
 <div class="field"><label>Site / plant location</label><input data-key="site" type="text"/></div>
@@ -326,18 +354,29 @@
 <label>Platforms included in this opportunity <span class="required-mark">*</span></label>
 <div class="platform-picker">
 <label><input class="platform-input platform-selector" data-key="platform_modicon" id="platform-modicon" type="checkbox"/><span class="platform-chip">Modicon PLC</span></label>
-<label><input class="platform-input platform-selector" data-key="platform_triconex" id="platform-triconex" type="checkbox"/><span class="platform-chip">Triconex SIS</span></label>
+<label><input class="platform-input platform-selector" data-key="platform_triconex" id="platform-triconex" type="checkbox"/><span class="platform-chip">Triconex</span></label>
 <label><input class="platform-input platform-selector" data-key="platform_foxboro" id="platform-foxboro" type="checkbox"/><span class="platform-chip">Foxboro DCS</span></label>
 <label><input class="platform-input platform-selector" data-key="platform_other" id="platform-other" type="checkbox"/><span class="platform-chip">Other / AVEVA / Cyber</span></label>
 </div>
-</div><div class="logic-note"><b>Guided questionnaire:</b> dependent questions appear only when they apply. Hidden answers are preserved. Use <b>Guided mode</b> in the toolbar to temporarily display every question.</div>
+</div>
+<div class="field" id="triconexProductsBlock" style="margin-top:13px">
+<label>Which Triconex product(s) are included?</label>
+<div class="multi-choice" data-key="triconex_products">
+<label><input type="checkbox" value="Tricon CX"/>Tricon CX</label>
+<label><input type="checkbox" value="Tricon"/>Tricon</label>
+<label><input type="checkbox" value="SIS"/>SIS</label>
+<label><input type="checkbox" value="TMC"/>TMC</label>
+<label><input type="checkbox" value="BMS"/>BMS</label>
+</div>
+<div class="logic-hint">Shown because Triconex is selected above. Select every product in scope.</div>
+</div><div class="logic-note"><b>Guided questionnaire:</b> dependent questions appear only when they apply. Hidden answers are preserved. Toggle <b>Guided</b> in the toolbar to temporarily display every question.</div>
 </div>
 
 <details class="section-card" open><div class="section-band band-team"></div><summary>Stakeholders from expediente</summary><div class="section-body"><p class="section-intro">People already registered in the expediente. Update contacts from the Stakeholders section when needed.</p><table><thead><tr><th>Area</th><th>Name</th></tr></thead><tbody id="expedienteStakeholders"><tr><td colspan="2">No stakeholders registered yet.</td></tr></tbody></table></div></details>
 
 <details class="section-card" id="guidedFlowMaster" open="">
 <div class="section-band band-flow"></div>
-<summary>Guided Scope Intake &amp; Dependency Flow <span class="section-logic-label">63 questions from automation flow</span></summary>
+<summary>Guided Scope Intake &amp; Dependency Flow <span class="section-logic-label">Deduplicated automation flow</span></summary>
 <div class="section-body">
 <div class="designer-banner"><b>Form designer is active.</b> Use the buttons at the end of any section to add questions. You can also create complete sections and define dependency rules.</div>
 <p class="section-intro">This guided intake follows the question-flow workbook. Base answers unlock only the commercial, technical, cabinet, services, testing, training and documentation questions that apply.</p>
@@ -391,21 +430,12 @@
 </div>
 <h3>Important Dates</h3>
 <div class="grid four">
-<div class="field"><label>Proposal due date <span class="required-mark">*</span></label><input data-key="proposal_due" data-required="" type="date"/></div>
 <div class="field"><label>Expected proposal delivery</label><input data-key="proposal_delivery" type="date"/></div>
 <div class="field"><label>Expected order entry</label><input data-key="order_entry" type="date"/></div>
-<div class="field"><label>Expected award</label><input data-key="award_date" type="date"/></div>
 <div class="field"><label>Execution start</label><input data-key="execution_start" type="date"/></div>
 <div class="field"><label>Required delivery / shipment</label><input data-key="delivery_date" type="date"/></div>
 <div class="field"><label>Site start</label><input data-key="site_start" type="date"/></div>
 <div class="field"><label>Project completion</label><input data-key="project_completion" type="date"/></div>
-</div>
-<h3>Links &amp; Commercial Documents</h3>
-<div class="grid four">
-<div class="field"><label>BFO / Opportunity link</label><input data-key="link_bfo" type="url"/></div>
-<div class="field"><label>SharePoint / DSO link</label><input data-key="link_dso" type="url"/></div>
-<div class="field"><label>RFQ / Specifications link</label><input data-key="link_rfq" type="url"/></div>
-<div class="field"><label>Installed-base / prior opportunity link</label><input data-key="link_installed_base" type="url"/></div>
 </div>
 <div class="subcard">
 <p><b>MSA / CFA / Contract Basis</b></p>
@@ -416,9 +446,19 @@
 <label><input class="toggle-input" data-key="se_standard_terms" type="checkbox"/><span class="toggle-btn">SE Standard T&amp;Cs</span></label>
 </div>
 <div class="grid two" style="margin-top:10px">
-<div class="field conditional-block"><label>MSA / CFA / T&amp;Cs links</label><textarea data-key="contract_links"></textarea></div>
+<div class="field conditional-block"><label>MSA link</label><div class="commercial-link"><input data-key="msa_link" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="msa_link" data-link-label="MSA" type="button">Add to Quick Links</button></div></div>
+<div class="field conditional-block"><label>CFA link</label><div class="commercial-link"><input data-key="cfa_link" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="cfa_link" data-link-label="CFA" type="button">Add to Quick Links</button></div></div>
+<div class="field conditional-block"><label>Other T&amp;Cs / contract links</label><textarea data-key="contract_links"></textarea></div>
 <div class="field conditional-block"><label>Commercial exceptions, deviations or approvals</label><textarea data-key="commercial_exceptions"></textarea></div>
 </div>
+</div>
+<h3>Links &amp; Commercial Documents</h3>
+<div class="grid two">
+<div class="field"><label>SR / Support Request link</label><div class="commercial-link"><input data-key="sr_link" readonly="" type="url"/><button class="open-link-action" data-link-key="sr_link" type="button">Open SR</button></div><span class="help">Linked from the expediente; it cannot be edited here.</span></div>
+<div class="field"><label>BFO / Opportunity link</label><div class="commercial-link"><input data-key="link_bfo" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="link_bfo" data-link-label="BFO" type="button">Add to Quick Links</button></div></div>
+<div class="field"><label>SharePoint / DSO link</label><div class="commercial-link"><input data-key="link_dso" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="link_dso" data-link-label="DSO" type="button">Add to Quick Links</button></div></div>
+<div class="field"><label>RFQ / Specifications link</label><div class="commercial-link"><input data-key="link_rfq" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="link_rfq" data-link-label="RFQ / Specifications" type="button">Add to Quick Links</button></div></div>
+<div class="field"><label>Installed-base / prior opportunity link</label><div class="commercial-link"><input data-key="link_installed_base" type="url"/><button class="commercial-link-action quick-link-action" data-link-key="link_installed_base" data-link-label="Installed base / prior opportunity" type="button">Add to Quick Links</button></div></div>
 </div>
 <div class="grid two">
 <div class="field"><label>Payment milestones</label><textarea data-key="payment_milestones"></textarea></div>
@@ -468,21 +508,6 @@
 <div class="field"><label>Not included / exclusions <span class="required-mark">*</span></label><textarea data-key="excluded_scope" data-required="" placeholder="Explicitly state what Schneider Electric will not provide or perform."></textarea></div>
 <div class="field"><label>Customer / third-party scope</label><textarea data-key="customer_scope"></textarea></div>
 <div class="field"><label>Interfaces and battery limits</label><textarea data-key="battery_limits"></textarea></div>
-</div>
-<h3>Scope at a Glance</h3>
-<div class="choice-grid">
-<label class="choice"><input data-key="scope_new_system" type="checkbox"/>New system</label>
-<label class="choice"><input data-key="scope_modernization" type="checkbox"/>Existing-system modernization</label>
-<label class="choice"><input data-key="scope_mixed" type="checkbox"/>Mixed new + existing</label>
-<label class="choice"><input data-key="scope_new_enclosures" type="checkbox"/>New enclosures</label>
-<label class="choice"><input data-key="scope_modernize_in_place" type="checkbox"/>Modernize in place</label>
-<label class="choice"><input data-key="scope_new_hmi" type="checkbox"/>New HMI / operator stations</label>
-<label class="choice"><input data-key="scope_connect_existing_hmi" type="checkbox"/>Connect to existing HMI</label>
-<label class="choice"><input data-key="scope_replace_hmi" type="checkbox"/>Replace existing HMI</label>
-<label class="choice"><input data-key="scope_new_scada" type="checkbox"/>New SCADA / supervisory layer</label>
-<label class="choice"><input data-key="scope_modify_scada" type="checkbox"/>Modify existing SCADA</label>
-<label class="choice"><input data-key="scope_conversion" type="checkbox"/>Program / database conversion</label>
-<label class="choice"><input data-key="scope_new_configuration" type="checkbox"/>New configuration</label>
 </div>
 <h3>General Meeting Checklist</h3>
 <div class="check-row"><div class="check-row-head"><input data-key="check_scope" type="checkbox"/>Scope included and scope excluded are explicit</div><div class="editable" contenteditable="true" data-key="check_scope_notes" data-placeholder="Notes, boundaries and decisions"></div></div>
@@ -967,13 +992,10 @@
 <div class="field"><label>Next critical action</label><textarea data-key="next_critical_action"></textarea></div>
 </div>
 <h3>Open Actions</h3>
-<table class="dynamic-table" data-key="actions_table" id="actionsTable">
-<thead><tr><th style="width:7%">ID</th><th>Action / pending information</th><th style="width:18%">Owner</th><th style="width:14%">Due date</th><th style="width:14%">Status</th><th style="width:4%"></th></tr></thead>
-<tbody>
-<tr><td contenteditable="true">A-001</td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true">Open</td><td><button class="remove-row" type="button">×</button></td></tr>
-</tbody>
-</table>
-<div class="table-actions"><button class="btn add-row" data-table="actionsTable" type="button">+ Add action</button></div>
+<p class="section-intro">Live RACI view of this opportunity's real tasks. Responsible, Approver and Informed assignments are saved directly to Tasks.</p>
+<div class="raci-toolbar"><input id="raciTaskSearch" type="search" placeholder="Search opportunity tasks to open or convert into an assignment..."/><button class="btn" id="showRaciCreateBtn" type="button">+ New assignment</button></div><div class="raci-search-results" id="raciTaskSearchResults"></div>
+<div class="raci-wrap"><table class="raci-table" id="raciActionsTable"><thead><tr><th>Activity / task</th><th style="width:11%">Status</th><th style="width:12%">Due</th><th style="width:19%">R — Responsible</th><th style="width:19%">A — Approver</th><th style="width:19%">I — Informed</th><th style="width:7%"></th></tr></thead><tbody id="raciActionsBody"><tr><td colspan="7" class="help">No tasks in this opportunity yet.</td></tr></tbody></table></div>
+<div class="raci-create" id="raciCreateForm"><h4 style="margin:0 0 10px">New assigned task</h4><div class="grid two"><div class="field"><label>Task title <span class="required-mark">*</span></label><input id="raciNewTitle" type="text" placeholder="What needs to be done?"/></div><div class="field"><label>Priority</label><select id="raciNewPriority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div class="field" style="grid-column:1/-1"><label>Description / expected deliverable</label><textarea id="raciNewDescription" placeholder="Describe the work and the expected result..."></textarea></div><div class="field"><label>General due date</label><input id="raciNewDue" type="date"/></div><div class="field"><label>Assignment requested on</label><input id="raciNewRequested" type="date"/></div><div class="field"><label>Assignment committed date</label><input id="raciNewCommitted" type="date"/></div><div class="field"><label>R — Responsible <span class="required-mark">*</span></label><select id="raciNewResponsible" multiple></select></div><div class="field"><label>A — Approver</label><select id="raciNewApprover" multiple></select></div><div class="field"><label>I — Informed</label><select id="raciNewInformed" multiple></select></div></div><div class="table-actions"><button class="btn" id="cancelRaciCreateBtn" type="button">Cancel</button><button class="btn primary" id="createRaciTaskBtn" type="button">Create assigned task</button></div></div>
 <h3>Proposal Readiness Checklist</h3>
 <div class="choice-grid">
 <label class="choice"><input data-key="ready_scope" type="checkbox"/>Scope and exclusions approved</label>
@@ -1057,6 +1079,8 @@
   let customForm = {sections:[], questions:[]};
   let globalForm = {sections:[], questions:[]};
   let hostPrefill = {};
+  let hostTasks = [];
+  let hostTaskPeople = [];
   let receivedParentInit = false;
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -1083,12 +1107,32 @@
       const label = $('[data-part="label"]',el), url = $('[data-part="url"]',el);
       if(label) label.value = obj.label || ''; if(url) url.value = obj.url || '';
     } else if(el.type === 'checkbox' || el.type === 'radio') el.checked = !!value;
+    else if(el.matches('select')){
+      const wanted=String(value ?? '');
+      const option=$$('option',el).find(item=>String(item.value).toLowerCase()===wanted.toLowerCase()||String(item.textContent).trim().toLowerCase()===wanted.toLowerCase());
+      el.value=option ? option.value : wanted;
+    }
     else if(el.matches('[contenteditable="true"]')) el.innerHTML = value || '';
     else el.value = value ?? '';
   }
   function value(key){ return getValue(keyEl(key)); }
   function checked(key){ const v=value(key); return v === true || String(v).toLowerCase()==='yes'; }
   function anyChecked(keys){ return keys.some(k => checked(k)); }
+  function selectedValues(select){ return select ? [...select.selectedOptions].map(option=>option.value) : []; }
+  function personOptions(selected=[]){const chosen=new Set(selected||[]);return hostTaskPeople.filter(person=>person?.id&&person?.name).map(person=>`<option value="${esc(person.id)}"${chosen.has(person.id)?' selected':''}>${esc(person.name)}${person.role?` — ${esc(person.role)}`:''}</option>`).join('');}
+  function isTaskAssigned(task){return !!task.isAssignment||['responsibleTeamMemberIds','approverTeamMemberIds','informedTeamMemberIds'].some(key=>Array.isArray(task[key])&&task[key].length>0);}
+  function renderTaskSearchResults(){const host=$('#raciTaskSearchResults'),query=String($('#raciTaskSearch')?.value||'').trim().toLowerCase();if(!host)return;if(!query){host.classList.remove('open');host.innerHTML='';return;}const matches=hostTasks.filter(task=>!['Done','Canceled'].includes(task.status)&&`${task.title||''} ${task.description||''} ${task.status||''}`.toLowerCase().includes(query)).slice(0,12);host.classList.add('open');host.innerHTML=matches.length?matches.map(task=>`<div class="raci-search-row"><span><b>${esc(task.title||'Untitled task')}</b><span class="help" style="display:block">${esc(task.status||'Pending')}${task.dueDate?` · Due ${esc(task.dueDate)}`:''}</span></span><span style="display:flex;gap:6px">${isTaskAssigned(task)?'<span class="raci-status">Assigned</span>':`<button class="btn primary" data-convert-task="${esc(task.id)}" type="button">Convert to assignment</button>`}<button class="btn" data-open-task="${esc(task.id)}" type="button">Open</button></span></div>`).join(''):'<div class="raci-search-row help">No open opportunity task matches this search.</div>';}
+  function renderRaciActions(){
+    const body=$('#raciActionsBody');if(!body)return;
+    const assignedTasks=hostTasks.filter(task=>!['Done','Canceled'].includes(task.status)&&isTaskAssigned(task));
+    body.innerHTML=assignedTasks.length?assignedTasks.map(task=>`<tr data-raci-task-id="${esc(task.id)}"><td><button class="raci-task-button" data-open-task="${esc(task.id)}" type="button">${esc(task.title||'Untitled task')}</button></td><td><span class="raci-status">${esc(task.status||'Pending')}</span></td><td>${esc(task.dueDate||'—')}</td><td><select multiple data-raci-role="responsible">${personOptions(task.responsibleTeamMemberIds)}</select></td><td><select multiple data-raci-role="approver">${personOptions(task.approverTeamMemberIds)}</select></td><td><select multiple data-raci-role="informed">${personOptions(task.informedTeamMemberIds)}</select></td><td><button class="btn" data-open-task="${esc(task.id)}" type="button">Open</button></td></tr>`).join(''):'<tr><td colspan="7" class="help">There are no open assigned tasks. Search an existing opportunity task above to convert it, or create a new assignment.</td></tr>';
+    ['raciNewResponsible','raciNewApprover','raciNewInformed'].forEach(id=>{const select=$(`#${id}`);if(select)select.innerHTML=personOptions();});
+    renderTaskSearchResults();
+  }
+  function applyTaskContext(config){hostTasks=Array.isArray(config?.tasks)?config.tasks:hostTasks;hostTaskPeople=Array.isArray(config?.people)?config.people:hostTaskPeople;renderRaciActions();}
+  function updateCommercialLinkActions(){
+    $$('.commercial-link-action').forEach(button=>{const key=button.dataset.linkKey,current=String(value(key)||'').trim(),hostUrl=String(hostPrefill[key]||'').trim(),exists=String(hostPrefill[`quick_link_exists_${key}`]||'')==='true';const canOpen=exists&&!!current&&current===hostUrl;button.classList.toggle('open-link-action',canOpen);button.classList.toggle('quick-link-action',!canOpen);button.textContent=canOpen?'Open':(exists?'Update Quick Links':'Add to Quick Links');});
+  }
   function filledValue(v){
     if(Array.isArray(v)) return v.length > 0;
     if(v && typeof v === 'object') return Object.values(v).some(x => String(x || '').trim());
@@ -1137,7 +1181,10 @@
     flaggedQuestions = new Set(Array.isArray(data.flags) ? data.flags : []);
     if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
     rebuildCustomForm(null, false);
-    restoreFieldValues(data.fields || {});
+    const restoredFields={...(data.fields || {})};
+    reconcileSyncedFieldData(restoredFields);
+    migrateLegacyDuplicateFields(restoredFields);
+    restoreFieldValues(restoredFields);
     reconcileScopeFields();
     $$('.dynamic-table').forEach(t => { if(data.tables && data.tables[t.dataset.key]) restoreTable(t,data.tables[t.dataset.key]); });
     updateGuidedButton(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
@@ -1198,7 +1245,7 @@
     const pending=requiredAndVisible().filter(el=>!isFilled(el));
     const questions=pending.length?`<ol>${pending.map(el=>`<li><b>${esc(sectionLabel(el))}</b> — ${esc(fieldLabel(el))}</li>`).join('')}</ol>`:'<p>All applicable required questions have been answered. Use this meeting to validate decisions, risks and next steps.</p>';
     const content=`<h1>KOM</h1><p>Questions to resolve during this meeting:</p>${questions}`;
-    try{window.parent.postMessage({source:'tenderloop-sow',type:'generated-note',payload:{title:'KOM',content}},'*');const btn=$('#generateMeetingNoteBtn');btn.textContent='KOM note created';setTimeout(()=>btn.textContent='Generate meeting note',1600);}catch(e){}
+    try{window.parent.postMessage({source:'tenderloop-sow',type:'generated-note',payload:{title:'KOM',content}},'*');const btn=$('#generateMeetingNoteBtn');btn.textContent='KOM created ✓';setTimeout(()=>btn.textContent='Meeting note',1600);}catch(e){}
   }
   function focusTarget(el){ return el.matches('input,select,textarea,[contenteditable="true"]') ? el : $('input,select,textarea,[contenteditable="true"]',el); }
   function reviewGaps(){
@@ -1266,6 +1313,13 @@
 
   // Upgrade has its own workflow. It must not activate modernization/migration
   // questions merely because an existing installed base is involved.
+  const opportunityTypeQuestion=FLOW_DATA.questions.find(q=>q.key==='flow_B008');
+  if(opportunityTypeQuestion) opportunityTypeQuestion.options=[
+    'Greenfield','Modernization','Migration','Upgrade','Expansion','Services Only','Mixed new + existing',
+    'Modernize in place','New HMI / operator stations','Connect to existing HMI',
+    'Replace existing HMI','New SCADA / supervisory layer','Modify existing SCADA',
+    'Program / database conversion','New configuration'
+  ];
   FLOW_DATA.questions.filter(q=>['B009','T003','T004'].includes(q.id)).forEach(q=>{
     q.logic={op:'includes_any',source:'flow_B008',value:['Modernization','Migration']};
     q.shownWhenText='Shown if Opportunity Type includes Modernization / Migration';
@@ -1277,7 +1331,18 @@
   ];
   // Retired from the standard questionnaire. Existing saved answers are kept
   // in the note for backwards compatibility, but the question is not rendered.
-  const REMOVED_FLOW_QUESTIONS=new Set(['flow_C011','flow_T001','flow_T007']);
+  const REMOVED_FLOW_QUESTIONS=new Set([
+    // These answers already have a richer canonical control elsewhere in the SOW.
+    // Saved legacy flow values are migrated through SYNC_PAIRS during applyState().
+    'flow_B004','flow_B005',
+    'flow_C001','flow_C002','flow_C003','flow_C004','flow_C005','flow_C008','flow_C009','flow_C010','flow_C011',
+    'flow_T001','flow_T007',
+    'flow_H001','flow_H002','flow_H005','flow_H006','flow_H007','flow_H008','flow_H009',
+    'flow_S002','flow_S003','flow_S004','flow_S005','flow_S006','flow_S007',
+    'flow_P001','flow_P002','flow_P003','flow_P004','flow_P005','flow_P006',
+    'flow_TR001','flow_TR002','flow_TR003','flow_TR004',
+    'flow_D001','flow_D003','flow_D004','flow_D005'
+  ]);
   const FLOW_COPY_OVERRIDES={
     flow_C001:'What are we offering to the customer?'
   };
@@ -1304,6 +1369,9 @@
       });
       sec.append(summary,body); host.appendChild(sec);
     });
+    const srStatus=keyEl('flow_C006'),srNumber=keyEl('flow_C007');
+    if(srStatus){srStatus.disabled=true;srStatus.title='Automatically linked to the expediente SR field';}
+    if(srNumber){srNumber.readOnly=true;srNumber.title='Automatically linked to the expediente SR field';}
   }
 
   function sectionBody(sec){ return sec.querySelector(':scope > .section-body, :scope > .flow-step-body'); }
@@ -1343,6 +1411,10 @@
   function updatePlatformVisibility(){
     const state={modicon:$('#platform-modicon').checked,triconex:$('#platform-triconex').checked,foxboro:$('#platform-foxboro').checked};
     $$('.platform-section').forEach(sec=>sec.classList.toggle('hidden-by-platform',!state[sec.dataset.platform]));
+    // The Triconex product breakdown only makes sense once Triconex is in scope. Answers are
+    // kept when it is hidden, exactly like every other conditional block in this form.
+    const triProducts=$('#triconexProductsBlock');
+    if(triProducts)triProducts.classList.toggle('platform-hidden-field',!state.triconex);
   }
   function fieldBox(key){ const el=keyEl(key); return el?(el.closest('.field')||el.closest('.choice')||el.closest('.check-row')||el):null; }
   function showElement(el,shouldShow){ if(!el)return; const visible=!guidedMode||!!shouldShow; el.classList.toggle('conditional-hidden',!visible); el.setAttribute('aria-hidden',visible?'false':'true'); }
@@ -1350,7 +1422,8 @@
   function showBlock(id,show){ showElement($('#'+id),show); }
 
   function conditionAnswer(source){
-    const el=keyEl(source);
+    const alias=SYNC_PAIRS[source] || Object.entries(SYNC_PAIRS).find(([,target])=>target===source)?.[0];
+    const el=keyEl(source) || (alias ? keyEl(alias) : null);
     if(!el && source==='flow_T001') return ['Modicon','Triconex','Foxboro'].filter(name=>checked(`platform_${name.toLowerCase()}`)).concat(checked('platform_other')?['Other']:[]);
     if(!el)return '';
     if(guidedMode && !isLogicVisible(el)) return '';
@@ -1393,8 +1466,8 @@
   function updateConditionalVisibility(){
     showField('team_tsc_modicon',checked('platform_modicon')); showField('team_tsc_triconex',checked('platform_triconex')); showField('team_tsc_foxboro',checked('platform_foxboro'));
     const contractSelected=anyChecked(['msa_available','cfa_available','customer_terms','se_standard_terms']);
-    showField('contract_links',contractSelected); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||'')));
-    const opp=String(value('opp_type')||''), existingScope=!opp||opp!=='Greenfield'||anyChecked(['scope_modernization','scope_mixed','scope_modernize_in_place']);
+    showField('msa_link',checked('msa_available')); showField('cfa_link',checked('cfa_available')); showField('contract_links',anyChecked(['customer_terms','se_standard_terms'])); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||'')));
+    const opp=String(value('opp_type')||''), opportunityTypes=Array.isArray(value('flow_B008'))?value('flow_B008'):[], existingScope=!opp||opp!=='Greenfield'||opportunityTypes.some(type=>['Modernization','Migration','Upgrade','Expansion','Mixed new + existing','Modernize in place'].includes(type));
     showField('installed_base_summary',existingScope); showField('data_validation_notes',existingScope);
     const mod=String(value('mod_scenario')||''), modChosen=!!mod, modSoftwareOnly=mod==='Software / services only', modExisting=modChosen&&!['New PLC system','Software / services only'].includes(mod), modMigration=modChosen&&['CPU + I/O modernization','CPU modernization, I/O remains','I/O modernization, CPU remains','Add new I/O','Competitor conversion'].includes(mod);
     showField('mod_existing_controller',modExisting); showField('mod_target_controller',modChosen&&!modSoftwareOnly); showField('mod_control_expert',modChosen); showBlock('modHardwareBlock',modChosen&&!modSoftwareOnly); showBlock('modMigrationBlock',modMigration); showBlock('modCommsBlock',modChosen); showBlock('modBomBlock',modChosen&&!modSoftwareOnly); showBlock('modValidationBlock',modChosen);
@@ -1406,7 +1479,7 @@
     showField('fox_existing_release',foxChosen&&!foxNew); showField('fox_support_status',foxChosen&&!foxNew); showField('fox_existing_architecture',foxChosen&&!foxNew); showField('fox_target_release',foxChosen&&!foxServices); showField('fox_target_architecture',foxChosen&&!foxServices); showBlock('foxControllerIoBlock',foxControllerScenarios.includes(fox)); showBlock('foxNetworkServerBlock',foxNetworkScenarios.includes(fox)); showBlock('foxApplicationBlock',foxApplicationScenarios.includes(fox)); showBlock('foxInterfaceMigrationBlock',foxChosen);
     const foxHasInterface=anyChecked(['fox_triconex_interface','fox_plc_interface','fox_opc_interface','fox_modbus_interface','fox_mes_interface','fox_third_party_apps']), foxHasMigration=anyChecked(['fox_phased_cutover','fox_shutdown_cutover'])||/migration|modernization|upgrade|refresh/i.test(fox);
     showField('fox_interfaces',foxHasInterface); showField('fox_migration',foxHasMigration); showBlock('foxTestBlock',foxChosen&&!foxServices); showBlock('foxBomBlock',foxBomScenarios.includes(fox)); showBlock('foxValidationBlock',foxChosen);
-    const cabinets=String(value('cabinets_included')||''), cabinetDetails=['Yes','Partial','To be defined'].includes(cabinets)||anyChecked(['scope_new_enclosures','scope_modernize_in_place']); ['cabinet_scenario','cabinet_mounting','cabinet_rating','cabinet_material','cabinet_dimensions','cabinet_cooling','cabinet_certification','panel_design_notes'].forEach(k=>showField(k,cabinetDetails));
+    const cabinets=String(value('cabinets_included')||''), cabinetDetails=['Yes','Partial','To be defined'].includes(cabinets)||opportunityTypes.some(type=>['New enclosures','Modernize in place'].includes(type)); ['cabinet_scenario','cabinet_mounting','cabinet_rating','cabinet_material','cabinet_dimensions','cabinet_cooling','cabinet_certification','panel_design_notes'].forEach(k=>showField(k,cabinetDetails));
     const serviceKeys=['svc_engineering','svc_configuration','svc_drawings','svc_fat','svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration','svc_training','svc_documentation','svc_project_management'], anyService=anyChecked(serviceKeys); showBlock('serviceEstimateBlock',anyService);
     const onsite=anyChecked(['svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration'])||['Premium nights / weekends','On-site T&M','Mixed'].includes(String(value('work_schedule')||'')); ['downtime_window','site_access_hours','schedule_limitations'].forEach(k=>showField(k,onsite));
     const travel=String(value('tl_required')||''), travelDetails=!!travel&&travel!=='No'; ['tl_estimate','tl_trips','tl_policy','tl_assumptions'].forEach(k=>showField(k,travelDetails));
@@ -1418,7 +1491,52 @@
     updateGenericDependencies(); updateProgress();
   }
 
-  const SYNC_PAIRS={flow_B001:'op_id',flow_B002:'alias',flow_B003:'customer',flow_B004:'proposal_delivery',flow_B006:'team_cse',flow_B007:'site',flow_C003:'order_entry',flow_C004:'execution_start',flow_C005:'project_completion',flow_C011:'forecast_usd'};
+  const SYNC_PAIRS={
+    flow_B001:'op_id',flow_B002:'alias',flow_B003:'customer',flow_B004:'proposal_due',flow_B005:'proposal_delivery',flow_B006:'team_cse',flow_B007:'site',
+    flow_C001:'commercial_structure',flow_C002:'payment_milestones',flow_C003:'order_entry',flow_C004:'execution_start',flow_C005:'project_completion',flow_C011:'forecast_usd',
+    flow_H001:'cabinets_included',flow_H002:'cabinet_scenario',flow_H005:'cabinet_dimensions',flow_H006:'cabinet_cooling',flow_H007:'cabinet_mounting',
+    flow_S003:'svc_hours',flow_S004:'svc_days',flow_S005:'svc_owner',flow_S006:'tl_required',flow_S007:'tl_estimate',
+    flow_P001:'fat_required',flow_P004:'sat_required',flow_TR001:'training_required',flow_TR004:'training_modality',flow_D001:'available_information'
+  };
+  function reconcileSyncedFieldData(data){
+    Object.entries(SYNC_PAIRS).forEach(([flowKey,canonicalKey])=>{
+      const flowValue=data[flowKey], canonicalValue=data[canonicalKey];
+      let migratedValue=flowValue;
+      if(flowKey==='flow_H007') migratedValue=String(flowValue||'').replace('Chassis (new cabinet)','Chassis / new cabinet').replace('Baseplate (existing cabinet)','Baseplate / existing cabinet');
+      if(!filledValue(canonicalValue)&&filledValue(migratedValue)) data[canonicalKey]=migratedValue;
+      else if(!filledValue(flowValue)&&filledValue(canonicalValue)) data[flowKey]=canonicalValue;
+    });
+  }
+  function migrateLegacyDuplicateFields(data){
+    const put=(key,val)=>{if(!filledValue(data[key])&&filledValue(val))data[key]=val;};
+    const linkUrl=key=>{const value=data[key];return value&&typeof value==='object'?String(value.url||''):String(value||'');};
+    const appendLine=(key,line)=>{if(!line)return;const current=String(data[key]||'').trim();if(!current.toLowerCase().includes(line.toLowerCase()))data[key]=current?`${current}\n${line}`:line;};
+    put('link_dso',linkUrl('flow_C008'));
+    const msa=linkUrl('flow_C009'),cfa=linkUrl('flow_C010');
+    if(msa){data.msa_available=true;put('msa_link',msa);}
+    if(cfa){data.cfa_available=true;put('cfa_link',cfa);}
+    const legacyScopeMap={scope_new_system:'Greenfield',scope_modernization:'Modernization',scope_mixed:'Mixed new + existing',scope_modernize_in_place:'Modernize in place',scope_new_hmi:'New HMI / operator stations',scope_connect_existing_hmi:'Connect to existing HMI',scope_replace_hmi:'Replace existing HMI',scope_new_scada:'New SCADA / supervisory layer',scope_modify_scada:'Modify existing SCADA',scope_conversion:'Program / database conversion',scope_new_configuration:'New configuration'};
+    const opportunityTypes=new Set(Array.isArray(data.flow_B008)?data.flow_B008:[]);
+    opportunityTypes.delete('New enclosures');
+    Object.entries(legacyScopeMap).forEach(([key,label])=>{if(data[key])opportunityTypes.add(label);});
+    if(opportunityTypes.size)data.flow_B008=[...opportunityTypes];
+    if(String(data.flow_H008||'').toLowerCase()==='yes')data.tri_stv=true;
+    const triSoftware=Array.isArray(data.flow_H009)?data.flow_H009:[];
+    if(triSoftware.includes('STV'))data.tri_stv=true;
+    if(triSoftware.some(item=>/tristation|tx tools/i.test(item)))data.tri_tristation=true;
+    const serviceMap={Engineering:'svc_engineering',Configuration:'svc_configuration',FAT:'svc_fat',SAT:'svc_sat','Site Support':'svc_site_support',Commissioning:'svc_startup',Migration:'svc_migration',Training:'svc_training',Documentation:'svc_documentation'};
+    (Array.isArray(data.flow_S002)?data.flow_S002:[]).forEach(item=>{if(serviceMap[item])data[serviceMap[item]]=true;});
+    const fatParts=[];if(filledValue(data.flow_P002))fatParts.push(`${data.flow_P002} day(s)`);if(filledValue(data.flow_P003))fatParts.push(String(data.flow_P003));put('fat_days_location',fatParts.join(' — '));
+    const satParts=[];if(filledValue(data.flow_P005))satParts.push(`${data.flow_P005} day(s)`);if(filledValue(data.flow_P006))satParts.push(String(data.flow_P006));put('sat_days_location',satParts.join(' — '));
+    const courses=Array.isArray(data.flow_TR002)?data.flow_TR002.join(', '):data.flow_TR002;put('training_course',courses);if(filledValue(data.flow_TR003))put('training_people_days',`${data.flow_TR003} people`);
+    const deliverableMap={'As-built documentation':'deliv_asbuilt','Configuration backup':'deliv_configuration_backup','Test protocols':'deliv_test_protocols','Training material':'deliv_training_material','Cabinet drawings':'deliv_cabinet_drawings','I/O list':'deliv_io_list','Network architecture':'deliv_network'};
+    (Array.isArray(data.flow_D003)?data.flow_D003:[]).forEach(item=>{if(deliverableMap[item])data[deliverableMap[item]]=true;});
+    if(filledValue(data.flow_D004))appendLine('deliverable_owners',`Preparer: ${data.flow_D004}`);
+    if(filledValue(data.flow_D005))appendLine('deliverable_owners',`Reviewer / approver: ${data.flow_D005}`);
+    const types=Array.isArray(data.flow_B008)?data.flow_B008:[];
+    if(types.length) data.opp_type=types.length===1?types[0].replace('Services Only','Services only'):'Mixed';
+    else if(filledValue(data.opp_type)&&data.opp_type!=='Mixed')data.flow_B008=[String(data.opp_type).replace('Services only','Services Only')];
+  }
   const EXPEDIENTE_SYNC_KEYS=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','proposal_delivery','flow_C012','flow_C013','flow_C014',...Object.keys(SYNC_PAIRS)]);
   let opportunitySyncTimer;
   function syncOpportunityNow(){
@@ -1440,8 +1558,8 @@
       if(reverse&&keyEl(reverse)) setValue(keyEl(reverse),value(key));
       if(key==='flow_T001'){ const selected=new Set(value(key)||[]); ['modicon','triconex','foxboro'].forEach(p=>{ const el=keyEl(`platform_${p}`); if(el)el.checked=selected.has(p[0].toUpperCase()+p.slice(1)); }); const other=keyEl('platform_other'); if(other)other.checked=['AVEVA','Cyber'].some(x=>selected.has(x)); updatePlatformVisibility(); }
       if(/^platform_/.test(key)){ const current=new Set(Array.isArray(value('flow_T001'))?value('flow_T001'):[]); ['Modicon','Triconex','Foxboro'].forEach(name=>{ const el=keyEl(`platform_${name.toLowerCase()}`); if(el?.checked)current.add(name);else current.delete(name); }); if(keyEl('platform_other')?.checked){ if(!current.has('AVEVA')&&!current.has('Cyber'))current.add('AVEVA'); } else {current.delete('AVEVA');current.delete('Cyber');} setValue(keyEl('flow_T001'),[...current]); }
-      if(key==='flow_B008'){ const vals=value(key); if(Array.isArray(vals)&&vals.length===1&&keyEl('opp_type')) setValue(keyEl('opp_type'),vals[0]); }
-      if(key==='opp_type'&&value(key)){ setValue(keyEl('flow_B008'),[String(value(key))]); }
+      if(key==='flow_B008'){ const vals=value(key); if(Array.isArray(vals)&&vals.length&&keyEl('opp_type')) setValue(keyEl('opp_type'),vals.length===1?vals[0].replace('Services Only','Services only'):'Mixed'); }
+      if(key==='opp_type'&&value(key)&&value(key)!=='Mixed'){ setValue(keyEl('flow_B008'),[String(value(key)).replace('Services only','Services Only')]); }
     } finally { syncing=false; }
     scheduleOpportunitySync(key);
   }
@@ -1478,11 +1596,14 @@
     const existing=customForm.sections.find(s=>s.id===sectionId); $('#sectionDialogTitle').textContent=existing?'Edit section':'Add section'; $('#sectionEditId').value=existing?.id||''; $('#sectionTitle').value=existing?.title||''; $('#sectionColor').value=existing?.color||'#2c7be5'; $('#sectionDescription').value=existing?.description||''; const parsed=logicToEditor(existing?.logic); $('#sectionConditionMatch').value=parsed.match; const host=$('#sectionConditions');host.innerHTML='';parsed.rules.forEach(r=>addConditionRow(host,r)); $('#sectionDialog').showModal();
   }
 
-  function applyDesignerMode(){ document.body.classList.toggle('designer-mode',designerMode); const btn=$('#designerModeBtn');btn.textContent=designerMode?'Form designer: ON':'Form designer: OFF';btn.classList.toggle('logic-active',designerMode);btn.setAttribute('aria-pressed',designerMode?'true':'false'); }
-  function updateGuidedButton(){ const btn=$('#guidedModeBtn');btn.textContent=guidedMode?'Guided mode: ON':'Show all: ON';btn.classList.toggle('logic-active',guidedMode);btn.setAttribute('aria-pressed',guidedMode?'true':'false'); }
+  // Toolbar labels stay short so the bar never wraps to a second row; the
+  // on/off state is carried by .logic-active + aria-pressed, and the full
+  // wording lives in each button's title tooltip.
+  function applyDesignerMode(){ document.body.classList.toggle('designer-mode',designerMode); const btn=$('#designerModeBtn');btn.textContent=designerMode?'Designer: ON':'Designer';btn.title=designerMode?'Form designer is ON — click to exit':'Design questions (form designer)';btn.classList.toggle('logic-active',designerMode);btn.setAttribute('aria-pressed',designerMode?'true':'false'); }
+  function updateGuidedButton(){ const btn=$('#guidedModeBtn');btn.textContent=guidedMode?'Guided':'Show all';btn.title=guidedMode?'Guided mode: only applicable questions are shown':'Showing every question, including the ones that do not apply';btn.classList.toggle('logic-active',guidedMode);btn.setAttribute('aria-pressed',guidedMode?'true':'false'); }
 
-  document.addEventListener('input',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility(); save(); } });
-  document.addEventListener('change',e=>{ if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();save(); } });
+  document.addEventListener('input',e=>{if(e.target.matches('#raciTaskSearch')){renderTaskSearchResults();return;} if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility();updateCommercialLinkActions();save(); } });
+  document.addEventListener('change',e=>{const raciSelect=e.target.closest('[data-raci-role]');if(raciSelect){const row=raciSelect.closest('[data-raci-task-id]');try{window.parent.postMessage({source:'tenderloop-sow',type:'update-task-raci',payload:{taskId:row.dataset.raciTaskId,responsibleTeamMemberIds:selectedValues($('[data-raci-role="responsible"]',row)),approverTeamMemberIds:selectedValues($('[data-raci-role="approver"]',row)),informedTeamMemberIds:selectedValues($('[data-raci-role="informed"]',row))}},'*');}catch(error){}return;} if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();updateCommercialLinkActions();save(); } });
   // FLUSH-ON-BLUR: save() debounces 180ms so typing doesn't spam postMessage/localStorage.
   // But switching tabs/notes in the host unmounts this iframe (and its 'message' listener)
   // synchronously the instant the click is handled — if the debounce timer hasn't fired yet,
@@ -1492,7 +1613,13 @@
   // entirely — guarantees the save reaches the host before any unmount can happen.
   document.addEventListener('focusout',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]') && e.target.closest('[data-key]')){ clearTimeout(saveTimer); persistNow(); } });
   document.addEventListener('click',e=>{
-    const quickLink=e.target.closest('.quick-link-action');if(quickLink){const answer=quickLink.closest('.link-answer'),label=$('[data-part="label"]',answer)?.value.trim()||answer?.dataset.questionLabel||'SOW link',url=$('[data-part="url"]',answer)?.value.trim();if(!url){alert('Enter the link URL first.');return;}try{window.parent.postMessage({source:'tenderloop-sow',type:'add-quick-link',payload:{label,url}},'*');quickLink.textContent='Added to Quick Links';setTimeout(()=>quickLink.textContent='Add to Overview Quick Links',1600);}catch(e){}return;}
+    const openTask=e.target.closest('[data-open-task]');if(openTask){try{window.parent.postMessage({source:'tenderloop-sow',type:'open-task',taskId:openTask.dataset.openTask},'*');}catch(error){}return;}
+    const convertTask=e.target.closest('[data-convert-task]');if(convertTask){try{window.parent.postMessage({source:'tenderloop-sow',type:'convert-task-assignment',taskId:convertTask.dataset.convertTask},'*');}catch(error){}return;}
+    if(e.target.closest('#showRaciCreateBtn')){$('#raciCreateForm')?.classList.add('open');if(!$('#raciNewRequested').value)$('#raciNewRequested').value=new Date().toISOString().slice(0,10);$('#raciNewTitle')?.focus();return;}
+    if(e.target.closest('#cancelRaciCreateBtn')){$('#raciCreateForm')?.classList.remove('open');return;}
+    if(e.target.closest('#createRaciTaskBtn')){const title=String($('#raciNewTitle')?.value||'').trim(),responsibleTeamMemberIds=selectedValues($('#raciNewResponsible'));if(!title){alert('Enter the task title first.');return;}if(!responsibleTeamMemberIds.length){alert('Select at least one Responsible stakeholder to create an assigned task.');return;}try{window.parent.postMessage({source:'tenderloop-sow',type:'create-task',payload:{title,description:$('#raciNewDescription')?.value||'',priority:$('#raciNewPriority')?.value||'Medium',dueDate:$('#raciNewDue')?.value||'',responsibleRequestedDate:$('#raciNewRequested')?.value||'',responsibleDueDate:$('#raciNewCommitted')?.value||'',responsibleTeamMemberIds,approverTeamMemberIds:selectedValues($('#raciNewApprover')),informedTeamMemberIds:selectedValues($('#raciNewInformed'))}},'*');['raciNewTitle','raciNewDescription','raciNewDue','raciNewRequested','raciNewCommitted'].forEach(id=>{const field=$(`#${id}`);if(field)field.value='';});$('#raciNewPriority').value='Medium';['raciNewResponsible','raciNewApprover','raciNewInformed'].forEach(id=>$$('option',$(`#${id}`)).forEach(option=>option.selected=false));$('#raciCreateForm').classList.remove('open');}catch(error){}return;}
+    const quickLink=e.target.closest('.quick-link-action');if(quickLink){const answer=quickLink.closest('.link-answer'),staticKey=quickLink.dataset.linkKey,label=quickLink.dataset.linkLabel||$('[data-part="label"]',answer)?.value.trim()||answer?.dataset.questionLabel||'SOW link',url=staticKey?String(value(staticKey)||'').trim():$('[data-part="url"]',answer)?.value.trim();if(!url){alert('Enter the link URL first.');return;}try{window.parent.postMessage({source:'tenderloop-sow',type:'add-quick-link',payload:{label,url}},'*');const original=quickLink.textContent;quickLink.textContent='Added to Quick Links';setTimeout(()=>quickLink.textContent=original,1600);}catch(e){}return;}
+    const openLink=e.target.closest('.open-link-action');if(openLink){const url=String(value(openLink.dataset.linkKey)||'').trim();if(!url){alert('There is no link to open yet.');return;}try{window.parent.postMessage({source:'tenderloop-sow',type:'open-link',url},'*');}catch(e){}return;}
     const flag=e.target.closest('[data-flag-question]');if(flag){toggleFlag(flag.dataset.flagQuestion);return;}
     const navigate=e.target.closest('[data-navigate-key]');if(navigate){const target=keyEl(navigate.dataset.navigateKey);let parent=target?.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}target?.scrollIntoView({behavior:'smooth',block:'center'});return;}
     const add=e.target.closest('.add-row');if(add){addTableRow(document.getElementById(add.dataset.table));save();return;}
@@ -1510,7 +1637,7 @@
   $('#addSectionBtn').addEventListener('click',()=>openSectionDialog());
   $('#guidedModeBtn').addEventListener('click',()=>{guidedMode=!guidedMode;updateGuidedButton();updateConditionalVisibility();save();});
   $('#reviewGapsBtn').addEventListener('click',reviewGaps);
-  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'Show all questions':'🚩 Flagged questions';if(active){const first=$('.question-card.flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
+  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'🚩 Only flagged':'🚩 Flagged';$('#flaggedBtn').title=active?'Only flagged questions are shown — click to show all':'Show only flagged questions';if(active){const first=$('.question-card.flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
   $('#navigationBtn').addEventListener('click',openNavigation);
   $('#closeNavigationBtn').addEventListener('click',closeNavigation);
   $('#navigationSearch').addEventListener('input',renderNavigation);
@@ -1565,18 +1692,20 @@
     if(stakeholderRows){
       stakeholderRows.innerHTML=people.length ? people.map(person=>`<tr><td>${esc(person.role || (person.roles||[]).join(', ') || 'Stakeholder')}</td><td>${esc(person.name || '')}</td></tr>`).join('') : '<tr><td colspan="2">No stakeholders registered yet.</td></tr>';
     }
+    applyTaskContext({tasks:config?.tasks,people});
   }
+  const HOST_AUTHORITATIVE_KEYS=new Set(['flow_C006','flow_C007','sr_link']);
   function applyHostPrefill(prefill){
     if(!prefill || typeof prefill!=='object') return;
-    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(el && !isFilled(el) && val){ setValue(el,val); syncChangedKey(key); }});
+    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(el && (HOST_AUTHORITATIVE_KEYS.has(key)||(!isFilled(el)&&val))){ setValue(el,val??''); syncChangedKey(key); }});updateCommercialLinkActions();
   }
   function applyLinkedPrefill(prefill){
     if(!prefill || typeof prefill!=='object') return;
-    const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C012','flow_C013','flow_C014']);
+    const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C006','flow_C007','flow_C012','flow_C013','flow_C014','sr_link','link_bfo','link_dso','link_rfq','link_installed_base','msa_link','cfa_link']);
     // A parent rerender may carry an empty legacy value. Never let that erase
     // a value just selected in the SOW (notably Proposal type and Seller).
-    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el&&val!==undefined&&val!==null&&val!=='')setValue(el,val);});
-    updateConditionalVisibility(); persistNow();
+    Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el&&(HOST_AUTHORITATIVE_KEYS.has(key)||(val!==undefined&&val!==null&&val!=='')))setValue(el,val??'');});
+    updateConditionalVisibility();updateCommercialLinkActions();persistNow();
   }
   window.addEventListener('message', (e) => {
     if(!e.data || e.data.source !== 'tenderloop-sow-host') return;
@@ -1590,7 +1719,10 @@
     }
     if(e.data.type === 'open-overview'){ $('#terminalOverview').classList.add('open');renderOverview(); }
     if(e.data.type === 'update-prefill'){ hostPrefill=e.data.prefill || hostPrefill; applyLinkedPrefill(hostPrefill); }
-    if(e.data.type === 'update-fields' && e.data.fields){ restoreFieldValues(e.data.fields); reconcileScopeFields(); updateConditionalVisibility(); updateProgress(); }
+    if(e.data.type === 'update-task-context')applyTaskContext(e.data);
+    // updatePlatformVisibility must run too: a platform toggled from the Overview Scope panel
+    // has to reveal/hide its sections here immediately, not only after the next local edit.
+    if(e.data.type === 'update-fields' && e.data.fields){ restoreFieldValues(e.data.fields); reconcileScopeFields(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); }
   });
   try{ window.parent.postMessage({source:'tenderloop-sow', type:'ready'}, '*'); }catch(e){}
 

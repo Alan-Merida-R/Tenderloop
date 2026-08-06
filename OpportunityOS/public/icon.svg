@@ -1,3 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254">
-  <image href="/icon.png?v=opportunityos-planner-2" width="1254" height="1254" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="54" fill="#080d1a"/>
+  <rect x="70" y="76" width="28" height="42" rx="10" fill="#3DCD58"/>
+  <rect x="140" y="76" width="28" height="42" rx="10" fill="#3DCD58"/>
+  <rect x="50" y="100" width="156" height="146" rx="28" fill="#3DCD58"/>
+  <path d="M84,208 C120,208 112,164 150,146 C172,136 178,118 186,104"
+        fill="none" stroke="#080d1a" stroke-width="24" stroke-linecap="round"/>
+  <g transform="rotate(18 198 96)">
+    <path d="M198,152 L198,98" fill="none" stroke="#3DCD58" stroke-width="30" stroke-linecap="round"/>
+    <polygon points="198,54 230,106 166,106" fill="#3DCD58"/>
+  </g>
+  <path d="M208,18 C212,40 222,50 244,54 C222,58 212,68 208,90 C204,68 194,58 172,54 C194,50 204,40 208,18 Z"
+        fill="#3DCD58"/>
 </svg>

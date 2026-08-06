@@ -114,6 +114,30 @@ export const setFolderPath = (opportunityId: string, revision: string, path: str
   });
 };
 
+/**
+ * Add paths recovered from an older browser-local installation to the shared DB.
+ * Existing shared paths always win: an old browser must never overwrite a newer
+ * folder change made by another browser or app version.
+ */
+export const mergeFolderPaths = (opportunityId: string, recovered: Record<string, string>) => {
+  const cleanEntries = Object.entries(recovered)
+    .map(([revision, value]) => [revision.trim(), typeof value === 'string' ? value.trim() : ''] as const)
+    .filter(([, value]) => !!value);
+  if (!cleanEntries.length) return;
+
+  mutateOpp(opportunityId, opp => {
+    const paths = { ...(opp.folderPaths || {}) };
+    let changed = false;
+    for (const [revision, value] of cleanEntries) {
+      if (paths[revision]) continue;
+      paths[revision] = value;
+      changed = true;
+    }
+    if (!changed && opp.folderLinked) return opp;
+    return { ...opp, folderLinked: true, folderPaths: paths };
+  });
+};
+
 // ---------------------------------------------------------------------------
 // Documents
 // ---------------------------------------------------------------------------

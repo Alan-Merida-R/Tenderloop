@@ -102,13 +102,6 @@ const getUrgencyLabel = (remainingDays: number, missingExpected: boolean) => {
   return 'On track';
 };
 
-const getOpportunityInitials = (opp: Opportunity) => {
-  const label = (opp.alias || opp.id || opp.title || 'OP').trim();
-  const parts = label.split(/[\s-_]+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return label.slice(0, 3).toUpperCase();
-};
-
 const buildMetric = (opp: Opportunity) => {
   const today = startOfToday();
   const requested = parseLocalDate(opp.dates?.requested) || parseLocalDate(opp.dates?.assigned) || today;

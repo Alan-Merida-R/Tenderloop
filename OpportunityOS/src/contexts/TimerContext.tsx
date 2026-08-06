@@ -186,6 +186,23 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
     const onLogTimeRef = useRef(onLogTime);
     useEffect(() => { onLogTimeRef.current = onLogTime; }, [onLogTime]);
 
+    // A Pomodoro transition is calculated inside a React state updater. Calling
+    // the app's database updater from there creates a nested React update (and
+    // was the source of expedientes becoming unresponsive after a break began).
+    // Keep the pending record in a ref and flush it after React commits instead.
+    const pendingPomodoroLogRef = useRef<{ key: string; taskId: string; oppId: string; seconds: number } | null>(null);
+    const pomodoroLogFlushQueuedRef = useRef(false);
+    const flushPendingPomodoroLog = useCallback(() => {
+        if (pomodoroLogFlushQueuedRef.current) return;
+        pomodoroLogFlushQueuedRef.current = true;
+        window.setTimeout(() => {
+            pomodoroLogFlushQueuedRef.current = false;
+            const pending = pendingPomodoroLogRef.current;
+            pendingPomodoroLogRef.current = null;
+            if (pending && pending.seconds > 0) onLogTimeRef.current?.(pending.taskId, pending.oppId, pending.seconds);
+        }, 0);
+    }, []);
+
     // Persistence
     useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(timerState)); }, [timerState]);
     useEffect(() => { localStorage.setItem(POMO_CONFIG_KEY, JSON.stringify(pomodoroConfig)); }, [pomodoroConfig]);
@@ -339,11 +356,13 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
                 nextPhase = 'work';
             }
 
-            // Log accumulated work seconds when leaving a work phase (manual skip or auto-complete).
+            // Queue accumulated work when leaving a work phase. It must not be
+            // persisted synchronously from this functional state updater.
             if (prev.pomodoroPhase === 'work' && prev.taskId && prev.oppId) {
                 const workElapsed = prev.pomodoroPhaseAccumulated + (prev.pomodoroPhaseStart && running ? Math.floor((now - prev.pomodoroPhaseStart) / 1000) : 0);
-                if (workElapsed > 0 && onLogTimeRef.current) {
-                    onLogTimeRef.current(prev.taskId, prev.oppId, workElapsed);
+                if (workElapsed > 0) {
+                    const key = `${prev.oppId}:${prev.taskId}:${prev.pomodoroPhaseStart || now}`;
+                    pendingPomodoroLogRef.current = { key, taskId: prev.taskId, oppId: prev.oppId, seconds: workElapsed };
                 }
             }
 
@@ -373,7 +392,8 @@ export const TimerProvider: React.FC<TimerProviderProps> = ({ children, onLogTim
             broadcastState(newState);
             return newState;
         });
-    }, [broadcastState]);
+        flushPendingPomodoroLog();
+    }, [broadcastState, flushPendingPomodoroLog]);
 
     const skipPomodoroPhase = useCallback(() => advancePhase(true), [advancePhase]);
 

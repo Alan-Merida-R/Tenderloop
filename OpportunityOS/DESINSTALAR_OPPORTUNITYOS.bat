@@ -3,6 +3,12 @@ setlocal EnableExtensions
 set "APP_DIR=%~dp0"
 set "DESKTOP_DIR=%~1"
 set "PROGRAM_DIR=%~2"
+:: The HTA uninstaller passes both paths explicitly. When this runs directly
+:: (e.g. from the "Uninstall OpportunityOS" Start Menu shortcut, which needs
+:: no .vbs/.hta), fall back to the standard per-user locations so shortcuts
+:: still get cleaned up.
+if not defined DESKTOP_DIR set "DESKTOP_DIR=%USERPROFILE%\Desktop"
+if not defined PROGRAM_DIR set "PROGRAM_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\OpportunityOS"
 echo [1/3] Closing OpportunityOS processes...
 :: Do not use WMI/Get-CimInstance here: on some corporate Windows machines it
 :: can stall indefinitely and leave the uninstaller waiting forever. OpportunityOS

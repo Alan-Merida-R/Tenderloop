@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Clock, CheckCircle2, AlertCircle, PlayCircle, PauseCircle } from 'lucide-react';
+import { X, Clock, CheckCircle2 } from 'lucide-react';
 import { TaskStatus, TASK_STATUS_COLORS } from '../types';
 
 interface StopTimerModalProps {

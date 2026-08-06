@@ -23,12 +23,16 @@ interface Props {
   onNavigate?: (view: AppViewKey) => void;
   /** Open the most recently created opportunity's expediente (steps that live inside it). */
   onOpenLatestOpportunity?: () => void;
+  /** Open the Settings modal (the quick-links step happens inside it). */
+  onOpenSettings?: () => void;
+  /** Live count of saved general quick links (Settings), for the quick-links "do" step. */
+  quickLinksCount?: number;
 }
 
 type Lang = 'en' | 'es';
 type Loc<T = string> = { en: T; es: T };
 type MascotPose = 'wave' | 'point' | 'cheer' | 'idle';
-type CheckKind = 'createOpp' | 'editHeader' | 'changeStatus' | 'addTask' | 'completeTask' | 'addHistory' | 'addNote';
+type CheckKind = 'createOpp' | 'editHeader' | 'changeStatus' | 'addTask' | 'completeTask' | 'addHistory' | 'addNote' | 'linkFolder' | 'addQuickLink';
 
 interface TutorialStep {
   id: string;
@@ -50,7 +54,7 @@ interface TutorialStep {
    * (via the `oos-tutorial-prepare` event), then optionally the latest
    * opportunity's expediente is opened and one of its tabs is clicked.
    */
-  prepare?: { expediente?: boolean; clickTab?: string };
+  prepare?: { expediente?: boolean; clickTab?: string; settings?: boolean };
 }
 
 const B = ({ children }: { children: React.ReactNode }) => <b className="text-gray-800">{children}</b>;
@@ -78,6 +82,8 @@ interface Baseline {
   doneTasks: number;
   history: number;
   notes: number;
+  folderLinks: number;
+  quickLinks: number;
   headerSig: Map<string, string>;
   statusSig: Map<string, string>;
 }
@@ -88,17 +94,22 @@ const countAll = (opps: Opportunity[], pick: (o: Opportunity) => unknown[] | und
 const countDoneTasks = (opps: Opportunity[]) =>
   opps.reduce((n, o) => n + (o.tasks || []).filter(t => t.status === 'Done').length, 0);
 
-const takeSnapshot = (opps: Opportunity[]): Baseline => ({
+const countFolderLinks = (opps: Opportunity[]) =>
+  opps.reduce((n, o) => n + Object.values(o.folderPaths || {}).filter(Boolean).length, 0);
+
+const takeSnapshot = (opps: Opportunity[], quickLinks: number): Baseline => ({
   count: opps.length,
   tasks: countAll(opps, o => o.tasks),
   doneTasks: countDoneTasks(opps),
   history: countAll(opps, o => o.history),
   notes: countAll(opps, o => o.notes),
+  folderLinks: countFolderLinks(opps),
+  quickLinks,
   headerSig: new Map(opps.map(o => [o.id, `${o.title}|${o.customer}`])),
   statusSig: new Map(opps.map(o => [o.id, o.detailedStatus || ''])),
 });
 
-const checkDone = (kind: CheckKind, base: Baseline, opps: Opportunity[]): boolean => {
+const checkDone = (kind: CheckKind, base: Baseline, opps: Opportunity[], quickLinks: number): boolean => {
   switch (kind) {
     case 'createOpp': return opps.length > base.count;
     case 'editHeader': return opps.some(o => {
@@ -114,6 +125,8 @@ const checkDone = (kind: CheckKind, base: Baseline, opps: Opportunity[]): boolea
     case 'completeTask': return countDoneTasks(opps) > base.doneTasks;
     case 'addHistory': return countAll(opps, o => o.history) > base.history;
     case 'addNote': return countAll(opps, o => o.notes) > base.notes;
+    case 'linkFolder': return countFolderLinks(opps) > base.folderLinks;
+    case 'addQuickLink': return quickLinks > base.quickLinks;
   }
 };
 
@@ -258,6 +271,35 @@ const IllusCustomize: React.FC<{ caption: string }> = ({ caption }) => (
           </div>
         </div>
       ))}
+    </div>
+  </Vignette>
+);
+
+const Keycap: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => (
+  <span className="tut-keycap inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-md border border-gray-300 border-b-2 bg-white text-[10px] font-black text-gray-700 shadow-sm" style={{ animationDelay: `${delay}s` }}>
+    {children}
+  </span>
+);
+
+const IllusShortcuts: React.FC<{ openApp: string; openFolder: string }> = ({ openApp, openFolder }) => (
+  <Vignette>
+    <div className="space-y-2.5 max-w-[280px] mx-auto">
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-white border border-gray-200 shadow-sm px-3 py-2">
+        <span className="flex items-center gap-1">
+          <Keycap>Ctrl</Keycap><span className="text-gray-300 text-[10px] font-bold">+</span>
+          <Keycap delay={0.12}>Alt</Keycap><span className="text-gray-300 text-[10px] font-bold">+</span>
+          <Keycap delay={0.24}>O</Keycap>
+        </span>
+        <span className="text-[9px] font-bold text-gray-500 text-right">{openApp}</span>
+      </div>
+      <div className="flex items-center justify-between gap-2 rounded-lg bg-white border border-gray-200 shadow-sm px-3 py-2">
+        <span className="flex items-center gap-1">
+          <Keycap delay={0.5}>Ctrl</Keycap><span className="text-gray-300 text-[10px] font-bold">+</span>
+          <Keycap delay={0.62}>Shift</Keycap><span className="text-gray-300 text-[10px] font-bold">+</span>
+          <Keycap delay={0.74}>E</Keycap>
+        </span>
+        <span className="text-[9px] font-bold text-gray-500 text-right">{openFolder}</span>
+      </div>
     </div>
   </Vignette>
 );
@@ -419,6 +461,39 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       },
     },
     {
+      id: 'folder-link', kind: 'do', pose: 'point', target: 'link-folder', check: 'linkFolder',
+      prepare: { expediente: true, clickTab: 'detail-tab-folder' },
+      chapter: { en: 'Folder', es: 'Carpeta' },
+      title: { en: 'Link a folder to this deal', es: 'Liga una carpeta a este negocio' },
+      body: {
+        en: <>This is the <G>Opportunity Folder</G> tab — your project files, right inside the deal. You have two ways to link one: <B>Link Existing Folder</B> picks a Windows folder you already have, while <B>Create from Template</B> builds a brand-new folder with your standard subfolder structure and then links it. Pick one now — once linked, you can browse, preview, pin and copy files without leaving the app.</>,
+        es: <>Esta es la pestaña <G>Opportunity Folder</G> — los archivos del proyecto, dentro del negocio. Tienes dos formas de ligar una: <B>Link Existing Folder</B> elige una carpeta de Windows que ya tengas, y <B>Create from Template</B> crea una carpeta nueva con tu estructura estándar de subcarpetas y luego la liga. Elige una ahora — ya ligada, podrás navegar, previsualizar, fijar y copiar archivos sin salir de la app.</>,
+      },
+    },
+    {
+      id: 'file-revisions', kind: 'tell', pose: 'idle', target: 'create-file-revision',
+      prepare: { expediente: true, clickTab: 'detail-tab-folder' },
+      chapter: { en: 'Folder', es: 'Carpeta' },
+      title: { en: 'Quick file revisions', es: 'Revisiones rápidas de archivos' },
+      body: {
+        en: <>No more <i>"quote_final_FINAL_v3"</i>. Select any <B>file</B> in your linked folder and click <G>Create revision</G>: the app copies the file, suggests the next name (<i>Quote R2.xlsx</i>), and asks what changed — building a clean <B>revision history</B> you can review anytime with <B>Revision history</B>. Perfect for quotes that go back and forth with the client.</>,
+        es: <>Se acabó el <i>"cotización_final_FINAL_v3"</i>. Selecciona cualquier <B>archivo</B> de tu carpeta ligada y haz clic en <G>Create revision</G>: la app copia el archivo, sugiere el siguiente nombre (<i>Quote R2.xlsx</i>) y te pregunta qué cambió — construyendo un <B>historial de revisiones</B> limpio que puedes consultar con <B>Revision history</B>. Perfecto para cotizaciones que van y vienen con el cliente.</>,
+      },
+    },
+    {
+      id: 'shortcuts', kind: 'tell', pose: 'cheer', prepare: { expediente: true, clickTab: 'detail-tab-folder' },
+      chapter: { en: 'Keyboard shortcuts', es: 'Atajos de teclado' },
+      title: { en: 'Two shortcuts to rule them all', es: 'Dos atajos para dominarlo todo' },
+      body: {
+        en: <>Now that your deal has a linked folder, learn the speed moves. <G>Ctrl + Alt + O</G> opens <B>OpportunityOS from anywhere in Windows</B> — even with the app closed (the installer wires it up). <G>Ctrl + Shift + E</G>, with an expediente open, jumps straight to its <B>linked folder in Explorer</B> — and in the Folder tab it opens the <B>file or subfolder you have selected</B>, so any document is two keys away. Try <B>Ctrl + Shift + E</B> right now!</>,
+        es: <>Ahora que tu negocio tiene carpeta ligada, aprende los movimientos rápidos. <G>Ctrl + Alt + O</G> abre <B>OpportunityOS desde cualquier lugar de Windows</B> — incluso con la app cerrada (el instalador lo configura). <G>Ctrl + Shift + E</G>, con un expediente abierto, salta directo a su <B>carpeta ligada en el Explorador</B> — y en la pestaña Folder abre el <B>archivo o subcarpeta que tengas seleccionado</B>, así cualquier documento queda a dos teclas. ¡Prueba <B>Ctrl + Shift + E</B> ahora mismo!</>,
+      },
+      illustration: <IllusShortcuts
+        openApp={cap({ en: 'Open OpportunityOS from anywhere', es: 'Abre OpportunityOS desde donde sea' })}
+        openFolder={cap({ en: 'Open the deal folder / selected file', es: 'Abre la carpeta del negocio / archivo seleccionado' })}
+      />,
+    },
+    {
       id: 'autofill', kind: 'tell', pose: 'cheer', target: 'autofill-button', prepare: { expediente: true },
       chapter: { en: 'Email magic', es: 'Magia con correos' },
       title: { en: 'Auto-fill, step by step', es: 'Auto-fill, paso a paso' },
@@ -453,6 +528,16 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       body: {
         en: <>I brought you to the <B>Tasks</B> view: every task from <B>every</B> opportunity in one agenda. Overdue items stand out, you can filter by owner or area, plan your week, and jump straight into any task's expediente. Start your mornings here.</>,
         es: <>Te traje a la vista <B>Tasks</B>: todas las tareas de <B>todas</B> las oportunidades en una sola agenda. Lo vencido resalta, puedes filtrar por responsable o área, planear tu semana y saltar directo al expediente de cualquier tarea. Empieza tus mañanas aquí.</>,
+      },
+    },
+    {
+      id: 'quicklinks', kind: 'do', pose: 'point', target: 'quicklinks-card', check: 'addQuickLink',
+      prepare: { settings: true },
+      chapter: { en: 'Quick links', es: 'Quick links' },
+      title: { en: 'Pin your favorite page', es: 'Ten a la mano tu página favorita' },
+      body: {
+        en: <>I opened <B>Settings</B> for you — find the <G>Quick links</G> card in the <B>General</B> tab. Click <B>+ Add link</B> and add a page you use every day (bFO, CQA, your team's SharePoint…): give it a short name and paste the URL — a Windows folder path works too. Then hit <G>Save Settings</G>. Your link appears as a round bubble above Sticky Notes, always one click away.</>,
+        es: <>Ya te abrí <B>Settings</B> — busca la tarjeta <G>Quick links</G> en la pestaña <B>General</B>. Haz clic en <B>+ Add link</B> y agrega una página que uses todos los días (bFO, CQA, el SharePoint de tu equipo…): ponle un nombre corto y pega la URL — también sirve una ruta de carpeta de Windows. Luego presiona <G>Save Settings</G>. Tu link aparecerá como una burbuja redonda arriba de las Sticky Notes, siempre a un clic.</>,
       },
     },
     {
@@ -492,7 +577,7 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
 const CARD_W = 440;
 const DO_CARD_W = 360;
 
-export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, onNavigate, onOpenLatestOpportunity }) => {
+export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, onNavigate, onOpenLatestOpportunity, onOpenSettings, quickLinksCount = 0 }) => {
   const [lang, setLang] = useState<Lang | null>(null);
   const [index, setIndex] = useState(0);
   // rect is tagged with the step index it belongs to so a new step never paints
@@ -521,13 +606,14 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
     celebratingRef.current = false;
     setCelebrating(false);
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
-    baselineRef.current = takeSnapshot(opportunities);
+    baselineRef.current = takeSnapshot(opportunities, quickLinksCount);
     window.dispatchEvent(new CustomEvent('oos-tutorial-prepare'));
     if (step.view && onNavigate) onNavigate(step.view);
     if (step.id === 'done') playSound('triad');
 
     const prep = step.prepare;
     if (!prep) return;
+    if (prep.settings && onOpenSettings) onOpenSettings();
     if (prep.expediente && onOpenLatestOpportunity) {
       const expedienteVisible = () => {
         const el = document.querySelector('[data-tutorial="opp-title"]');
@@ -560,13 +646,13 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
   useEffect(() => {
     if (!lang || !step || step.kind !== 'do' || !step.check || !baselineRef.current) return;
     if (celebratingRef.current) return;
-    if (checkDone(step.check, baselineRef.current, opportunities)) {
+    if (checkDone(step.check, baselineRef.current, opportunities, quickLinksCount)) {
       celebratingRef.current = true;
       setCelebrating(true);
       playSound('chime');
       advanceTimer.current = window.setTimeout(() => goNext(), 1000);
     }
-  }, [opportunities, index, lang, step, goNext]);
+  }, [opportunities, quickLinksCount, index, lang, step, goNext]);
 
   // Locate + track the spotlight/halo target. useLayoutEffect + step-tagged
   // state means the very first painted frame of a step already has the right
@@ -614,7 +700,7 @@ export const InteractiveTutorial: React.FC<Props> = ({ opportunities, onClose, o
     return () => window.removeEventListener('keydown', onKey);
   }, [goNext, goBack, onClose, isLast, lang, step]);
 
-  const minutesLeft = lang ? Math.max(1, Math.round((steps.length - index) * 0.8)) : 15;
+  const minutesLeft = lang ? Math.max(1, Math.round((steps.length - index) * 0.75)) : 15;
   const progressPct = lang ? ((index + 1) / steps.length) * 100 : 0;
 
   /* ------------------------------ Language picker ------------------------------ */
@@ -848,6 +934,7 @@ const TUTORIAL_CSS = `
 @keyframes tutKnobOn { 0%, 40% { transform: translateX(0); } 60%, 100% { transform: translateX(12px); } }
 @keyframes tutKnobOff { 0%, 40% { transform: translateX(12px); } 60%, 100% { transform: translateX(0); } }
 @keyframes tutBell { 0%, 76%, 100% { transform: rotate(0); } 80% { transform: rotate(14deg); } 84% { transform: rotate(-12deg); } 88% { transform: rotate(8deg); } 92% { transform: rotate(-5deg); } }
+@keyframes tutKeyPress { 0%, 18%, 100% { transform: translateY(0); box-shadow: 0 1px 0 rgba(0,0,0,0.08); } 8% { transform: translateY(2px); box-shadow: none; background: #ecfdf5; border-color: #3DCD58; color: #15803d; } }
 @keyframes tutSpinSlow { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 @keyframes tutConfetti { 0% { transform: translateY(-10px) rotate(0deg); opacity: 1; } 100% { transform: translateY(105vh) rotate(560deg); opacity: 0.75; } }
 @keyframes tutCardMove { 0%, 15% { opacity: 1; transform: translateX(0); } 45%, 100% { opacity: 0; transform: translateX(60px); } }
@@ -881,6 +968,7 @@ const TUTORIAL_CSS = `
 .tut-switch-on-anim .tut-knob { animation: tutKnobOn 3.2s ease-in-out infinite alternate; }
 .tut-switch-off-anim .tut-knob { animation: tutKnobOff 3.2s ease-in-out infinite alternate; }
 .tut-bell { animation: tutBell 3.4s ease-in-out infinite; transform-origin: top center; }
+.tut-keycap { animation: tutKeyPress 3.2s ease-in-out infinite; }
 .tut-spin-slow { animation: tutSpinSlow 7s linear infinite; }
 .tut-bob-slow { animation: tutBob 2.4s ease-in-out infinite; }
 .tut-confetti { animation-name: tutConfetti; animation-timing-function: ease-in; animation-iteration-count: 1; animation-fill-mode: forwards; }

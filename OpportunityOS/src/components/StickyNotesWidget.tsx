@@ -1,27 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { StickyNote } from '../types';
+import type { GeneralQuickLink } from '../types';
+import { Bookmark, BriefcaseBusiness, FileText, Folder, Globe2, Link2, Mail, Search, Star, X } from 'lucide-react';
+import { openAbsolutePath } from '../features/opportunity-folder/fileOps';
 
-interface StickyNote { id: string; content: string; createdAt: string; }
-const STICKY_KEY = 'tenderloop.stickynotes.v1';
-
-function loadNotes(): StickyNote[] {
-    try { return JSON.parse(localStorage.getItem(STICKY_KEY) || '[]'); } catch { return []; }
+interface Props {
+    notes: StickyNote[];
+    onNotesChange: (updater: (notes: StickyNote[]) => StickyNote[]) => void;
+    /** Keep notes above the timer only while that control is visible. */
+    timerVisible?: boolean;
 }
 
-export const StickyNotesWidget: React.FC = () => {
-    const [notes, setNotes] = useState<StickyNote[]>(loadNotes);
+export const StickyNotesWidget: React.FC<Props> = ({ notes, onNotesChange, timerVisible = true }) => {
     const [open, setOpen] = useState(false);
-    const [minimized, setMinimized] = useState(false);
     const [newText, setNewText] = useState('');
+    const [search, setSearch] = useState('');
+    const visibleNotes = search.trim()
+        ? notes.filter(note => note.content.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+        : notes;
 
-    useEffect(() => { localStorage.setItem(STICKY_KEY, JSON.stringify(notes)); }, [notes]);
+    useEffect(() => {
+        if (!open) return;
+        const closeOnEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('keydown', closeOnEscape);
+        return () => document.removeEventListener('keydown', closeOnEscape);
+    }, [open]);
 
     const addNote = () => {
         if (!newText.trim()) return;
-        setNotes(prev => [{ id: crypto.randomUUID(), content: newText.trim(), createdAt: new Date().toISOString() }, ...prev]);
+        onNotesChange(prev => [{ id: crypto.randomUUID(), content: newText.trim(), createdAt: new Date().toISOString() }, ...prev]);
         setNewText('');
     };
-    const deleteNote = (id: string) => setNotes(prev => prev.filter(n => n.id !== id));
-    const updateNote = (id: string, content: string) => setNotes(prev => prev.map(n => n.id === id ? { ...n, content } : n));
+    const deleteNote = (id: string) => onNotesChange(prev => prev.filter(n => n.id !== id));
+    const updateNote = (id: string, content: string) => onNotesChange(prev => prev.map(n => n.id === id ? { ...n, content } : n));
 
     const insertAtCursor = (text: string) => {
         const el = document.getElementById('sticky-new-input') as HTMLTextAreaElement | null;
@@ -69,9 +82,11 @@ export const StickyNotesWidget: React.FC = () => {
         });
 
     // Pill (always visible, above timer) — toggles panel open/closed
+    const notesBottom = timerVisible ? 'bottom-20' : 'bottom-4';
+    const panelBottom = timerVisible ? 'bottom-20' : 'bottom-4';
     const pill = (
         <div
-            className="fixed bottom-20 right-4 z-[101] flex items-center gap-2 bg-yellow-400 text-yellow-900 px-3 py-1.5 rounded-full shadow-xl cursor-pointer hover:bg-yellow-500 transition-all select-none font-black text-xs border-2 border-yellow-300 animate-in fade-in zoom-in duration-300"
+            className={`fixed ${notesBottom} right-4 z-[101] flex items-center gap-2 bg-yellow-400 text-yellow-900 px-3 py-1.5 rounded-full shadow-xl cursor-pointer hover:bg-yellow-500 transition-all select-none font-black text-xs border-2 border-yellow-300 animate-in fade-in zoom-in duration-300`}
             onClick={() => setOpen(prev => !prev)}
             title={open ? 'Close Sticky Notes' : 'Open Sticky Notes'}
         >
@@ -84,7 +99,7 @@ export const StickyNotesWidget: React.FC = () => {
     return (
         <>
             {pill}
-            <div className="fixed bottom-20 right-20 z-[102] w-80 bg-white rounded-2xl shadow-2xl border border-yellow-200 overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300" style={{ maxHeight: '70vh' }}>
+            <div className={`fixed ${panelBottom} right-20 z-[102] w-80 bg-white rounded-2xl shadow-2xl border border-yellow-200 overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300`} style={{ maxHeight: '70vh' }}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-2.5 bg-yellow-50 border-b border-yellow-200 select-none">
                     <span className="font-black text-yellow-800 text-sm flex items-center gap-2">
@@ -92,6 +107,15 @@ export const StickyNotesWidget: React.FC = () => {
                         <span className="text-[9px] font-bold text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded-full">{notes.length}</span>
                     </span>
                     <button onClick={() => setOpen(false)} className="text-yellow-500 hover:text-yellow-900 font-bold text-lg leading-none" title="Close">×</button>
+                </div>
+
+                <div className="px-3 pt-2 bg-yellow-50/20">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-yellow-700" />
+                        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search notes"
+                            className="w-full rounded-lg border border-yellow-200 bg-white py-1.5 pl-7 pr-7 text-[11px] text-gray-700 outline-none placeholder:text-gray-400 focus:border-yellow-400 focus:ring-1 focus:ring-yellow-300" />
+                        {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-yellow-100 hover:text-yellow-800" title="Clear search"><X className="h-3 w-3" /></button>}
+                    </div>
                 </div>
 
                 {/* Toolbar */}
@@ -131,7 +155,8 @@ export const StickyNotesWidget: React.FC = () => {
                 {/* Notes list */}
                 <div className="overflow-y-auto flex-1 p-3 space-y-2 bg-yellow-50/20">
                     {notes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No sticky notes yet.</p>}
-                    {notes.map(note => (
+                    {notes.length > 0 && visibleNotes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No matching notes.</p>}
+                    {visibleNotes.map(note => (
                         <div key={note.id} className="bg-yellow-50 border border-yellow-200 rounded-xl shadow-sm group">
                             <div className="p-2">{renderContent(note.content, note.id)}</div>
                             <details>
@@ -154,5 +179,63 @@ export const StickyNotesWidget: React.FC = () => {
                 </div>
             </div>
         </>
+    );
+};
+
+export const GENERAL_QUICK_LINK_ICON_OPTIONS = [
+    { id: 'link', label: 'Link', Icon: Link2 },
+    { id: 'globe', label: 'Globe', Icon: Globe2 },
+    { id: 'folder', label: 'Folder', Icon: Folder },
+    { id: 'bookmark', label: 'Bookmark', Icon: Bookmark },
+    { id: 'briefcase', label: 'Briefcase', Icon: BriefcaseBusiness },
+    { id: 'file', label: 'File', Icon: FileText },
+    { id: 'mail', label: 'Mail', Icon: Mail },
+    { id: 'star', label: 'Star', Icon: Star },
+] as const;
+
+const getLocalPath = (target: string): string | null => {
+    const value = target.trim();
+    if (/^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\')) return value;
+    if (!value.toLowerCase().startsWith('file://')) return null;
+    try {
+        const url = new URL(value);
+        return decodeURIComponent(url.pathname).replace(/^\/+([a-zA-Z]:)/, '$1').replace(/\//g, '\\');
+    } catch { return null; }
+};
+
+const openQuickLink = async (target: string) => {
+    const localPath = getLocalPath(target);
+    if (localPath) {
+        try { await openAbsolutePath(localPath); }
+        catch (err: any) { alert(err?.message || 'Could not open the local file or folder.'); }
+        return;
+    }
+    try {
+        const url = new URL(target);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+        window.open(url.toString(), '_blank', 'noopener,noreferrer');
+    } catch { alert('Enter a valid web URL or an absolute Windows path.'); }
+};
+
+export const GeneralQuickLinksWidget: React.FC<{ links: GeneralQuickLink[]; timerVisible?: boolean }> = ({ links, timerVisible = true }) => {
+    if (!links.length) return null;
+    // Sits one step above the sticky-notes pill, which itself sits above the timer. When the timer
+    // is hidden the whole stack drops by one slot — it must not land on bottom-4 or it would
+    // overlap the pill.
+    return (
+        <div className={`fixed ${timerVisible ? 'bottom-32' : 'bottom-16'} right-4 z-[100] flex flex-col items-end gap-2.5 py-1`}>
+            {links.map(link => {
+                const Icon = GENERAL_QUICK_LINK_ICON_OPTIONS.find(option => option.id === link.icon)?.Icon || Link2;
+                return (
+                    <button key={link.id} type="button" onClick={() => { void openQuickLink(link.url); }}
+                        title={link.name} aria-label={`Open ${link.name}`}
+                        className="group flex h-10 w-10 items-center justify-center rounded-full border border-white/80 text-white shadow-md transition-all hover:scale-105 hover:shadow-lg focus:outline-none focus:ring-1 focus:ring-offset-1"
+                        style={{ backgroundColor: link.color || '#3DCD58', boxShadow: `0 3px 8px ${link.color || '#3DCD58'}30` }}>
+                        <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
+                        <span className="pointer-events-none absolute right-full mr-3 max-w-64 whitespace-normal rounded-md bg-gray-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">{link.name}</span>
+                    </button>
+                );
+            })}
+        </div>
     );
 };

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "check:server": "tsc -p server --noEmit",
-    "check:folder": "tsx scripts/verify-folder-persistence.ts"
+    "check:folder": "tsx scripts/verify-folder-persistence.ts",
+    "icon:build": "node scripts/generate-icon.mjs"
   },
   "dependencies": {
     "@kenjiuno/msgreader": "^1.28.0",
@@ -22,6 +23,7 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.561.0",
     "mammoth": "^1.12.0",
+    "playwright-core": "^1.62.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "underscore": "1.13.8",
@@ -34,7 +36,9 @@
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.27",
+    "png-to-ico": "^3.0.2",
     "postcss": "^8.5.8",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.2.2",
     "tsx": "^4.22.5",
     "typescript": "~5.8.2",

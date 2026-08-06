@@ -4,9 +4,10 @@
 // /api/db/* data plane (JSON DB behind a DbRepository).
 
 import express from 'express';
-import { PORT, HOST, ENABLE_OS_INTEGRATION } from './config';
+import { PORT, HOST, ENABLE_OS_INTEGRATION, ENABLE_WEB_AUTOMATION } from './config';
 import { osRouter } from './routes/os';
 import { dbRouter } from './routes/db';
+import { webRouter } from './routes/web';
 import { dbRepository } from './db/repository';
 
 const app = express();
@@ -48,13 +49,21 @@ const health = (_req: express.Request, res: express.Response) => {
         port: PORT,
         dbOpen: dbRepository.status().open,
         db: dbRepository.status(),
-        features: ['open', 'open-many', 'reveal', 'clipboard', 'clipboard-email-reply', 'locate', 'find-dir', 'copy-template', 'check-path', 'list-dir'],
+        features: [
+            'open', 'open-many', 'reveal', 'clipboard', 'clipboard-email-reply', 'locate',
+            'find-dir', 'copy-template', 'check-path', 'list-dir', 'write-manager-report',
+            ...(ENABLE_WEB_AUTOMATION ? ['web-automation'] : []),
+        ],
     });
 };
 
 app.get('/api/health', health);
 app.get('/health', health); // legacy alias
 app.use('/api/db', dbRouter);
+
+if (ENABLE_WEB_AUTOMATION) {
+    app.use('/api/web', webRouter);
+}
 
 if (ENABLE_OS_INTEGRATION) {
     app.use('/api/os', osRouter);
