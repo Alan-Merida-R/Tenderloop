@@ -129,7 +129,13 @@ Puedes tener tantos archivos `.json` como quieras. Para cambiar entre ellos:
 
 ### 4.5 Respaldo
 
-**Tu base = ese único archivo `.json`.** Cópialo a:
+**Tu base = ese único archivo `.json`.** Ahí viven tus oportunidades, notas,
+tareas, KPIs y tiempos, y también tus **notas adhesivas** y tus **accesos
+rápidos** — antes se guardaban solo en el navegador y se perdían al limpiar la
+caché o al cambiar de equipo. Si ya tenías notas adhesivas, la aplicación las
+importa sola la primera vez que abres esta versión.
+
+Cópialo a:
 - OneDrive / Google Drive (respaldo automático la mejor opción)
 - USB o disco externo de vez en cuando
 - Correo a ti mismo si es pequeño
@@ -144,6 +150,10 @@ Simplemente haz doble clic en `OPEN_OPPORTUNITYOS.vbs`. Si falta la instalación
 abrirá el instalador automáticamente. Si Windows bloquea archivos VBS, usa
 `OPEN_OPPORTUNITYOS.bat`.
 Como ya están instaladas las dependencias, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
+
+> **Si OpportunityOS ya está abierto**, volver a hacer doble clic **no** abre una
+> segunda ventana: trae al frente la que ya tienes (o la minimiza si ya estaba
+> al frente). Puedes usarlo como un interruptor de mostrar/ocultar.
 
 ---
 
@@ -212,6 +222,9 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 | `Puerto 3000 en uso` | Otra app ocupa el puerto | Usa `CLOSE_OPPORTUNITYOS.bat` y vuelve a lanzar |
 | La app dice "No se pudo guardar el archivo" | El navegador perdió permisos sobre el `.json` | Recarga (F5) y vuelve a abrir la base; aprueba el permiso que pide el navegador |
 | Quiero reinstalar todo desde cero | Dependencias corruptas | Borra la carpeta `node_modules` y vuelve a doble clic en el `.vbs` |
+| Al vincular una carpeta pide la ruta a mano | Windows Search todavía no indexó la carpeta | Espera unos segundos y reintenta; la app ahora reintenta sola durante ~9 segundos antes de pedírtela |
+| "El perfil de navegador de OpportunityOS ya está abierto" | Quedó una ventana de automatización abierta | Ciérrala y vuelve a intentar; Windows solo permite un proceso por perfil |
+| Una lista de tareas o una nota "desapareció" | Está marcada como oculta | En Ajustes desmarca *Hide this list*, o abre la tira de **notas ocultas** en el expediente. Nada se borró |
 
 ---
 

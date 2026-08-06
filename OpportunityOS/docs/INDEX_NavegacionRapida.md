@@ -19,7 +19,13 @@
 | Tipos de datos | `OpportunityOS/src/types.ts` |
 | Acceso a archivos | `OpportunityOS/src/services/fileSystem.ts` |
 | Servicio local | `OpportunityOS/server/index.ts` |
+| Rutas y limites del servicio local | `OpportunityOS/server/config.ts` |
+| Integracion con Windows | `OpportunityOS/server/os/shell.ts` |
+| Automatizacion web (navegador) | `OpportunityOS/server/os/webAutomation.ts` |
+| Notas adhesivas y accesos rapidos | `OpportunityOS/src/components/StickyNotesWidget.tsx` |
+| Temporizador (estado compartido) | `OpportunityOS/src/contexts/TimerContext.tsx` |
 | Pruebas de persistencia | `OpportunityOS/scripts/verify-folder-persistence.ts` |
+| Generacion de iconos | `OpportunityOS/scripts/generate-icon.mjs` |
 
 ## TenderFlow
 

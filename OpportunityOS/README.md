@@ -47,13 +47,32 @@ npm run check:server
 npm run check:folder
 ```
 
+Para regenerar los iconos despues de editar `public/icon.svg`:
+
+```powershell
+npm run icon:build
+```
+
 ## Estructura
 
 - `src/`: interfaz React y logica de la aplicacion.
-- `server/`: servicio local para operaciones del sistema de archivos y Outlook.
-- `scripts/`: comprobaciones ejecutables de persistencia.
-- `public/`: iconos y manifiesto de la aplicacion.
+- `server/`: servicio local para operaciones del sistema de archivos, Outlook y
+  automatizacion web.
+- `scripts/`: comprobaciones ejecutables, generacion de iconos y ayudantes de
+  Windows.
+- `public/`: iconos y manifiesto de la aplicacion. `icon.svg` es la fuente
+  vectorial; `icon.png` y `opportunityos.ico` se generan desde ahi.
 - `docs/`: documentacion funcional, tecnica y de seguridad.
+
+## Variables de entorno
+
+Todas son opcionales; sin ellas la aplicacion arranca con todo activo.
+
+| Variable | Efecto |
+| --- | --- |
+| `TENDERLOOP_DISABLE_OS=1` | Desactiva las rutas del sistema operativo (`/api/os/*`). |
+| `OPPORTUNITYOS_DISABLE_WEB=1` | Desactiva la automatizacion web (`/api/web/*`). |
+| `OPPORTUNITYOS_WEB_HOSTS` | Hosts adicionales permitidos para la automatizacion web, separados por comas. |
 
 ## Datos y privacidad
 

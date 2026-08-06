@@ -21,6 +21,8 @@ The system is a distributed React application that operates directly on the user
 - `src/components/OpportunityDetail.tsx`: Complex form/note editor for expedientes.
 - `src/services/fileSystem.ts`: File I/O operations and permission management.
 - `server/`: Loopback-only local service on port 3099.
+- `server/os/`: Windows integration — Explorer, clipboard, Outlook, window control (`shell.ts`) and the browser engine (`webAutomation.ts`, `pageScripts.ts`).
+- `scripts/`: Runnable checks (`verify-folder-persistence.ts`) and build/maintenance helpers (`generate-icon.mjs`, `toggle-app-window.ps1`, `find-chrome-app-id.ps1`).
 
 ---
 
@@ -79,9 +81,34 @@ Instead of shipping MP3 assets, alerts are synthesized on demand via **WebAudio*
 - **Settings wiring:** `AppSettings.notificationSound` and `AppSettings.timerSound` default to `'beep'`. `SettingsModal.tsx` exposes both dropdowns with a Preview button.
 - **Ref-based consumption:** `TimerProvider` (pomodoro phase alerts + task-start notifications) and `useScheduleNotifications` (5-min pre-block push) hold the user's choice in `useRef`s. Mutating the setting does **not** re-run the timer/scheduler effects — the next tick reads the latest ref.
 
+### F. Database-Owned User Settings
+Widget state that used to live in `localStorage` is now stored in `UserSettings` inside the JSON database, so it travels with the file instead of with the browser:
+- **`stickyNotes` / `generalQuickLinks`:** written by `App.tsx` and passed down as props. `StickyNotesWidget` no longer reads or writes storage itself.
+- **One-time migration:** a `*Migrated` boolean guards each import. The effect merges legacy entries with anything already in the database by `id`, sets the flag, and never runs again. A malformed legacy value is swallowed so it can never block loading.
+- **Same pattern as `globalContacts`:** when adding another widget of this kind, copy the flag-guarded merge rather than reading storage at render time.
+
+### G. Search Index Normalization
+`buildOpportunitySearchIndex` in `App.tsx` runs once per opportunity change; the Dashboard filter runs on every keystroke across every record. Accent-stripping therefore belongs in the index, not the filter:
+- **`normalizeSearchText`** (exported from `components/OpportunitySearchInput.tsx`) is the single normalizer — NFD, strip combining marks, lowercase.
+- The index applies it to the joined values, `parseBooleanQuery` applies it to each parsed term, and the matcher is told the haystack is pre-normalized (`booleanMatcher(searchable, true)`).
+- SOW notes are serialized JSON. Their **values** are already collected; the index additionally pushes the SOW **field keys** so custom scope terms are findable without parsing that JSON on the hot path.
+
 ---
 
-## 🛡️ 4. Recovery & Stability
+## 🌐 4. Web Automation (`server/os/webAutomation.ts`)
+
+Phase 1 is reconnaissance: sign in once by hand, then inspect a page to see what is extractable. Filling and submitting forms build on the same session later. See [security.md](security.md) for the guardrails — host allow-list, redaction and profile isolation are load-bearing, not incidental.
+
+- **Engine:** `playwright-core` driving the Chrome (or Edge) already installed on the machine. `findBrowserExecutable` uses the same search order as `_open_browser.bat`, so both pick the same binary.
+- **Persistent context:** `chromium.launchPersistentContext(CHROME_PROFILE_DIR, ...)`. The session lives in the profile, so a headless probe rides on the login the user completed in a visible window.
+- **Single shared context:** a Chrome profile directory can only be opened by one process at a time. `getContext` serializes concurrent launches through a `launching` promise, and switching between headless and visible forces a relaunch. A `close` listener clears the handle so a crash cannot strand a stale context.
+- **Routes:** `GET /api/web/status`, `POST /api/web/login`, `POST /api/web/probe`, `POST /api/web/close`. Mounted only when `ENABLE_WEB_AUTOMATION` is true; `/api/health` lists `web-automation` in `features` when it is.
+- **`evaluateInPage` gotcha:** `tsx`/esbuild compiles this file with `keepNames`, rewriting nested helpers as `__name(fn, "fn")`. That helper exists only in the Node module scope, so a serialized page function throws `__name is not defined` inside the browser. Page scripts are therefore evaluated as an expression string that declares a local no-op `__name` first. Keep new page scripts in `pageScripts.ts` and run them through this helper.
+- **Response capture:** only JSON/XML responses are kept, capped at 40 per probe, with bodies filled in asynchronously and written to the artifacts folder when under 4 MB.
+
+---
+
+## 🛡️ 5. Recovery & Stability
 
 ### Root Error Boundary
 Located in `components/RootErrorBoundary.tsx`, it wraps the entire application.
@@ -90,7 +117,7 @@ Located in `components/RootErrorBoundary.tsx`, it wraps the entire application.
 
 ---
 
-## 📖 5. Developer Glossary: User Terminology Mapping
+## 📖 6. Developer Glossary: User Terminology Mapping
 
 When the user requests changes, they often use specific terms. Use this table to translate them into code concepts:
 
@@ -114,10 +141,14 @@ When the user requests changes, they often use specific terms. Use this table to
 2. **Respect the Migration Engine:** When adding new fields, update `migrateData` in `App.tsx`.
 3. **Check `isSubView`:** Components behave differently in sidebar vs. full screen.
 4. **Avoid Deep Spreads:** Be precise with updates to avoid cloning 5,000 objects.
+5. **Never Persist From Inside a State Updater:** A functional updater must stay pure. Calling the database updater from one nests a React update inside another and can freeze the UI — this is exactly what made the expediente hang when a Pomodoro break started. Stash the record in a ref and flush it after the commit, as `TimerProvider` does with `pendingPomodoroLogRef`.
+6. **Migrations Are Additive:** Legacy recovery (folder paths, sticky notes, quick links) must merge, never overwrite. A user who already has newer data in the database must not lose it to an older value found in browser storage.
+7. **Distinguish "Backend Said No" From "Backend Never Answered":** In `services/backendDb.ts`, `err.status` is set only when the backend actually responded. A missing status means the request never arrived, which is retryable; a real response such as a 409 must propagate.
+8. **Not Every Unreferenced File Is Dead:** `src/ambient.d.ts` is loaded by tsconfig and `src/services/save.worker.ts` is loaded through `new Worker(new URL(...))` — neither appears in any import statement. See [testing.md](testing.md) for the dead-code procedure before deleting a file.
 
 ---
 
-## 🗺️ 6. TenderFlow: Strategic Matrix Logic
+## 🗺️ 7. TenderFlow: Strategic Matrix Logic
 
 TenderFlow lives in the sibling `../TenderFlow/` directory and handles complex
 decision trees and executive reporting. Consult its `README.md` and source for

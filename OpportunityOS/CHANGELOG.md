@@ -7,20 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Added web automation (`/api/web/*`, disabled with `OPPORTUNITYOS_DISABLE_WEB=1`). It drives the Chrome already installed on the machine against a dedicated OpportunityOS profile under `%APPDATA%`, so the user signs in to corporate sites once by hand and later runs reuse that session. This first phase is reconnaissance only: `POST /login` opens a visible window for SSO/MFA, `POST /probe` inspects a page and writes its artifacts (HTML, text, screenshot, captured JSON) to `web-probes`, `GET /status` reports the session and `POST /close` releases the browser. OpportunityOS never sees, stores or types a credential.
+- Added a per-opportunity workflow timeline to the expediente: a Gantt-style view of execution and approval phases per task, day-by-day summaries (completed, expected, missed, worked hours, scheduled blocks) and per-area breakdowns resolved from stakeholder assignments.
+- Added an explicit completion date on tasks (`Task.completionDate`). Marking a task Done now asks which day the work actually finished, kept independent from `dueDate` (the commitment) and `completedAt` (the click timestamp) so a task closed late or early still reports the real completion day.
+- Added General quick links: round shortcuts shown above Sticky Notes, configured in Settings with a name, colour and icon. Each one opens a web URL or an absolute Windows file/folder path through the local OS helper.
+- Added a search box to Sticky Notes, and Escape now closes the panel.
+- Added hideable notes (`MeetingNote.hidden`) and hideable task lists (`TaskStandard.hidden`). Both stay saved and keep feeding the rest of the expediente — a hidden SOW note still answers the Overview Scope button — but are left out of the lists and pickers until the user asks to see them.
+- Added approver tracking on approval events (`ApprovalEvent.approverTeamMemberIds`), so the history feed can name who signed an approval off.
+- Added the option to import an SR email into an existing opportunity as a new revision instead of always creating a new one, including its commit message, tags and task list.
+- Added `npm run icon:build`: regenerates `public/icon.png` and the multi-resolution `opportunityos.ico` from the single vector source `public/icon.svg` (`scripts/generate-icon.mjs`, using `sharp` and `png-to-ico`).
+- Added a pin control to the timer popup that keeps it above every other Windows window, backed by the new `/api/os/timer-window-topmost` endpoint. The window is matched by its exact title, so no unrelated window is touched.
 - Added a Quick Organizer workflow that exports current workload context as a copy/paste prompt, imports a reviewed response, previews the resulting weekly agenda, reminders and due-date adjustments, and applies changes only after explicit confirmation.
 - Added persistent user reminders linked to opportunities, tasks or notes, including a header bell, overdue state, browser notifications, configurable sound and direct navigation to the linked item.
 - Added agenda-oriented task planning improvements, dashboard indicators and expanded opportunity quick views for prioritization and follow-up.
 - Added backend-assisted database file resolution and native opening so a browser-selected database can be matched safely to one unambiguous Windows path.
 
 ### Changed
+- Sticky notes and general quick links are now owned by the JSON database instead of `localStorage`, so they survive a browser reset, a cache wipe or a move to another machine. A one-time migration imports existing browser-only notes and links, then the database becomes the single source of truth.
+- Opportunity search now normalizes accents once, when the per-opportunity search index is built, instead of on every record for every keystroke. SOW field names are added to that index, so custom scope terms are searchable without parsing the SOW JSON on the typing path.
+- Reopening `OPEN_OPPORTUNITYOS.vbs` while the app is already running now toggles the existing window — restore and focus it, or minimize it if it is already in front — instead of stacking another window on top (`scripts/toggle-app-window.ps1`).
+- The app window is launched with flags that keep it live when it loses focus, is covered or the laptop suspends, so it no longer comes back as a blank shell. When the user installed OpportunityOS as a real Chrome app, the launcher can reuse that stable app-id and taskbar identity; `scripts/find-chrome-app-id.ps1` reports it.
+- Rewrote the timer popup around the shared absolute timestamps, removing roughly 600 lines of duplicated clock logic between the main widget and the popup window and keeping both readouts in agreement.
 - Simplified Windows startup to one normal visible entry point: `ABRIR_TENDERLOOP.vbs`. It hides the internal launcher and installer files on first use, opens setup automatically when required, and leaves `motor_tenderloop.bat` visible as the recovery path for restrictive computers.
 - Expanded task, opportunity, SOW and email data handling so new planning and reminder fields survive backend persistence, import/export and existing-data normalization.
 - Updated the embedded SOW form, dashboards, settings and email workflows with the latest usability and data-consistency improvements.
 
 ### Removed
-- Removed the direct Google AI SDK integration, API-key ambient declaration and legacy AI Thinking modal. The Quick Organizer uses an explicit copy/paste review flow and does not send project data to an AI provider from TenderLoop.
+- Removed three source files that nothing reached: `src/components/OpportunityFolder.tsx` (411 lines, the pre-`OpportunityFolderTab` folder browser), `src/services/folderStorage.ts` (75 lines, only ever imported by that component) and `src/components/ConfirmModal.tsx` (60 lines, never referenced). Verified by walking the real import graph from `src/index.tsx`, not by text search — `src/ambient.d.ts` and `src/services/save.worker.ts` look unreferenced the same way but are not, since a `.d.ts` is picked up by tsconfig and the worker is loaded through `new Worker(new URL(...))`.
+- Removed a disabled duplicate-SR warning in `ImportSrEmailModal.tsx` that was gated behind a literal `false &&`. It was superseded by the OP-based duplicate block that offers "Create revision" or "Keep as new OP".
+- Removed `KPIEvolutionChart` (65 lines) and the `kpiData` / `kpiHistoricalData` memos (157 lines) from `Dashboard.tsx`. Nothing consumed them, so the KPI aggregation and the historical roll-up were recomputed on every render and discarded; the `kpiTimeRange` state that only fed them went with them.
+- Removed 86 unused import specifiers across 22 files, two whole import statements, and roughly 60 further lines of unused declarations (helpers, memos and dead `useState` pairs) elsewhere in the expediente, the folder tab and the sticky-notes widget. This took the unused-declaration count from 181 to 21. Left alone on purpose: unused *parameters* — removing one changes a call signature and silently shifts positional arguments — along with unused destructured props and `useState` bindings whose other half is still live.
 
 ### Fixed
+- Starting a Pomodoro break no longer freezes the expediente. The phase transition logged its time from inside a React state updater, which nested one update inside another; the pending record is now held in a ref and flushed after React commits.
+- A backend save conflict no longer loops forever. When the database changed elsewhere, every later autosave kept resending the same stale revision and failing with 409 until the whole app was reloaded; the revision counter is now re-synced immediately, leaving the in-memory edits intact so the next autosave succeeds.
+- A momentary loopback hiccup — typically right after the laptop wakes or the window regains focus — no longer shows a "failed to save" banner. A request that never reached the backend is retried once before surfacing an error; a real backend response, such as a 409, still propagates untouched.
+- Linking a folder no longer falls back to manual path entry because of a race with Windows Search. The marker file is kept alive across retries and the folder name is used to find same-named candidates directly on disk, which is deterministic even when several opportunities share a revision folder name.
+- Folder paths saved by older releases are now recovered into the shared database, including the very old single-string field and the pre-`OpportunityFolderDB` IndexedDB handle store. Recovery is additive: it never overwrites a newer path already in the database.
+- Uninstalling from the Start Menu shortcut now cleans up shortcuts correctly. `DESINSTALAR_OPPORTUNITYOS.bat` falls back to the standard per-user Desktop and Start Menu locations when it is run directly instead of through the HTA uninstaller.
+- The setup marker is ignored again by git. `.gitignore` still listed only the pre-rename `.tenderloop-setup-complete`, so the current `.opportunityos-setup-complete` was showing up as a file to commit.
 - Restored direct application startup: `ABRIR_TENDERLOOP.vbs` now launches TenderLoop whenever Vite is available, without requiring an installer-completion marker or reopening setup after an interrupted installation.
 - The installer no longer creates Desktop or Start Menu shortcuts. It validates the visible `ABRIR_TENDERLOOP.vbs` launcher instead, avoiding stale shortcut paths on corporate computers.
 - Starting setup no longer deletes the existing completion marker. The installer now records its start time and only treats a marker updated during that specific run as success, so a cancelled or blocked setup cannot make an existing installation appear uninstalled.
@@ -47,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Creating or opening the Scope of Work (SOW) note now uses the same atomic creation-and-selection flow, so it also works on the first click.
 - Note PDF export now flushes pending editor changes before rendering. The downloaded file therefore includes the latest visible text and embedded form values instead of an older saved copy.
 - The PDF note renderer now mirrors more of the editor structure, including headings, tables, blockquotes, code blocks, checkboxes and form controls.
+
+### Security
+- Web automation only navigates to allow-listed hosts (Salesforce/bFO and Schneider Electric domains by default, extended with `OPPORTUNITYOS_WEB_HOSTS`). The browser engine can act as the signed-in user, so an endpoint accepting any URL would let anything able to reach port 3099 drive an authenticated corporate session. Subdomains match; look-alike suffixes do not; loopback is not allow-listed by default. Plain HTTP is tolerated only on loopback — everything reachable over the network must be HTTPS.
+- Probe responses are redacted unless the caller explicitly opts out. Redacted mode keeps structure (labels, selectors, field types, JSON key paths, URL shape) and drops content: values become `<email>`, `<number>`, `<text N chars>` and identifiers in URLs become `{id}`. The full capture is always written to the local artifacts folder, so a probe result can be shared without leaking customer data.
+- The automation profile is deliberately separate from the user's normal Chrome profile. Chrome refuses remote control of the default profile, and the split means a captured corporate session can never leak into — or be clobbered by — day-to-day browsing.
+- The `/locate` endpoint now rejects folder names containing path separators or other invalid Windows filename characters.
 
 ## folder-module-2026-06-17 — Expediente / Folder enhancements
 ### Added

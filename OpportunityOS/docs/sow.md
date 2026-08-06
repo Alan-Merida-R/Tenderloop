@@ -58,7 +58,7 @@ This is the global library shared by all opportunities.
 - A global override is merged with the matching question key at render time.
 - Global sections can have a simple visibility relationship. Example: `flow_T001` `includes` `Modicon` makes a complete custom Modicon section appear only when Modicon is selected.
 
-### SOW → Design questions
+### SOW → Designer (form designer)
 
 This is the visual editor inside an individual SOW.
 
@@ -121,7 +121,7 @@ Do not move the main SOW iframe to create the panel; doing so makes the original
 
 ## KOM note generation
 
-`Generate meeting note` sends `generated-note` to the host. `OpportunityDetail` creates a new regular note titled `KOM` whose body is an ordered list of applicable required questions that are still unanswered.
+`Meeting note` (toolbar) sends `generated-note` to the host. `OpportunityDetail` creates a new regular note titled `KOM` whose body is an ordered list of applicable required questions that are still unanswered.
 
 If this stops working, verify in this order:
 
@@ -139,5 +139,5 @@ Before shipping an SOW change:
 3. Verify a linked expediente field in both directions.
 4. Verify a new global Library question appears in a different opportunity.
 5. Verify Overview opens without altering the original SOW view and closes with click outside/Escape.
-6. Verify `Generate meeting note` creates a note titled `KOM`.
+6. Verify `Meeting note` creates a note titled `KOM`.
 7. Run `node .\\node_modules\\vite\\bin\\vite.js build`.
