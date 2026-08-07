@@ -4,6 +4,8 @@
 
 The SOW note is TenderLoop's guided workspace for KOMs and information-request meetings. It is not a Word generator. It helps capture answers, identify required unanswered questions, keep selected fields synchronized with the expediente, and create a `KOM` note containing the pending questions.
 
+To grow the question set, [sow-feedback-prompt.md](sow-feedback-prompt.md) holds the two prompts used to pull the checklist that proposal engineers carry in their heads and turn it into a concrete change plan.
+
 ## Important files
 
 Read these files before changing SOW behavior:
