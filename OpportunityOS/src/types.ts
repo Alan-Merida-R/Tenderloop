@@ -502,6 +502,8 @@ export interface AreaDayRecord {
   type: DayType;
   hours?: number; // Only for Tendering
   minutes?: number; // Extra precision for Tendering
+  /** Assignment ids that automatically contributed work for this area on this day. */
+  workedTaskIds?: string[];
   /** Assignment ids that automatically contributed this waiting day. */
   waitingTaskIds?: string[];
 }

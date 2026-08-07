@@ -1486,6 +1486,7 @@ const FullCalendarModal = ({
     userName,
     onClose,
     onOpenTask,
+    onRebuildAssignmentKpis,
     onSaveAreaCalendar,
     onAddArea,
     onRemoveArea,
@@ -1504,6 +1505,7 @@ const FullCalendarModal = ({
     userName: string,
     onClose: () => void,
     onOpenTask: (taskId: string) => void,
+    onRebuildAssignmentKpis: () => void,
     onSaveAreaCalendar: (areaId: string, calendar: Record<string, AreaDayRecord>) => void,
     onAddArea: (area: string) => void,
     onRemoveArea: (id: string) => void,
@@ -1530,7 +1532,6 @@ const FullCalendarModal = ({
     const [viewingHistoryDate, setViewingHistoryDate] = useState<string | null>(null);
     const [viewingDayDetails, setViewingDayDetails] = useState<string | null>(null);
     const [viewingAreaDetails, setViewingAreaDetails] = useState<string | null>(null);
-    const [collapsedWorkflowTaskIds, setCollapsedWorkflowTaskIds] = useState<Set<string>>(() => new Set(tasks.map(task => task.id)));
     const [isInternalAddAreaOpen, setIsInternalAddAreaOpen] = useState(false);
     const [visibleAreaIds, setVisibleAreaIds] = useState<string[]>(areas.map(a => a.id));
     const [selectionStart, setSelectionStart] = useState<{ areaId: string, date: string } | null>(null);
@@ -1539,6 +1540,13 @@ const FullCalendarModal = ({
     const [selectedCells, setSelectedCells] = useState<string[]>([]);
     const ensuredTenderingAreaRef = useRef(false);
     const revealedAutoTenderingRef = useRef(false);
+    const rebuiltAssignmentKpisRef = useRef(false);
+
+    useEffect(() => {
+        if (rebuiltAssignmentKpisRef.current) return;
+        rebuiltAssignmentKpisRef.current = true;
+        onRebuildAssignmentKpis();
+    }, [onRebuildAssignmentKpis]);
 
     useEffect(() => {
         if (ensuredTenderingAreaRef.current || areas.some(area => area.area === 'Tendering')) return;
@@ -1660,6 +1668,41 @@ const FullCalendarModal = ({
             events: history.filter(entry => normalizeHistoryDate(entry.date) === date).length,
         }];
     })), [days.join('|'), tasks, history]);
+
+    const automaticAreaWorkByDate = React.useMemo(() => {
+        const result: Record<string, Record<string, string[]>> = {};
+        const addWindow = (taskId: string, areaNames: string[], start?: string, end?: string) => {
+            if (!start || !end) return;
+            areaNames.forEach(areaName => {
+                if (!areaName) return;
+                if (!result[areaName]) result[areaName] = {};
+                days.forEach(date => {
+                    if (date < start || date > end) return;
+                    const parsed = new Date(`${date}T00:00:00`);
+                    if (parsed.getDay() === 0 || parsed.getDay() === 6 || holidays.includes(date)) return;
+                    result[areaName][date] = Array.from(new Set([...(result[areaName][date] || []), taskId]));
+                });
+            });
+        };
+        const rolesForIds = (ids: string[] = []) => ids.flatMap(id => {
+            const person = stakeholders.find(item => item.id === id || item.directoryContactId === id);
+            if (person) return person.roles?.length ? person.roles : (person.role ? [person.role] : []);
+            // Legacy SOW ids use "name|area" and still carry enough information
+            // to place their work on the correct area timeline.
+            return id.includes('|') ? [id.split('|').slice(1).join('|').trim()] : [];
+        });
+        tasks.forEach(task => {
+            const executionAreas = Array.from(new Set([...(task.externalAreas || []), ...rolesForIds(task.responsibleTeamMemberIds || [])].filter(Boolean)));
+            const approvalAreas = Array.from(new Set(rolesForIds(task.approverTeamMemberIds || []).filter(Boolean)));
+            (task.assignmentCycles || []).forEach(cycle => {
+                addWindow(task.id, executionAreas, cycle.executionRequested, cycle.executionDelivered || cycle.executionRequired);
+                addWindow(task.id, approvalAreas, cycle.approvalRequested, cycle.approved || cycle.changesRequestedAt || cycle.approvalRequired);
+            });
+            addWindow(task.id, executionAreas, task.responsibleRequestedDate, task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || todayKey);
+            addWindow(task.id, approvalAreas, task.approvalRequestedDate, task.approvalDeliveredDate || task.approvalDueDate || todayKey);
+        });
+        return result;
+    }, [days.join('|'), tasks, stakeholders, holidays, todayKey]);
 
     const selectedAreaSummary = React.useMemo(() => {
         if (!viewingAreaDetails) return null;
@@ -1895,7 +1938,7 @@ const FullCalendarModal = ({
                     <div ref={gridScrollRef} className="flex-1 overflow-auto">
                         <div className="min-w-full">
                             <div
-                                className="grid gap-x-px gap-y-0 bg-gray-200 border-b border-gray-200 shadow-xl"
+                                className="grid gap-0 bg-gray-200 border-b border-gray-200 shadow-xl"
                                 style={{
                                     gridTemplateColumns: `minmax(220px, 260px) repeat(${days.length}, minmax(26px, 1fr))`,
                                     minWidth: `${220 + (days.length * 26)}px`,
@@ -1965,15 +2008,15 @@ const FullCalendarModal = ({
 
                                 {/* Workflow groups: one task owns all of its people, phases and cycles. */}
                                 {workflowGroups.map(group => {
-                                    const collapsed = collapsedWorkflowTaskIds.has(group.task.id);
                                     const completion = taskCompletionDate(group.task);
                                     const hasIncompleteData = group.rows.some(row => row.evidence === 'Incomplete' || row.unresolvedPeople);
+                                    const requested = group.task.responsibleRequestedDate || group.rows.map(row => row.start).filter(Boolean).sort()[0];
+                                    const expected = group.task.responsibleDueDate || group.task.dueDate || group.rows.map(row => row.committed).filter(Boolean).sort()[0];
+                                    const delivered = group.task.responsibleDeliveredDate || completion || group.rows.map(row => row.end).filter(Boolean).sort().slice(-1)[0];
+                                    const summaryEnd = delivered || (!['Done', 'Canceled'].includes(group.task.status) ? todayKey : (expected || requested));
                                     return (
                                         <React.Fragment key={group.task.id}>
-                                            <div className="order-2 sticky left-0 z-[32] flex min-h-[50px] items-center gap-2 border-r border-t border-blue-100 border-l-4 border-l-blue-500 bg-white p-2.5 text-gray-800 shadow-[2px_0_8px_-3px_rgba(15,23,42,0.2)]">
-                                                <button type="button" onClick={() => setCollapsedWorkflowTaskIds(current => { const next = new Set(current); next.has(group.task.id) ? next.delete(group.task.id) : next.add(group.task.id); return next; })} className="rounded-lg bg-blue-50 p-1 text-blue-600 hover:bg-blue-100" title={collapsed ? 'Expand workflow' : 'Collapse workflow'}>
-                                                    {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                                </button>
+                                            <div className="order-2 sticky left-0 z-[32] flex min-h-[76px] items-center gap-2 border-r border-t border-blue-100 border-l-4 border-l-blue-500 bg-white p-2.5 text-gray-800 shadow-[2px_0_8px_-3px_rgba(15,23,42,0.2)]">
                                                 <button type="button" onClick={() => onOpenTask(group.task.id)} className="min-w-0 flex-1 text-left" title="Open task and its tracker">
                                                     <span className="block truncate text-xs font-black text-gray-900 hover:text-blue-700 hover:underline"><span className="mr-1 text-[8px] uppercase text-blue-500">Task</span>{group.task.order ? `${group.task.order}. ` : ''}{group.task.title}</span>
                                                     <span className="mt-1 flex flex-wrap items-center gap-1 text-[8px] font-black uppercase tracking-wide text-gray-500">
@@ -1982,63 +2025,27 @@ const FullCalendarModal = ({
                                                         {group.task.reworkForTaskId && <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700">Correction</span>}
                                                         {hasIncompleteData && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">Missing data</span>}
                                                     </span>
+                                                    <span className="mt-1.5 grid grid-cols-3 gap-1 text-center">
+                                                        <span className="min-w-0 rounded bg-blue-50 px-1 py-1"><span className="block text-[7px] font-black uppercase text-blue-500">Requested</span><span className="block truncate text-[9px] font-black text-blue-800">{requested?.slice(5) || '—'}</span></span>
+                                                        <span className="min-w-0 rounded bg-orange-50 px-1 py-1"><span className="block text-[7px] font-black uppercase text-orange-500">Expected</span><span className="block truncate text-[9px] font-black text-orange-800">{expected?.slice(5) || '—'}</span></span>
+                                                        <span className="min-w-0 rounded bg-emerald-50 px-1 py-1"><span className="block text-[7px] font-black uppercase text-emerald-500">Delivered</span><span className="block truncate text-[9px] font-black text-emerald-800">{delivered?.slice(5) || '—'}</span></span>
+                                                    </span>
                                                 </button>
                                             </div>
                                             {days.map(d => {
-                                                const due = group.task.dueDate === d;
-                                                const done = completion === d;
-                                                return <div key={d} className={`order-2 relative flex min-h-[50px] items-center justify-center border-l border-t border-blue-100 ${d === todayKey ? 'bg-emerald-50 ring-1 ring-inset ring-[#3DCD58]/30' : 'bg-blue-50/30'}`} title={`${group.task.title}${due ? ` · Due ${d}` : ''}${done ? ` · Completed ${d}` : ''}`}>
-                                                    {due && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[7px] font-black text-white" title={`Task due ${d}`}>D</span>}
-                                                    {done && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[8px] font-black text-white" title={`Task completed ${d}`}>✓</span>}
+                                                const inSummaryRange = !!requested && !!summaryEnd && d >= requested && d <= summaryEnd;
+                                                const isRequested = requested === d;
+                                                const isExpected = expected === d;
+                                                const isDelivered = delivered === d;
+                                                return <div key={d} className={`order-2 relative flex min-h-[76px] items-center justify-center border-l border-t border-blue-100 ${d === todayKey ? 'bg-emerald-50 ring-1 ring-inset ring-[#3DCD58]/30' : inSummaryRange ? 'bg-blue-50' : 'bg-white'}`} title={`${group.task.title} · Requested ${requested || '—'} · Expected ${expected || '—'} · Delivered ${delivered || '—'}`}>
+                                                    {inSummaryRange && <div className="absolute left-0 right-0 h-2 rounded-full bg-blue-400" />}
+                                                    <div className="relative z-10 flex flex-col items-center gap-1">
+                                                        {isRequested && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[7px] font-black text-white" title={`Requested ${d}`}>R</span>}
+                                                        {isExpected && <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[7px] font-black text-white ${delivered && delivered > d ? 'bg-red-500' : 'bg-orange-500'}`} title={`Expected ${d}`}>E</span>}
+                                                        {isDelivered && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[7px] font-black text-white" title={`Delivered ${d}`}>D</span>}
+                                                    </div>
                                                 </div>;
                                             })}
-
-                                            {!collapsed && group.rows.map(row => (
-                                                <React.Fragment key={row.id}>
-                                                    <div className="order-2 sticky left-0 z-[30] min-h-[76px] border-r border-t border-gray-100 bg-gray-50/80 p-2 pl-8 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                                        <div className="flex items-start justify-between gap-2">
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${row.phase === 'Execution' ? 'bg-blue-500' : 'bg-purple-500'}`} />
-                                                                    <span className="text-[10px] font-black uppercase text-gray-700">{row.phase}</span>
-                                                                    <span className="text-[9px] font-bold text-gray-400">Cycle {row.cycle}</span>
-                                                                </div>
-                                                                <div className="mt-1 flex min-w-0 items-center gap-1 truncate text-[10px] font-semibold text-gray-700" title={row.people.join(', ')}><User className="h-3 w-3 shrink-0 text-gray-400" /><span className="shrink-0 text-[8px] font-black uppercase text-gray-400">Who:</span>{row.people.join(', ') || 'Responsible not linked'}</div>
-                                                                <div className="mt-1.5 grid grid-cols-3 gap-1 text-center" title={`Start: ${row.start || 'Not recorded'} · Commitment: ${row.committed || 'Not recorded'} · ${row.phase === 'Approval' ? 'Approval' : 'Delivery'}: ${row.end || 'Not recorded'}`}>
-                                                                    <div className="min-w-0 rounded bg-white px-1 py-1 shadow-sm"><div className="text-[7px] font-black uppercase text-gray-400">Start</div><div className="truncate text-[9px] font-black text-gray-700">{row.start?.slice(5) || '—'}</div></div>
-                                                                    <div className="min-w-0 rounded bg-orange-50 px-1 py-1"><div className="text-[7px] font-black uppercase text-orange-500">Commit</div><div className="truncate text-[9px] font-black text-orange-700">{row.committed?.slice(5) || '—'}</div></div>
-                                                                    <div className="min-w-0 rounded bg-emerald-50 px-1 py-1"><div className="text-[7px] font-black uppercase text-emerald-500">{row.phase === 'Approval' ? 'Approved' : 'Delivered'}</div><div className="truncate text-[9px] font-black text-emerald-700">{row.end?.slice(5) || '—'}</div></div>
-                                                                </div>
-                                                                <div className="mt-1 flex flex-wrap gap-1">
-                                                                    <span className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase ${row.evidence === 'Confirmed' ? 'bg-emerald-50 text-emerald-700' : row.evidence === 'Calculated' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'}`}>{row.evidence}</span>
-                                                                    {row.unresolvedPeople && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[8px] font-black uppercase text-amber-700">Unlinked person</span>}
-                                                                    {!!row.seconds && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[8px] font-black text-gray-600">{durationLabel(row.seconds)}</span>}
-                                                                </div>
-                                                            </div>
-                                                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-100 text-red-700' : row.result === 'On time' || row.result === 'Completed' ? 'bg-emerald-100 text-emerald-700' : row.result === 'Changes requested' ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-600'}`}>{row.result}</span>
-                                                        </div>
-                                                    </div>
-                                                    {days.map(d => {
-                                                        const effectiveEnd = row.end || (row.active ? getTodayStr() : row.start);
-                                                        const inRange = !!row.start && !!effectiveEnd && d >= row.start && d <= effectiveEnd;
-                                                        const isStart = row.start === d;
-                                                        const isCommitted = row.committed === d;
-                                                        const isEnd = row.end === d;
-                                                        const phaseColor = row.phase === 'Execution' ? 'bg-blue-400' : 'bg-purple-400';
-                                                        const rangeColor = row.phase === 'Execution' ? 'bg-blue-100/70' : 'bg-purple-100/70';
-                                                        return (
-                                                            <button type="button" key={d} onClick={() => setViewingDayDetails(d)} className={`order-2 relative flex min-h-[76px] items-center justify-center border-l border-t ${inRange ? rangeColor : d === todayKey ? 'bg-emerald-50/60' : 'bg-white'} ${d === todayKey ? 'ring-1 ring-inset ring-[#3DCD58]/25' : ''}`} title={`${group.task.title} · ${row.phase} · ${row.people.join(', ') || 'Unlinked responsible'} · ${row.evidence}`}>
-                                                                {inRange && <div className={`absolute left-0 right-0 h-2 ${phaseColor} ${row.evidence === 'Calculated' ? 'opacity-50' : ''}`} />}
-                                                                <div className="relative z-10 flex flex-col items-center gap-1">
-                                                                    {isStart && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-800 text-[7px] font-black text-white" title={`Started ${d}`}>S</span>}
-                                                                    {isCommitted && <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[7px] font-black text-white ${row.result === 'Late' || row.result === 'Overdue' ? 'bg-red-500' : 'bg-orange-500'}`} title={`Committed ${d}`}>C</span>}
-                                                                    {isEnd && <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[7px] font-black text-white" title={`${row.phase === 'Approval' ? 'Approved' : 'Delivered'} ${d}`}>{row.phase === 'Approval' ? 'A' : 'D'}</span>}
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </React.Fragment>
-                                            ))}
                                         </React.Fragment>
                                     );
                                 })}
@@ -2046,9 +2053,9 @@ const FullCalendarModal = ({
                                 {/* Area Rows */}
                                 {areas.filter(a => visibleAreaIds.includes(a.id)).map(area => (
                                     <React.Fragment key={area.id}>
-                                        <div className="order-1 min-h-[76px] self-stretch bg-white p-4 text-sm font-black text-gray-700 border-r flex flex-col justify-center sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                        <div className="order-1 min-h-[76px] self-stretch bg-white p-4 text-sm font-black text-gray-700 border-r border-b-2 border-b-slate-200 flex flex-col justify-center sticky left-0 z-[30] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                             <div className="flex items-center justify-between group">
-                                                <button type="button" onClick={() => setViewingAreaDetails(area.id)} className="truncate pr-2 text-left hover:text-purple-600 hover:underline" title="View people and tasks for this area">{area.area}</button>
+                                                <span className="truncate pr-2 text-left">{area.area}</span>
                                                 <button
                                                     onClick={() => onRemoveArea(area.id)}
                                                     className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition-all"
@@ -2067,24 +2074,57 @@ const FullCalendarModal = ({
                                             </div>
                                         </div>
                                         {days.map(d => {
-                                            const record = (area.calendar?.[d]) as AreaDayRecord | undefined;
+                                            const storedRecord = (area.calendar?.[d]) as AreaDayRecord | undefined;
+                                            const automaticWorkedTaskIds = automaticAreaWorkByDate[area.area]?.[d] || [];
+                                            const areaRecord: AreaDayRecord | undefined = automaticWorkedTaskIds.length
+                                                ? {
+                                                    ...(storedRecord || { type: 'Worked' as DayType }),
+                                                    type: 'Worked',
+                                                    workedTaskIds: Array.from(new Set([...(storedRecord?.workedTaskIds || []), ...automaticWorkedTaskIds])),
+                                                }
+                                                : storedRecord;
+                                            const externalWorkTaskIds = area.area === 'Tendering'
+                                                ? Array.from(new Set([
+                                                    ...Object.entries(automaticAreaWorkByDate).filter(([areaName]) => areaName !== 'Tendering').flatMap(([, byDate]) => byDate[d] || []),
+                                                    ...areas.filter(otherArea => otherArea.area !== 'Tendering').flatMap(otherArea => {
+                                                        const externalRecord = otherArea.calendar?.[d];
+                                                        if (!externalRecord || externalRecord.type !== 'Worked') return [];
+                                                        return externalRecord.workedTaskIds?.length ? externalRecord.workedTaskIds : [`area:${otherArea.id}`];
+                                                    }),
+                                                ]))
+                                                : [];
+                                            // Tendering mirrors every externally-worked assignment day as
+                                            // waiting. If Tendering also worked, both blue and yellow lines show.
+                                            const record: AreaDayRecord | undefined = externalWorkTaskIds.length
+                                                ? {
+                                                    ...(storedRecord || { type: 'Waiting' as DayType }),
+                                                    ...(areaRecord || {}),
+                                                    type: areaRecord?.type === 'Worked' ? 'Worked' : 'Waiting',
+                                                    waitingTaskIds: Array.from(new Set([...(areaRecord?.waitingTaskIds || []), ...externalWorkTaskIds])),
+                                                }
+                                                : areaRecord;
                                             const cellId = `${area.id}|${d}`;
                                             const isSelected = selectedCells.includes(cellId);
 
                                             return (
                                                 <div
                                                     key={d}
-                                                    className={`order-1 min-h-[76px] self-stretch overflow-hidden border-l flex flex-col items-center justify-center transition-all cursor-pointer hover:z-10 hover:shadow-inner ${isSelected ? 'ring-4 ring-[#3DCD58] ring-inset z-20' : d === todayKey ? 'ring-1 ring-[#3DCD58]/30 ring-inset' : ''} ${record?.type === 'Worked' ? 'bg-blue-50/40' :
+                                                    className={`order-1 relative min-h-[76px] self-stretch overflow-hidden border-l border-l-slate-200 border-b-2 border-b-slate-200 flex flex-col items-center justify-center transition-all cursor-pointer hover:z-10 hover:shadow-inner ${isSelected ? 'ring-4 ring-[#3DCD58] ring-inset z-20' : d === todayKey ? 'ring-1 ring-[#3DCD58]/30 ring-inset' : ''} ${record?.type === 'Worked' ? 'bg-blue-100/70' :
                                                         record?.type === 'Waiting' ? 'bg-yellow-50/40' :
                                                             record?.type === 'Inactive' ? 'bg-red-50/30' :
                                                                 d === todayKey ? 'bg-emerald-50/60' : 'bg-white'
                                                         }`}
                                                     onClick={(e) => handleCellClick(area.id, d, e)}
+                                                    title={`${area.area} · ${record?.type || 'No record'}${(record?.waitingTaskIds || []).length ? ' · Waiting in parallel' : ''}`}
                                                 >
+                                                    {record?.type === 'Worked' && <div className="pointer-events-none absolute inset-x-0 top-[42%] h-2 bg-blue-500 shadow-sm" />}
+                                                    {record?.type === 'Waiting' && <div className="pointer-events-none absolute inset-x-0 top-1/2 h-2 bg-yellow-400 shadow-sm" />}
+                                                    {record?.type === 'Worked' && !!(record.waitingTaskIds || []).length && <div className="pointer-events-none absolute inset-x-0 top-[62%] h-1.5 bg-yellow-400" />}
                                                     {record?.type === 'Worked' && (
-                                                        <div className="flex flex-col items-center gap-1 animate-in fade-in zoom-in duration-300">
-                                                            <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-sm">
+                                                        <div className="relative z-10 flex flex-col items-center gap-1 animate-in fade-in zoom-in duration-300">
+                                                            <div className="relative w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-sm">
                                                                 <Zap className="w-3 h-3" />
+                                                                {!!(record.waitingTaskIds || []).length && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white bg-yellow-400" title="Tendering was also waiting on an external assignment" />}
                                                             </div>
                                                             {area.area === 'Tendering' && (
                                                                 <div className="mt-1 flex w-full max-w-[28px] flex-col items-center rounded border border-blue-100/60 bg-white/70 px-0 py-0.5" onClick={(e) => e.stopPropagation()} title={`${(record as AreaDayRecord).hours || 0}h ${(record as AreaDayRecord).minutes || 0}m`}>
@@ -2125,12 +2165,12 @@ const FullCalendarModal = ({
                                                         </div>
                                                     )}
                                                     {record?.type === 'Waiting' && (
-                                                        <div className="w-5 h-5 rounded-full bg-yellow-500 text-white flex items-center justify-center shadow-sm animate-in fade-in zoom-in duration-300">
+                                                        <div className="relative z-10 w-5 h-5 rounded-full bg-yellow-500 text-white flex items-center justify-center shadow-sm animate-in fade-in zoom-in duration-300">
                                                             <Clock className="w-3 h-3" />
                                                         </div>
                                                     )}
                                                     {record?.type === 'Inactive' && (
-                                                        <div className="w-5 h-5 rounded-full bg-red-100 text-red-500 flex items-center justify-center animate-in fade-in zoom-in duration-300">
+                                                        <div className="relative z-10 w-5 h-5 rounded-full bg-red-100 text-red-500 flex items-center justify-center animate-in fade-in zoom-in duration-300">
                                                             <X className="w-3 h-3" />
                                                         </div>
                                                     )}
@@ -3711,7 +3751,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             };
             const revised: Opportunity = {
                 ...target, revision: nextRevision, srId: prefill.srId?.trim() || '', qlk: '', description: prefill.comments?.trim() || '',
-                title: prefill.title?.trim() || target.title, alias: prefill.alias?.trim() || target.alias,
+                // Identity stays with the opportunity: a revision never renames the OP.
+                title: target.title, alias: target.alias,
                 customer: prefill.customer?.trim() || target.customer, seller: prefill.seller?.trim() || target.seller,
                 quoteType: prefill.quoteType || target.quoteType, statusLabel: 'In Progress', detailedStatus: 'Working on it', stage: '1. Intake', priority: 'Medium',
                 dates: { requested: requestedDate, expected: prefill.expectedDate || '', assigned: '' }, links: composeQuickLinks(initialDefaultUrls, []),
@@ -4709,20 +4750,27 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const updateSowTaskRaci = useCallback((patch: { taskId: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => {
         if (viewingVersionIdRef.current) return;
         const current = localOppRef.current;
+        let updatedTask: Task | undefined;
         const responsibleNames = patch.responsibleTeamMemberIds
             .map(id => current.stakeholders?.find(person => person.id === id)?.name)
             .filter(Boolean)
             .join(', ');
-        const tasks = current.tasks.map(task => task.id === patch.taskId ? syncAssignmentSubtasks({
-            ...task,
-            responsibleTeamMemberIds: patch.responsibleTeamMemberIds,
-            approverTeamMemberIds: patch.approverTeamMemberIds,
-            informedTeamMemberIds: patch.informedTeamMemberIds,
-            responsible: responsibleNames,
-            owner: patch.responsibleTeamMemberIds.length ? 'External Area' : task.owner,
-            isAssignment: patch.responsibleTeamMemberIds.length > 0 || patch.approverTeamMemberIds.length > 0,
-        }) : task);
-        const updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        const tasks = current.tasks.map(task => {
+            if (task.id !== patch.taskId) return task;
+            updatedTask = syncAssignmentSubtasks({
+                ...task,
+                responsibleTeamMemberIds: patch.responsibleTeamMemberIds,
+                approverTeamMemberIds: patch.approverTeamMemberIds,
+                informedTeamMemberIds: patch.informedTeamMemberIds,
+                responsible: responsibleNames,
+                owner: patch.responsibleTeamMemberIds.length ? 'External Area' : task.owner,
+                isAssignment: patch.responsibleTeamMemberIds.length > 0 || patch.approverTeamMemberIds.length > 0,
+                responsibleRequestedDate: patch.responsibleTeamMemberIds.length ? (task.responsibleRequestedDate || getTodayStr()) : '',
+            });
+            return updatedTask;
+        });
+        let updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        if (updatedTask) updated = syncAssignmentKpi(updated, updatedTask);
         localOppRef.current = updated;
         setLocalOpp(updated);
         syncToParentNow(updated);
@@ -4731,13 +4779,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const convertSowTaskToAssignment = useCallback((taskId: string) => {
         if (viewingVersionIdRef.current) return;
         const current = localOppRef.current;
-        const tasks = current.tasks.map(task => task.id === taskId ? syncAssignmentSubtasks({
-            ...task,
-            isAssignment: true,
-            owner: 'External Area',
-            responsibleRequestedDate: task.responsibleRequestedDate || getTodayStr(),
-        }) : task);
-        const updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        let updatedTask: Task | undefined;
+        const tasks = current.tasks.map(task => {
+            if (task.id !== taskId) return task;
+            updatedTask = syncAssignmentSubtasks({
+                ...task,
+                isAssignment: true,
+                owner: 'External Area',
+                responsibleRequestedDate: task.responsibleRequestedDate || getTodayStr(),
+            });
+            return updatedTask;
+        });
+        let updated = { ...current, tasks, lastUpdated: new Date().toISOString() };
+        if (updatedTask) updated = syncAssignmentKpi(updated, updatedTask);
         localOppRef.current = updated;
         setLocalOpp(updated);
         syncToParentNow(updated);
@@ -4774,11 +4828,47 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             dependsOnTaskIds: [],
             blockDoneUntilDependenciesDone: false,
         });
-        const updated = { ...current, tasks: [...current.tasks, task], lastUpdated: new Date().toISOString() };
+        let updated = { ...current, tasks: [...current.tasks, task], lastUpdated: new Date().toISOString() };
+        updated = syncAssignmentKpi(updated, task);
         localOppRef.current = updated;
         setLocalOpp(updated);
         syncToParentNow(updated);
     }, [opportunity.id]);
+
+    const createSowStakeholder = useCallback(({ name, email, role }: { name: string; email: string; role: string }) => {
+        if (viewingVersionIdRef.current) return;
+        const cleanName = name.trim();
+        const cleanEmail = email.trim();
+        const cleanRole = role.trim();
+        if (!cleanName) return;
+        const current = localOppRef.current;
+        const directoryMatch = globalContacts.find(contact =>
+            contact.name.trim().toLowerCase() === cleanName.toLowerCase()
+            || (!!cleanEmail && contact.email.trim().toLowerCase() === cleanEmail.toLowerCase())
+        );
+        const directoryId = directoryMatch?.id || crypto.randomUUID();
+        const existing = (current.stakeholders || []).find(person =>
+            person.name.trim().toLowerCase() === cleanName.toLowerCase()
+            || (!!cleanEmail && person.email.trim().toLowerCase() === cleanEmail.toLowerCase())
+        );
+        const roles = Array.from(new Set([...(existing?.roles || []), ...(cleanRole ? [cleanRole] : [])]));
+        const person: Person = existing
+            ? { ...existing, name: cleanName, email: cleanEmail || existing.email, directoryContactId: existing.directoryContactId || directoryId, roles }
+            : { id: crypto.randomUUID(), directoryContactId: directoryId, name: cleanName, email: cleanEmail, roles, roleContexts: {} };
+        const stakeholders = existing
+            ? (current.stakeholders || []).map(candidate => candidate.id === existing.id ? person : candidate)
+            : [...(current.stakeholders || []), person];
+        const updated = { ...current, stakeholders, lastUpdated: new Date().toISOString() };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+        onGlobalContactsChange?.(contacts => {
+            const match = contacts.find(contact => contact.id === directoryId || contact.name.trim().toLowerCase() === cleanName.toLowerCase() || (!!cleanEmail && contact.email.trim().toLowerCase() === cleanEmail.toLowerCase()));
+            if (match) return contacts.map(contact => contact.id === match.id ? { ...contact, name: cleanName, email: cleanEmail || contact.email, availableRoles: Array.from(new Set([...(contact.availableRoles || []), ...(cleanRole ? [cleanRole] : [])])) } : contact);
+            return [...contacts, { id: directoryId, name: cleanName, email: cleanEmail, availableRoles: cleanRole ? [cleanRole] : [] }];
+        });
+        if (cleanRole && !trackedAreas.some(area => area.toLowerCase() === cleanRole.toLowerCase())) onTrackedAreasChange?.([...trackedAreas, cleanRole]);
+    }, [globalContacts, trackedAreas, onGlobalContactsChange, onTrackedAreasChange, opportunity.id]);
 
     // Patches fields inside the SOW note's serialized JSON (used by the Overview
     // SCOPE quick-view modal). Also refreshes the SowFormEmbed localStorage backup
@@ -5200,13 +5290,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (r.type === 'Worked') {
                 if (area.area === 'Tendering') {
                     const totalHours = (r.hours || 0) + (r.minutes || 0) / 60;
-                    if (totalHours >= 1) worked++;
+                    if (totalHours >= 1 || (r.workedTaskIds || []).length > 0) worked++;
                 } else {
                     worked++;
                 }
-            } else if (r.type === 'Waiting') {
-                waiting++;
             }
+            if (r.type === 'Waiting' || (r.waitingTaskIds || []).length > 0) waiting++;
         });
 
         const newAreas = (localOpp.kpis?.areasInvolved || []).map(a => a.id === areaId ? { ...a, calendar, daysSpent: worked, waitingDays: waiting } : a);
@@ -5249,9 +5338,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (record.type === 'Worked') {
                 const totalHours = (record.hours || 0) + (record.minutes || 0) / 60;
                 if (totalHours >= 1) worked++;
-            } else if (record.type === 'Waiting') {
-                waiting++;
             }
+            if (record.type === 'Waiting' || (record.waitingTaskIds || []).length > 0) waiting++;
         });
 
         const nextTendering = { ...tendering, calendar, daysSpent: worked, waitingDays: waiting };
@@ -5354,50 +5442,96 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         return true;
     };
 
-    const syncAssignmentKpi = (opp: Opportunity, task: Task): Opportunity => {
+    function syncAssignmentKpi(opp: Opportunity, task: Task): Opportunity {
         const hasResponsible = (task.responsibleTeamMemberIds || []).length > 0 || !!task.responsible?.trim();
         const hasApprover = (task.approverTeamMemberIds || []).length > 0;
         if (!task.isAssignment && !hasResponsible && !hasApprover) return opp;
         const today = getTodayStr();
         const people = opp.stakeholders || [];
-        const idsForPhase = task.status === 'Approval' ? (task.approverTeamMemberIds || []) : (task.responsibleTeamMemberIds || []);
+        const areasForPeople = (ids: string[], fallbackAreas: string[] = []) => Array.from(new Set([
+            ...fallbackAreas,
+            ...people.filter(person => ids.includes(person.id)).flatMap(person => person.roles?.length ? person.roles : (person.role ? [person.role] : [])),
+        ].filter(Boolean)));
+        const executionAreas = areasForPeople(task.responsibleTeamMemberIds || [], task.externalAreas || []);
+        const approvalAreas = areasForPeople(task.approverTeamMemberIds || []);
+        const windows = [
+            ...(task.assignmentCycles || []).flatMap(cycle => [
+                cycle.executionRequested ? {
+                    areas: executionAreas,
+                    start: cycle.executionRequested,
+                    end: cycle.executionDelivered || cycle.executionRequired || cycle.executionRequested,
+                } : null,
+                cycle.approvalRequested ? {
+                    areas: approvalAreas,
+                    start: cycle.approvalRequested,
+                    end: cycle.approved || cycle.changesRequestedAt || cycle.approvalRequired || cycle.approvalRequested,
+                } : null,
+            ]),
+            task.responsibleRequestedDate ? {
+                areas: executionAreas,
+                start: task.responsibleRequestedDate,
+                end: task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || today,
+            } : null,
+            task.approvalRequestedDate ? {
+                areas: approvalAreas,
+                start: task.approvalRequestedDate,
+                end: task.approvalDeliveredDate || task.approvalDueDate || today,
+            } : null,
+        ].filter((window): window is { areas: string[]; start: string; end: string } => !!window && !!window.start && !!window.end);
         const baseKpis = opp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
         let nextAreas = [...(baseKpis.areasInvolved || [])];
-        if (!nextAreas.some(area => area.area === 'Tendering')) nextAreas.push({ id: crypto.randomUUID(), area: 'Tendering', daysSpent: 0, waitingDays: 0, calendar: {} });
-        // External assignments represent elapsed waiting time, not proof that the
-        // responsible area worked every day. Only Tendering receives automatic Waiting
-        // records; external work remains evidence-based through the cycle dates.
-        const start = task.status === 'Approval' ? task.approvalRequestedDate : task.responsibleRequestedDate;
-        const end = task.status === 'Approval'
-            ? (task.approvalDeliveredDate || task.approvalDueDate || today)
-            : (task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || today);
-        if (start && end) {
-            const dates: string[] = [];
-            for (let d = new Date(`${start}T00:00:00`), last = new Date(`${end}T00:00:00`); d <= last; d.setDate(d.getDate() + 1)) {
-                const ds = d.toISOString().split('T')[0];
-                if (d.getDay() !== 0 && d.getDay() !== 6 && !holidays.includes(ds)) dates.push(ds);
-            }
+        [...windows.flatMap(window => window.areas), 'Tendering'].forEach(areaName => {
+            if (!nextAreas.some(area => area.area === areaName)) nextAreas.push({ id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} });
+        });
+        if (windows.length) {
             nextAreas = nextAreas.map(area => {
-                if (area.area !== 'Tendering') return area;
                 const calendar = { ...(area.calendar || {}) };
+                // Remove the previous automatic contribution from this task before
+                // rebuilding its current window. Manual hours and statuses survive.
                 Object.entries(calendar).forEach(([ds, record]) => {
-                    const ids = record.waitingTaskIds || [];
-                    if (!ids.includes(task.id)) return;
-                    const remaining = ids.filter(id => id !== task.id);
-                    if (!remaining.length && record.type === 'Waiting') delete calendar[ds];
-                    else calendar[ds] = { ...record, waitingTaskIds: remaining };
+                    const hadWorked = (record.workedTaskIds || []).includes(task.id);
+                    const hadWaiting = (record.waitingTaskIds || []).includes(task.id);
+                    if (!hadWorked && !hadWaiting) return;
+                    const workedTaskIds = (record.workedTaskIds || []).filter(id => id !== task.id);
+                    const waitingTaskIds = (record.waitingTaskIds || []).filter(id => id !== task.id);
+                    const wasOnlyAutomaticWork = hadWorked && !workedTaskIds.length && !waitingTaskIds.length && !(record.hours || record.minutes);
+                    const wasOnlyAutomaticWait = hadWaiting && !waitingTaskIds.length && !workedTaskIds.length && record.type === 'Waiting';
+                    if (wasOnlyAutomaticWork || wasOnlyAutomaticWait) delete calendar[ds];
+                    else calendar[ds] = { ...record, workedTaskIds, waitingTaskIds };
                 });
-                dates.forEach(ds => {
-                    const current = calendar[ds];
-                    if (!current || current.type === 'Waiting') calendar[ds] = { ...(current || {}), type: 'Waiting', waitingTaskIds: Array.from(new Set([...(current?.waitingTaskIds || []), task.id])) };
+                windows.forEach(window => {
+                    for (let date = new Date(`${window.start}T00:00:00`), last = new Date(`${window.end}T00:00:00`); date <= last; date.setDate(date.getDate() + 1)) {
+                        const ds = date.toISOString().split('T')[0];
+                        if (date.getDay() === 0 || date.getDay() === 6 || holidays.includes(ds)) continue;
+                        const current = calendar[ds];
+                        if (window.areas.includes(area.area)) {
+                            calendar[ds] = {
+                                ...(current || {}),
+                                type: 'Worked',
+                                workedTaskIds: Array.from(new Set([...(current?.workedTaskIds || []), task.id])),
+                            };
+                        }
+                        if (area.area === 'Tendering') {
+                            const afterWork = calendar[ds] || current;
+                            calendar[ds] = {
+                                ...(afterWork || {}),
+                                type: afterWork?.type === 'Worked' ? 'Worked' : 'Waiting',
+                                waitingTaskIds: Array.from(new Set([...(afterWork?.waitingTaskIds || []), task.id])),
+                            };
+                        }
+                    }
                 });
-                const daysSpent = Object.values(calendar).filter(r => r.type === 'Worked' && (area.area !== 'Tendering' || ((r.hours || 1) + (r.minutes || 0) / 60 >= 1))).length;
-                const waitingDays = Object.values(calendar).filter(r => r.type === 'Waiting').length;
+                const daysSpent = Object.values(calendar).filter(record => record.type === 'Worked' && (
+                    area.area !== 'Tendering'
+                    || (record.workedTaskIds || []).length > 0
+                    || ((record.hours || 0) + (record.minutes || 0) / 60 >= 1)
+                )).length;
+                const waitingDays = Object.values(calendar).filter(record => record.type === 'Waiting' || (record.waitingTaskIds || []).length > 0).length;
                 return { ...area, calendar, daysSpent, waitingDays };
             });
         }
         return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
-    };
+    }
 
     const requestApprovalChanges = (taskId: string) => {
         const task = localOppRef.current.tasks.find(item => item.id === taskId);
@@ -5815,6 +5949,22 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
         const baseOpp = localOppRef.current;
         const latestTask = baseOpp.tasks.find(t => t.id === selectedTaskForEdit.task.id) || selectedTaskForEdit.task;
+
+        // Missing Information always represents a request to an external area.
+        // The request date is only initialized once someone is actually assigned.
+        if (field === 'status' && value === 'Missing Info') {
+            const hasAssignee = (latestTask.responsibleTeamMemberIds || []).length > 0;
+            extraPatch = {
+                ...extraPatch,
+                owner: 'External Area',
+                isAssignment: true,
+                ...(hasAssignee && !latestTask.responsibleRequestedDate ? { responsibleRequestedDate: getTodayStr() } : {}),
+            };
+        }
+        if (field === 'owner' && latestTask.status === 'Missing Info') {
+            value = 'External Area';
+            extraPatch = { ...extraPatch, isAssignment: true };
+        }
 
         if (field === 'status' && value === 'Done' && selectedTaskForEdit.task.isAssignment) {
             const today = getTodayStr();
@@ -7816,6 +7966,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             onTaskConvert={convertSowTaskToAssignment}
                                                             onTaskRaciUpdate={updateSowTaskRaci}
                                                             onTaskCreate={createSowTask}
+                                                            onStakeholderCreate={createSowStakeholder}
                                                             backupKey={sowBackupKey(localOpp.id, currentNote.id)}
                                                             legacyBackupKey={sowNote?.id === currentNote.id ? legacySowBackupKey(localOpp.id) : undefined}
                                                             disabled={isSnapshot}
@@ -7980,7 +8131,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleRequestedDate || ''} onChange={(e) => updateTaskInModal('responsibleRequestedDate', e.target.value)} />
                                                     </div>
                                                     <div className="space-y-1">
-                                                        <label className="text-[9px] font-bold text-gray-500 uppercase">Committed date</label>
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">{selectedTaskForEdit.task.status === 'Missing Info' ? 'Expected information' : 'Committed date'}</label>
                                                         <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleDueDate || ''} onChange={(e) => updateTaskInModal('responsibleDueDate', e.target.value)} />
                                                     </div>
                                                 </div>
@@ -8854,6 +9005,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 onEditHistory={(id, content) => updateHistoryEntry(id, 'content', content)}
                                 onDeleteHistory={deleteHistoryEntry}
                                 onClose={() => setShowFullCalendar(false)}
+                                onRebuildAssignmentKpis={() => {
+                                    const base = localOppRef.current;
+                                    const rebuilt = base.tasks.reduce((current, task) => syncAssignmentKpi(current, task), base);
+                                    localOppRef.current = rebuilt;
+                                    setLocalOpp(rebuilt);
+                                    onUpdate(rebuilt);
+                                }}
                                 onOpenTask={(taskId) => {
                                     const task = localOpp.tasks.find(item => item.id === taskId);
                                     if (!task) return;
@@ -9998,6 +10156,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         onTaskConvert={convertSowTaskToAssignment}
                                                         onTaskRaciUpdate={updateSowTaskRaci}
                                                         onTaskCreate={createSowTask}
+                                                        onStakeholderCreate={createSowStakeholder}
                                                         onChange={(json: string) => saveSowContent(currentNote.id, json)}
                                                     />
                                                 ) : (
@@ -10654,8 +10813,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {opportunity.alias && <span className="text-[10px] bg-[#3DCD58]/10 text-[#3DCD58] px-2 py-0.5 rounded font-black uppercase tracking-tight">{opportunity.alias}</span>}
                                         </div>
                                     </div>
-                                    <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-                                        {(selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Done') && !selectedTaskForEdit.task.reworkForTaskId && <button onClick={() => requestApprovalChanges(selectedTaskForEdit.task.id)} className="rounded-lg bg-orange-50 px-3 py-1.5 text-xs font-black text-orange-700 hover:bg-orange-100"><GitPullRequest className="mr-1 inline h-3.5 w-3.5" /> Create Change Revision</button>}
+                                    <div className="flex max-w-full flex-wrap items-center justify-end gap-3">
                                         {selectedTaskForEdit.task.status === 'Approval' && <button onClick={() => approveTask(selectedTaskForEdit.task.id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white hover:bg-emerald-700"><Check className="mr-1 inline h-3.5 w-3.5" /> Approve</button>}
                                         {selectedTaskForEdit.task.status === 'Done' && selectedTaskForEdit.task.reworkForTaskId && !selectedTaskForEdit.task.sentBackForApprovalAt && <button onClick={() => sendCorrectionBackForApproval(selectedTaskForEdit.task.id)} className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-black text-white hover:bg-purple-700"><GitPullRequest className="mr-1 inline h-3.5 w-3.5" /> Send Back for Approval</button>}
                                         <button
@@ -10771,7 +10929,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleRequestedDate || ''} onChange={(e) => updateTaskInModal('responsibleRequestedDate', e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1">
-                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">Committed date</label>
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase">{selectedTaskForEdit.task.status === 'Missing Info' ? 'Expected information' : 'Committed date'}</label>
                                                     <input type="date" className="w-full border-gray-200 bg-white rounded-lg text-sm p-2" value={selectedTaskForEdit.task.responsibleDueDate || ''} onChange={(e) => updateTaskInModal('responsibleDueDate', e.target.value)} />
                                                 </div>
                                             </div>
@@ -10964,8 +11122,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             <FileText className="w-4 h-4 text-gray-400 group-hover:text-[#3DCD58]" />
                                                             <span className="text-sm font-medium">{note.title}</span>
                                                         </div>
-                                    <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-                                        {(selectedTaskForEdit.task.status === 'Approval' || selectedTaskForEdit.task.status === 'Done') && !selectedTaskForEdit.task.reworkForTaskId && <button onClick={() => requestApprovalChanges(selectedTaskForEdit.task.id)} className="rounded-lg bg-orange-50 px-3 py-1.5 text-xs font-black text-orange-700 hover:bg-orange-100"><GitPullRequest className="mr-1 inline h-3.5 w-3.5" /> Create Change Revision</button>}
+                                    <div className="flex max-w-full flex-wrap items-center justify-end gap-3">
                                         {selectedTaskForEdit.task.status === 'Approval' && <button onClick={() => approveTask(selectedTaskForEdit.task.id)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white hover:bg-emerald-700"><Check className="mr-1 inline h-3.5 w-3.5" /> Approve</button>}
                                         {selectedTaskForEdit.task.status === 'Done' && selectedTaskForEdit.task.reworkForTaskId && !selectedTaskForEdit.task.sentBackForApprovalAt && <button onClick={() => sendCorrectionBackForApproval(selectedTaskForEdit.task.id)} className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-black text-white hover:bg-purple-700"><GitPullRequest className="mr-1 inline h-3.5 w-3.5" /> Send Back for Approval</button>}
                                         <button

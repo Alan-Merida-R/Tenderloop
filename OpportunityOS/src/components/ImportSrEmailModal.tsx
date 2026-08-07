@@ -34,6 +34,9 @@ const FIELD_LABELS: { key: EditableField; label: string; type?: 'date' }[] = [
     { key: 'srLink', label: 'SR Link' },
 ];
 
+/** Identity fields carried over untouched when the SR turns out to be a revision. */
+const REVISION_LOCKED_FIELDS = new Set<EditableField>(['opId', 'title', 'alias']);
+
 export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOppId, existingOpps, currentRequestedDate, taskStandards = [], onApply }) => {
     const [pasteText, setPasteText] = useState('');
     const [prefill, setPrefill] = useState<SrPrefill | null>(null);
@@ -53,6 +56,15 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
         const opId = prefill.opId.trim().toUpperCase();
         return existingOpps.find(o => o.id !== currentOppId && o.id.trim().toUpperCase() === opId);
     }, [prefill?.opId, existingOpps, currentOppId]);
+
+    const isRevision = !!duplicateOpp && duplicateAction === 'revision';
+
+    // A revision belongs to the same OP: its identity (OP ID, Title, Alias) is inherited
+    // from the existing opportunity, so those fields are neither shown nor applied.
+    const visibleFields = useMemo(
+        () => (isRevision ? FIELD_LABELS.filter(f => !REVISION_LOCKED_FIELDS.has(f.key)) : FIELD_LABELS),
+        [isRevision]
+    );
 
     if (!isOpen) return null;
 
@@ -101,7 +113,7 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
         setPrefill(prev => prev ? { ...prev, [key]: value } : prev);
     };
 
-    const filledCount = prefill ? FIELD_LABELS.filter(f => (prefill[f.key] || '').toString().trim()).length : 0;
+    const filledCount = prefill ? visibleFields.filter(f => (prefill[f.key] || '').toString().trim()).length : 0;
 
     return (
         <div className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={handleClose}>
@@ -186,7 +198,7 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-xs text-gray-500">
                                     <CheckCircle className="w-4 h-4 text-[#3DCD58]" />
-                                    <span><b>{filledCount}</b> of {FIELD_LABELS.length} fields detected from <b>{sourceLabel}</b>. Review and edit before applying.</span>
+                                    <span><b>{filledCount}</b> of {visibleFields.length} fields detected from <b>{sourceLabel}</b>. Review and edit before applying.</span>
                                 </div>
                                 <button onClick={reset} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 font-medium">
                                     <ArrowLeft className="w-3.5 h-3.5" /> Use another email
@@ -205,13 +217,14 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
                                         <input value={revisionTags} onChange={e => setRevisionTags(e.target.value)} placeholder="Tags (comma separated)" className="w-full rounded-lg border-amber-200 text-sm" />
                                         {taskStandards.length > 1 && <select value={revisionTaskStandardId} onChange={e => setRevisionTaskStandardId(e.target.value)} className="w-full rounded-lg border-amber-200 text-sm"><option value="">Task standard for the revision…</option>{taskStandards.map(s => <option key={s.id} value={s.id}>{s.name} ({s.taskCount} tasks)</option>)}</select>}
                                         {taskStandards.length === 1 && <p className="text-[10px] text-amber-700">Task standard: <b>{taskStandards[0].name}</b></p>}
+                                        <p className="text-[10px] text-amber-700">OP ID, Title and Alias are kept from <b>{duplicateOpp.id}</b> — a revision belongs to the same opportunity.</p>
                                     </div>}
                                 </div>
                             )}
 
                             {/* Editable field grid */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {FIELD_LABELS.map(({ key, label, type }) => {
+                                {visibleFields.map(({ key, label, type }) => {
                                     const value = (prefill[key] || '') as string;
                                     return (
                                         <div key={key} className={`flex flex-col gap-1 p-2.5 rounded-xl border ${value ? 'border-gray-200 bg-white' : 'border-dashed border-gray-200 bg-gray-50'}`}>

@@ -22,6 +22,7 @@ interface Props {
     onDueDateChange: (id: string, patch: Partial<ParsedDueDateRow>) => void;
     onRemove: (id: string) => void;
     onRemoveReminder: (id: string) => void;
+    onRemoveDueDate: (id: string) => void;
     onScheduleTask: (oppId: string, taskId: string) => void;
     onBack: () => void;
     onApply: () => void;
@@ -61,7 +62,7 @@ const parseRecommendation = (text: string): ParsedRecommendation => {
 /** Complete draft workspace. Nothing in here mutates an opportunity until onApply is confirmed. */
 export const QuickOrganizerReview: React.FC<Props> = ({
     rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunities, errors, onChange, onReminderChange, onDueDateChange,
-    onRemove, onRemoveReminder, onScheduleTask, onBack, onApply,
+    onRemove, onRemoveReminder, onRemoveDueDate, onScheduleTask, onBack, onApply,
 }) => {
     const [taskTab, setTaskTab] = useState<'scheduled' | 'unscheduled' | 'all'>('scheduled');
     const [search, setSearch] = useState('');
@@ -82,7 +83,10 @@ export const QuickOrganizerReview: React.FC<Props> = ({
 
     const dates = useMemo(() => Array.from(new Set(rows.map(r => r.date).filter(Boolean))).sort(), [rows]);
     const invalidRows = rows.filter(r => !r.date || !r.startTime || !r.endTime || r.endTime <= r.startTime);
-    const canApply = rows.length + reminderRows.length + dueDateRows.length > 0 && invalidRows.length === 0;
+    const invalidDueDates = dueDateRows.filter(row => !/^\d{4}-\d{2}-\d{2}$/.test(row.date) || row.date < isoToday());
+    const invalidReminders = reminderRows.filter(row => !row.title.trim() || isNaN(new Date(row.remindAt).getTime()));
+    const invalidCount = invalidRows.length + invalidDueDates.length + invalidReminders.length;
+    const canApply = rows.length + reminderRows.length + dueDateRows.length > 0 && invalidCount === 0;
 
     return <div className="fixed inset-0 z-[210] bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
         <header className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-4">
@@ -126,9 +130,11 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                     {showMissingTasks && <div className="border-t border-amber-800/50 p-4 space-y-2">{missingTaskInsights.length ? missingTaskInsights.map((item, index) => <p key={index} className="text-xs leading-relaxed text-amber-100 bg-amber-950/40 rounded-lg p-2.5">{item}</p>) : <p className="text-xs text-amber-200/50">No missing tasks were suggested.</p>}<p className="text-[10px] text-amber-200/40 pt-1">Suggestions are informational only. They are not created or added to the accepted plan automatically.</p></div>}
                 </section>
 
-                {(errors.length > 0 || invalidRows.length > 0) && <section className="bg-rose-950/50 border border-rose-800 rounded-xl p-3">
-                    <p className="text-xs font-bold text-rose-300 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {errors.length + invalidRows.length} item(s) require review before the plan can be accepted.</p>
+                {(errors.length > 0 || invalidCount > 0) && <section className="bg-rose-950/50 border border-rose-800 rounded-xl p-3">
+                    <p className="text-xs font-bold text-rose-300 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {errors.length + invalidCount} item(s) require review{invalidCount ? ' before the plan can be accepted' : ''}.</p>
                     {errors.map((e, i) => <p key={i} className="text-[11px] text-rose-300/80 mt-1">[{e.section}] {e.reason}</p>)}
+                    {invalidDueDates.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">Task due dates cannot be blank or in the past.</p>}
+                    {invalidReminders.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">Reminders need a valid date/time and a concrete title.</p>}
                 </section>}
 
                 <section className="space-y-3">
@@ -136,6 +142,15 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                     {plannerView === 'agenda' ? <QuickOrganizerWeekAgenda rows={rows} onChange={onChange} onRemove={onRemove} /> : <div className="h-[650px] rounded-2xl overflow-hidden border border-gray-800 bg-white text-gray-900"><CalendarView<ParsedDueDateRow> items={dueDateRows} getDate={row => row.date} onDateDrop={(id, _type, newDate) => onDueDateChange(id, { date: newDate })} renderItem={row => <div draggable onDragStart={e => { e.dataTransfer.setData('id', row.id); e.dataTransfer.setData('type', 'ai-due-date'); }} className="rounded bg-amber-50 border border-amber-200 px-2 py-1 text-[10px] text-amber-800 cursor-grab" title={row.rationale}><b>Due:</b> {row.taskLabel}</div>} className="h-full" /></div>}
                     {!dates.length && <div className="bg-gray-900 border border-dashed border-gray-700 rounded-2xl py-10 text-center"><p className="text-xs text-gray-500">The AI did not propose any sessions. Add tasks from the right panel.</p></div>}
                 </section>
+
+                {dueDateRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-amber-400" /> Task due-date changes</h2><p className="text-[11px] text-gray-500 mt-1">Review each change against the proposal delivery date. Accepting the plan updates your task dates.</p></div>
+                    {dueDateRows.map(row => {
+                        const opp = opportunities.find(item => item.id === row.oppId);
+                        const task = opp?.tasks?.find(item => item.id === row.taskId);
+                        return <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_130px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2.5"><div className="min-w-0"><p className="text-xs font-bold truncate">{row.taskLabel}</p><p className="text-[10px] text-gray-400 mt-0.5">Current: {task?.dueDate || 'Not set'} · Proposal delivery: {opp?.dates?.expected || 'Not set'}</p><p className="text-[10px] text-amber-300/80 mt-0.5 truncate" title={row.rationale}>{row.rationale || 'AI adjustment'}</p></div><input type="date" value={row.date} onChange={e => onDueDateChange(row.id, { date: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveDueDate(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>;
+                    })}
+                </section>}
 
                 {reminderRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bell className="w-4 h-4 text-[#3DCD58]" /> Proposed reminders</h2>{reminderRows.map(row => <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_180px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2"><div><p className="text-xs font-bold">{row.taskLabel}</p><input value={row.title} onChange={e => onReminderChange(row.id, { title: e.target.value })} className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-[11px]"/></div><input type="datetime-local" value={row.remindAt} onChange={e => onReminderChange(row.id, { remindAt: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveReminder(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>)}</section>}
             </main>

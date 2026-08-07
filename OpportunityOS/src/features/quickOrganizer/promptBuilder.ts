@@ -1,4 +1,4 @@
-import { MeetingNote, Opportunity, Task } from '../../types';
+import { MeetingNote, Opportunity, Reminder, Task } from '../../types';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { getNextTask } from '../../services/taskUtils';
 
@@ -38,6 +38,8 @@ export interface BuildPromptOptions {
     /** Opportunity ids to include. Empty/omitted = include every eligible opportunity. */
     oppIds?: string[];
     recommendationLanguage?: 'en' | 'es';
+    /** Existing reminders are included so the AI does not propose the same follow-up again. */
+    reminders?: Reminder[];
 }
 
 const weekdayName = (iso: string): string => {
@@ -70,12 +72,12 @@ const findScopeText = (notes: MeetingNote[] | undefined): string => {
 
 const compact = (value: string | undefined, max = 800): string => (value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 
-const lastHistoryLines = (opp: Opportunity, n = 5): string[] => {
+const lastHistoryLines = (opp: Opportunity, n = 3): string[] => {
     return [...(opp.history || [])]
         .filter(h => h?.content?.trim())
         .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         .slice(0, n)
-        .map(h => `  - [${h.date}] ${h.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 260)}`);
+        .map(h => `  - [${h.date}] ${h.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`);
 };
 
 const missingFieldsFor = (task: Task): string[] => {
@@ -125,7 +127,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
             const deliveryDays = opp.dates?.expected
                 ? Math.ceil((new Date(opp.dates.expected).getTime() - new Date(todayStr).getTime()) / 86400000)
                 : null;
-            const taskLimit = deliveryDays !== null && deliveryDays <= 7 ? 10 : deliveryDays !== null && deliveryDays <= 14 ? 7 : 5;
+            const taskLimit = deliveryDays !== null && deliveryDays <= 7 ? 7 : 5;
             const activeTasks = (opp.tasks || []).filter(isTaskActive);
             const nextStep = getNextTask(activeTasks);
             // Match the same order used by the Opportunity Detail "Next Step" indicator. The
@@ -152,38 +154,30 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
             const eb = b.opp.dates?.expected || '9999-99-99';
             return ea < eb ? -1 : ea > eb ? 1 : 0;
         })
-        .slice(0, 14);
+        .slice(0, 8);
 
     const lines: string[] = [];
 
-    lines.push('OUTPUT CONTRACT (HIGHEST PRIORITY): This response is machine-imported, not just read by a person. Reply entirely inside this chat as plain text. Do NOT search the web, add citations, create documents/pages/files, offer downloads, or ask me follow-up questions — use only the data in this message and answer in one single response.');
-    lines.push('Start with ### SCHEDULE. No preamble, closing, extra headings, code fences, Markdown separators, emojis/icons, or translated headings.');
-    lines.push('Required order: ### SCHEDULE; ### PROPOSED_DUE_DATES; ### REMINDERS; ### RECOMMENDATIONS; ### PARETO 20/80; ### BLOCKERS; ### DELIVERY OUTLOOK; ### MISSING TASKS. The three tables come FIRST so they are never lost: if you approach your response length limit, shorten or drop narrative bullets — never omit or truncate a table row.');
+    lines.push('Return one short, machine-importable plain-text answer. Use only this message; no web, files, citations, preamble, closing, code fences or extra headings.');
+    lines.push('Exact section order: ### SCHEDULE; ### PROPOSED_DUE_DATES; ### REMINDERS; ### RECOMMENDATIONS; ### PARETO 20/80; ### BLOCKERS; ### DELIVERY OUTLOOK; ### MISSING TASKS.');
     lines.push('SCHEDULE header: Key | Opportunity | Task | Date(YYYY-MM-DD) | Start(HH:mm) | End(HH:mm) | Note');
     lines.push('PROPOSED_DUE_DATES header: Key | Opportunity | Task | DueDate(YYYY-MM-DD) | Rationale');
     lines.push('REMINDERS header: Key | Opportunity | Task | RemindAt(YYYY-MM-DDTHH:mm) | Title');
-    lines.push('A heading and header are NOT data. If tasks and time exist, output at least one real SCHEDULE data row immediately below its header. In every structured row copy the FULL supplied Key (oppId::taskId), never only the OP id. Copy one existing task title exactly; never combine, rename or invent scheduled tasks. Put new-task ideas only in MISSING TASKS.');
+    lines.push('Copy the full supplied Key (oppId::taskId) and exact task title. Never invent or combine tasks.');
     lines.push('');
-    lines.push('You are acting as a proactive professional PM / executive assistant helping me plan my working week.');
-    lines.push('Analyze each proposal (opportunity) and its pending tasks below, then build me a work schedule and give me practical personal-assistant advice.');
+    lines.push('Act as a concise PM assistant. Build a realistic weekly plan and give only the most useful next actions.');
     lines.push('');
-    lines.push('PLANNING LOGIC: Respect the user opportunity order. Within each opportunity rank by delivery impact, dependencies, urgency, scope, value and risk. Capacity is hard: schedule only what realistically fits; defer the rest. Estimate honest durations with context-switching and review/rework time. Never overlap blocks.');
-    lines.push('Dependencies: request information/approval first, allow realistic elapsed response time, then schedule review/rework. Waiting is not work. Split one task into multiple blocks across days when useful. Work backward from delivery dates with integration/approval buffer; if late or impossible, give the earliest credible date and assumptions. Identify the true 20% highest-leverage work and blockers using all supplied context, not stored priority alone.');
+    lines.push('Prioritize by user opportunity order, proposal delivery date, dependencies, urgency and impact. Work backward from delivery, leave review/approval buffer, never overlap blocks, and schedule only what fits. Waiting is not work.');
     lines.push('');
     lines.push(`Today's date: ${todayStr}. My name: ${options.userName}.`);
     lines.push('');
 
     lines.push('HARD EXECUTION ORDER (BINDING):');
     eligibleOpps.forEach(({ opp }, index) => lines.push(`${index + 1}. ${opp.alias || opp.title} (id: ${opp.id})`));
-    lines.push('Build SCHEDULE in chronological Date/Start order and work through this opportunity queue from top to bottom. Finish opportunity #1 before scheduling #2, then finish #2 before #3, and so on. Do not interleave opportunities merely to diversify the day.');
-    lines.push('The task order printed inside each opportunity is ALSO BINDING. Complete task #1 before task #2, task #2 before task #3, and so on. Do not reorder tasks by preference after reading the list.');
-    lines.push('NEXT STEP OVERRIDES ALL AI PRIORITIZATION: for each opportunity, the task explicitly labeled SYSTEM NEXT STEP below is the first task to schedule and execute. Do not choose a different first task because it is more urgent, valuable, short, efficient, or interesting.');
-    lines.push('The SYSTEM NEXT STEP may be skipped ONLY when its supplied status is exactly "Missing Info", "Approval", or "Changes Requested / Rework", meaning work is waiting on external information, explicit approval, or its linked corrective task. Do not infer that it is blocked from age, due date, description, owner, difficulty, dependencies, or your own judgment when its supplied status does not use one of those statuses.');
-    lines.push('Use the recent HISTORY events to understand what changed, what information arrived, who owes the next response, current risks, and realistic task duration. History refines the plan but NEVER replaces SYSTEM NEXT STEP or the supplied task/status/order fields. If History conflicts with structured fields, mention the inconsistency in RECOMMENDATIONS and follow the structured fields.');
-    lines.push(`TASK DATE RULE: compare every task due date with today (${todayStr}). A due date on or after today is a current user commitment: schedule enough work on or before it whenever allowed windows permit, and do not propose changing it. A due date before today is expired historical guidance, NOT a valid current constraint and never a reason to schedule in the past; use it as an overdue-risk signal and propose a new realistic date in PROPOSED_DUE_DATES. Tasks with due:none may also receive a proposed date. Assignment responsible/approval dates on or after today are hard intermediate milestones; expired ones are historical risk signals.`);
-    lines.push('EXISTING SCHEDULES ARE EDITABLE: existingBlocks below describe the old agenda, not fixed appointments. For every active (not Done/Canceled) task, freely move, split, shorten or replace old future blocks to optimize the new plan and current instructions. Do not preserve an old block merely because it already exists. Return the complete NEW set of desired blocks for every task you reschedule; TenderLoop will replace that task\'s prior blocks instead of appending duplicates.');
-    lines.push('The ONLY reason to skip any later task or opportunity is likewise a real external block recorded in the supplied data: missing external information or an external approval. Internal convenience, urgency elsewhere, task duration, variety, efficiency, low priority, or lack of enthusiasm are NOT valid reasons to skip.');
-    lines.push('For every skipped task: do not schedule fake waiting work; add a REMINDERS row using that exact task Key, document the dependency in BLOCKERS, and start the Note of the last row before switching with "BLOCKED:" plus the exact external dependency. Then continue with the next unblocked task/opportunity and return to the skipped item as soon as it becomes actionable.');
+    lines.push('Respect task order and schedule SYSTEM NEXT STEP first unless its explicit status is Missing Info, Approval, or Changes Requested / Rework. Then continue with the next actionable task.');
+    lines.push(`DATE RULE: today is ${todayStr}. Analyze each proposal Delivery date. In PROPOSED_DUE_DATES, change any task due date (past, future or missing) when needed to create a realistic sequence toward delivery. Task dates must not be in the past or after proposal delivery unless delivery is already impossible; then state the earliest credible delivery in DELIVERY OUTLOOK. Include only dates that actually need changing.`);
+    lines.push('Existing work blocks are editable. Return the complete replacement block set for each rescheduled task.');
+    lines.push('Create a reminder only for a concrete external follow-up or a critical checkpoint that needs an alert. Maximum one reminder per task and 5 total. Do not create reminders merely because work is unscheduled or deferred.');
     lines.push('');
 
     if (options.extraInstructions.trim()) {
@@ -212,6 +206,18 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
         lines.push('');
     }
 
+    const currentReminders = (options.reminders || [])
+        .filter(reminder => !reminder.seenAt)
+        .filter(reminder => !oppIdFilter.size || oppIdFilter.has(reminder.opportunityId))
+        .slice(0, 12);
+    lines.push('CURRENT REMINDERS (do not duplicate these tasks/checkpoints):');
+    if (currentReminders.length) {
+        currentReminders.forEach(reminder => lines.push(`- ${reminder.opportunityId}::${reminder.taskId || 'general'} | ${reminder.dueAt.slice(0, 16)} | ${compact(reminder.title, 90)}`));
+    } else {
+        lines.push('- none');
+    }
+    lines.push('');
+
     lines.push('=== OPPORTUNITIES & TASKS ===');
     for (const { opp, tasks, nextStep, pendingDays } of eligibleOpps) {
         const scope = findScopeText(opp.notes);
@@ -236,7 +242,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
                 .map(block => `${block.date} ${block.startTime}-${block.endTime}`)
                 .join(', ') || 'none';
             lines.push(
-                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | missing:${missing.join(',') || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | assignment:${task.isAssignment ? 'yes' : 'no'} | approvers:${(task.approverTeamMemberIds || []).join(',') || 'none'} | responsible:${task.responsibleRequestedDate || '-'}/${task.responsibleDueDate || '-'}/${task.responsibleDeliveredDate || '-'} | approval:${task.approvalRequestedDate || '-'}/${task.approvalDueDate || '-'}/${task.approvalDeliveredDate || '-'} | existingBlocks:${existingBlocks} | description:${compact(task.description, 220) || 'none'} | deliverable:${compact(task.deliverable, 140) || 'none'}`
+                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | responsibleDue:${task.responsibleDueDate || '-'} | approvalDue:${task.approvalDueDate || '-'} | blocks:${existingBlocks} | description:${compact(task.description, 120) || 'none'} | deliverable:${compact(task.deliverable, 80) || 'none'} | missing:${missing.join(',') || 'none'}`
             );
         }
     }
@@ -251,11 +257,11 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('');
     lines.push('STRICT FORMAT RULES:');
     lines.push('1. Copy every heading/header exactly once, in the required order. No translation, numbering, decoration or extra text.');
-    lines.push('2. Structured rows use exactly " | " between columns. Put EACH data row on its own physical line: after the final column, insert a newline before the next Key. Never append a data row to the header or another row. No leading/trailing pipes or separator rows. Copy each full oppId::taskId Key and exact task title; never use only oppId or combine tasks.');
-    lines.push('3. Dates: YYYY-MM-DD (never with slashes). Times: 24h two-digit HH:mm (write 09:00, never 9:00 or 9:00 AM). RemindAt: YYYY-MM-DDTHH:mm with a literal T. Sort rows chronologically. No overlaps. Re-check every row against the HARD CALENDAR BOUNDARY; a block must be fully contained in one allowed window. Multiple blocks per task are allowed.');
-    lines.push('4. If at least one task and a usable time window exist, SCHEDULE MUST contain at least one valid data row. Never return analysis only. Schedule feasible actionable work; deferred/critical work gets REMINDERS.');
+    lines.push('2. Structured rows use exactly " | ", one row per line, no leading/trailing pipes or separator rows. Copy full Keys and exact task titles.');
+    lines.push('3. Use YYYY-MM-DD, HH:mm and YYYY-MM-DDTHH:mm. Sort chronologically, never overlap, and keep every block inside one allowed window.');
+    lines.push('4. If actionable work and time exist, return at least one SCHEDULE row. Do not create a reminder for every unscheduled task.');
     lines.push('5. Under SCHEDULE, PROPOSED_DUE_DATES and REMINDERS, write only the exact header followed by data rows. Do not put bullets, explanations, placeholders, "none", or instructions inside these three sections. If optional sections have no rows, leave only their header.');
-    lines.push(`6. REMINDERS must cover every critical checkpoint: any task due within 3 days of today, any opportunity delivery within 7 days, every external dependency to chase (name the owner in Title), every skipped/deferred task, and the first session of any task starting more than 5 days out. RemindAt = one working day before the checkpoint at 09:00, or today at 09:00 if that moment already passed. Write each Title in ${options.recommendationLanguage === 'es' ? 'Spanish' : 'English'}: short, actionable, naming who/what to chase.`);
+    lines.push(`6. REMINDERS: maximum 5 total and one per task. Use only for a critical alert or specific external follow-up; never duplicate CURRENT REMINDERS. Title must be a concrete action in ${options.recommendationLanguage === 'es' ? 'Spanish' : 'English'}, maximum 10 words.`);
     lines.push('7. No emojis/icons anywhere. No text before SCHEDULE or after MISSING TASKS.');
     lines.push('');
     lines.push('### SCHEDULE');
@@ -268,21 +274,21 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('Key | Opportunity | Task | RemindAt(YYYY-MM-DDTHH:mm) | Title');
     lines.push('');
     lines.push('### RECOMMENDATIONS');
-    lines.push(`- Max 8 bullets, one per line, each formatted "CATEGORY: text". CATEGORY is exactly one of FOCUS, RISK, WAITING, TIP${options.recommendationLanguage === 'es' ? ' (keep the English token; write the text itself in Spanish)' : ''}. Start with one FOCUS bullet = the single most important next move. Each bullet ≤25 words and names the opportunity alias it refers to.`);
+    lines.push(`- Max 5 bullets, one per line, formatted "CATEGORY: text". CATEGORY: FOCUS, RISK, WAITING or TIP${options.recommendationLanguage === 'es' ? '; keep the token in English and the text in Spanish' : ''}. Start with one FOCUS. Max 18 words each.`);
     lines.push('');
     lines.push('### PARETO 20/80');
-    lines.push('- Rank the smallest task set producing most meaningful progress; explain leverage.');
+    lines.push('- Max 3 bullets: smallest task set producing the most progress.');
     lines.push('');
     lines.push('### BLOCKERS');
-    lines.push('- Dependency/blocker — unblock action — owner — timing assumption.');
+    lines.push('- Max 3 bullets: blocker — unblock action — owner.');
     lines.push('');
     lines.push('### DELIVERY OUTLOOK');
-    lines.push('- For each OP: credible requested date or earliest realistic date with assumptions.');
+    lines.push('- One short bullet per OP: delivery date, risk and assumption.');
     lines.push('');
     lines.push('### MISSING TASKS');
-    lines.push('- Opportunity — missing task — reason — owner. Use scope/context; no duplicates. Otherwise: No missing tasks detected.');
+    lines.push('- Max 3 bullets: opportunity — missing task — reason. Otherwise: No missing tasks detected.');
     lines.push('');
-    lines.push('FINAL SILENT CHECK BEFORE ANSWERING — verify every point and fix silently before sending: exact headings in the required order with the tables first; SCHEDULE has at least one pipe-delimited 7-column data row; every structured Key contains "::" and exactly matches a supplied Key; every block lies on an allowed date fully inside one allowed window, chronological, no overlaps; opportunity AND task-number order respected, every skipped item justified by an external dependency in BLOCKERS plus a REMINDERS row and a "BLOCKED:" Note before switching; two-digit dates/times exactly matching the headers; no leading/trailing pipes, no --- separators, no emojis, no extra text; RECOMMENDATIONS bullets follow the CATEGORY format.');
+    lines.push('SILENT CHECK: exact headings/order; valid full Keys; valid dates/times; blocks inside allowed windows with no overlap; max one reminder per task and no current-reminder duplicates; concise bullets; no extra text.');
 
     return lines.join('\n');
 };

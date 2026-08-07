@@ -10,6 +10,7 @@ import { QuickOrganizerReview } from './QuickOrganizerReview';
 
 interface Props {
     opportunities: Opportunity[];
+    reminders: Reminder[];
     userName: string;
     onOppUpdate: (updated: Opportunity, id?: string, immediate?: boolean) => void;
     onAddReminder: (reminder: Omit<Reminder, 'id' | 'createdAt'>) => void;
@@ -27,11 +28,11 @@ interface DayOption {
     isToday: boolean;
 }
 
-/** Today through 8 days ahead (9 days total) — matches "from today to the following [same weekday]". */
+/** Today through the same weekday next week (8 days, inclusive). */
 const buildDayWindow = (): DayOption[] => {
     const base = new Date();
     base.setHours(0, 0, 0, 0);
-    return Array.from({ length: 9 }, (_, i) => {
+    return Array.from({ length: 8 }, (_, i) => {
         const d = new Date(base);
         d.setDate(d.getDate() + i);
         return {
@@ -43,7 +44,7 @@ const buildDayWindow = (): DayOption[] => {
     });
 };
 
-export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, onOppUpdate, onAddReminder, onClose, onPlanAccepted }) => {
+export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onClose, onPlanAccepted }) => {
     const [phase, setPhase] = useState<'intro' | 'main' | 'review'>('intro');
     const [extraInstructions, setExtraInstructions] = useState('');
     const [activeChipIds, setActiveChipIds] = useState<string[]>([]);
@@ -57,9 +58,9 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
             .map(opp => ({ id: opp.id, label: opp.alias || opp.title, taskCount: (opp.tasks || []).filter(isTaskActive).length, expected: opp.dates?.expected || '', quoteType: opp.quoteType || 'Unspecified', pendingDays: opp.dates?.requested ? Math.max(0, Math.floor((Date.now() - new Date(`${opp.dates.requested}T00:00:00`).getTime()) / 86400000)) : null })),
         [opportunities]
     );
-    // Empty = no restriction (include every eligible opportunity) — same "leave empty to allow any" convention as the day picker.
-    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities.filter(isOpportunitySchedulable).filter(opp => (opp.tasks || []).some(isTaskActive)).map(opp => opp.id).slice(0, 14));
-    const toggleOpp = (id: string) => setSelectedOppIds(prev => prev.includes(id) ? prev.filter(o => o !== id) : prev.length < 14 ? [...prev, id] : prev);
+    // Keep the prompt intentionally small: an empty selection excludes all opportunities.
+    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities.filter(isOpportunitySchedulable).filter(opp => (opp.tasks || []).some(isTaskActive)).map(opp => opp.id).slice(0, 8));
+    const toggleOpp = (id: string) => setSelectedOppIds(prev => prev.includes(id) ? prev.filter(o => o !== id) : prev.length < 8 ? [...prev, id] : prev);
     const moveOpp = (id: string, direction: -1 | 1) => setSelectedOppIds(prev => { const index = prev.indexOf(id); const target = index + direction; if (index < 0 || target < 0 || target >= prev.length) return prev; const next = [...prev]; [next[index], next[target]] = [next[target], next[index]]; return next; });
     // Keyed by ISO date; presence of a key = that date is selected. Each date starts with one
     // default 08:00–17:00 range, editable/removable/addable — "which lapsos do I want to work
@@ -74,6 +75,13 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
         }
         return { ...prev, [iso]: [{ start: '08:00', end: '17:00' }] };
     });
+    const selectNextWorkWeek = () => {
+        const nextFive = dayWindow.filter(day => {
+            const weekday = new Date(`${day.iso}T00:00:00`).getDay();
+            return weekday >= 1 && weekday <= 5;
+        }).slice(0, 5);
+        setTimeRangesByDate(Object.fromEntries(nextFive.map(day => [day.iso, [{ start: '08:00', end: '17:00' }]])));
+    };
     const addRange = (iso: string) => setTimeRangesByDate(prev => ({ ...prev, [iso]: [...(prev[iso] || []), { start: '08:00', end: '17:00' }] }));
     const removeRange = (iso: string, idx: number) => setTimeRangesByDate(prev => ({ ...prev, [iso]: (prev[iso] || []).filter((_, i) => i !== idx) }));
     const updateRange = (iso: string, idx: number, patch: Partial<TimeRange>) => setTimeRangesByDate(prev => ({
@@ -111,8 +119,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
     }, [opportunities]);
 
     const generatedPrompt = useMemo(
-        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage }),
-        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage]
+        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage, reminders }),
+        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage, reminders]
     );
 
     // Keep the editable prompt in sync with instructions/chips until the user
@@ -136,7 +144,17 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
     const handleParse = () => {
         const result = parseOrganizerResponse(pasteText, opportunities, { dayWindows: timeRangesByDate });
         setScheduleRows(result.scheduleRows);
-        setReminderRows(result.reminderRows);
+        const tasksWithCurrentReminder = new Set(reminders
+            .filter(reminder => !reminder.seenAt)
+            .filter(reminder => reminder.taskId)
+            .map(reminder => `${reminder.opportunityId}::${reminder.taskId}`));
+        const importedTaskKeys = new Set<string>();
+        setReminderRows(result.reminderRows.filter(row => {
+            const key = `${row.oppId}::${row.taskId}`;
+            if (tasksWithCurrentReminder.has(key) || importedTaskKeys.has(key)) return false;
+            importedTaskKeys.add(key);
+            return true;
+        }));
         setParseErrors(
             result.scheduleRows.length || result.reminderRows.length || result.dueDateRows.length
                 ? result.errors
@@ -147,12 +165,12 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
         setBlockerInsights(result.blockerInsights);
         setDeliveryInsights(result.deliveryInsights);
         setMissingTaskInsights(result.missingTaskInsights);
-        // Current/future task dates are user commitments. Missing or expired dates may receive
-        // a new AI proposal; an expired date must never force work into the past.
-        const today = new Date().toLocaleDateString('en-CA');
+        const importedDueDateKeys = new Set<string>();
         setDueDateRows(result.dueDateRows.filter(row => {
-            const task = opportunities.find(opp => opp.id === row.oppId)?.tasks?.find(item => item.id === row.taskId);
-            return !task?.dueDate || task.dueDate < today;
+            const key = `${row.oppId}::${row.taskId}`;
+            if (importedDueDateKeys.has(key)) return false;
+            importedDueDateKeys.add(key);
+            return true;
         }));
         setApplied(false);
         // Always open review after a non-empty paste. Even a partially malformed answer
@@ -162,6 +180,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
 
     const removeScheduleRow = (id: string) => setScheduleRows(prev => prev.filter(r => r.id !== id));
     const removeReminderRow = (id: string) => setReminderRows(prev => prev.filter(r => r.id !== id));
+    const removeDueDateRow = (id: string) => setDueDateRows(prev => prev.filter(r => r.id !== id));
 
     const updateScheduleRow = (id: string, patch: Partial<ParsedScheduleRow>) =>
         setScheduleRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
@@ -213,16 +232,21 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
                 if (!rows && !proposedDueDate) return t;
                 // Replace (not append) — a re-run always fully reschedules the task.
                 const blocks = rows ? rows.map(r => createBlock(r.date, r.startTime, r.endTime)) : t.executionBlocks;
-                const today = new Date().toLocaleDateString('en-CA');
-                const mayReplaceDueDate = !t.dueDate || t.dueDate < today;
-                return { ...t, executionBlocks: blocks, ...(mayReplaceDueDate && proposedDueDate ? { dueDate: proposedDueDate } : {}) };
+                return { ...t, executionBlocks: blocks, ...(proposedDueDate ? { dueDate: proposedDueDate } : {}) };
             });
             onOppUpdate({ ...opp, tasks: updatedTasks, lastUpdated: new Date().toISOString() }, oppId, true);
         }
 
+        const existingTaskReminders = new Set(reminders
+            .filter(reminder => !reminder.seenAt)
+            .filter(reminder => reminder.taskId)
+            .map(reminder => `${reminder.opportunityId}::${reminder.taskId}`));
         for (const row of reminderRows) {
             const due = new Date(row.remindAt);
             if (isNaN(due.getTime())) continue;
+            const taskKey = `${row.oppId}::${row.taskId}`;
+            if (existingTaskReminders.has(taskKey)) continue;
+            existingTaskReminders.add(taskKey);
             onAddReminder({ title: row.title, dueAt: due.toISOString(), opportunityId: row.oppId, taskId: row.taskId });
         }
 
@@ -250,6 +274,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
             onDueDateChange={updateDueDateRow}
             onRemove={removeScheduleRow}
             onRemoveReminder={removeReminderRow}
+            onRemoveDueDate={removeDueDateRow}
             onScheduleTask={scheduleTaskInDraft}
             onBack={() => setPhase('main')}
             onApply={() => {
@@ -285,10 +310,10 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                         <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">1. Select and prioritize opportunities</h2>
-                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === Math.min(14, eligibleOpps.length) ? [] : eligibleOpps.slice(0, 14).map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === Math.min(14, eligibleOpps.length) ? 'Exclude all' : 'Include first 14'}</button>
+                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === Math.min(8, eligibleOpps.length) ? [] : eligibleOpps.slice(0, 8).map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === Math.min(8, eligibleOpps.length) ? 'Exclude all' : 'Include first 8'}</button>
                     </div>
                     <p className="text-[11px] text-gray-500">
-                        Select up to 14 opportunities. Use the arrows to set the exact priority order the AI must respect. ({selectedOppIds.length}/14 selected)
+                        Select up to 8 opportunities so the prompt stays reliable in smaller AI models. Use the arrows to set priority. ({selectedOppIds.length}/8 selected)
                     </p>
                     {eligibleOpps.length === 0 ? (
                         <p className="text-xs text-gray-500 py-2">No opportunities with open tasks.</p>
@@ -299,7 +324,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
                                 const rank = selectedOppIds.indexOf(opp.id);
                                 return (
                                     <div key={opp.id} className={`grid grid-cols-[28px_32px_minmax(0,1fr)_auto] gap-2 items-center rounded-xl border p-2 ${active ? 'bg-emerald-950/30 border-[#3DCD58]/50' : 'bg-gray-800/40 border-gray-800 opacity-60'}`}>
-                                        <input type="checkbox" checked={active} disabled={!active && selectedOppIds.length >= 14} onChange={() => toggleOpp(opp.id)} className="rounded border-gray-600 text-[#3DCD58] focus:ring-[#3DCD58] disabled:opacity-30" />
+                                        <input type="checkbox" checked={active} disabled={!active && selectedOppIds.length >= 8} onChange={() => toggleOpp(opp.id)} className="rounded border-gray-600 text-[#3DCD58] focus:ring-[#3DCD58] disabled:opacity-30" />
                                         <span className={`text-xs font-black text-center ${active ? 'text-[#3DCD58]' : 'text-gray-600'}`}>{active ? `#${rank + 1}` : '—'}</span>
                                         <button onClick={() => toggleOpp(opp.id)} className="text-left min-w-0"><p className="text-xs font-bold truncate">{opp.label}</p><p className="text-[10px] text-gray-400 mt-0.5">Delivery: {opp.expected || 'Not set'} · {opp.quoteType} · {opp.pendingDays === null ? 'Age unknown' : `${opp.pendingDays} calendar days`} · {opp.taskCount} open tasks</p></button>
                                         <div className="flex gap-1"><button disabled={!active || rank === 0} onClick={() => moveOpp(opp.id, -1)} className="p-1 text-gray-400 hover:text-white disabled:opacity-20"><ChevronUp className="w-4 h-4" /></button><button disabled={!active || rank === selectedOppIds.length - 1} onClick={() => moveOpp(opp.id, 1)} className="p-1 text-gray-400 hover:text-white disabled:opacity-20"><ChevronDown className="w-4 h-4" /></button></div>
@@ -323,7 +348,11 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, userName, o
                     <p className="text-[11px] text-gray-500">
                         Pick one or more days — e.g. only Monday, or Monday and Tuesday — then set the time range(s) you're free that day. Leave empty to let the AI use any day/time.
                     </p>
-                    <div className="grid grid-cols-9 gap-2">
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={selectNextWorkWeek} className="px-3 py-1.5 rounded-lg border border-[#3DCD58]/60 text-[11px] font-bold text-[#3DCD58] hover:bg-emerald-950/40">Select next 5 workdays</button>
+                        <span className="self-center text-[10px] text-gray-500">Adds one clean 08:00-17:00 window per day.</span>
+                    </div>
+                    <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                         {dayWindow.map(day => {
                             const active = isDaySelected(day.iso);
                             return (

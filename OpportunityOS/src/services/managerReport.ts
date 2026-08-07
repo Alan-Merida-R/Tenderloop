@@ -11,8 +11,18 @@ export interface ManagerReport {
   source: { app: 'OpportunityOS'; databaseUpdatedAt?: string; opportunityCount: number };
   /** Question labels/sections so Manager Tool can render SOW notes read-only. Additive to schema v1. */
   sowFlow?: { questions: { key: string; label: string; section: string }[] };
+  /**
+   * The SOW builder markup itself, so Manager Tool renders a saved SOW exactly as
+   * OpportunityOS does (read-only) instead of approximating it with a table.
+   * Only included when at least one opportunity actually has a SOW note.
+   * Additive to schema v1: older Manager Tool builds simply ignore it.
+   */
+  sowTemplateHtml?: string;
   opportunities: Opportunity[];
 }
+
+const hasSowNote = (opportunities: Opportunity[]): boolean =>
+  opportunities.some(opportunity => (opportunity.notes || []).some(note => note.format === 'sow'));
 
 /** Question metadata for the read-only SOW view in Manager Tool. */
 const extractSowFlow = (): ManagerReport['sowFlow'] => {
@@ -45,19 +55,23 @@ const withoutFolders = (opportunity: Opportunity): Opportunity => {
   return { ...safe, commercial, links } as Opportunity;
 };
 
-export const buildManagerReport = (db: DatabaseSchema, tenderName?: string): ManagerReport => ({
-  schemaVersion: MANAGER_REPORT_SCHEMA_VERSION,
-  kind: 'opportunityos-manager-report',
-  tender: tenderName?.trim() || 'Unnamed tender',
-  exportedAt: new Date().toISOString(),
-  source: {
-    app: 'OpportunityOS',
-    databaseUpdatedAt: db.meta?.lastUpdated,
-    opportunityCount: db.opportunities.length,
-  },
-  sowFlow: extractSowFlow(),
-  opportunities: db.opportunities.map(withoutFolders),
-});
+export const buildManagerReport = (db: DatabaseSchema, tenderName?: string): ManagerReport => {
+  const opportunities = db.opportunities.map(withoutFolders);
+  return {
+    schemaVersion: MANAGER_REPORT_SCHEMA_VERSION,
+    kind: 'opportunityos-manager-report',
+    tender: tenderName?.trim() || 'Unnamed tender',
+    exportedAt: new Date().toISOString(),
+    source: {
+      app: 'OpportunityOS',
+      databaseUpdatedAt: db.meta?.lastUpdated,
+      opportunityCount: db.opportunities.length,
+    },
+    sowFlow: extractSowFlow(),
+    ...(hasSowNote(opportunities) && { sowTemplateHtml: SOW_TEMPLATE_HTML }),
+    opportunities,
+  };
+};
 
 export const managerReportFilename = (tender: string): string => {
   const safeTender = tender.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'tender';

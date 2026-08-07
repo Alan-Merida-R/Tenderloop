@@ -443,8 +443,74 @@ function sowFieldsHtml(note, report) {
   });
   return [...sections.entries()].map(([section, entries]) => `<h3>${escape(section)}</h3><table class="detail-table sow-table"><tbody>${entries.map(entry => `<tr><th>${escape(entry.question?.label || entry.key.replace(/^flow_/, ''))}</th><td>${entry.value === 'true' ? 'Yes' : escape(entry.value)}</td></tr>`).join('')}</tbody></table>`).join('');
 }
+/* Injected at the end of the SOW template so the enforcement runs INSIDE the
+   iframe — no cross-origin DOM access is needed, which matters because the tool
+   is opened from file://. Appearance is untouched: controls keep their normal
+   styling, they are simply inert. */
+const SOW_READONLY_PATCH = `<style>
+  #sowReadOnlyBanner{position:sticky;top:0;z-index:99999;background:#eef7ff;color:#1d63a8;border-bottom:1px solid #bcdcf7;
+    padding:8px 14px;font:700 12px/1.3 "Segoe UI",Arial,sans-serif;letter-spacing:.02em}
+  body > *:not(#sowReadOnlyBanner){pointer-events:none !important}
+  summary{pointer-events:auto !important;cursor:pointer}
+</style>
+<script>(function(){
+  // Never write the tender's SOW state into the manager's browser storage.
+  try{ Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:function(){return null;},setItem:function(){},removeItem:function(){},clear:function(){},key:function(){return null;},length:0}}); }catch(e){}
+  var banner=document.createElement('div');
+  banner.id='sowReadOnlyBanner';
+  banner.textContent='Read-only view — this Scope of Work is owned by OpportunityOS and cannot be edited here.';
+  document.body.insertBefore(banner, document.body.firstChild);
+  function lock(){
+    var controls=document.querySelectorAll('input,textarea,select,button');
+    for(var i=0;i<controls.length;i++){
+      var el=controls[i];
+      if(el.tagName==='INPUT'||el.tagName==='TEXTAREA'){ el.readOnly=true; }
+      el.tabIndex=-1;
+    }
+    document.querySelectorAll('[contenteditable]').forEach(function(el){ el.setAttribute('contenteditable','false'); });
+  }
+  lock();
+  // The host's init message rebuilds custom questions, so re-lock as the DOM changes.
+  new MutationObserver(lock).observe(document.body,{childList:true,subtree:true});
+  // Collapsing a section is pure viewing, so <summary> stays interactive.
+  // Everything else is blocked in the capture phase: preventDefault on click is
+  // what stops checkboxes/radios from toggling, which pointer-events alone cannot.
+  var block=function(e){ if(e.target && e.target.closest && e.target.closest('summary')) return; e.stopPropagation(); e.preventDefault(); };
+  ['keydown','keypress','paste','cut','drop','input','change','click','mousedown','mouseup','dblclick'].forEach(function(type){ document.addEventListener(type, block, true); });
+})();</script>`;
+
+function openSowViewer(note, report) {
+  const overlay = document.createElement('div');
+  overlay.className = 'panel panel--full';
+  overlay.innerHTML = `<aside class="drawer drawer--full sow-viewer"><div class="drawer-head"><div><h2>${escape(note.title || 'Scope of Work')}</h2><p class="muted">Read-only — rendered with the same builder used in OpportunityOS</p></div><button class="close">×</button></div><div class="sow-frame-wrap"><iframe class="sow-frame" title="Scope of Work (read-only)" sandbox="allow-scripts"></iframe></div></aside>`;
+  overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
+  document.body.append(overlay);
+  $('.close', overlay).onclick = () => overlay.remove();
+
+  let payload = null;
+  try { payload = JSON.parse(note.content || 'null'); } catch { payload = null; }
+  const frame = $('.sow-frame', overlay);
+  // The template announces itself with `ready`; answer with the saved state using
+  // the same message contract SowFormEmbed uses in OpportunityOS.
+  const onMessage = event => {
+    if (event.source !== frame.contentWindow || event.data?.source !== 'tenderloop-sow') return;
+    if (event.data.type === 'ready') {
+      frame.contentWindow.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: [], tasks: [], directoryPeople: [], areas: [], prefill: {}, globalForm: null }, '*');
+    }
+  };
+  window.addEventListener('message', onMessage);
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(overlay)) { window.removeEventListener('message', onMessage); observer.disconnect(); }
+  });
+  observer.observe(document.body, { childList: true });
+  frame.srcdoc = report.sowTemplateHtml + SOW_READONLY_PATCH;
+}
+
 function showTenderNote(note, report) {
   if (!note) return;
+  // A SOW opens in the real builder when the report carries it; older reports
+  // (exported before the template was embedded) fall back to the field table.
+  if (note.format === 'sow' && report?.sowTemplateHtml) return openSowViewer(note, report);
   const isSow = note.format === 'sow';
   const body = isSow ? sowFieldsHtml(note, report) : `<div class="note-rich">${sanitizedNoteHtml(note.content) || 'This note is empty.'}</div>`;
   const overlay = document.createElement('div');
@@ -522,7 +588,7 @@ function renderDetail() {
     notes: managerNotesTabHtml(notes),
   };
   const overlay = document.createElement('div');
-  overlay.className = 'panel';
+  overlay.className = 'panel panel--full';
   overlay.innerHTML = `<aside class="drawer drawer--detail"><div class="drawer-head"><div class="drawer-title"><h2>${escape(op.title || op.id)}</h2><div class="drawer-meta"><span class="meta-chip">${escape(op.id)}</span><span class="meta-chip">${escape(entry.tender)}</span><span class="meta-chip">${escape(op.customer || 'No customer')}</span>${badge(STATUS_BADGE[op.statusLabel] || 'gray', op.statusLabel || 'No status')}${badge(health.className, health.name)}</div></div><div class="drawer-actions"><button class="button" id="opReminder" title="Create a reminder linked to this OP for the next meeting">+ Reminder</button><button class="close" id="closeDrawer">×</button></div></div><div class="tabs">${[['summary','Summary'],['tasks','Tasks'],['history','History'],['revisions','Revisions'],['commercial','Commercial'],['notes','Manager notes']].map(([id, label]) => `<button data-tab="${id}" class="${detailTab === id ? 'active' : ''}">${label}</button>`).join('')}</div><div class="detail-body">${tabContent[detailTab]}</div></aside>`;
   overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
   document.body.append(overlay);

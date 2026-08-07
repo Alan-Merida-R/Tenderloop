@@ -185,14 +185,22 @@ body {
 /* ---------- Drawer / panels ---------- */
 .panel { position: fixed; inset: 0; z-index: 5; background: rgba(10, 22, 36, .45); display: flex; justify-content: flex-end; backdrop-filter: blur(2px); }
 .panel--center { justify-content: center; align-items: center; padding: 4vh 16px; }
+.panel--full { justify-content: stretch; background: rgba(10, 22, 36, .55); }
 .drawer {
   width: min(880px, 100vw); height: 100%; background: var(--surface); overflow: auto;
   padding: 28px; box-shadow: var(--shadow-3);
 }
-.drawer--detail { width: min(1200px, 96vw); }
+/* The expediente is the manager's working surface: it takes the whole screen. */
+.drawer--detail { width: 100vw; }
+.drawer--detail > .drawer-head, .drawer--detail > .tabs, .drawer--detail > .detail-body { max-width: 1500px; margin-inline: auto; }
 .drawer--narrow { width: min(780px, 96vw); }
 .drawer--compact { width: min(520px, 96vw); }
 .drawer--popup { height: auto; max-height: 92vh; border-radius: var(--radius-l); border: 1px solid var(--line); }
+/* SOW viewer: full screen, and the builder iframe fills everything below the header. */
+.drawer--full { width: 100vw; height: 100%; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.drawer--full > .drawer-head { padding: 18px 28px; margin-bottom: 0; flex: none; }
+.sow-frame-wrap { flex: 1; min-height: 0; background: var(--surface-2); }
+.sow-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--surface); }
 .drawer-head { display: flex; gap: 15px; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 17px; margin-bottom: 18px; }
 .drawer h2 { margin: 0; font-size: 23px; letter-spacing: -.4px; color: var(--ink-strong); }
 .drawer h3 { margin: 22px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }

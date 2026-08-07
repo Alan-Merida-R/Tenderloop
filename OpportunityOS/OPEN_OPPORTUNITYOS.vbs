@@ -11,14 +11,19 @@ viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
 
 ' If OpportunityOS is already open, toggle its window (restore/focus it, or
 ' minimize it if it's already the active window) instead of opening another
-' one on top. This runs directly in response to the user's click/hotkey, so
-' Windows grants it foreground-activation rights.
-Dim togglePath, toggleCommand
+' one on top. A quick curl probe first avoids paying PowerShell's ~0.5s
+' startup/compile cost on every cold launch, when there's nothing running to
+' toggle anyway -- that's the common case, and the one that makes the
+' shortcut feel slow if it always pays this cost regardless.
+Dim togglePath, toggleCommand, portCheck
 togglePath = scriptDir & "\scripts\toggle-app-window.ps1"
 If fso.FileExists(togglePath) Then
-    toggleCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & togglePath & """"
-    If shell.Run(toggleCommand, 0, True) = 0 Then
-        WScript.Quit 0
+    portCheck = shell.Run("curl.exe -s -o nul --max-time 1 http://127.0.0.1:3000", 0, True)
+    If portCheck = 0 Then
+        toggleCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & togglePath & """"
+        If shell.Run(toggleCommand, 0, True) = 0 Then
+            WScript.Quit 0
+        End If
     End If
 End If
 

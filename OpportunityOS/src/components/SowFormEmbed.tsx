@@ -20,6 +20,7 @@ interface Props {
     onTaskConvert?: (taskId: string) => void;
     onTaskRaciUpdate?: (patch: { taskId: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => void;
     onTaskCreate?: (task: { title: string; description: string; priority: Task['priority']; dueDate: string; responsibleRequestedDate: string; responsibleDueDate: string; responsibleTeamMemberIds: string[]; approverTeamMemberIds: string[]; informedTeamMemberIds: string[] }) => void;
+    onStakeholderCreate?: (stakeholder: { name: string; email: string; role: string }) => void;
     /** Contacts from the shared directory, used by the SOW seller autocomplete. */
     directoryPeople?: Person[];
     onSellerMissing?: (name: string) => void;
@@ -47,7 +48,7 @@ interface Props {
  * reported back via 'save' so it can be written into that note's content field. This
  * keeps each opportunity's SOW form fully isolated from every other opportunity's.
  */
-export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], tasks = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onTaskOpen, onTaskConvert, onTaskRaciUpdate, onTaskCreate, onSellerMissing, onNavigationOpenChange, backupKey, legacyBackupKey, disabled }) => {
+export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], tasks = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onTaskOpen, onTaskConvert, onTaskRaciUpdate, onTaskCreate, onStakeholderCreate, onSellerMissing, onNavigationOpenChange, backupKey, legacyBackupKey, disabled }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const overviewIframeRef = useRef<HTMLIFrameElement>(null);
     const [overviewOpen, setOverviewOpen] = useState(false);
@@ -67,6 +68,7 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     const onTaskConvertRef = useRef(onTaskConvert);
     const onTaskRaciUpdateRef = useRef(onTaskRaciUpdate);
     const onTaskCreateRef = useRef(onTaskCreate);
+    const onStakeholderCreateRef = useRef(onStakeholderCreate);
     const onSellerMissingRef = useRef(onSellerMissing);
     const onNavigationOpenChangeRef = useRef(onNavigationOpenChange);
     const lastPrefillSyncRef = useRef('');
@@ -106,6 +108,7 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     useEffect(() => { onTaskConvertRef.current = onTaskConvert; }, [onTaskConvert]);
     useEffect(() => { onTaskRaciUpdateRef.current = onTaskRaciUpdate; }, [onTaskRaciUpdate]);
     useEffect(() => { onTaskCreateRef.current = onTaskCreate; }, [onTaskCreate]);
+    useEffect(() => { onStakeholderCreateRef.current = onStakeholderCreate; }, [onStakeholderCreate]);
     useEffect(() => { onSellerMissingRef.current = onSellerMissing; }, [onSellerMissing]);
     useEffect(() => { onNavigationOpenChangeRef.current = onNavigationOpenChange; }, [onNavigationOpenChange]);
     useEffect(() => {
@@ -182,6 +185,8 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                 onTaskRaciUpdateRef.current?.(data.payload);
             } else if (data.type === 'create-task' && !disabled && data.payload?.title) {
                 onTaskCreateRef.current?.(data.payload);
+            } else if (data.type === 'create-stakeholder' && !disabled && data.payload?.name) {
+                onStakeholderCreateRef.current?.(data.payload);
             } else if (data.type === 'seller-contact-missing' && !disabled && data.name) {
                 onSellerMissingRef.current?.(String(data.name));
             } else if (data.type === 'overview-open') {

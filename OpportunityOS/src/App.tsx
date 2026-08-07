@@ -105,15 +105,32 @@ const syncTaskAssignmentTimeline = (opp: Opportunity, task: Task, holidays: stri
   }
   const nextAreas = areaEntries.map(area => {
     const worked = areas.includes(area.area);
-    const waiting = area.area === 'Tendering' && !worked;
+    const waiting = area.area === 'Tendering';
     if (!worked && !waiting) return area;
     const calendar = { ...(area.calendar || {}) };
-    dates.forEach(date => { if (!calendar[date]) calendar[date] = { type: worked ? 'Worked' : 'Waiting' }; });
+    dates.forEach(date => {
+      const current = calendar[date];
+      if (worked) {
+        calendar[date] = {
+          ...(current || {}),
+          type: 'Worked',
+          workedTaskIds: Array.from(new Set([...(current?.workedTaskIds || []), task.id])),
+        };
+      }
+      if (waiting) {
+        const afterWork = calendar[date] || current;
+        calendar[date] = {
+          ...(afterWork || {}),
+          type: afterWork?.type === 'Worked' ? 'Worked' : 'Waiting',
+          waitingTaskIds: Array.from(new Set([...(afterWork?.waitingTaskIds || []), task.id])),
+        };
+      }
+    });
     return {
       ...area,
       calendar,
       daysSpent: Object.values(calendar).filter((record: any) => record.type === 'Worked').length,
-      waitingDays: Object.values(calendar).filter((record: any) => record.type === 'Waiting').length,
+      waitingDays: Object.values(calendar).filter((record: any) => record.type === 'Waiting' || (record.waitingTaskIds || []).length > 0).length,
     };
   });
   return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
@@ -2460,8 +2477,24 @@ function App() {
   const stableReminders = useMemo(() => db.userSettings?.reminders || EMPTY_ARR, [db.userSettings?.reminders]);
 
   const handleAddReminder = useCallback((reminder: Omit<Reminder, 'id' | 'createdAt'>) => {
-    const newReminder: Reminder = { ...reminder, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-    setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, reminders: [...(prev.userSettings?.reminders || []), newReminder] } }));
+    setDb(prev => {
+      const current = prev.userSettings?.reminders || [];
+      const dueDate = new Date(reminder.dueAt);
+      if (isNaN(dueDate.getTime())) return prev;
+      const dueMinute = dueDate.toISOString().slice(0, 16);
+      const normalizedTitle = reminder.title.trim().toLocaleLowerCase();
+      const duplicate = current.some(item =>
+        item.opportunityId === reminder.opportunityId
+        && (item.taskId || '') === (reminder.taskId || '')
+        && (item.noteId || '') === (reminder.noteId || '')
+        && !isNaN(new Date(item.dueAt).getTime())
+        && new Date(item.dueAt).toISOString().slice(0, 16) === dueMinute
+        && item.title.trim().toLocaleLowerCase() === normalizedTitle
+      );
+      if (duplicate) return prev;
+      const newReminder: Reminder = { ...reminder, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+      return { ...prev, userSettings: { ...prev.userSettings, reminders: [...current, newReminder] } };
+    });
   }, []);
 
   const handleExportManagerReport = useCallback(async (userName?: string) => {
@@ -3017,6 +3050,7 @@ function App() {
         {showQuickOrganizer && (
           <QuickOrganizerView
             opportunities={stableOpportunities}
+            reminders={stableReminders}
             userName={appSettings.userName || 'User'}
             onOppUpdate={updateOpportunity}
             onAddReminder={handleAddReminder}
