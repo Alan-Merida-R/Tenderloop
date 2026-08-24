@@ -24,6 +24,13 @@ The system is a distributed React application that operates directly on the user
 - `server/os/`: Windows integration — Explorer, clipboard, Outlook, window control (`shell.ts`) and the browser engine (`webAutomation.ts`, `pageScripts.ts`).
 - `scripts/`: Runnable checks (`verify-folder-persistence.ts`) and build/maintenance helpers (`generate-icon.mjs`, `toggle-app-window.ps1`, `find-chrome-app-id.ps1`).
 
+### Update delivery
+
+- `server/routes/updateSettings.ts` stores the PC-specific synchronized SharePoint folder in `%APPDATA%\OpportunityOS\update-settings.json`, outside the shared opportunity database.
+- `scripts/check-for-update.ps1` runs from each Windows launcher. With no configured folder it exits immediately. For a newer version it verifies SHA-256, extracts to a temporary directory, backs up current program files, installs the release and updates dependencies only when the lockfile changed. Failure restores the backup and does not block startup.
+- `PUBLICAR_ACTUALIZACION.bat` runs the build and server type check, asks for a destination, and creates `OpportunityOS-<version>.zip` plus `latest.json`.
+- `package.json` is the single application-version source; Vite injects it as `__APP_VERSION__` for Settings.
+
 ---
 
 ## ⚡ 2. Performance Engine (v5000 Optimization)

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, Commercial, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel, Reminder, StickyNote, GeneralQuickLink } from './types';
+import { DatabaseSchema, Opportunity, INITIAL_DB, ProcessStage, Task, Commercial, TaskStatus, TaskOwner, TaskPriority, PrdPresentation, OpportunityStatus, KPIs, DeepLink, FloatingTab, DetailedStatus, GlobalContact, OpportunityLabel, Reminder, StickyNote, GeneralQuickLink, QuickOrganizerRun } from './types';
 import { openDatabaseFile, createDatabaseFile, saveToDisk } from './services/fileSystem';
 import { rememberDb, getLastDb, getRecentDbs, getRecentDbHandle, removeRecentDb, RecentDbEntry } from './services/recentDbHandles';
 import { archiveRecoveryBackup, getBackendDbStatus, isBackendAvailable, openDefaultBackendDb, resolveNativeDbPath, revealCurrentBackendDb, revealNativePath, saveBackendDb } from './services/backendDb';
@@ -3086,10 +3086,21 @@ function App() {
             opportunities={stableOpportunities}
             reminders={stableReminders}
             userName={appSettings.userName || 'User'}
+            organizerHistory={db.userSettings?.quickOrganizerHistory || []}
+            organizerPreferences={db.userSettings?.quickOrganizerPreferences || { theme: 'light', displayLanguage: 'es' }}
+            onOrganizerPreferencesChange={(preferences) => setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, quickOrganizerPreferences: preferences } }))}
+            onSaveOrganizerRun={(run: QuickOrganizerRun) => setDb(prev => {
+              const history = prev.userSettings?.quickOrganizerHistory || [];
+              const next = [run, ...history.filter(item => item.id !== run.id)]
+                .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                .slice(0, 20);
+              return { ...prev, userSettings: { ...prev.userSettings, quickOrganizerHistory: next } };
+            })}
+            onDeleteOrganizerRun={(id) => setDb(prev => ({ ...prev, userSettings: { ...prev.userSettings, quickOrganizerHistory: (prev.userSettings?.quickOrganizerHistory || []).filter(run => run.id !== id) } }))}
             onOppUpdate={updateOpportunity}
             onAddReminder={handleAddReminder}
             onDeleteReminder={handleDeleteReminder}
-            onClose={() => { setShowQuickOrganizer(false); setShowSettings(true); }}
+            onClose={() => setShowQuickOrganizer(false)}
             onPlanAccepted={() => {
               // Land the user directly on the accepted plan: Tasks view, Agenda mode.
               setShowQuickOrganizer(false);

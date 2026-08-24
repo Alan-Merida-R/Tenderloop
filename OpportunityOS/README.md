@@ -9,7 +9,7 @@ se incluyen datos de trabajo reales en este repositorio.
 
 ## Inicio para usuarios en Windows
 
-1. Descarga el ZIP de la rama `version-beta` desde el repositorio y extraelo
+1. Recibe el paquete publicado por el responsable de Tender Control y extraelo
    completo en una ruta corta, por ejemplo `C:\Tenderloop`.
 2. Instala Node.js 18 o una version LTS posterior.
 3. En la carpeta `OpportunityOS`, abre `OPEN_OPPORTUNITYOS.vbs`.
@@ -21,6 +21,18 @@ necesario ejecutar `npm install` ni `npm ci` manualmente para usar la aplicació
 La aplicación se abre en
 `http://127.0.0.1:3000`. Tambien inicia el servicio local de archivos en el
 puerto `3099`.
+
+## Actualizaciones
+
+Cada usuario puede elegir una carpeta de SharePoint sincronizada en
+**Settings > General > Application updates**. La seleccion es opcional: sin
+carpeta configurada, Tender Control funciona normalmente sin actualizaciones.
+Al abrir, el launcher valida e instala cualquier version mas reciente y restaura
+la version anterior si algo falla.
+
+Para publicar, actualiza `version` en `package.json` y ejecuta
+`PUBLICAR_ACTUALIZACION.bat`. El proceso valida el proyecto, pregunta donde
+guardar la entrega y genera el ZIP junto con `latest.json`.
 
 Para abrirla como una pestana normal del navegador, usa
 `OPEN_OPPORTUNITYOS_BROWSER.vbs` o `OPEN_OPPORTUNITYOS_BROWSER.bat`. Para

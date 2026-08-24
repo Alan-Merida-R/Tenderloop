@@ -1,6 +1,6 @@
 Option Explicit
 
-Dim shell, fso, scriptDir, motorPath, viteLauncher, command, windowStyle
+Dim shell, fso, scriptDir, motorPath, viteLauncher, command, windowStyle, updaterPath, updaterCommand
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -12,6 +12,12 @@ viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
 If Not fso.FileExists(motorPath) Then
     MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "OpportunityOS"
     WScript.Quit 1
+End If
+
+updaterPath = scriptDir & "\scripts\check-for-update.ps1"
+If fso.FileExists(updaterPath) Then
+    updaterCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & updaterPath & """"
+    shell.Run updaterCommand, 0, True
 End If
 
 ' Same as OPEN_OPPORTUNITYOS.vbs, but opens OpportunityOS as a normal browser

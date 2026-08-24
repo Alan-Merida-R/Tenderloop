@@ -22,6 +22,9 @@ npm run check:folder
 | `npm run check:server` | Tipos del servicio local (`tsc -p server --noEmit`). |
 | `npm run check:folder` | Reglas de persistencia del modulo de carpetas (`scripts/verify-folder-persistence.ts`). |
 
+Para una entrega, ejecuta tambien `PUBLICAR_ACTUALIZACION.bat` y comprueba que el
+ZIP y `latest.json` indiquen la misma version y que el SHA-256 coincida.
+
 Y desde `TenderFlow/`:
 
 ```powershell
@@ -86,6 +89,9 @@ aplicacion real (`OPEN_OPPORTUNITYOS.vbs`), no solo el componente modificado:
   Abre una base creada con una version anterior, no solo una recien creada.
 - **Automatizacion web:** requiere una sesion corporativa iniciada a mano y VPN.
   Verifica primero `GET /api/health` y `GET /api/web/status`.
+- **Actualizaciones:** prueba sin carpeta configurada, sin `latest.json`, con la
+  misma version, con una version mayor valida y con un ZIP cuyo hash no coincida.
+  Ningun error debe impedir que abra la version instalada.
 
 ## Agregar testing formal (recomendado a futuro)
 

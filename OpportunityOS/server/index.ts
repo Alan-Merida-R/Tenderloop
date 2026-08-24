@@ -8,6 +8,7 @@ import { PORT, HOST, ENABLE_OS_INTEGRATION, ENABLE_WEB_AUTOMATION } from './conf
 import { osRouter } from './routes/os';
 import { dbRouter } from './routes/db';
 import { webRouter } from './routes/web';
+import { updateSettingsRouter } from './routes/updateSettings';
 import { dbRepository } from './db/repository';
 import { warmUpPowerShell, shutdownPowerShellWorker } from './os/psWorker';
 
@@ -61,6 +62,7 @@ const health = (_req: express.Request, res: express.Response) => {
 app.get('/api/health', health);
 app.get('/health', health); // legacy alias
 app.use('/api/db', dbRouter);
+app.use('/api/update-settings', updateSettingsRouter);
 
 if (ENABLE_WEB_AUTOMATION) {
     app.use('/api/web', webRouter);

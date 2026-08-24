@@ -1,6 +1,6 @@
 Option Explicit
 
-Dim shell, fso, scriptDir, motorPath, viteLauncher, command, windowStyle
+Dim shell, fso, scriptDir, motorPath, viteLauncher, command, windowStyle, updaterPath, updaterCommand
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -30,6 +30,13 @@ End If
 If Not fso.FileExists(motorPath) Then
     MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "Tender Control"
     WScript.Quit 1
+End If
+
+' Updates are optional. With no configured SharePoint folder this exits immediately.
+updaterPath = scriptDir & "\scripts\check-for-update.ps1"
+If fso.FileExists(updaterPath) Then
+    updaterCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File """ & updaterPath & """"
+    shell.Run updaterCommand, 0, True
 End If
 
 ' Launch the reliable batch engine directly. Do not delete or rename this pair:

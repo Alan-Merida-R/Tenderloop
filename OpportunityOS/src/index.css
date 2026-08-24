@@ -80,3 +80,50 @@
   font-display: swap;
   src: url('@fontsource/inter/files/inter-latin-700-normal.woff2') format('woff2');
 }
+
+/* Quick Organizer owns a scoped theme so its light default does not alter legacy app screens. */
+.qo-theme-light,
+.qo-theme-light.bg-gray-950 {
+  color-scheme: light;
+  background-color: #f4f6f5 !important;
+  color: #111827 !important;
+}
+.qo-theme-light .bg-gray-950 { background-color: #ffffff !important; }
+.qo-theme-light .bg-gray-900 { background-color: #ffffff !important; }
+.qo-theme-light .bg-gray-800 { background-color: #f3f4f6 !important; }
+.qo-theme-light .bg-gray-900\/70,
+.qo-theme-light .bg-gray-900\/60,
+.qo-theme-light .bg-gray-800\/60,
+.qo-theme-light .bg-gray-800\/50,
+.qo-theme-light .bg-gray-800\/40,
+.qo-theme-light .bg-gray-950\/60 { background-color: rgba(255,255,255,.9) !important; }
+.qo-theme-light .border-gray-800 { border-color: #e5e7eb !important; }
+.qo-theme-light .border-gray-700 { border-color: #d1d5db !important; }
+.qo-theme-light .border-gray-600 { border-color: #9ca3af !important; }
+.qo-theme-light .text-gray-100,
+.qo-theme-light .text-gray-200 { color: #111827 !important; }
+.qo-theme-light .text-gray-300 { color: #374151 !important; }
+.qo-theme-light .text-gray-400 { color: #4b5563 !important; }
+.qo-theme-light .text-gray-500 { color: #6b7280 !important; }
+.qo-theme-light input,
+.qo-theme-light textarea,
+.qo-theme-light select { color-scheme: light; }
+.qo-theme-light .bg-emerald-950\/30,
+.qo-theme-light .bg-emerald-950\/20 { background-color: #ecfdf3 !important; }
+.qo-theme-light .bg-amber-950\/30,
+.qo-theme-light .bg-amber-950\/40 { background-color: #fffbeb !important; }
+.qo-theme-light .bg-rose-950\/50 { background-color: #fff1f2 !important; }
+
+/* The PM dashboard is authored with accessible light surfaces; invert those surfaces when dark is selected. */
+.qo-theme-dark { color-scheme: dark; }
+.qo-theme-dark .bg-white { background-color: #111827 !important; }
+.qo-theme-dark .bg-gray-100 { background-color: #030712 !important; }
+.qo-theme-dark .bg-gray-50,
+.qo-theme-dark .bg-gray-50\/70 { background-color: #172033 !important; }
+.qo-theme-dark .border-gray-100,
+.qo-theme-dark .border-gray-200 { border-color: #374151 !important; }
+.qo-theme-dark .text-gray-900,
+.qo-theme-dark .text-gray-800 { color: #f9fafb !important; }
+.qo-theme-dark .text-gray-700 { color: #e5e7eb !important; }
+.qo-theme-dark .text-gray-600 { color: #d1d5db !important; }
+.qo-theme-dark .text-gray-500 { color: #9ca3af !important; }
