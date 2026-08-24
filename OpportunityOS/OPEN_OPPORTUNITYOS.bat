@@ -9,7 +9,7 @@ if exist "node_modules\.bin\vite.cmd" (
     exit /b %errorlevel%
 )
 
-echo OpportunityOS needs a first-time setup before it can open.
+echo Tender Control needs a first-time setup before it can open.
 echo A visible installer will run now. Keep this window open if an error appears.
 call "%~dp0engine_opportunityos.bat" INSTALL
 exit /b %errorlevel%

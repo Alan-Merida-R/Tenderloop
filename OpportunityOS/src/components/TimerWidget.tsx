@@ -62,8 +62,8 @@ export const TimerWidget = ({ onTaskClick, floating = false }: TimerWidgetProps)
 
     React.useEffect(() => {
         document.title = timerState.isRunning
-            ? `${pomodoroConfig.enabled ? `${phaseLabel} ${formatTime(phaseRemaining)}` : formatTime(displaySeconds)} · ${timerState.taskTitle || 'Timer'} | OpportunityOS`
-            : 'OpportunityOS';
+            ? `${pomodoroConfig.enabled ? `${phaseLabel} ${formatTime(phaseRemaining)}` : formatTime(displaySeconds)} · ${timerState.taskTitle || 'Timer'} | Tender Control`
+            : 'Tender Control';
     }, [displaySeconds, formatTime, phaseLabel, phaseRemaining, pomodoroConfig.enabled, timerState.isRunning, timerState.taskTitle]);
 
     const wasActiveRef = React.useRef(false);
@@ -147,7 +147,7 @@ const FloatingTimerPanel: React.FC<FloatingPanelProps> = props => {
             const response = await fetch('http://127.0.0.1:3099/api/os/timer-window-topmost', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: document.title, enabled: next }) });
             if (!response.ok) throw new Error();
             setAlwaysOnTop(next);
-        } catch { alert('Could not change the Windows always-on-top setting. Keep the OpportunityOS helper running.'); }
+        } catch { alert('Could not change the Windows always-on-top setting. Keep the Tender Control helper running.'); }
     };
 
     const compact = viewport.width < 480 || viewport.height < 220;

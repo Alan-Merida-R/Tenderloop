@@ -43,7 +43,7 @@ webRouter.post('/login', async (req: Request, res: Response) => {
         return res.json({
             ok: true,
             ...result,
-            message: 'Sign in in the window that just opened, then leave it open or close it — the session stays in the OpportunityOS profile.',
+            message: 'Sign in in the window that just opened, then leave it open or close it — the session stays in the Tender Control profile.',
         });
     } catch (err: any) {
         return res.status(500).json({ error: err.message });

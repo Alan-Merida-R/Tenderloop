@@ -71,9 +71,12 @@ const composeViaCom = async (payload: ComposeEmailPayload): Promise<void> => {
         `$m.CC = ${psSingleQuote(payload.cc.join('; '))}`,
         `$m.BCC = ${psSingleQuote(payload.bcc.join('; '))}`,
         `$m.Subject = ${psSingleQuote(payload.subject)}`,
-        `$m.HTMLBody = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(${psSingleQuote(htmlB64)}))`,
-        ...payload.attachments.map(p => `$null = $m.Attachments.Add(${psSingleQuote(p)})`),
+        // Display first so Outlook materializes the configured default signature.
         `$m.Display()`,
+        // Preserve Outlook's default signature and place the generated content above it.
+        `$body = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String(${psSingleQuote(htmlB64)}))`,
+        `$m.HTMLBody = $body + $m.HTMLBody`,
+        ...payload.attachments.map(p => `$null = $m.Attachments.Add(${psSingleQuote(p)})`),
         `Write-Output '${COM_OK_MARKER}'`,
     ];
     const out = await runPowerShell(lines.join('; '), 45000);

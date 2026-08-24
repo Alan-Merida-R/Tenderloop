@@ -1,9 +1,9 @@
-# OpportunityOS
+# Tender Control
 
 Aplicacion local para gestionar oportunidades de tendering: expedientes, tareas,
 notas, indicadores, calendario, documentos y reportes para responsables.
 
-OpportunityOS funciona en el equipo del usuario. Los datos de las oportunidades
+Tender Control funciona en el equipo del usuario. Los datos de las oportunidades
 se guardan en la base de datos local que el propio usuario crea o selecciona; no
 se incluyen datos de trabajo reales en este repositorio.
 

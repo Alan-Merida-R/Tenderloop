@@ -176,7 +176,7 @@ export const copyTemplateFromOsPath = async (
   try {
     resp = await fetch(`${OPEN_HELPER_URL}/copy-template?${qs}`);
   } catch {
-    throw new Error('Could not connect to the local helper (port 3099). Open OpportunityOS with OPEN_OPPORTUNITYOS.');
+    throw new Error('Could not connect to the local helper (port 3099). Open Tender Control with OPEN_OPPORTUNITYOS.');
   }
 
   const body = await resp.json().catch(() => ({}));
@@ -280,7 +280,7 @@ export const openAbsolutePath = async (absolute: string): Promise<void> => {
   } catch (err) {
     throw new Error(
       'Could not connect to the local helper (port 3099).\n' +
-      'Close OpportunityOS and reopen it with OPEN_OPPORTUNITYOS to start the helper.'
+      'Close Tender Control and reopen it with OPEN_OPPORTUNITYOS to start the helper.'
     );
   }
 
@@ -328,7 +328,7 @@ export const copyToOsClipboard = async (rootPathDisplay: string, relativePaths: 
   try {
     resp = await fetch(`${OPEN_HELPER_URL}/clipboard?${qs}`);
   } catch {
-    throw new Error('Could not connect to the local helper (port 3099). Open OpportunityOS with OPEN_OPPORTUNITYOS.');
+    throw new Error('Could not connect to the local helper (port 3099). Open Tender Control with OPEN_OPPORTUNITYOS.');
   }
   if (!resp.ok) {
     let msg = `Error ${resp.status}`;
@@ -337,6 +337,56 @@ export const copyToOsClipboard = async (rootPathDisplay: string, relativePaths: 
   }
   const body = await resp.json().catch(() => ({}));
   return body?.count || relativePaths.length;
+};
+
+export interface MoveResult {
+  moved: { source: string; target: string }[];
+  failed: { source: string; error: string }[];
+}
+
+/**
+ * Move files/folders on disk through the local helper (a real OS rename).
+ *
+ * The File System Access API has no move: the app had to copy the entry and then
+ * delete the original. When the delete half failed — locked file, OneDrive
+ * placeholder, a handle whose permission had quietly lapsed — the UI had already
+ * re-listed the destination, so the document appeared in its new folder while the
+ * bytes were still in the old one, and opening it failed with "does not exist".
+ * The helper renames and then verifies, so the result is never half-applied.
+ */
+/**
+ * Thrown when the helper itself could not be reached. Callers may retry a move
+ * through the browser only in this case — a helper that answered and REFUSED (a name
+ * collision, a locked file) has made a decision that must not be worked around, or
+ * the browser fallback would happily overwrite the file the helper protected.
+ */
+export class HelperUnreachableError extends Error {
+  readonly helperUnreachable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'HelperUnreachableError';
+  }
+}
+
+export const moveViaHelper = async (absoluteSources: string[], absoluteDestDir: string): Promise<MoveResult> => {
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources: absoluteSources, destDir: absoluteDestDir }),
+    });
+  } catch {
+    throw new HelperUnreachableError('Could not connect to the local helper (port 3099). Open Tender Control with OPEN_OPPORTUNITYOS.');
+  }
+  // A helper that predates this endpoint 404s on it; that is "unreachable" too.
+  if (resp.status === 404) throw new HelperUnreachableError('The local helper does not support moving files yet. Restart Tender Control with OPEN_OPPORTUNITYOS.');
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body?.error || `Move failed with error ${resp.status}`);
+  return {
+    moved: Array.isArray(body?.moved) ? body.moved : [],
+    failed: Array.isArray(body?.failed) ? body.failed : [],
+  };
 };
 
 /** Reveal (select) a file/folder in Windows Explorer. */
@@ -386,7 +436,7 @@ export const listDirByPath = async (rootPathDisplay: string, relativePath: strin
   try {
     resp = await fetch(`${OPEN_HELPER_URL}/list-dir?${qs}`);
   } catch {
-    throw new Error('Could not connect to the local helper (port 3099). Open OpportunityOS with OPEN_OPPORTUNITYOS.');
+    throw new Error('Could not connect to the local helper (port 3099). Open Tender Control with OPEN_OPPORTUNITYOS.');
   }
   if (!resp.ok) {
     let msg = `Error ${resp.status}`;
@@ -397,25 +447,85 @@ export const listDirByPath = async (rootPathDisplay: string, relativePath: strin
   return Array.isArray(body?.entries) ? body.entries : [];
 };
 
+const PATH_HINTS_KEY = 'TenderLoop_FolderPathHints_V1';
+const PATH_HINTS_MAX = 12;
+
+/**
+ * Remember an absolute folder path that resolved successfully.
+ *
+ * Opportunity folders cluster in a handful of parent directories, so the folder a
+ * user links next is almost always a sibling of one they linked before. Feeding
+ * those paths back to the helper as `near` hints turns a multi-second search into a
+ * couple of milliseconds — and, because every candidate still has to match on
+ * content, a stale hint can only cost time, never correctness.
+ */
+export const rememberFolderPathHint = (absolutePath: string): void => {
+  const clean = (absolutePath || '').trim();
+  if (!clean) return;
+  try {
+    const current = getFolderPathHints();
+    const next = [clean, ...current.filter(p => p.toLowerCase() !== clean.toLowerCase())].slice(0, PATH_HINTS_MAX);
+    localStorage.setItem(PATH_HINTS_KEY, JSON.stringify(next));
+  } catch { /* private mode / quota — hints are an optimisation, never a requirement */ }
+};
+
+/** Absolute folder paths that resolved recently, most recent first. */
+export const getFolderPathHints = (): string[] => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PATH_HINTS_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string' && !!p.trim()) : [];
+  } catch {
+    return [];
+  }
+};
+
 /**
  * Auto-resolve the absolute path of a just-linked folder WITHOUT asking the user
- * to type it — and WITHOUT writing anything into the folder. The folder's name
- * plus the names of a few entries inside it (as disambiguation hints) are sent
- * to the local helper, which resolves the path via the Windows Search index
- * (instant) or a prioritised scan. Returns the absolute path or null if the
- * helper is unavailable / the folder could not be located.
+ * to type it — and WITHOUT writing anything into the folder.
+ *
+ * What is sent is the folder's own name plus, for a handful of entries inside it,
+ * the NAME, SIZE and LAST-MODIFIED time. Size and mtime are what make the answer
+ * trustworthy: several opportunities can own a folder called "R0", but they will
+ * not also contain the same file at the same byte size and timestamp. The helper
+ * refuses to answer at all unless exactly one folder on disk matches, so a folder
+ * that cannot be identified reports "unknown" instead of silently resolving to
+ * somebody else's documents.
+ *
+ * `near` are absolute paths already known for this opportunity (or its other
+ * revisions). A new folder is nearly always a sibling of the previous one, so
+ * checking there first usually answers in a couple of milliseconds.
  */
-export const locateFolderPath = async (dirHandle: FileSystemDirectoryHandle): Promise<string | null> => {
-  const hints: string[] = [];
+export const locateFolderPath = async (
+  dirHandle: FileSystemDirectoryHandle,
+  near: string[] = [],
+): Promise<string | null> => {
+  const children: { name: string; kind: 'file' | 'directory'; size?: number; mtime?: number }[] = [];
   try {
     // @ts-ignore
     for await (const entry of dirHandle.values()) {
-      hints.push(entry.name);
-      if (hints.length >= 8) break;
+      const child: { name: string; kind: 'file' | 'directory'; size?: number; mtime?: number } = {
+        name: entry.name,
+        kind: entry.kind,
+      };
+      if (entry.kind === 'file') {
+        try {
+          const file = await (entry as FileSystemFileHandle).getFile();
+          child.size = file.size;
+          child.mtime = file.lastModified;
+        } catch { /* unreadable entry — the name alone still narrows the search */ }
+      }
+      children.push(child);
+      if (children.length >= 12) break;
     }
   } catch { /* unreadable — search by name alone */ }
 
-  const qs = new URLSearchParams({ name: dirHandle.name, hints: JSON.stringify(hints) }).toString();
+  const qs = new URLSearchParams({
+    name: dirHandle.name,
+    children: JSON.stringify(children),
+    near: JSON.stringify(near.filter(Boolean)),
+    // Older helpers only understand `hints`; keep them working.
+    hints: JSON.stringify(children.map(c => c.name)),
+  }).toString();
   const resp = await fetch(`${OPEN_HELPER_URL}/find-dir?${qs}`).catch(() => null);
   if (resp && resp.ok) {
     const body = await resp.json().catch(() => null);
@@ -440,16 +550,17 @@ export const locateFolderPathWithMarker = async (dirHandle: FileSystemDirectoryH
     await writable.close();
 
     const qs = new URLSearchParams({ marker, name: dirHandle.name }).toString();
-    // Windows Search indexes a newly-created marker asynchronously. The old
-    // one-shot request raced the index and incorrectly forced manual path entry.
-    // Keep the unique marker alive while retrying so a match is always exact.
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    // Windows Search indexes a newly-created marker asynchronously, so one shot
+    // races the index. Three quick attempts are enough now that locateFolderPath
+    // does the real work: this only runs when content matching already failed,
+    // and nine seconds of spinner was worse than reporting "not detected yet".
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
       if (resp && resp.ok) {
         const body = await resp.json().catch(() => null);
         if (body?.path) return body.path as string;
       }
-      if (attempt < 11) await new Promise(resolve => window.setTimeout(resolve, 750));
+      if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 600));
     }
     return null;
   } finally {

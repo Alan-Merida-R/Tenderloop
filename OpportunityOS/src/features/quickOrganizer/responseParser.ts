@@ -36,6 +36,13 @@ export interface ParsedDueDateRow {
     rationale: string;
 }
 
+export interface ParsedOpportunityAssessment {
+    id: string; oppId: string; oppLabel: string; health: number;
+    requiredHours: number; availableHours: number;
+    feasible: 'YES' | 'NO' | 'AT RISK'; suggestedDelivery: string;
+    reason: string; blocker: string; nextAction: string; summary: string;
+}
+
 export interface ParseError {
     section: 'SCHEDULE' | 'REMINDERS';
     line: string;
@@ -51,6 +58,7 @@ export interface ParseResult {
     deliveryInsights: string[];
     missingTaskInsights: string[];
     dueDateRows: ParsedDueDateRow[];
+    opportunityAssessments: ParsedOpportunityAssessment[];
     errors: ParseError[];
 }
 
@@ -203,10 +211,11 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
     const deliveryInsights: string[] = [];
     const missingTaskInsights: string[] = [];
     const dueDateRows: ParsedDueDateRow[] = [];
+    const opportunityAssessments: ParsedOpportunityAssessment[] = [];
     const errors: ParseError[] = [];
 
     const lines = unfoldCollapsedRows(text, index).split(/\r?\n/);
-    let section: 'RECOMMENDATIONS' | 'PARETO' | 'BLOCKERS' | 'DELIVERY' | 'MISSING_TASKS' | 'DUE_DATES' | 'SCHEDULE' | 'REMINDERS' | null = null;
+    let section: 'RECOMMENDATIONS' | 'PARETO' | 'BLOCKERS' | 'DELIVERY' | 'MISSING_TASKS' | 'DUE_DATES' | 'SCHEDULE' | 'REMINDERS' | 'OP_ASSESSMENT' | null = null;
 
     for (const raw of lines) {
         const line = raw.trim();
@@ -220,6 +229,7 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         if (/^(PROPOSED DUE DATES|DUE DATES|FECHAS LIMITE PROPUESTAS|FECHAS PROPUESTAS)\b/.test(heading)) { section = 'DUE_DATES'; continue; }
         if (/^(SCHEDULE|AGENDA|CRONOGRAMA)\b/.test(heading)) { section = 'SCHEDULE'; continue; }
         if (/^(REMINDERS|RECORDATORIOS)\b/.test(heading)) { section = 'REMINDERS'; continue; }
+        if (/^(OPPORTUNITY ASSESSMENT|OP ASSESSMENT|EVALUACION DE OPORTUNIDADES)\b/.test(heading)) { section = 'OP_ASSESSMENT'; continue; }
         if (!section) continue;
         if (section === 'RECOMMENDATIONS' || section === 'PARETO' || section === 'BLOCKERS' || section === 'DELIVERY' || section === 'MISSING_TASKS') {
             if (!/^```/.test(line)) {
@@ -246,7 +256,20 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         // A line with no delimiter at all is stray prose (e.g. "Let me know if you want changes!"),
         // not a malformed row — skip it silently instead of reporting a confusing error.
         if (cells.length < 2) continue;
-        if (section === 'DUE_DATES') {
+        if (section === 'OP_ASSESSMENT') {
+            if (cells.length < 11) continue;
+            const [oppId, oppLabel, healthRaw, requiredRaw, availableRaw, feasibleRaw, suggestedRaw, reason, blocker, nextAction, summary] = cells;
+            const opp = opportunities.find(item => item.id === oppId.trim());
+            if (!opp) continue;
+            const health = Math.max(0, Math.min(100, Number(healthRaw.replace('%', ''))));
+            const requiredHours = Math.max(0, Number(requiredRaw.replace(/[^0-9.]/g, '')));
+            const availableHours = Math.max(0, Number(availableRaw.replace(/[^0-9.]/g, '')));
+            if (![health, requiredHours, availableHours].every(Number.isFinite)) continue;
+            const feasibility = feasibleRaw.trim().toUpperCase();
+            const feasible: ParsedOpportunityAssessment['feasible'] = /^(YES|SI|SÍ)$/.test(feasibility) ? 'YES' : feasibility === 'NO' ? 'NO' : 'AT RISK';
+            const suggestedDelivery = normalizeDate(suggestedRaw);
+            opportunityAssessments.push({ id: nextId(), oppId: opp.id, oppLabel: opp.alias || opp.title || oppLabel, health, requiredHours, availableHours, feasible, suggestedDelivery: isDateValid(suggestedDelivery) ? suggestedDelivery : '', reason, blocker, nextAction, summary });
+        } else if (section === 'DUE_DATES') {
             if (cells.length < 4) { errors.push({ section: 'SCHEDULE', line, reason: 'Expected Key, Task, DueDate and Rationale.' }); continue; }
             const compactRow = cells.length === 4;
             const [key, oppLabel, taskLabel, rawDueDate, rationale = ''] = compactRow
@@ -336,5 +359,5 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         }
     }
 
-    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, errors };
+    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunityAssessments, errors };
 };

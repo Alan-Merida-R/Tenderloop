@@ -62,7 +62,7 @@ const launchContext = async (headless: boolean): Promise<BrowserContext> => {
     } catch (err: any) {
         const message = String(err?.message || err);
         if (/ProcessSingleton|profile appears to be in use|SingletonLock/i.test(message)) {
-            throw new Error('The OpportunityOS browser profile is already open in another window. Close it and try again.');
+            throw new Error('The Tender Control browser profile is already open in another window. Close it and try again.');
         }
         throw err;
     }

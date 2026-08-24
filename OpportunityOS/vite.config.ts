@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
           registerType: 'autoUpdate',
           manifest: {
             id: '/',
-            name: 'OpportunityOS',
-            short_name: 'OpportunityOS',
-            description: 'Local-first opportunity manager for Schneider Electric',
+            name: 'Tender Control',
+            short_name: 'Tender Control',
+            description: 'Local-first tender management for Schneider Electric',
             start_url: '/',
             scope: '/',
             display: 'standalone',

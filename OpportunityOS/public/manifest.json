@@ -1,7 +1,7 @@
 {
-  "name": "OpportunityOS",
-  "short_name": "OpportunityOS",
-  "description": "Local-first opportunity manager for Schneider Electric",
+  "name": "Tender Control",
+  "short_name": "Tender Control",
+  "description": "Local-first tender management for Schneider Electric",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -28,7 +28,7 @@
     {
       "name": "Dashboard",
       "url": "/",
-      "description": "Open OpportunityOS dashboard"
+      "description": "Open Tender Control dashboard"
     }
   ]
 }

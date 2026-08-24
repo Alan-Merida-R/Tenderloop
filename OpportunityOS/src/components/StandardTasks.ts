@@ -7,7 +7,7 @@ import { Task } from '../types';
 export const STANDARD_TASKS: Partial<Task>[] = [
     {
         id: "26b5fe04-646c-47e0-9852-02ef457e7fb0",
-        title: "Set up Tender Loop",
+        title: "Set up Tender Control",
         description: "",
         status: "Pending",
         priority: "Medium",

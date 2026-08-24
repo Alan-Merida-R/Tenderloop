@@ -43,6 +43,8 @@ export interface ComposeManualFields {
   historyEntryId?: string;
   /** Meeting Recap: agreements, one per line. */
   agreements?: string;
+  /** Meeting Recap: free-form description of what happens next. */
+  nextStepNote?: string;
   /** Meeting Recap: ISO date of the meeting (defaults to today). */
   meetingDate?: string;
   /** Meeting Recap: ISO date of the next meeting, if scheduled. */
@@ -192,8 +194,8 @@ const daysLate = (dueDate: string): number => {
   return Math.max(0, Math.floor((Date.now() - due.getTime()) / 86400000));
 };
 
-const LIST_STYLE = 'style="margin:0 0 10px 0;padding-left:20px;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222"';
-const P_STYLE = 'style="margin:0 0 10px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222"';
+const LIST_STYLE = 'style="margin:0 0 10px 0;padding-left:20px;font-family:Arial,sans-serif;font-size:12pt;color:#222"';
+const P_STYLE = 'style="margin:0 0 10px 0;font-family:Arial,sans-serif;font-size:12pt;color:#222"';
 
 const taskLine = (t: Task, extra?: string): string => {
   const parts = [
@@ -359,15 +361,15 @@ export const resolveQuickLinkUrls = (links: Opportunity['links']): Record<string
 const commercialTableHtml = (opp: Opportunity): string => {
   const sections = opp.commercial?.customSections || [];
   if (!sections.length) return '';
-  const td = 'style="border:1px solid #d1d5db;padding:4px 10px;font-family:Calibri,Arial,sans-serif;font-size:10.5pt"';
-  const th = 'style="border:1px solid #d1d5db;padding:4px 10px;font-family:Calibri,Arial,sans-serif;font-size:10.5pt;background:#f3f4f6;text-align:left"';
+  const td = 'style="border:1px solid #d1d5db;padding:4px 10px;font-family:Arial,sans-serif;font-size:12pt"';
+  const th = 'style="border:1px solid #d1d5db;padding:4px 10px;font-family:Arial,sans-serif;font-size:12pt;background:#f3f4f6;text-align:left"';
   const rows = sections.map(s =>
     `<tr><td ${td}>${escapeHtml(s.name)}</td><td ${td} align="right">${fmtMoney(s.cost)}</td><td ${td} align="right">${fmtMoney(s.margin)}%</td><td ${td} align="right">${fmtMoney(s.sellPrice)}</td></tr>`
   ).join('');
   return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 0 10px 0"><tr><th ${th}>Section</th><th ${th}>Cost</th><th ${th}>Margin</th><th ${th}>Sell price</th></tr>${rows}</table>`;
 };
 
-const SUMMARY_H = 'style="margin:14px 0 4px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#3DCD58;font-weight:bold"';
+const SUMMARY_H = 'style="margin:14px 0 4px 0;font-family:Arial,sans-serif;font-size:12pt;color:#3DCD58;font-weight:bold"';
 
 /** Mirrors the "Copy Summary" executive summary (OpportunityDetail.generateExecutiveSummary), formatted as HTML for email. */
 const buildExecutiveSummaryHtml = (opp: Opportunity, paCost: string): string => {
@@ -506,10 +508,10 @@ export const buildEmailContext = (
   const paCost = manual.paCost || (typeof opp.commercial?.paCost === 'number' ? fmtMoney(opp.commercial.paCost) : '');
   const revisionType = manual.revisionType || 'draft';
   const revisionNotice = revisionType === 'final'
-    ? "This is the <b>FINAL</b> revision. Unless there are further changes, we will proceed to close the SR."
+    ? "This is the <b>FINAL</b> revision. Unless there are further changes, I will proceed to close the SR."
     : "This is a <b>DRAFT</b> revision — I would appreciate your comments and feedback.";
   const approvalQuestionsBlock = revisionType === 'draft' && manual.approvalQuestions?.trim()
-    ? `<div style="margin:12px 0;padding:10px 12px;border-left:4px solid #3DCD58;background:#f0fdf4;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222"><p style="margin:0 0 5px 0;font-weight:bold;color:#278a3b">Questions / important notes for the team</p><div>${nl2br(manual.approvalQuestions.trim())}</div></div>`
+    ? `<div style="margin:12px 0;padding:10px 12px;border-left:4px solid #3DCD58;background:#f0fdf4;font-family:Arial,sans-serif;font-size:12pt;color:#222"><p style="margin:0 0 5px 0;font-weight:bold;color:#278a3b">Questions / important notes for the team</p><div>${nl2br(manual.approvalQuestions.trim())}</div></div>`
     : '';
   const priceApprovalBlock = manual.includePriceApproval
     ? `<p ${SUMMARY_H}>Price Approval — @${escapeHtml(manual.sellerName || 'CSE/Seller')}</p>${buildExecutiveSummaryHtml(opp, paCost)}`
@@ -558,7 +560,7 @@ export const buildEmailContext = (
   let requestOpening = '';
   if (kind === 'info_request') {
     requestOpening = stage === 'first'
-      ? `To keep ${full} moving, could you please help us with ${itemsInline}${items.length > 1 ? ':' : '?'}`
+      ? `To keep ${full} moving, could you please help me with ${itemsInline}${items.length > 1 ? ':' : '?'}`
       : `Just checking in on ${items.length === 1 ? itemsInline : 'the information'} I requested${onDate} for ${full} — could you share a quick status update?`;
   } else if (kind === 'task_assignment') {
     const taskRef = task?.title ? `<b>${escapeHtml(task.title)}</b>` : 'the item below';
@@ -612,12 +614,12 @@ export const buildEmailContext = (
         : `Could you ${kind === 'task_assignment' ? 'let me know when you would be able to have it ready' : 'please share it when you have a chance'}? Thank you in advance!`;
     } else {
       requestClosing = dueB
-        ? `We'd need it by ${dueB} to stay on schedule — thanks so much for your help!`
+        ? `I'd need it by ${dueB} to stay on schedule — thanks so much for your help!`
         : `Thanks so much for your help!`;
     }
   } else if (kind === 'reminder') {
     requestClosing = dueB
-      ? `We'd need these by ${dueB} to stay on schedule — thanks so much for your help!`
+      ? `I'd need these by ${dueB} to stay on schedule — thanks so much for your help!`
       : `Thanks so much for your help!`;
   } else if (kind === 'price_approval') {
     const priceMode = manual.priceMode || 'approve';
@@ -625,13 +627,13 @@ export const buildEmailContext = (
       requestClosing = `Please confirm whether this price stands, or advise the adjustment you consider appropriate, ${dueB ? `by ${dueB}` : 'at your earliest convenience'}.`;
     } else {
       requestClosing = stage === 'first'
-        ? `Kindly confirm your approval ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so we can proceed with the submission.`
-        : `Kindly advise ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so we can proceed with the submission.`;
+        ? `Kindly confirm your approval ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so I can proceed with the submission.`
+        : `Kindly advise ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so I can proceed with the submission.`;
     }
   } else if (kind === 'proposal_approval') {
     requestClosing = stage === 'first'
-      ? (dueB ? `I would appreciate your comments by ${dueB}; otherwise we will proceed as presented.` : `I would appreciate your comments at your earliest convenience.`)
-      : `Kindly share your comments ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so we can move forward.`;
+      ? (dueB ? `I would appreciate your comments by ${dueB}; otherwise I will proceed as presented.` : `I would appreciate your comments at your earliest convenience.`)
+      : `Kindly share your comments ${dueB ? `by ${dueB}` : 'at your earliest convenience'} so I can move forward.`;
   } else if (kind === 'change_revision') {
     requestClosing = correctionTask?.owner === 'Me'
       ? `I will complete the corrective task${dueB ? ` by ${dueB}` : ''} and then send the revised deliverable back for explicit approval.`
@@ -673,7 +675,7 @@ export const buildEmailContext = (
   const expectedF = fmtFriendlyDate(opp.dates?.expected);
   const expectedDateLine = on('expectedDate') && expectedF
     ? (kind === 'reminder'
-        ? `To stay on schedule, we're aiming to close everything by <b>${escapeHtml(expectedF)}</b>.`
+        ? `To stay on schedule, I'm aiming to close everything by <b>${escapeHtml(expectedF)}</b>.`
         : `Expected delivery of this opportunity: <b>${escapeHtml(expectedF)}</b>.`)
     : '';
 
@@ -690,8 +692,12 @@ export const buildEmailContext = (
     ? `<ul ${LIST_STYLE}>${recapTasks.map(t => {
         const owner = t.responsible ? ` — ${escapeHtml(t.responsible)}` : '';
         const due = t.responsibleDueDate || t.dueDate;
-        return `<li><b>${escapeHtml(t.title)}</b>${owner}${due ? ` — due <b>${escapeHtml(fmtFriendlyDate(due))}</b>` : ''}</li>`;
+        const description = t.description?.trim() ? `<br/><span>${nl2br(t.description.trim())}</span>` : '';
+        return `<li><b>${escapeHtml(t.title)}</b>${owner}${due ? ` — due <b>${escapeHtml(fmtFriendlyDate(due))}</b>` : ''}${description}</li>`;
       }).join('')}</ul>`
+    : '';
+  const nextStepNote = on('nextSteps') && manual.nextStepNote?.trim()
+    ? `<p ${P_STYLE}>${nl2br(manual.nextStepNote.trim())}</p>`
     : '';
   const nextMeetingLine = on('nextMeeting') && manual.nextMeetingDate
     ? `Next meeting: <b>${escapeHtml(fmtFriendlyDate(manual.nextMeetingDate))}</b>.`
@@ -700,7 +706,6 @@ export const buildEmailContext = (
   // Proposal approval meta line (revision / version / needed-by).
   const proposalMetaBlock = on('meta')
     ? `<p ${P_STYLE}><b>Revision:</b> ${escapeHtml(opp.revision || '-')}` +
-      (lastVersion ? `<br/><b>Version:</b> ${escapeHtml(`${lastVersion.commitMessage || lastVersion.srId || ''} (${(lastVersion.createdAt || '').slice(0, 10)})`)}` : '') +
       (dueF ? `<br/><b>Needed by:</b> ${escapeHtml(dueF)}` : (opp.dates?.requested ? `<br/><b>Required date:</b> ${escapeHtml(opp.dates.requested)}` : '')) +
       `</p>`
     : '';
@@ -815,6 +820,7 @@ export const buildEmailContext = (
     recapIntro,
     agreementsList,
     nextStepsList,
+    nextStepNote,
     nextMeetingLine,
   };
   return ctx;

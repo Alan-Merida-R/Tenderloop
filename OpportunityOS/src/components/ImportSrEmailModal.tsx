@@ -116,7 +116,7 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
     const filledCount = prefill ? visibleFields.filter(f => (prefill[f.key] || '').toString().trim()).length : 0;
 
     return (
-        <div className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={handleClose}>
+        <div className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
             <div className="bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50 shrink-0">

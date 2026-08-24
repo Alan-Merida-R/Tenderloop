@@ -1,4 +1,4 @@
-# Manual de instalación — OpportunityOS
+# Manual de instalación — Tender Control
 
 Guía para ejecutar el proyecto en una PC nueva desde el ZIP.
 
@@ -74,10 +74,10 @@ OPEN_OPPORTUNITYOS.vbs
 
 Lo que verás:
 
-1. Se prepara el motor local de OpportunityOS (puerto 3000).
+1. Se prepara el motor local de Tender Control (puerto 3000).
 2. El texto `[INFO] Instalando paquetes por primera vez, puede tardar varios minutos…` aparece y empieza a bajar dependencias (≈ 3-10 min según la red).
 3. Cuando termina, sale `[OK] Servidor iniciando…` y **se abre el navegador** solo, en una ventana tipo "aplicación".
-4. OpportunityOS mantiene un motor local mientras la aplicación está en uso.
+4. Tender Control mantiene un motor local mientras la aplicación está en uso.
    Para cerrarlo de forma segura utiliza `CLOSE_OPPORTUNITYOS.bat`.
 
 > **Si aparece "SmartScreen" de Windows** al hacer doble clic:
@@ -87,7 +87,7 @@ Lo que verás:
 
 ## 4. Configurar la base de datos (para que se guarden tus proyectos)
 
-OpportunityOS no usa una base de datos en la nube. Tus proyectos
+Tender Control no usa una base de datos en la nube. Tus proyectos
 (oportunidades, notas, tareas, KPIs y tiempos) viven en un archivo local que tú
 eliges dónde guardar. El servicio local solo facilita operaciones con esos
 archivos en tu propio equipo.
@@ -116,7 +116,7 @@ Si recibiste un `.json` de otra persona, o traes el tuyo de otra PC:
 
 ### 4.3 Del segundo arranque en adelante
 
-OpportunityOS recuerda el último archivo que abriste y vuelve a conectarse
+Tender Control recuerda el último archivo que abriste y vuelve a conectarse
 automáticamente. Solo puede pasar que el navegador pida confirmar el permiso
 otra vez (acepta y listo).
 
@@ -151,7 +151,7 @@ abrirá el instalador automáticamente. Si Windows bloquea archivos VBS, usa
 `OPEN_OPPORTUNITYOS.bat`.
 Como ya están instaladas las dependencias, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
 
-> **Si OpportunityOS ya está abierto**, volver a hacer doble clic **no** abre una
+> **Si Tender Control ya está abierto**, volver a hacer doble clic **no** abre una
 > segunda ventana: trae al frente la que ya tienes (o la minimiza si ya estaba
 > al frente). Puedes usarlo como un interruptor de mostrar/ocultar.
 
@@ -181,9 +181,9 @@ Puedes tener Loop y Flow abiertos al mismo tiempo — cada uno usa su propio pue
 
 ---
 
-## 8. Desinstalar OpportunityOS
+## 8. Desinstalar Tender Control
 
-Si intentas borrar la carpeta de OpportunityOS directamente desde el Explorador de Windows, probablemente te aparezca el error:
+Si intentas borrar la carpeta de Tender Control directamente desde el Explorador de Windows, probablemente te aparezca el error:
 
 > *"No se puede completar la acción porque el archivo está abierto en Node.js"*
 > *"La acción no se puede completar porque otro proceso está usando el archivo"*
@@ -192,10 +192,10 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 **Para desinstalar correctamente:**
 
-1. Doble clic en `DESINSTALAR_OPPORTUNITYOS.vbs` o usa **Uninstall OpportunityOS** desde el menú Inicio.
+1. Doble clic en `DESINSTALAR_OPPORTUNITYOS.vbs` o usa **Uninstall Tender Control** desde el menú Inicio.
 2. Confirma en la ventana visual.
 3. El desinstalador hará cuatro cosas:
-   - Cerrar los procesos locales de OpportunityOS en los puertos 3000 y 3099.
+   - Cerrar los procesos locales de Tender Control en los puertos 3000 y 3099.
    - Cerrar cualquier `node.exe` que esté ejecutándose desde **esta** carpeta (sin tocar otros Node que tengas para otras cosas).
    - Borrar `node_modules`, `dist` y `.vite` (lo más pesado y lo que bloquea la eliminación).
 4. Cuando termine, ya puedes borrar la carpeta completa desde el Explorador sin errores.
@@ -223,7 +223,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 | La app dice "No se pudo guardar el archivo" | El navegador perdió permisos sobre el `.json` | Recarga (F5) y vuelve a abrir la base; aprueba el permiso que pide el navegador |
 | Quiero reinstalar todo desde cero | Dependencias corruptas | Borra la carpeta `node_modules` y vuelve a doble clic en el `.vbs` |
 | Al vincular una carpeta pide la ruta a mano | Windows Search todavía no indexó la carpeta | Espera unos segundos y reintenta; la app ahora reintenta sola durante ~9 segundos antes de pedírtela |
-| "El perfil de navegador de OpportunityOS ya está abierto" | Quedó una ventana de automatización abierta | Ciérrala y vuelve a intentar; Windows solo permite un proceso por perfil |
+| "El perfil de navegador de Tender Control ya está abierto" | Quedó una ventana de automatización abierta | Ciérrala y vuelve a intentar; Windows solo permite un proceso por perfil |
 | Una lista de tareas o una nota "desapareció" | Está marcada como oculta | En Ajustes desmarca *Hide this list*, o abre la tira de **notas ocultas** en el expediente. Nada se borró |
 
 ---

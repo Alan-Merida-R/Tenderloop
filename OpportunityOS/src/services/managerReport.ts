@@ -8,7 +8,7 @@ export interface ManagerReport {
   kind: 'opportunityos-manager-report';
   tender: string;
   exportedAt: string;
-  source: { app: 'OpportunityOS'; databaseUpdatedAt?: string; opportunityCount: number };
+  source: { app: 'Tender Control'; databaseUpdatedAt?: string; opportunityCount: number };
   /** Question labels/sections so Manager Tool can render SOW notes read-only. Additive to schema v1. */
   sowFlow?: { questions: { key: string; label: string; section: string }[] };
   /**
@@ -63,7 +63,7 @@ export const buildManagerReport = (db: DatabaseSchema, tenderName?: string): Man
     tender: tenderName?.trim() || 'Unnamed tender',
     exportedAt: new Date().toISOString(),
     source: {
-      app: 'OpportunityOS',
+      app: 'Tender Control',
       databaseUpdatedAt: db.meta?.lastUpdated,
       opportunityCount: db.opportunities.length,
     },

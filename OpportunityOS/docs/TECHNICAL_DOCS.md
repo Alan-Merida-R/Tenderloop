@@ -1,6 +1,6 @@
-# Technical Documentation: OpportunityOS
+# Technical Documentation: Tender Control
 
-This document describes OpportunityOS. TenderFlow is an independent application
+This document describes Tender Control. TenderFlow is an independent application
 in `../TenderFlow`; its source code is not nested inside OpportunityOS.
 
 ---

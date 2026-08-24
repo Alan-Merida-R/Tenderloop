@@ -4,8 +4,8 @@
 
 | Aplicacion | Puerto | Entrada | Descripcion |
 | --- | --- | --- | --- |
-| OpportunityOS | 3000 | `OpportunityOS/src/index.tsx` | Gestion de oportunidades, expedientes, tareas y documentos. |
-| Servicio local OpportunityOS | 3099 | `OpportunityOS/server/index.ts` | Acceso controlado a archivos locales, Outlook y automatizacion web. |
+| Tender Control | 3000 | `OpportunityOS/src/index.tsx` | Gestion de oportunidades, expedientes, tareas y documentos. |
+| Servicio local Tender Control | 3099 | `OpportunityOS/server/index.ts` | Acceso controlado a archivos locales, Outlook y automatizacion web. |
 | TenderFlow | 3003 | `TenderFlow/src/index.tsx` | Checklists y flujos de decision ejecutivos. |
 | ManagerTool | N/A | `ManagerTool/index.html` | Consolidador local de reportes exportados. |
 

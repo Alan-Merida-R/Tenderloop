@@ -22,6 +22,9 @@ import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { ScheduleView } from '../features/schedule/ScheduleView';
 import { getLatestHistoryEntry } from '../services/historyUtils';
+import { readScopeGlance, formatScopeGlance } from '../services/scopeSummary';
+import type { ScopeGlance } from '../services/scopeSummary';
+import { ScopeCatalog, scopeOptionColor, scopeLabelKey } from './scopeCatalog';
 
 const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
 const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v1';
@@ -141,7 +144,7 @@ interface Props {
     onCreate: (stage?: ProcessStage) => void;
     onStageChange: (id: string, newStage: ProcessStage) => void;
     onDateChange: (id: string, type: 'expected' | 'dueDate', newDate: string) => void;
-    onOppUpdate: (updated: Opportunity) => void;
+    onOppUpdate: (updated: Opportunity, id?: string, immediate?: boolean) => void;
     onTaskUpdate: (oppId: string, taskId: string, updates: Partial<Task>) => void;
     holidays?: string[];
     globalLabels: OpportunityLabel[];
@@ -155,6 +158,8 @@ interface Props {
     onAddReminder?: (reminder: Omit<import('../types').Reminder, 'id' | 'createdAt'>) => void;
     /** Increment to force the Tasks view into the Agenda (schedule) mode — e.g. right after the Quick Organizer applies a plan. */
     agendaFocusNonce?: number;
+    /** Scope/Systems option lists, so a card can label the SOW answers it shows at a glance. */
+    scopeCatalog?: ScopeCatalog;
 }
 
 // Helper: Copy text to clipboard
@@ -171,6 +176,8 @@ const copyToClipboard = (text: string) => {
     }
 };
 
+const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], extras: [], hasAny: false };
+
 const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'opId', label: 'OP' },
     { key: 'alias', label: 'Alias', required: true },
@@ -180,11 +187,11 @@ const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'customer', label: 'Customer' },
     { key: 'nextStep', label: 'Next Step' },
     { key: 'lastHistoryEvent', label: 'Last History Event' },
-    { key: 'labels', label: 'Labels' },
     { key: 'quickNote', label: 'Quick Note' },
     { key: 'saveQuickNote', label: 'Save Quick Note' },
     { key: 'processStatus', label: 'Process Status' },
     { key: 'priority', label: 'Priority' },
+    { key: 'scope', label: 'Scope' },
     { key: 'expectedDate', label: 'Expected Date' },
     { key: 'taskProgress', label: 'Task Progress' },
 ] as const;
@@ -194,6 +201,9 @@ type ProposalCardFieldKey = typeof PROPOSAL_CARD_FIELD_OPTIONS[number]['key'];
 const PROPOSAL_CARD_FIELD_STORAGE_KEY = 'tl.proposalCard.visibleFields.v1';
 const PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY = 'tl.proposalCard.saveQuickNote.defaultOff.v1';
 const PROPOSAL_LAST_HISTORY_EVENT_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.lastHistoryEvent.defaultOn.v1';
+// Visible-field lists are persisted, so a field added later starts hidden for everyone who
+// already has a saved list. Same one-shot migration the two flags above use.
+const PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.scope.defaultOn.v1';
 const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['alias']);
 const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS
     .map(option => option.key)
@@ -304,11 +314,14 @@ const OpportunityCard = React.memo(({
     kanbanMiniNote,
     onNoteChange,
     onArchiveQuickNote,
+    quickNoteResetToken = 0,
+    scopeCatalog,
     cardFieldVisibility,
     translateStatus,
     alarms
 }: any) => {
     const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
+    const isMissingInformation = nextTask?.status === 'Missing Info';
     const isCardFieldVisible = useCallback((field: ProposalCardFieldKey) => cardFieldVisibility?.[field] !== false, [cardFieldVisibility]);
     const latestHistoryEvent = useMemo(() => getLatestHistoryEntry(opp.history), [opp.history]);
     const latestHistoryContent = latestHistoryEvent?.content || '';
@@ -319,6 +332,14 @@ const OpportunityCard = React.memo(({
         }
         return false;
     }, [nextTask]);
+
+    // Scope answers live inside the SOW note's JSON, so parsing them is not free — keep it
+    // behind the visibility flag and memoised against the notes that actually hold them.
+    const scopeGlance = useMemo(
+        () => (isCardFieldVisible('scope') ? readScopeGlance(opp.notes, scopeCatalog, opp.labels || []) : EMPTY_SCOPE_GLANCE),
+        [isCardFieldVisible, opp.notes, opp.labels, scopeCatalog],
+    );
+    const scopeGlanceText = useMemo(() => formatScopeGlance(scopeGlance), [scopeGlance]);
 
     const showFooter = isCardFieldVisible('expectedDate') || isCardFieldVisible('taskProgress');
 
@@ -371,11 +392,11 @@ const OpportunityCard = React.memo(({
                             e.stopPropagation();
                             onSelect(opp.id, { tab: 'tasks', taskId: nextTask.id });
                         }}
-                        className={`kanban-cursor-pointer mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isBlockedStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
+                        className={`kanban-cursor-pointer mt-1 flex items-start gap-1.5 p-2 rounded-lg border shadow-sm animate-in fade-in slide-in-from-top-1 cursor-pointer hover:brightness-95 transition-all ${isMissingInformation || isBlockedStale ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}
                         title="Open this task in expediente"
                     >
                         <div className="shrink-0 mt-0.5">
-                            {isBlockedStale
+                            {isMissingInformation || isBlockedStale
                                 ? <span title="Blocked >48h">⚠️</span>
                                 : <Zap className="w-3 h-3 text-blue-500 fill-blue-500" />}
                         </div>
@@ -401,13 +422,16 @@ const OpportunityCard = React.memo(({
                     </div>
                 )}
 
-                {isCardFieldVisible('labels') && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                        {(opp.labels || []).map((l: any) => (
-                            <div key={l.id} className="text-[9px] px-1.5 py-0.5 rounded font-bold text-white shadow-sm" style={{ backgroundColor: l.color }}>
-                                {l.text}
-                            </div>
-                        ))}
+                {/* Scope belongs directly under Next Step on proposal cards. Legacy labels
+                    are classified into their matching Scope/System option before rendering. */}
+                {isCardFieldVisible('scope') && scopeGlance.hasAny && (
+                    <div className="mt-1 flex flex-wrap items-center gap-1" title={scopeGlanceText}>
+                        {!!scopeGlance.scope.length && <span className="text-[8px] font-black leading-none text-emerald-700">SCOPE</span>}
+                        {scopeGlance.scope.map(label => <span key={`sc-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.scope.find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), 'scope') }}>{label}</span>)}
+                        {!!scopeGlance.systems.length && <span className="ml-0.5 text-[8px] font-black leading-none text-blue-700">SYSTEM</span>}
+                        {scopeGlance.systems.map(label => <span key={`sy-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.systems.flatMap(o => [o, ...(o.children || [])]).find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), scopeCatalog?.systems.some(o => scopeLabelKey(o.label) === scopeLabelKey(label)) ? 'systems' : 'submodule') }}>{label}</span>)}
+                        {!!scopeGlance.extras.length && <span className="ml-0.5 text-[8px] font-black leading-none text-slate-500">EXTRA</span>}
+                        {scopeGlance.extras.map(label => <span key={`ex-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.extras.find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), 'extra') }}>{label}</span>)}
                     </div>
                 )}
 
@@ -427,6 +451,9 @@ const OpportunityCard = React.memo(({
                 {isCardFieldVisible('quickNote') && (
                     <div className="mt-2 flex items-stretch gap-1.5" onClick={e => e.stopPropagation()}>
                         <OptimizedTextArea
+                            // Remounts once the note has been filed into History, which is the
+                            // only reliable way to clear a textarea that keeps its own draft.
+                            key={`quick-note-${quickNoteResetToken}`}
                             placeholder="Quick note..."
                             value={kanbanMiniNote}
                             onChange={(val) => onNoteChange(val, opp.id)}
@@ -490,6 +517,8 @@ const OpportunityCard = React.memo(({
     return prev.opp === next.opp
         && prev.kanbanMiniNote === next.kanbanMiniNote
         && prev.cardFieldVisibilityKey === next.cardFieldVisibilityKey
+        && prev.scopeCatalog === next.scopeCatalog
+        && prev.quickNoteResetToken === next.quickNoteResetToken
         && prev.alarms === next.alarms;
 });
 
@@ -612,9 +641,6 @@ const TaskCard = React.memo(({
             <div className="flex items-center gap-1 mb-1.5 flex-wrap">
                 {item.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200" title="Execution Order">#{item.order}</span>}
                 {item.opp.alias && <span className="bg-[#3DCD58] text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tight shadow-sm border border-[#2db64a]" title={item.opp.title}>{item.opp.alias}</span>}
-                {(item.opp.labels || []).map((l: OpportunityLabel) => (
-                    <div key={l.id} className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} title={l.text}></div>
-                ))}
                 {isTimerActive && (
                     <div className="flex items-center gap-1 text-[#3DCD58] animate-pulse">
                         <Clock className="w-2.5 h-2.5" />
@@ -1003,7 +1029,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0 }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0, scopeCatalog }) => {
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -1083,6 +1109,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const [draggedGeneralOppId, setDraggedGeneralOppId] = useState<string | null>(null);
     const [generalRankDropTargetId, setGeneralRankDropTargetId] = useState<string | null>(null);
     const quickNoteDraftsRef = useRef<Record<string, string>>({});
+    // Bumped when a quick note is filed into History; used as part of the textarea's key so
+    // it remounts empty. See handleArchiveQuickNote.
+    const [quickNoteResetTokens, setQuickNoteResetTokens] = useState<Record<string, number>>({});
     const [historySaveNotice, setHistorySaveNotice] = useState<string | null>(null);
     const historySaveNoticeTimeoutRef = useRef<number | null>(null);
     const customerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.customer).filter(Boolean))) as string[], [opportunities]);
@@ -1208,6 +1237,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (localStorage.getItem(PROPOSAL_LAST_HISTORY_EVENT_DEFAULT_ON_MIGRATION_KEY)) return;
         localStorage.setItem(PROPOSAL_LAST_HISTORY_EVENT_DEFAULT_ON_MIGRATION_KEY, '1');
         setProposalCardVisibleFields(prev => orderProposalCardFields([...prev, 'lastHistoryEvent']));
+    }, []);
+
+    useEffect(() => {
+        if (localStorage.getItem(PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY)) return;
+        localStorage.setItem(PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY, '1');
+        setProposalCardVisibleFields(prev => orderProposalCardFields([...prev, 'scope']));
     }, []);
 
     useEffect(() => () => {
@@ -1487,6 +1522,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         }
         return results;
     }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter]);
+
+    const filteredOpportunitySummary = useMemo(() => ({
+        filtered: filteredOpps.length,
+        total: opportunities.length,
+        active: filteredOpps.filter(opp => opp.statusLabel === 'In Progress').length,
+        onHold: filteredOpps.filter(opp => opp.statusLabel === 'On Hold').length,
+        amount: filteredOpps.reduce((sum, opp) => sum + getSellPrice(opp), 0),
+    }), [filteredOpps, opportunities.length]);
 
     // General view: keep proposals grouped by process status. Active groups show
     // oldest first; Completed and Canceled show the most recent arrivals first.
@@ -1948,6 +1991,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
     const handleArchiveQuickNote = useCallback((oppId: string) => {
         const opp = (opportunities || []).find(item => item.id === oppId);
+        // The draft ref holds what is on screen right now; `kanbanNote` only catches up on
+        // blur, and clicking Save is itself the blur, so the ref is the authoritative source.
         const content = (quickNoteDraftsRef.current[oppId] ?? opp?.kanbanNote ?? '').trim();
         if (!opp || !content) return;
 
@@ -1961,8 +2006,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 createdAt: new Date().toISOString(),
             }],
             lastUpdated: new Date().toISOString(),
-        });
+        }, undefined, true);
         quickNoteDraftsRef.current[oppId] = '';
+        // Force the textarea to remount: its internal draft does not follow a `value` that
+        // ends the render at the same '' it started at, which is why the note stayed visible.
+        setQuickNoteResetTokens(prev => ({ ...prev, [oppId]: (prev[oppId] || 0) + 1 }));
         setHistorySaveNotice('Quick note saved to history');
         if (historySaveNoticeTimeoutRef.current !== null) window.clearTimeout(historySaveNoticeTimeoutRef.current);
         historySaveNoticeTimeoutRef.current = window.setTimeout(() => setHistorySaveNotice(null), 2500);
@@ -2248,7 +2296,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 </td>;
             }
             case 'notes':
-                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><OptimizedInput value={opp.kanbanNote || ''} onChange={(val) => handleKanbanNoteChange(val, opp.id)} onDraftChange={(val) => handleKanbanNoteChange(val, opp.id, true)} className="w-full bg-transparent border-none p-0 text-xs text-gray-600 focus:ring-0" placeholder="Quick note..." /></td>;
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><OptimizedInput key={`quick-note-${quickNoteResetTokens[opp.id] || 0}`} value={opp.kanbanNote || ''} onChange={(val) => handleKanbanNoteChange(val, opp.id)} onDraftChange={(val) => handleKanbanNoteChange(val, opp.id, true)} className="w-full bg-transparent border-none p-0 text-xs text-gray-600 focus:ring-0" placeholder="Quick note..." /></td>;
             case 'saveNote':
                 return <td key={key} className="px-3 py-3 text-center"><button type="button" onClick={() => handleArchiveQuickNote(opp.id)} className="p-1.5 text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 transition-colors" title="Save quick note to history"><History className="w-3.5 h-3.5" /></button></td>;
             default:
@@ -2772,16 +2820,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 </table>
                             </div>
                             {/* Excel-style status bar: compact counters at the bottom of the grid */}
-                            <div className="shrink-0 flex items-center justify-end gap-4 border-t border-gray-200 bg-gray-50 px-4 py-1.5 text-[11px] text-gray-500">
-                                <span className="flex items-center gap-1">
-                                    Total OPs:
-                                    <span className="font-semibold text-gray-700 tabular-nums">{filteredOpps.length}</span>
-                                </span>
-                                <span className="h-3 w-px bg-gray-300" />
-                                <span className="flex items-center gap-1">
-                                    Active:
-                                    <span className="font-semibold text-gray-700 tabular-nums">{filteredOpps.filter(o => o.statusLabel === 'In Progress').length}</span>
-                                </span>
+                            <div className="shrink-0 flex min-h-8 items-center justify-center border-t border-gray-200 bg-slate-50/80 px-36 py-0.5 text-[10px] text-slate-400">
+                                <div className="relative left-16 flex flex-wrap items-center justify-center gap-y-1 divide-x divide-slate-300/60 font-medium">
+                                    <span className="px-2.5">Filtered <strong className="ml-1 font-semibold text-slate-700 tabular-nums">{filteredOpportunitySummary.filtered}</strong></span>
+                                    <span className="flex items-center gap-1 px-2.5"><span className="h-1 w-1 rounded-full bg-emerald-500/80" />Active <strong className="font-semibold text-slate-700 tabular-nums">{filteredOpportunitySummary.active}</strong></span>
+                                    <span className="flex items-center gap-1 px-2.5"><span className="h-1 w-1 rounded-full bg-amber-400/80" />On hold <strong className="font-semibold text-slate-700 tabular-nums">{filteredOpportunitySummary.onHold}</strong></span>
+                                    <span className="px-2.5">All OPs <strong className="ml-1 font-semibold text-slate-700 tabular-nums">{filteredOpportunitySummary.total}</strong></span>
+                                    <span className="px-2.5">Filtered value <strong className="ml-1 font-semibold text-slate-800 tabular-nums">${filteredOpportunitySummary.amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</strong></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2887,6 +2933,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     kanbanMiniNote={opp.kanbanNote || ''}
                                                     onNoteChange={handleKanbanNoteChange}
                                                     onArchiveQuickNote={handleArchiveQuickNote}
+                                                    quickNoteResetToken={quickNoteResetTokens[opp.id] || 0}
+                                                    scopeCatalog={scopeCatalog}
                                                     cardFieldVisibility={proposalCardFieldVisibility}
                                                     cardFieldVisibilityKey={proposalCardFieldVisibilityKey}
                                                     translateStatus={translateStatus}

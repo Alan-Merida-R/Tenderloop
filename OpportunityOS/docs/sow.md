@@ -39,14 +39,55 @@ Additionally, `SowFormEmbed` stores a browser backup under `tenderloop-sow-backu
 
 1. Base Data
 2. Commercial
-3. Technical Scope
-4. Hardware & Cabinets
+3. Technical Scope (includes the conditional **Installed Base** subsection: FERRET, CFA/MSA, Advantage returns, controllers)
+4. Hardware & Cabinets (owns every cabinet/panel question; section 5 keeps only the responsibility matrix)
 5. Services & Execution
 6. Tests & Site Activities
 7. Training
 8. Documentation & Deliverables
+9. Bid Strategy & Inputs (bid-desk checklist: RFP, T&Cs, pricing strategy, commercial route, bid status, timing, input files)
+
+Steps 1-8 and their questions live in the `FLOW_DATA` literal. Everything added afterwards lives in
+`EXTRA_FLOW_STEPS` / `EXTRA_FLOW_QUESTIONS`, two plain JSON literals declared right after it between
+the `FLOW_EXTRAS_BEGIN` / `FLOW_EXTRAS_END` markers. `SettingsModal.tsx` parses all three with
+regexes anchored on those markers to build the SOW Library, so keep them JSON-parsable and keep the
+markers where they are. `allFlowQuestions()` is the single accessor that merges them at runtime.
 
 Built-in questions use keys such as `flow_B001`, `flow_C001`, and `flow_T001`. Do not change an existing key casually: keys are used by saved answers, dependencies and synchronization.
+
+A flow question may deliberately reuse a classic field's key (`cabinets_included`, `included_scope`,
+`payment_milestones`): that is how a question moves into the guided flow without migrating data.
+`syncChangedKey()` keeps duplicate controls in lockstep and the Overview lists such an answer once.
+
+### Retired questions still used as logic sources
+
+`flow_T001` (systems) and `flow_B008` (opportunity type) are in `REMOVED_FLOW_QUESTIONS` — the
+Scope and System catalogs replaced them as the question the user answers. Dozens of built-in rules
+still name them, so `conditionAnswer()` special-cases both and answers them from
+`systemValues()` / `opportunityTypeValues()` instead of from a DOM element.
+
+## Scope / System / Notes-at-a-glance catalogs
+
+The three Base Data catalogs are user-editable in `Settings → Labels & Scope`. Their shape, the
+default lists and the sub-module key derivation live in `components/scopeCatalog.ts`, which the
+Scope quick view and `SettingsModal` import directly. The sandboxed iframe cannot import it, so
+`sowTemplate.html` keeps its own copy of the defaults and receives the live catalog over
+postMessage (`init` payload, plus `update-scope-catalog` when settings change) — keep the two
+default lists in step.
+
+| Catalog | Answer key | Sub-module key |
+| --- | --- | --- |
+| Scope | `scope_types` | — |
+| Systems | `sow_systems` | `triconex_products` for Triconex, otherwise `sysmod_<option id>` |
+| Notes at a glance | `quick_notes` | `qnmod_<option id>` |
+
+Answers are stored as **labels**, not ids, so they read correctly in the Overview and feed the
+label-based `includes` rules. Renaming an option therefore unticks it in existing SOWs.
+
+Legacy mirrors are written on every catalog edit and must stay: `platform_modicon/triconex/foxboro/other`
+still drive the 4A/4B/4C platform sections, and `opp_type` / `flow_B008` still drive the built-in
+opportunity-type branches. `migrateLegacyDuplicateFields()` seeds the catalogs from those keys the
+first time an older SOW is opened.
 
 ## Global Library vs. local customization
 
@@ -87,7 +128,30 @@ Supported operators are implemented in `evaluateLogic()` in `services/sowTemplat
 
 For multiple rules, use `{ "all": [...] }` or `{ "any": [...] }`.
 
-Platform modules use `.platform-section` with `data-platform`. Platform checkboxes are intentionally unselected by default. Selecting systems through `flow_T001` updates platform visibility; do not restore default checked states unless all platform modules should be visible on a blank SOW.
+Platform modules use `.platform-section` with `data-platform`. The `platform_*` checkboxes are now a
+hidden mirror of the System catalog (`#platformMirror`) and are intentionally unselected by default;
+`mirrorSystemsToPlatforms()` writes them. Do not restore default checked states unless all platform
+modules should be visible on a blank SOW.
+
+## Follow-up flags
+
+`flaggedQuestions` is one store for the whole document. Guided-flow questions carry their flag
+button inside `createQuestionCard()`; the classic sections get the same button injected into each
+field label by `decorateStaticFlags()`, which marks the box with `data-flag-box="<key>"`.
+`toggleFlag()` updates both representations and `body.flag-filtering` hides whatever is unflagged.
+Flags are keyed by answer key, so the Overview and the navigation panel need no special handling.
+
+## Typing performance
+
+Three things run per edit and each has its own cadence:
+
+- `save()` — 180 ms debounce, then `postMessage('save')` + `localStorage`.
+- `scheduleVisualUpdate()` — 260 ms debounce for `updateConditionalVisibility()` + Overview rerender.
+  `change` events and `focusout` call `flushVisualUpdate()` instead, so nothing lags behind a click.
+- `SowFormEmbed` keeps `lastFromIframeRef`: when the `content` prop comes back byte-identical to what
+  this iframe just saved, the `update-fields` echo is skipped. Without that guard, a save round-trip
+  wrote stale text back into the field being typed in and dropped characters. As a second line of
+  defence the iframe's `update-fields` handler never restores the key that currently has focus.
 
 ## Expedited field synchronization
 
@@ -97,7 +161,7 @@ Current linked values include:
 
 | SOW | Expediente |
 | --- | --- |
-| `flow_B004` Proposal due date | `dates.expected` |
+| `proposal_delivery` Expected proposal delivery | `dates.expected` (both directions) |
 | `site` / `flow_B007` | `customerAddress` |
 | Seller / CSE | `seller` |
 | Customer | `customer` |

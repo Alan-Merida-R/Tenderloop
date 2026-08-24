@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 /* Added Subtask to imports */
-import { Opportunity, Task, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent } from '../types';
+import { Opportunity, Task, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent, AlarmConfig } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, Maximize2, Minimize2, ChevronUp, ChevronDown, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitPullRequest, Database, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip, Bell } from 'lucide-react';
 import { SearchableSelect, DateTimePicker, SearchableOption } from './RemindersBell';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
@@ -11,6 +11,8 @@ import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
 import { SowFormEmbed } from './SowFormEmbed';
 import ScopeQuickViewModal from './ScopeQuickViewModal';
+import { ScopeCatalog, catalogContainsLabel, scopeLabelKey, scopeOptionColor } from './scopeCatalog';
+import { pickPrimarySowNote } from '../services/scopeSummary';
 import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { resolveEffectiveRootPath, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { getMeta, saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -35,6 +37,7 @@ import { sortHistoryEntriesNewestFirst } from '../services/historyUtils';
 import type { GeneratedEmailRecord, GeneratedEmailKind } from '../types';
 import { ChangeRevisionModal, type ChangeRevisionFormValue } from './ChangeRevisionModal';
 import { createChangeRevisionFiles, normalizeDocumentRevision } from '../services/changeRevisionFiles';
+import { PROCESS_SECTIONS } from '../services/processSections';
 
 const getTodayStr = () => new Date().toLocaleDateString('en-CA');
 
@@ -80,30 +83,6 @@ const formatNameList = (names: string[]): string => {
 const sowBackupKey = (opportunityId: string, noteId: string) => `tenderloop-sow-backup-${opportunityId}-${noteId}`;
 /** Pre-note-scoping key, still read once as a fallback for the primary SOW note. */
 const legacySowBackupKey = (opportunityId: string) => `tenderloop-sow-backup-${opportunityId}`;
-
-/**
- * The single SOW note an opportunity works against. Duplicates could be created before
- * `addSowNote` became idempotent (and a carried-over revision can bring another one), and a
- * plain `.find()` would silently bind the Overview Scope button to an empty leftover while the
- * user edits the filled one in Notes. Always prefer the SOW that actually holds answers, and
- * fall back to document order so the choice is stable.
- */
-const pickPrimarySowNote = (notes: MeetingNote[] | undefined): MeetingNote | null => {
-    const sowNotes = (notes || []).filter(note => note.format === 'sow');
-    if (sowNotes.length <= 1) return sowNotes[0] ?? null;
-    const weight = (note: MeetingNote) => {
-        try {
-            const parsed = JSON.parse(note.content || '');
-            return Object.keys(parsed?.fields || {}).filter(key => {
-                const v = parsed.fields[key];
-                return Array.isArray(v) ? v.length > 0 : typeof v === 'boolean' ? v : String(v ?? '').trim().length > 0;
-            }).length;
-        } catch {
-            return 0;
-        }
-    };
-    return sowNotes.reduce((best, note) => weight(note) > weight(best) ? note : best, sowNotes[0]);
-};
 
 /**
  * Sentinel returned by `resolveCompletionDate` when the "when did you finish this?" dialog was
@@ -195,11 +174,17 @@ interface Props {
     hiddenOpportunityHeaderFields?: import('./SettingsModal').OpportunityHeaderFieldKey[];
     hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
     opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
+    /** Expected-date thresholds and colors configured in Settings > Alarms. */
+    alarms?: AlarmConfig[];
+    /** Whether changing Expected opens the correction/schedule reason dialog. */
+    confirmExpectedDateChanges?: boolean;
     /** Global user name inserted in bracketed form when copying History for bFO. */
     userName?: string;
     /** Email composer settings from AppSettings.emailCompose (merged with defaults internally). */
     emailComposeSettings?: Partial<EmailComposeSettings> | null;
     globalSowForm?: { sections: any[]; questions: any[] };
+    /** Scope / System / Notes-at-a-glance option lists (Settings → Labels & Scope). */
+    scopeCatalog?: ScopeCatalog;
     onGlobalSowFormChange?: (form: { sections: any[]; questions: any[] }) => void;
 }
 
@@ -2453,12 +2438,19 @@ const DEFAULT_QUICK_LINKS = [
     { id: 'srLink', label: 'SRLink', locked: true, placeholder: 'SR / Support Request URL', aliases: ['srlink', 'sr link', 'sr', 'support request', 'support request link'] },
     { id: 'bfo', label: 'BFO', locked: true, placeholder: 'BFO / CRM URL', aliases: ['bfo', 'bfo link'] },
     { id: 'cqaLink', label: 'CQA', locked: true, placeholder: 'CQA 2.0 URL', aliases: ['cqa', 'cqa link', 'cqa 2.0', 'cqa 2.0 link'] },
-    { id: 'folder', label: 'Folder', locked: false, placeholder: 'Folder URL', aliases: ['folder', 'internalfolder', 'internal folder', 'officialfolder', 'official folder'] },
+    { id: 'folder', label: 'Sharepoint', locked: false, placeholder: 'Sharepoint URL', aliases: ['sharepoint', 'sharepoint link', 'folder', 'internalfolder', 'internal folder', 'officialfolder', 'official folder'] },
     { id: 'ba', label: 'BA', locked: false, placeholder: 'Basket / BA URL', aliases: ['ba', 'ba link', 'basket', 'basket link'] },
     { id: 'geet', label: 'GEET', locked: false, placeholder: 'GEET URL', aliases: ['geet', 'geet link'] },
 ] as const;
 
-// Icon palette offered for the unlocked default quick links (Folder, BA, GEET).
+/** Keeps user-configured system colors recognizable without using saturated dashboard tones. */
+const executiveSystemColor = (color?: string) => {
+    if (!color || !/^#[0-9a-f]{6}$/i.test(color)) return '#334155';
+    const channels = [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16));
+    return `rgb(${channels.map(channel => Math.round(channel * 0.55)).join(', ')})`;
+};
+
+// Icon palette offered for the unlocked default quick links (Sharepoint, BA, GEET).
 // `name` is what gets stored in opportunity.quickLinkIcons; all icons are already
 // imported at the top of this file.
 const QUICK_LINK_ICON_OPTIONS: { name: string; Icon: React.ComponentType<{ className?: string; title?: string }> }[] = [
@@ -2615,7 +2607,8 @@ const instantiateTaskStandard = (standard: TaskStandard, stage: Opportunity['sta
     return standard.tasks.map(task => ({
         id: idMap.get(task.id)!,
         title: task.title,
-        description: '',
+        description: task.description || '',
+        processSection: task.processSection,
         status: 'Pending',
         priority: task.priority || 'Medium',
         owner: task.owner || 'Me',
@@ -2740,11 +2733,9 @@ const RemindMeButton: React.FC<{
 
 type OpportunityDetailTab = 'overview' | 'commercial' | 'notes' | 'tasks' | 'history' | 'folder' | 'kpi' | 'emails';
 
-const isOpportunityDetailTabVisible = (tab: OpportunityDetailTab, hiddenSections: OpportunityDetailSectionKey[] = []) => {
+const isOpportunityDetailTabVisible = (tab: OpportunityDetailTab, hiddenSections: OpportunityDetailSectionKey[] = [], emailIntegrationEnabled = false) => {
     if (tab === 'overview') return true;
-    // 'emails' used to be gated behind the paused Outlook/Graph conversation connector
-    // (emailIntegrationEnabled). It's always visible now — it hosts the Outlook draft
-    // composer's Generated Emails list, which doesn't depend on that connector.
+    if (tab === 'emails' && !emailIntegrationEnabled) return false;
     return !hiddenSections.includes(tab as OpportunityDetailSectionKey);
 };
 
@@ -2761,14 +2752,14 @@ const renderOpportunityDetailTabIcon = (tab: OpportunityDetailTab) => {
     }
 };
 
-const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], taskStandards = [], holidays = [], trackedAreas = [], globalContacts = [], onGlobalContactsChange, onTrackedAreasChange, deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, sowSectionEnabled = false, stakeholdersSectionEnabled = false, commercialCqaLinkVisible = true, onHideCommercialCqaLink, onShowCommercialCqaLink, remindersEnabled = false, timerEnabled = true, onAddReminder, hiddenOpportunityHeaderFields = [], hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], userName = 'User', emailComposeSettings = null, globalSowForm = { sections: [], questions: [] }, onGlobalSowFormChange }) => {
+const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack, onUpdate: parentOnUpdate, onDelete, onSelectOpp, noteTemplates = [], taskStandards = [], holidays = [], trackedAreas = [], globalContacts = [], onGlobalContactsChange, onTrackedAreasChange, deepLink = undefined, globalLabels = [], onMinimize, onCloseTab, isSubView, emailIntegrationEnabled = false, sowSectionEnabled = false, stakeholdersSectionEnabled = false, commercialCqaLinkVisible = true, onHideCommercialCqaLink, onShowCommercialCqaLink, remindersEnabled = false, timerEnabled = true, onAddReminder, hiddenOpportunityHeaderFields = [], hiddenOpportunityDetailSections = [], opportunityDetailSectionOrder = [], alarms = [], confirmExpectedDateChanges = false, userName = 'User', emailComposeSettings = null, globalSowForm = { sections: [], questions: [] }, onGlobalSowFormChange, scopeCatalog }) => {
     const { getTimerState, confirmStop } = useTimerActions();
     const requestedTab = (deepLink?.tab || 'overview') as OpportunityDetailTab;
-    const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections) ? requestedTab : 'overview';
+    const initialTab = isOpportunityDetailTabVisible(requestedTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? requestedTab : 'overview';
     const [activeTab, setActiveTab] = useState<OpportunityDetailTab>(initialTab);
     const [isDeferring, setIsDeferring] = useState(false);
-    const isTabVisible = useCallback((tab: OpportunityDetailTab) => isOpportunityDetailTabVisible(tab, hiddenOpportunityDetailSections), [hiddenOpportunityDetailSections]);
-    const orderedDetailTabs = useMemo(() => normalizeOpportunityDetailSectionOrder(opportunityDetailSectionOrder).filter((tab) => isOpportunityDetailTabVisible(tab as OpportunityDetailTab, hiddenOpportunityDetailSections)) as OpportunityDetailTab[], [opportunityDetailSectionOrder, hiddenOpportunityDetailSections]);
+    const isTabVisible = useCallback((tab: OpportunityDetailTab) => isOpportunityDetailTabVisible(tab, hiddenOpportunityDetailSections, emailIntegrationEnabled), [hiddenOpportunityDetailSections, emailIntegrationEnabled]);
+    const orderedDetailTabs = useMemo(() => normalizeOpportunityDetailSectionOrder(opportunityDetailSectionOrder).filter((tab) => isOpportunityDetailTabVisible(tab as OpportunityDetailTab, hiddenOpportunityDetailSections, emailIntegrationEnabled)) as OpportunityDetailTab[], [opportunityDetailSectionOrder, hiddenOpportunityDetailSections, emailIntegrationEnabled]);
 
     useEffect(() => {
         if (!isTabVisible(activeTab)) {
@@ -2781,6 +2772,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showAddAreaModal, setShowAddAreaModal] = useState(false);
     const [localOpp, setLocalOpp] = useState<Opportunity>(() => migrateLegacyApprovalEvents(opportunity));
     const hiddenHeaderFields = useMemo(() => new Set(hiddenOpportunityHeaderFields), [hiddenOpportunityHeaderFields]);
+    const deliveryAlarm = useMemo(() => {
+        const expected = localOpp.dates?.expected;
+        if (!expected) return null;
+        const [year, month, day] = expected.split('-').map(Number);
+        if (!year || !month || !day) return null;
+        const due = new Date(year, month - 1, day);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const daysLeft = Math.round((due.getTime() - today.getTime()) / 86400000);
+        const alarm = [...alarms].sort((a, b) => a.daysThreshold - b.daysThreshold).find(item => daysLeft <= item.daysThreshold);
+        const label = daysLeft < 0 ? `${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} overdue` : daysLeft === 0 ? 'Due today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`;
+        return {
+            daysLeft,
+            label,
+            className: alarm?.backgroundColor ? '' : (alarm?.color || 'bg-gray-700 text-white'),
+            style: alarm?.backgroundColor ? { backgroundColor: alarm.backgroundColor, color: alarm.textColor || '#ffffff' } : undefined,
+        };
+    }, [localOpp.dates?.expected, alarms]);
 
     const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
     const isSnapshot = !!viewingVersionId;
@@ -2846,7 +2855,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     useEffect(() => {
         if (deepLink?.tab) {
             const nextTab = deepLink.tab as OpportunityDetailTab;
-            setActiveTabSafe(isOpportunityDetailTabVisible(nextTab, hiddenOpportunityDetailSections) ? nextTab : 'overview');
+            setActiveTabSafe(isOpportunityDetailTabVisible(nextTab, hiddenOpportunityDetailSections, emailIntegrationEnabled) ? nextTab : 'overview');
         }
     }, [deepLink?.tab, hiddenOpportunityDetailSections]);
 
@@ -2895,8 +2904,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const selectableStandards = useMemo(() => visibleTaskStandards(taskStandards), [taskStandards]);
     const hasHiddenStandards = taskStandards.some(standard => standard.hidden);
     const [showHiddenRevisionStandards, setShowHiddenRevisionStandards] = useState(false);
-    const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(selectableStandards.length === 1 ? selectableStandards[0].id : '');
-    const [newVersionData, setNewVersionData] = useState({ commitMessage: '', tags: '', srId: '' });
+    const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(selectableStandards[0]?.id || '');
+    const [newVersionData, setNewVersionData] = useState({ commitMessage: '', revisionReason: '', tags: '', srId: '' });
     const [showDiffModal, setShowDiffModal] = useState(false);
     const [diffCompareId, setDiffCompareId] = useState<string | null>(null);
     const [showCopyTasksModal, setShowCopyTasksModal] = useState(false);
@@ -2909,6 +2918,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         targetOppId?: string;
         initialDefaultUrls?: Record<DefaultQuickLinkId, string>;
         deleteCurrentOppAfterClose?: boolean;
+        baseOpportunity?: Opportunity;
     } | null>(null);
     const [showSrImport, setShowSrImport] = useState(false);
     const [versionSearchTerm, setVersionSearchTerm] = useState('');
@@ -2993,10 +3003,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             if (syncNoteTimeoutRef.current) window.clearTimeout(syncNoteTimeoutRef.current);
             if (viewingVersionIdRef.current) return; // LOCK: never save snapshot content
             const currentNote = localOppRef.current.notes.find(n => n.id === selectedNoteId);
+            // SOW notes are persisted directly by SowFormEmbed as serialized JSON. The generic
+            // rich-text buffer does not follow those edits and can still contain the JSON that
+            // was loaded before the Scope change. Flushing that stale buffer while leaving the
+            // opportunity overwrote the newly saved Scope — which is why only opportunities
+            // whose selected note was the SOW appeared to lose changes after closing.
+            if (!currentNote || currentNote.format === 'sow') return;
             const content = activeNoteHtmlRef.current;
 
             // Sync ONLY if content actually changed
-            if (currentNote && currentNote.content !== content) {
+            if (currentNote.content !== content) {
                 const updatedNotes = localOppRef.current.notes.map(n =>
                     n.id === selectedNoteId ? { ...n, content } : n
                 );
@@ -3096,9 +3112,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const lastNoteId = useRef<string | null>(null);
     useEffect(() => {
         // AUTO-SELECT: If no note is selected but we have notes, pick the first one (usually latest)
-        // This fixes the "empty editor" issue on old opportunities.
+        // This fixes the "empty editor" issue on old opportunities. It must pick from the same
+        // browsable set the list shows — auto-selecting a note the user cannot see (hidden, or a
+        // SOW while the SOW setting is off) would fight the effect that deselects it.
         if (!selectedNoteId && localOpp.notes.length > 0) {
-            setSelectedNoteIdSafe(localOpp.notes[0].id);
+            const firstBrowsable = localOpp.notes.find(n => !n.hidden && (sowSectionEnabled || n.format !== 'sow'));
+            if (firstBrowsable) setSelectedNoteIdSafe(firstBrowsable.id);
             return;
         }
 
@@ -3112,7 +3131,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             setActiveNoteHtml(n?.content || '');
             lastNoteId.current = selectedNoteId;
         }
-    }, [selectedNoteId]); // Note: We removed localOpp.notes from dependency to prevent typing wipe-out
+    }, [selectedNoteId, sowSectionEnabled]); // Note: We removed localOpp.notes from dependency to prevent typing wipe-out
 
     // STALE-EDITOR FIX: when the user LEAVES the notes tab, the cleanup above
     // flushes the typed content into localOpp.notes â€” but activeNoteHtml (the
@@ -3200,25 +3219,62 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [showLabelMenu, setShowLabelMenu] = useState(false);
     const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
 
+    /**
+     * Root folder path, resolved as soon as the expediente opens.
+     *
+     * Ctrl+Shift+E used to resolve it on every keypress, which meant an IndexedDB
+     * round trip (and, on a cold store, a shared-DB read) before Explorer was even
+     * asked to open — the delay the user felt. Resolving it once up front makes the
+     * shortcut fire immediately, and the ref keeps the listener from being torn down
+     * and re-registered every time the value changes.
+     */
+    const expedienteRootPathRef = useRef<string>('');
+    useEffect(() => {
+        let cancelled = false;
+        expedienteRootPathRef.current = '';
+        resolveEffectiveRootPath(opportunity.id, localOpp.revision)
+            .then(resolved => { if (!cancelled) expedienteRootPathRef.current = resolved || ''; })
+            .catch(() => { /* the shortcut falls back to resolving on demand */ });
+        return () => { cancelled = true; };
+    }, [opportunity.id, localOpp.revision, refreshKey]);
+
+    // Where the shortcut should point, kept in a ref so the listener below can stay
+    // registered for the lifetime of the expediente instead of being swapped out on
+    // every navigation — re-registration during a keypress is why the shortcut
+    // sometimes did nothing at all.
+    const shortcutTargetRef = useRef<{ activeTab: string; currentFolderPath: string[]; selectedFolderEntryPath: string[] | null; isSubView: boolean }>({
+        activeTab, currentFolderPath, selectedFolderEntryPath, isSubView: !!isSubView,
+    });
+    useEffect(() => {
+        shortcutTargetRef.current = { activeTab, currentFolderPath, selectedFolderEntryPath, isSubView: !!isSubView };
+    });
+
     // This component exists only while an expediente is open, which naturally scopes
     // the shortcut to expediente views. In Folder it follows the current selection or
     // directory; from every other section it opens the opportunity's root folder.
     useEffect(() => {
         const openExpedienteFolder = async (event: KeyboardEvent) => {
-            if (!(event.ctrlKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e')) return;
+            if (!event.ctrlKey || !event.shiftKey || event.altKey) return;
+            // `code` survives layouts and modifier combinations that rewrite `key`
+            // (AltGr maps, non-Latin layouts), which is why the shortcut worked only
+            // some of the time. `key` is still accepted so a remapped E also matches.
+            if (event.code !== 'KeyE' && event.key.toLowerCase() !== 'e') return;
+            const target = shortcutTargetRef.current;
             // A split-view expediente can remain mounted behind the full expediente
             // overlay. Only the visible/topmost expediente may consume the shortcut.
-            if (isSubView && document.querySelector('[data-opportunity-detail-overlay="true"]')) return;
+            if (target.isSubView && document.querySelector('[data-opportunity-detail-overlay="true"]')) return;
             event.preventDefault();
             event.stopPropagation();
             try {
-                const rootPath = await resolveEffectiveRootPath(opportunity.id, localOppRef.current.revision);
+                const rootPath = expedienteRootPathRef.current
+                    || await resolveEffectiveRootPath(opportunity.id, localOppRef.current.revision);
                 if (!rootPath) {
                     alert('This expediente does not have a saved folder path yet. Link its folder once from the Folder section.');
                     return;
                 }
-                const relativePath = activeTab === 'folder'
-                    ? (selectedFolderEntryPath || currentFolderPath)
+                expedienteRootPathRef.current = rootPath;
+                const relativePath = target.activeTab === 'folder'
+                    ? (target.selectedFolderEntryPath || target.currentFolderPath)
                     : [];
                 await openInNativeApp(rootPath, relativePath);
             } catch (error: any) {
@@ -3227,7 +3283,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         };
         window.addEventListener('keydown', openExpedienteFolder, true);
         return () => window.removeEventListener('keydown', openExpedienteFolder, true);
-    }, [opportunity.id, activeTab, currentFolderPath, selectedFolderEntryPath, isSubView]);
+    }, [opportunity.id]);
 
     useEffect(() => {
         const closeCurrentLayer = (e: KeyboardEvent) => {
@@ -3575,6 +3631,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             site: localOpp.customerAddress || '',
             objective: localOpp.description || '',
             proposal_type: localOpp.quoteType === 'Firm' ? 'Firm' : localOpp.quoteType || '',
+            // "Expected proposal delivery" in the SOW and Expected Date in the expediente are
+            // one date. The SOW pushes its edits back through sync-opportunity; this is the
+            // other half of that link, so a date changed in the header lands in the SOW too.
+            proposal_delivery: localOpp.dates?.expected || '',
             flow_B001: localOpp.id,
             flow_B002: localOpp.alias || '',
             flow_B003: localOpp.customer,
@@ -3756,7 +3816,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 customer: prefill.customer?.trim() || target.customer, seller: prefill.seller?.trim() || target.seller,
                 quoteType: prefill.quoteType || target.quoteType, statusLabel: 'In Progress', detailedStatus: 'Working on it', stage: '1. Intake', priority: 'Medium',
                 dates: { requested: requestedDate, expected: prefill.expectedDate || '', assigned: '' }, links: composeQuickLinks(initialDefaultUrls, []),
-                presentation: resetPresentationData(), history: [{ id: crypto.randomUUID(), date: today, content: 'Se me asigna el SR y empiezo a trabajar en él.', createdAt: new Date().toISOString() }],
+                presentation: resetPresentationData(), history: [{ id: crypto.randomUUID(), date: today, content: 'The SR is assigned to me and I start working on it.', createdAt: new Date().toISOString() }],
                 notes: [importNote], emails: target.emails || createEmptyEmailsData(), kpis: {
                     ...resetKPIData(target.kpis), ...(prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD) ? { proposalAmountUSD: prefill.proposalAmountUSD } : {}),
                     timeline: { ...resetKPIData(target.kpis).timeline, receivedAt: requestedDate }
@@ -3773,6 +3833,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 notes: JSON.parse(JSON.stringify(target.notes || [])),
                 defaultLinks: DEFAULT_QUICK_LINKS.map(link => ({ id: link.id, label: link.label, url: targetLinks.defaultUrls[link.id] || '' })).filter(link => !!link.url),
                 customLinks: JSON.parse(JSON.stringify(targetLinks.customLinks)), targetOppId: target.id, initialDefaultUrls, deleteCurrentOppAfterClose: true
+                , baseOpportunity: revised
             });
             setShowRevisionCarryoverModal(true);
             return;
@@ -3789,7 +3850,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const historyEntry: HistoryEntry = {
             id: crypto.randomUUID(),
             date: today,
-            content: 'Se me asigna el SR y empiezo a trabajar en él.',
+            content: 'The SR is assigned to me and I start working on it.',
             createdAt: new Date().toISOString(),
         };
         const requestedDate = prefill.requestedDate || localOpp.dates.requested;
@@ -4243,7 +4304,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const filteredNotes = useMemo(() => {
         const term = searchTerm.trim().toLowerCase();
         // Hidden notes keep their data but are not part of the browsable list (see setNoteHidden).
-        const visible = deferredNotes.filter(n => !n.hidden);
+        // Turning the SOW off in Settings hides the note itself, not just the "+ SOW" button —
+        // every answer stays in the opportunity and the Scope quick view still reads it.
+        const visible = deferredNotes.filter(n => !n.hidden && (sowSectionEnabled || n.format !== 'sow'));
         // Skip the expensive HTML strip + content scan when there's no search term.
         // On opportunities with 50+ heavy notes this was the dominant cost of the
         // Notes tab render and made tab navigation feel sticky.
@@ -4255,9 +4318,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             })
             : visible;
         return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [deferredNotes, searchTerm]);
+    }, [deferredNotes, searchTerm, sowSectionEnabled]);
 
-    const hiddenNotes = useMemo(() => (localOpp.notes || []).filter(n => n.hidden), [localOpp.notes]);
+    // A SOW switched off in Settings is not "hidden by the user", so it must not appear in the
+    // Hidden strip either — the only way back is turning the setting on again.
+    const hiddenNotes = useMemo(
+        () => (localOpp.notes || []).filter(n => n.hidden && (sowSectionEnabled || n.format !== 'sow')),
+        [localOpp.notes, sowSectionEnabled],
+    );
 
     const filteredTasks = useMemo(() => deferredTasks.filter(t => {
         const matchesText = t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||
@@ -4684,6 +4752,49 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const sowNote = useMemo(() => pickPrimarySowNote(localOpp.notes), [localOpp.notes]);
+    const headerTaskProgress = useMemo(() => {
+        const tasks = localOpp.tasks || [];
+        const done = tasks.filter(task => task.status === 'Done').length;
+        return { done, total: tasks.length, percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0 };
+    }, [localOpp.tasks]);
+    const headerSystems = useMemo(() => {
+        let sowSystems: string[] = [];
+        try {
+            const parsed = sowNote?.content ? JSON.parse(sowNote.content) : null;
+            sowSystems = Array.isArray(parsed?.fields?.sow_systems) ? parsed.fields.sow_systems.map(String) : [];
+        } catch { /* Legacy/non-JSON note: its opportunity labels remain the fallback. */ }
+        const systemKeys = new Set((scopeCatalog?.systems || []).map(option => scopeLabelKey(option.label)));
+        const legacySystems = (localOpp.labels || []).filter(label => systemKeys.has(scopeLabelKey(label.text))).map(label => label.text);
+        return Array.from(new Map([...sowSystems, ...legacySystems].filter(Boolean).map(label => [scopeLabelKey(label), label])).values());
+    }, [sowNote, localOpp.labels, scopeCatalog]);
+    const headerScopeSummary = useMemo(() => {
+        try {
+            const parsed = sowNote?.content ? JSON.parse(sowNote.content) : null;
+            const fields = parsed?.fields || {};
+            return String(fields.included_scope || fields.scope_summary || '').trim();
+        } catch { return ''; }
+    }, [sowNote]);
+    const headerScopeSelections = useMemo(() => {
+        try {
+            const parsed = sowNote?.content ? JSON.parse(sowNote.content) : null;
+            const fields = parsed?.fields || {};
+            const list = (value: unknown) => Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+            return {
+                scope: list(fields.scope_types),
+                extras: Array.from(new Map([
+                    ...list(fields.scope_extras),
+                    ...(localOpp.labels || []).filter(label => scopeCatalog ? !catalogContainsLabel(scopeCatalog, label.text) : true).map(label => label.text),
+                ].map(label => [scopeLabelKey(label), label])).values()),
+                modules: Object.entries(fields)
+                    .filter(([key, value]) => (/^(sysmod_|qnmod_)/.test(key) || key === 'triconex_products') && Array.isArray(value))
+                    .flatMap(([, value]) => list(value)),
+            };
+        } catch { return { scope: [] as string[], extras: [] as string[], modules: [] as string[] }; }
+    }, [sowNote, localOpp.labels, scopeCatalog]);
+    const systemOptions = useMemo(() => {
+        const configured = (scopeCatalog?.systems || []).map(option => option.label);
+        return Array.from(new Set([...configured, ...(globalLabels || []).map(label => label.text), ...headerSystems]));
+    }, [scopeCatalog, globalLabels, headerSystems]);
     const saveSowContent = useCallback((noteId: string, json: string) => {
         if (viewingVersionIdRef.current) return;
         const current = localOppRef.current;
@@ -4886,10 +4997,60 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const next = { ...base, fields: { ...(base.fields || {}), ...patch }, savedAt: new Date().toISOString() };
         const serialized = JSON.stringify(next);
         try { localStorage.setItem(sowBackupKey(current.id, latestSowNote.id), serialized); } catch { /* non-critical backup */ }
-        saveSowContent(latestSowNote.id, serialized);
+        // Scope is now the canonical replacement for the old card labels, but keep the legacy
+        // field synchronized for older searches/exports and upgraded databases. Commit the SOW
+        // and those compatibility labels as ONE opportunity update so navigation cannot persist
+        // one half and lose the other.
+        const savedSystems = Array.isArray(next.fields.sow_systems) ? next.fields.sow_systems.map(String) : [];
+        const savedExtras = Array.isArray(next.fields.scope_extras) ? next.fields.scope_extras.map(String) : [];
+        const compatibilityNames = Array.from(new Map([...savedSystems, ...savedExtras].filter(Boolean).map(name => [scopeLabelKey(name), name])).values());
+        const oldByKey = new Map((current.labels || []).map(label => [scopeLabelKey(label.text), label]));
+        const catalogOptions = [
+            ...(scopeCatalog?.systems || []).flatMap(option => [option, ...(option.children || [])]),
+            ...(scopeCatalog?.extras || []),
+        ];
+        const labels = compatibilityNames.map(text => {
+            const existing = oldByKey.get(scopeLabelKey(text));
+            const option = catalogOptions.find(candidate => scopeLabelKey(candidate.label) === scopeLabelKey(text));
+            const role = (scopeCatalog?.extras || []).includes(option as any) ? 'extra' : (scopeCatalog?.systems || []).includes(option as any) ? 'systems' : 'submodule';
+            return existing || { id: crypto.randomUUID(), text, color: scopeOptionColor(option, role) };
+        });
+        const updated: Opportunity = {
+            ...current,
+            labels,
+            notes: current.notes.map(note => note.id === latestSowNote.id ? { ...note, content: serialized } : note),
+            lastUpdated: new Date().toISOString(),
+        };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+    };
+
+    const updateHeaderSystems = (systems: string[]) => {
+        if (isSnapshot) return;
+        const current = localOppRef.current;
+        const oldByText = new Map((current.labels || []).map(label => [label.text, label]));
+        const labels = systems.map(text => oldByText.get(text) || { id: crypto.randomUUID(), text, color: '#334155' });
+        const updated = { ...current, labels, lastUpdated: new Date().toISOString() };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+        syncToParentNow(updated);
+        // When an SOW exists this makes the header, Scope quick view and SOW one answer.
+        // Without an SOW the legacy labels field safely retains the selection until one is created.
+        saveScopeFields({ sow_systems: systems, flow_T001: systems });
     };
 
     const deleteNote = (noteId: string) => {
+        // The SOW is the opportunity's scope record, not just a note: the Scope quick view, the
+        // expediente header and the manager report all read from it, and it is the one note whose
+        // answers cannot be retyped from memory. Deleting it removes it from the list only —
+        // every answer stays in the opportunity and comes back from the "Hidden" strip.
+        const note = localOppRef.current.notes.find(candidate => candidate.id === noteId);
+        if (note?.format === 'sow') {
+            if (!window.confirm('Remove the SOW from the notes list?\n\nEvery answer is kept. You can bring it back from the "Hidden" strip under the list.')) return;
+            setNoteHidden(noteId, true);
+            return;
+        }
         if (!window.confirm("Are you sure you want to delete this note and all its sub-notes?")) return;
         const idsToDelete = new Set<string>([noteId]);
         let changed = true;
@@ -4951,8 +5112,31 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     // Drag events can arrive before React commits state from dragstart.
     const draggedNoteIdRef = useRef<string | null>(null);
     const [teamPanelOpen, setTeamPanelOpen] = useState(false);
+    const [headerStakeholderPickerOpen, setHeaderStakeholderPickerOpen] = useState(false);
+    const [headerStakeholderSearch, setHeaderStakeholderSearch] = useState('');
     const [newContactModal, setNewContactModal] = useState<{ name: string; email: string; area: string } | null>(null);
     useEffect(() => { if (selectedNoteId) setTeamPanelOpen(false); }, [selectedNoteId]);
+    // STALE-EDITOR FIX (team panel): opening Stakeholders unmounts the note editor without
+    // changing activeTab or selectedNoteId, so neither the [selectedNoteId] loader nor the
+    // [activeTab] resync above ever runs. The typed html was flushed into the note on the way
+    // in, but activeNoteHtml still holds what was loaded when the note was first opened, and
+    // closing the panel remounts the editor from it — which read as "my notes weren't saved".
+    // Re-read the (already flushed) note whenever the panel closes.
+    useEffect(() => {
+        if (teamPanelOpen || activeTab !== 'notes' || !selectedNoteId) return;
+        const note = localOppRef.current.notes.find(candidate => candidate.id === selectedNoteId);
+        if (!note) return;
+        setActiveNoteHtml(note.content || '');
+        activeNoteHtmlRef.current = note.content || '';
+    }, [teamPanelOpen]);
+    // Switching the SOW off in Settings while its note is open would otherwise leave the form
+    // on screen even though the list no longer offers it. The auto-select effect then picks the
+    // first note the user can actually browse.
+    useEffect(() => {
+        if (sowSectionEnabled || !selectedNoteId) return;
+        const note = localOppRef.current.notes.find(candidate => candidate.id === selectedNoteId);
+        if (note?.format === 'sow') setSelectedNoteIdSafe(null);
+    }, [sowSectionEnabled, selectedNoteId]);
 
     // Friendlier typeahead for adding stakeholders from the global directory (replaces the plain <select>)
     const [directorySearch, setDirectorySearch] = useState('');
@@ -5154,6 +5338,18 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const requestExpectedDateChange = (next: string) => {
         const previous = localOppRef.current.dates.expected || '';
         if (next === previous) return;
+        if (!confirmExpectedDateChanges) {
+            const current = localOppRef.current;
+            const updated: Opportunity = {
+                ...current,
+                dates: { ...current.dates, expected: next },
+                lastUpdated: new Date().toISOString(),
+            };
+            localOppRef.current = updated;
+            setLocalOpp(updated);
+            syncToParentNow(updated);
+            return;
+        }
         setExpectedDateChange({ previous, next, kind: null, reason: '' });
     };
     const confirmExpectedDateChange = () => {
@@ -5578,6 +5774,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             id: reworkId,
             title: form.correctionTaskTitle,
             description: `${form.requiredChanges}\n\nReason: ${form.reason}`,
+            processSection: form.processSection,
             changeRequest: form.requiredChanges,
             changeReason: form.reason,
             changeRevisionId,
@@ -5840,6 +6037,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!task) return;
 
         const finalPatch: Partial<Task> = { ...patch };
+        // Keep quick status changes consistent with the full task editor. Missing
+        // Information is an external assignment and must immediately surface in
+        // the proposal card/general waiting indicators.
+        if (finalPatch.status === 'Missing Info') {
+            const hasAssignee = (task.responsibleTeamMemberIds || []).length > 0;
+            finalPatch.owner = 'External Area';
+            finalPatch.isAssignment = true;
+            if (hasAssignee && !task.responsibleRequestedDate) finalPatch.responsibleRequestedDate = getTodayStr();
+        }
         if (finalPatch.status === 'Done' && task.isAssignment) {
             const today = getTodayStr();
             if (task.status === 'Missing Info' && (task.approverTeamMemberIds || []).length > 0) {
@@ -5916,6 +6122,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     };
 
     const toggleTaskDoneDirect = (task: Task) => {
+        if (task.status === 'Approval') {
+            void approveTask(task.id);
+            return;
+        }
         applyTaskFieldsDirect(task.id, { status: task.status === 'Done' ? 'Pending' : 'Done' });
     };
 
@@ -7352,6 +7562,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             const term = versionSearchTerm.toLowerCase();
             sorted = sorted.filter(v => 
                 v.commitMessage.toLowerCase().includes(term) ||
+                (v.revisionReason || '').toLowerCase().includes(term) ||
                 v.srId.toLowerCase().includes(term) ||
                 v.tags.some(t => t.toLowerCase().includes(term)) ||
                 new Date(v.createdAt).toLocaleDateString().includes(term)
@@ -7370,6 +7581,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const handleCreateVersion = async () => {
         if (!newVersionData.commitMessage) return alert("Commit message is required");
+        if (!versionToRestore && !newVersionData.revisionReason.trim()) return alert("Explain why the new revision is being created.");
         if (!versionToRestore && selectableStandards.length !== 1 && taskStandards.length > 0 && !revisionTaskStandardId) {
             return alert("Select the task list for the new revision.");
         }
@@ -7389,6 +7601,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             opportunityId: localOpp.id,
             srId: finalSrIdForSnapshot,
             commitMessage: newVersionData.commitMessage,
+            revisionReason: versionToRestore ? undefined : newVersionData.revisionReason.trim(),
             tags: newVersionData.tags.split(',').map(t => t.trim()).filter(Boolean),
             createdAt: new Date().toISOString(),
             createdBy: 'User',
@@ -7476,13 +7689,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 notes: sourceNotes,
                 defaultLinks: sourceDefaultLinks,
                 customLinks: sourceCustomLinks
+                , baseOpportunity: resetOpp
             });
             setShowRevisionCarryoverModal(true);
             alert(`New clean version ${nextRev} created. Current progress saved.`);
         }
 
         setShowCreateVersionModal(false);
-        setNewVersionData({ commitMessage: '', tags: '', srId: '' });
+        setNewVersionData({ commitMessage: '', revisionReason: '', tags: '', srId: '' });
     };
 
     const handleApplyRevisionCarryover = (selection: { noteIds: string[]; defaultLinkIds: string[]; customLinkIds: string[] }) => {
@@ -7506,9 +7720,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }
 
         if (Object.keys(updates).length > 0) {
-            const baseOpportunity = revisionCarryoverSource.targetOppId
+            const baseOpportunity = revisionCarryoverSource.baseOpportunity || (revisionCarryoverSource.targetOppId
                 ? (opportunities || []).find(candidate => candidate.id === revisionCarryoverSource.targetOppId)
-                : localOpp;
+                : localOpp);
             if (!baseOpportunity) return;
             const updated = {
                 ...baseOpportunity,
@@ -7534,6 +7748,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // Reset modal data to encourage fresh commit message for the current work being saved
         setNewVersionData({ 
             commitMessage: `Backing up ${localOpp.revision} before restoring ${ver.snapshot.revision || 'snapshot'}`, 
+            revisionReason: '',
             tags: 'restore-backup', 
             srId: localOpp.srId || '' 
         });
@@ -7555,8 +7770,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
 
             {/* Main Content Area */}
-            <div className="flex flex-col shrink-0 bg-white relative z-20">
-                <div className="flex-none flex flex-col bg-white z-20 shrink-0">
+            <div className="flex max-h-[33vh] flex-col shrink-0 overflow-hidden bg-white relative z-20">
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-white z-20">
                     {isSnapshot && !isSubView && (
                         <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
                             <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Snapshot: {activeVersion?.commitMessage}</span>
@@ -7565,9 +7780,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     )}
 
                     <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50/50 shrink-0">
-                        <div className="w-full px-4">
-                            <div className="flex flex-col md:flex-row justify-between items-start mb-0.5 gap-2">
-                                <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative w-full px-4">
+                            <div className="flex items-start mb-0.5 gap-2 md:pr-[52%]">
+                                <div className="flex items-center gap-2 flex-wrap min-w-0">
                                     {!(isSubView && deepLink?.tab === 'tasks') && (
                                         <button
                                             onClick={(e) => {
@@ -7616,7 +7831,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">QLK:</span>
-                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-40 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
@@ -7626,15 +7841,15 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </>
                                     )}
+                                    {!isSubView && (
+                                        <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
+                                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
+                                            <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
+                                        </div>
+                                    )}
                                 </div>
-                                {!isSubView && (
-                                    <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
-                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                                        <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
-                                    </div>
-                                )}
                             </div>
-                            <div className="flex items-center gap-2 justify-end">
+                            <div className="flex items-center gap-2 justify-end md:absolute md:right-0 md:top-0">
                                 <div className="scale-90 origin-right flex items-center gap-2">
                                     {!isSubView && (
                                         <>
@@ -7713,6 +7928,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                         <span>â€¢</span>
                                                                                         <span>{new Date(v.createdAt).toLocaleString()}</span>
                                                                                     </div>
+                                                                                    {v.revisionReason && (
+                                                                                        <p className="mb-2 text-[10px] leading-relaxed text-gray-600">
+                                                                                            <span className="font-bold text-gray-500">Reason for next revision:</span> {v.revisionReason}
+                                                                                        </p>
+                                                                                    )}
                                                                                     <div className="flex flex-wrap gap-1 mb-2">
                                                                                         {v.tags.map(t => <span key={t} className="text-[8px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">{t}</span>)}
                                                                                     </div>
@@ -7773,111 +7993,136 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                             </div>
 
-                            <div className="flex flex-wrap md:flex-nowrap justify-between items-center gap-3 my-0.5 px-1">
+                            <div className="flex flex-wrap md:flex-nowrap justify-between items-start gap-4 my-0.5 px-1">
                                 <div data-tutorial="opp-title" className="flex-1 w-full md:w-auto min-w-[200px]">
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-lg font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <div className="flex items-center gap-2 w-full">
-                                        <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Customer" />
+                                    <div className="mt-0.5 grid w-full grid-cols-[minmax(110px,0.8fr)_minmax(240px,2.2fr)_minmax(110px,0.8fr)] items-end gap-3">
+                                        <label className="min-w-0 border-r border-slate-200 pr-3">
+                                            <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Customer</span>
+                                            <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="w-full min-w-0 truncate bg-transparent border-none focus:ring-0 p-0 text-xs font-semibold leading-tight text-slate-700 placeholder-gray-400" placeholder="Customer name" />
+                                        </label>
                                         {!hiddenHeaderFields.has('address') && (
-                                            <>
-                                                <span className="text-gray-300 text-xs">·</span>
-                                                <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Address" />
-                                            </>
+                                            <label className="min-w-0 border-r border-slate-200 pr-3">
+                                                <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Address</span>
+                                                <OptimizedInput disabled={isSnapshot} value={localOpp.customerAddress || ''} onChange={(val: string) => handleFieldChange('customerAddress', val)} className="w-full min-w-0 truncate bg-transparent border-none focus:ring-0 p-0 text-xs leading-tight text-slate-700 placeholder-gray-400" placeholder="Customer address" />
+                                            </label>
                                         )}
                                         {!hiddenHeaderFields.has('seller') && (
-                                            <>
-                                                <span className="text-gray-300 text-xs">·</span>
-                                                <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="text-xs text-gray-500 bg-transparent border-none focus:ring-0 p-0 leading-tight placeholder-gray-400 flex-1 min-w-0" placeholder="Seller" />
-                                            </>
+                                            <label className="min-w-0">
+                                                <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">CSE</span>
+                                                <OptimizedInput disabled={isSnapshot} value={localOpp.seller || ''} onChange={(val: string) => handleFieldChange('seller', val)} className="w-full min-w-0 truncate bg-transparent border-none focus:ring-0 p-0 text-xs font-semibold leading-tight text-slate-700 placeholder-gray-400" placeholder="CSE name" />
+                                            </label>
                                         )}
                                     </div>
 
                                     {nextTask && !hiddenHeaderFields.has('nextStep') ? (
-                                            <div
-                                                className="mt-1 inline-flex items-center gap-2 px-2.5 py-1 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-lg border border-blue-100 shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:shadow-md transition-shadow"
+                                            <button
+                                                type="button"
+                                                className="mt-1 flex w-full items-center gap-2 rounded-lg border border-blue-300 bg-blue-50/80 px-2.5 py-1.5 text-left shadow-sm animate-in fade-in slide-in-from-left-1 group/next cursor-pointer hover:border-blue-500 hover:bg-blue-50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400"
                                                 onClick={() => {
                                                     focusTaskInTasksList(nextTask.id);
                                                 }}
                                             >
-                                                <div className="bg-white p-1 rounded-lg shadow-sm border border-blue-100 animate-pulse-subtle">
-                                                    <Zap className="w-3.5 h-3.5 text-blue-600 fill-blue-500" />
+                                                <div className="rounded-md border border-blue-200 bg-white p-1 shadow-sm">
+                                                    <Zap className="h-3.5 w-3.5 text-blue-700" />
                                                 </div>
-                                                <div className="flex flex-col">
-                                                    <span className="text-[9px] font-black uppercase text-blue-500 tracking-wider">Next Step</span>
-                                                    <span className="text-xs font-bold leading-tight group-hover/next:text-indigo-800 transition-colors uppercase">{nextTask.title}</span>
+                                                <div className="flex min-w-0 flex-1 flex-col">
+                                                    <span className="text-[9px] font-bold uppercase tracking-[0.13em] text-blue-700">Next Step · Click to open</span>
+                                                    <span className="truncate text-xs font-bold leading-tight text-blue-950">{nextTask.title}</span>
                                                 </div>
-                                                <div className="ml-1 p-1.5 hover:bg-white hover:shadow-sm rounded-lg transition-all duration-200">
-                                                    <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover/next:text-blue-600" />
+                                                <div className="ml-1 rounded-md bg-blue-700 p-1 text-white transition-colors group-hover/next:bg-blue-800">
+                                                    <ExternalLink className="h-3 w-3" />
                                                 </div>
-                                            </div>
+                                            </button>
                                         ) : null}
 
-                                    {(!hiddenHeaderFields.has('quoteType') || !hiddenHeaderFields.has('labels')) && (
-                                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                                        {localOpp.quoteType && !hiddenHeaderFields.has('quoteType') && (
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight shadow-sm ${
-                                                localOpp.quoteType === 'Firm'
-                                                ? 'bg-[#3DCD58] text-white'
-                                                : 'bg-white text-gray-700 border border-gray-200'
-                                            }`}>
-                                                {localOpp.quoteType} Proposal
-                                            </span>
+                                    <div className="mt-1.5 flex flex-wrap items-stretch gap-1.5">
+                                        {!hiddenHeaderFields.has('quoteType') && (
+                                            <label className={`flex min-w-28 flex-1 flex-col rounded-lg border px-2.5 py-1 shadow-sm ${localOpp.quoteType === 'Firm' ? 'border-emerald-300 bg-emerald-50/70' : 'border-violet-300 bg-violet-50/70'}`}>
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">Offer type</span>
+                                                <select disabled={isSnapshot} value={localOpp.quoteType || 'Budgetary'} onChange={event => handleFieldChange('quoteType', event.target.value)} className="border-0 bg-transparent p-0 text-xs font-bold text-gray-900 focus:ring-0">
+                                                    <option value="Firm">Firm</option><option value="Budgetary">Budgetary</option>
+                                                </select>
+                                            </label>
                                         )}
+                                        <label className="flex min-w-40 flex-1 flex-col rounded-lg border border-emerald-200 bg-emerald-50/40 px-2.5 py-1 shadow-sm focus-within:border-emerald-500">
+                                            <span className="flex items-center justify-between gap-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Commercial amount<button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveTabSafe('commercial'); }} className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-black text-emerald-800 hover:bg-emerald-100" title="Open Commercial"><span>Open</span><ExternalLink className="h-2.5 w-2.5" /></button></span>
+                                            <span className="flex items-center text-xs font-bold text-gray-900"><DollarSign className="h-3 w-3 text-emerald-700" /><input disabled={isSnapshot} type="number" value={localOpp.commercial.cqaOfficialSellPrice || 0} onChange={event => updateOfficialSellPrice(Number(event.target.value) || 0)} className="w-32 border-0 bg-transparent p-0 font-bold focus:ring-0" /></span>
+                                        </label>
+                                        <div className="flex min-w-36 flex-1 flex-col rounded-lg border border-cyan-200 bg-cyan-50/50 px-2.5 py-1 shadow-sm" title={`${headerTaskProgress.done} of ${headerTaskProgress.total} tasks completed`}>
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-cyan-800">Task progress</span>
+                                            <div className="flex items-center gap-2"><span className="text-xs font-bold text-cyan-950">{headerTaskProgress.percent}%</span><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-cyan-200"><div className="h-full rounded-full bg-cyan-700 transition-all" style={{ width: `${headerTaskProgress.percent}%` }} /></div><span className="text-[9px] font-bold text-cyan-800">{headerTaskProgress.done}/{headerTaskProgress.total}</span></div>
+                                        </div>
                                         {!hiddenHeaderFields.has('labels') && (<>
-                                        {(localOpp.labels || []).map(l => (
-                                            <span key={l.id} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm hover:opacity-90 transition-opacity cursor-default" style={{ backgroundColor: l.color }}>
-                                                {l.text}
-                                                <button onClick={() => {
-                                                    const newLabels = (localOpp.labels || []).filter(item => item.id !== l.id);
-                                                    handleFieldChange('labels', newLabels);
-                                                }} className="hover:bg-black/20 rounded-full p-0.5 transition-colors"><X className="w-3 h-3" /></button>
-                                            </span>
-                                        ))}
-                                        <div className="relative">
-                                            <button
-                                                onClick={() => setShowLabelMenu(!showLabelMenu)}
-                                                className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-colors border border-dashed ${showLabelMenu ? 'bg-gray-200 text-gray-700 border-gray-300' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`}
-                                            >
-                                                <Plus className="w-3 h-3" /> Label
-                                            </button>
-
-                                            {showLabelMenu && (
-                                                <>
-                                                    <div className="fixed inset-0 z-[55] cursor-default" onClick={() => setShowLabelMenu(false)} />
-                                                    <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-2 z-[60] animate-in fade-in zoom-in-95 duration-100">
-                                                        <p className="text-[10px] font-black text-gray-400 uppercase mb-2 px-2 flex items-center gap-2"><Tag className="w-3 h-3" /> Assign Label</p>
-                                                        <div className="space-y-1 max-h-48 overflow-y-auto">
-                                                            {(globalLabels || []).map(gl => {
-                                                                const isSelected = (localOpp.labels || []).some(l => l.id === gl.id);
-                                                                return (
-                                                                    <button
-                                                                        key={gl.id}
-                                                                        className={`w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left transition-colors ${isSelected ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                                                                        onClick={() => {
-                                                                            if (!isSelected) {
-                                                                                handleFieldChange('labels', [...(localOpp.labels || []), gl]);
-                                                                                setShowLabelMenu(false);
-                                                                            }
-                                                                        }}
-                                                                        disabled={isSelected}
-                                                                    >
-                                                                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: gl.color }}></div>
-                                                                        <span className="text-xs font-bold text-gray-700">{gl.text}</span>
-                                                                        {isSelected && <CheckCircle className="w-3 h-3 ml-auto text-green-500" />}
-                                                                    </button>
-                                                                );
-                                                            })}
-                                                            {(globalLabels || []).length === 0 && <div className="text-[10px] text-gray-400 px-2 py-4 text-center italic">No global labels configured.<br />Go to Settings to add labels.</div>}
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            )}
+                                        <div onClick={() => setScopeModalOpen(true)} className="relative flex min-w-44 flex-[1.5] cursor-pointer flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 shadow-sm hover:border-emerald-300" title="Open Scope">
+                                            <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-slate-500">System</span>
+                                            {headerSystems.map(system => {
+                                                const configuredColor = (localOpp.labels || []).find(label => label.text === system)?.color || (globalLabels || []).find(label => label.text === system)?.color;
+                                                return <span key={system} className="rounded border border-white/20 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm" style={{ backgroundColor: executiveSystemColor(configuredColor) }}>{system}</span>;
+                                            })}
                                         </div>
                                         </>)}
                                     </div>
-                                    )}
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex w-full md:w-auto md:flex-[0_1_48%] md:max-w-[48%] flex-wrap items-start justify-end gap-1.5 shrink-0">
+                                    <div className={`order-10 mt-0.5 self-start ${stakeholdersSectionEnabled && !hiddenHeaderFields.has('stakeholdersTable') ? 'w-[calc(50%-0.1875rem)] basis-[calc(50%-0.1875rem)]' : 'w-full basis-full'}`}>
+                                        <button type="button" onClick={() => setScopeModalOpen(true)} className="group h-[98px] w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 text-left shadow-sm transition-colors hover:border-emerald-300 hover:bg-white" title="Open the interactive Scope view">
+                                            <span className="flex items-center justify-between border-b border-slate-200 pb-0.5 text-[9px] font-black uppercase tracking-widest text-slate-700"><span className="flex items-center gap-1"><Target className="h-3 w-3 text-emerald-700" /> Scope</span><ExternalLink className="h-2.5 w-2.5 text-slate-400" /></span>
+                                            <span className="mt-0.5 grid grid-cols-[48px_minmax(0,1fr)] gap-x-1.5 gap-y-0.5 text-[9px] leading-tight">
+                                                <span className="font-black uppercase text-slate-500">Scope</span><span className="truncate font-semibold text-slate-800">{headerScopeSelections.scope.join(' · ') || 'Not selected'}</span>
+                                                <span className="font-black uppercase text-slate-500">System</span><span className="truncate font-semibold text-slate-800">{headerSystems.join(' · ') || 'Not selected'}</span>
+                                                <span className="font-black uppercase text-slate-500">Modules</span><span className="truncate font-semibold text-slate-800">{headerScopeSelections.modules.join(' · ') || 'None'}</span>
+                                                <span className="font-black uppercase text-slate-500">Extras</span><span className="truncate font-semibold text-slate-800">{headerScopeSelections.extras.join(' · ') || 'None'}</span>
+                                                <span className="font-black uppercase text-slate-500">Details</span><span className="truncate font-semibold text-slate-800">{headerScopeSummary || 'Not described'}</span>
+                                            </span>
+                                        </button>
+                                    </div>
+                                    {stakeholdersSectionEnabled && !hiddenHeaderFields.has('stakeholdersTable') && (
+                                        <div className="relative order-10 mt-0.5 w-[calc(50%-0.1875rem)] basis-[calc(50%-0.1875rem)] shrink-0 self-start rounded-lg border border-slate-200 bg-white shadow-sm">
+                                            <div className="flex items-center justify-between gap-3 rounded-t-lg border-b border-slate-100 bg-slate-50 px-2 py-0.5"><span className="text-[8px] font-black uppercase tracking-wider text-slate-600">Stakeholders · Area / Name</span>{!isSnapshot && <button onClick={() => { setHeaderStakeholderPickerOpen(value => !value); setHeaderStakeholderSearch(''); }} className="flex items-center gap-0.5 text-[8px] font-black uppercase text-blue-700"><Plus className="h-2.5 w-2.5" /> Add</button>}</div>
+                                            {headerStakeholderPickerOpen && createPortal((
+                                                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={() => setHeaderStakeholderPickerOpen(false)}>
+                                                    <div role="dialog" aria-modal="true" aria-labelledby="header-stakeholder-picker-title" className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onMouseDown={event => event.stopPropagation()}>
+                                                        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+                                                            <div><p className="text-[9px] font-black uppercase tracking-[0.18em] text-blue-700">Opportunity team</p><h3 id="header-stakeholder-picker-title" className="text-sm font-black text-slate-900">Add stakeholder</h3></div>
+                                                            <button type="button" onClick={() => setHeaderStakeholderPickerOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700" title="Close"><X className="h-4 w-4" /></button>
+                                                        </div>
+                                                        <div className="p-4">
+                                                        <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input autoFocus value={headerStakeholderSearch} onChange={event => setHeaderStakeholderSearch(event.target.value)} placeholder="Search by name, email, area or alias…" className="w-full rounded-xl border-slate-200 py-2.5 pl-9 pr-3 text-sm focus:border-blue-400 focus:ring-blue-400" /></div>
+                                                        <p className="mt-2 text-[10px] text-slate-400">Select an existing contact or create a new one if it is not in the directory.</p>
+                                                        <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
+                                                            {globalContacts.filter(contact => {
+                                                                const query = headerStakeholderSearch.trim().toLowerCase();
+                                                                const alreadyAdded = (localOpp.stakeholders || []).some(person => person.directoryContactId === contact.id || (!!person.email && person.email.toLowerCase() === contact.email.toLowerCase()));
+                                                                return !alreadyAdded && (!query || contact.name.toLowerCase().includes(query) || contact.email.toLowerCase().includes(query) || (contact.availableRoles || []).some(role => role.toLowerCase().includes(query)) || (contact.aliases || []).some(alias => alias.toLowerCase().includes(query)));
+                                                            }).slice(0, 12).map(contact => <button key={contact.id} type="button" onClick={() => { addStakeholderFromDirectory(contact.id); setHeaderStakeholderPickerOpen(false); setHeaderStakeholderSearch(''); }} className="flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-3 py-2 text-left hover:border-blue-100 hover:bg-blue-50"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-black text-blue-700">{contact.name.trim().charAt(0).toUpperCase() || '?'}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-slate-800">{contact.name}</span><span className="block truncate text-[10px] text-slate-400">{contact.email || 'No email'} · {(contact.availableRoles || []).join(', ') || 'No area'}</span></span><Plus className="h-4 w-4 shrink-0 text-blue-600" /></button>)}
+                                                        </div>
+                                                        <button type="button" onClick={() => { setHeaderStakeholderPickerOpen(false); setNewContactModal({ name: headerStakeholderSearch.trim(), email: '', area: '' }); }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-emerald-300 px-3 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50"><Plus className="h-4 w-4" /> Create new {headerStakeholderSearch.trim() ? `“${headerStakeholderSearch.trim()}”` : 'contact'}</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ), document.body)}
+                                            <div className={`grid ${(localOpp.stakeholders || []).length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                                                {(localOpp.stakeholders || []).slice(0, 5).map(person => <div key={person.id} className="grid grid-cols-[42%_58%] border-b border-slate-50 px-1 py-0 last:border-0"><input disabled={isSnapshot} value={(person.roles || [person.role || ''])[0] || ''} onChange={event => updateStakeholder(person.id, 'roles', event.target.value ? [event.target.value] : [])} placeholder="Area" className="min-w-0 border-0 bg-transparent px-1 py-0.5 text-[9px] font-semibold text-slate-500 focus:ring-1 focus:ring-blue-400" /><input disabled={isSnapshot} value={person.name} onChange={event => updateStakeholder(person.id, 'name', event.target.value)} placeholder="Name" className="min-w-0 border-0 bg-transparent px-1 py-0.5 text-[9px] font-bold text-slate-800 focus:ring-1 focus:ring-blue-400" /></div>)}
+                                                {(localOpp.stakeholders || []).length === 0 && !isSnapshot && <button onClick={() => { setHeaderStakeholderPickerOpen(true); setHeaderStakeholderSearch(''); }} className="px-2 py-1.5 text-left text-[9px] font-bold text-blue-700 hover:bg-blue-50"><Plus className="mr-1 inline h-3 w-3" />Add first stakeholder</button>}
+                                            </div>
+                                            <button onClick={() => { flushActiveNoteNow(); setActiveTabSafe('notes'); setTeamPanelOpen(true); }} className="flex w-full items-center justify-between border-t border-slate-100 px-2 py-1 text-[8px] font-black uppercase tracking-wide text-slate-500 hover:bg-slate-50 hover:text-blue-700"><span>View all</span><span>{(localOpp.stakeholders || []).length > 5 ? `+${(localOpp.stakeholders || []).length - 5}` : (localOpp.stakeholders || []).length}</span></button>
+                                        </div>
+                                    )}
+                                    {deliveryAlarm && !hiddenHeaderFields.has('deliveryAlarm') && (
+                                        <div className="flex flex-col gap-1" title={`Expected delivery: ${localOpp.dates.expected} · ${deliveryAlarm.label}`}>
+                                            <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Expected delivery</span>
+                                            <div className={`flex items-center gap-2 rounded-lg border px-2 py-1 shadow-sm ${deliveryAlarm.daysLeft < 0 ? 'border-rose-300 bg-rose-50 text-rose-950' : deliveryAlarm.daysLeft <= 5 ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-300 bg-emerald-50 text-emerald-950'}`}>
+                                                <span className={`flex h-7 min-w-7 items-center justify-center rounded-full border px-1 text-[10px] font-black shadow-sm ${deliveryAlarm.daysLeft < 0 ? 'border-rose-300 bg-rose-100 text-rose-800' : deliveryAlarm.daysLeft <= 5 ? 'border-amber-300 bg-amber-100 text-amber-900' : 'border-emerald-300 bg-emerald-100 text-emerald-800'}`}>
+                                                    {deliveryAlarm.daysLeft > 0 ? `+${deliveryAlarm.daysLeft}` : deliveryAlarm.daysLeft}
+                                                </span>
+                                                <span className="flex max-w-28 flex-col leading-tight">
+                                                    <span className="text-[10px] font-black uppercase">{deliveryAlarm.label}</span>
+                                                    <span className="mt-0.5 text-[9px] font-semibold tabular-nums opacity-70">{localOpp.dates.expected}</span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
                                     {!isSnapshot && !hiddenHeaderFields.has('emailButton') && (
                                         <div className="flex flex-col gap-1">
                                             <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Emails</span>
@@ -7889,12 +8134,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <Mail className="w-3.5 h-3.5" /> Email
                                             </button>
                                         </div>
-                                    )}
-                                    {!hiddenHeaderFields.has('principalStatus') && (
-                                    <div className="flex flex-col gap-1">
-                                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Principal Status</span>
-                                        <select disabled={isSnapshot} value={localOpp.statusLabel} onChange={(e) => handleFieldChange('statusLabel', e.target.value)} className={`text-[10px] font-bold px-2 py-1 rounded border outline-none w-32 uppercase tracking-wider shadow-sm disabled:cursor-not-allowed ${STATUS_COLORS[localOpp.statusLabel]}`}>{Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}</select>
-                                    </div>
                                     )}
                                     {!hiddenHeaderFields.has('processStatus') && (
                                     <div className="flex flex-col gap-1">
@@ -7915,13 +8154,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 </div>
 
                 {!isSubView && (
-                    <div className="flex border-b border-gray-200 px-3 overflow-x-auto shrink-0 bg-white sticky top-0 z-10">
-                        <div className="w-full px-4 flex">
-                            <button onClick={() => setActiveTabSafe('overview')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'overview' ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>Overview</button>
+                    <div className="relative z-30 flex min-h-8 border-b border-slate-600 px-3 py-1 overflow-x-auto overflow-y-hidden shrink-0 bg-slate-700 shadow-sm" aria-label="Opportunity navigation">
+                        <div className="w-full px-2 flex items-center gap-0.5">
+                            <button onClick={() => setActiveTabSafe('overview')} className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap ${activeTab === 'overview' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-100 hover:bg-slate-600 hover:text-white'}`}>Overview</button>
                             {orderedDetailTabs.map(tab => {
                                 const section = OPPORTUNITY_DETAIL_SECTIONS.find(item => item.key === tab);
                                 return (
-                                    <button key={tab} data-tutorial={`detail-tab-${tab}`} onClick={() => setActiveTabSafe(tab)} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeTab === tab ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500'}`}>
+                                    <button key={tab} data-tutorial={`detail-tab-${tab}`} onClick={() => setActiveTabSafe(tab)} aria-current={activeTab === tab ? 'page' : undefined} className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 whitespace-nowrap ${activeTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-100 hover:bg-slate-600 hover:text-white'}`}>
                                         {renderOpportunityDetailTabIcon(tab)}
                                         {section?.label || tab}
                                     </button>
@@ -7957,6 +8196,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             areas={trackedAreas}
                                                     prefill={sowPrefill}
                                                             globalForm={globalSowForm}
+                                                            scopeCatalog={scopeCatalog}
                                                             onGlobalFormChange={onGlobalSowFormChange}
                                                             onOpportunitySync={syncSowOpportunityFields}
                                                             onGeneratedNote={addGeneratedSowNote}
@@ -8072,10 +8312,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-3 gap-4">
+                                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
                                                 <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Process Section</label>
+                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.processSection || ''} onChange={(e) => updateTaskInModal('processSection', e.target.value || undefined)}><option value="">Not classified</option>{PROCESS_SECTIONS.map(section => <option key={section} value={section}>{section}</option>)}</select>
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -8343,8 +8587,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     <div className={activeTab === 'notes' ? 'w-full h-full min-h-0 flex flex-col' : 'w-full px-2 md:px-6'}>
                         {activeTab === 'overview' && (
                             <>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:h-[480px]">
+                                <div className="h-full min-h-0 overflow-hidden bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                     <label className="block text-xs font-bold text-gray-500 uppercase">Description of the Request</label>
                                     <OptimizedTextArea
                                         disabled={isSnapshot}
@@ -8464,8 +8708,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
                                 </div>
-                                {/* No fixed height: the grid stretches this card to match the left column. */}
-                                <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 min-h-[420px] overflow-hidden">
+                                <div className="h-full min-h-0 bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 overflow-hidden">
                                     {/* Title + action buttons always at top */}
                                     <div className="flex justify-between items-center shrink-0">
                                         <h3 className="text-sm font-semibold">Quick Links</h3>
@@ -9852,7 +10095,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 if (list) list.push(item); else map.set(key, [item]);
                                             };
                                             localOpp.notes.forEach(n => {
-                                                if (n.hidden) return;
+                                                // Same browsable set as filteredNotes (used by the search view):
+                                                // hidden notes, and the SOW when its Settings toggle is off.
+                                                if (n.hidden || (!sowSectionEnabled && n.format === 'sow')) return;
                                                 if (n.parentId) pushInto(childNotesByParent, n.parentId, n);
                                                 else if (n.folderId) pushInto(rootNotesByFolder, n.folderId, n);
                                                 else rootNotesNoFolder.push(n);
@@ -10141,6 +10386,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         areas={trackedAreas}
                                                         prefill={sowPrefill}
                                                         globalForm={globalSowForm}
+                                                        scopeCatalog={scopeCatalog}
                                                         onGlobalFormChange={onGlobalSowFormChange}
                                                         onSellerMissing={(name) => {
                                                             if (window.confirm(`"${name}" is not in the contact directory. Do you want to create or link a contact now? You can skip this and resolve it later in Stakeholders.`)) createContactAndInvolve(name);
@@ -10867,10 +11113,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-4">
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
                                             <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && (selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Process Section</label>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.processSection || ''} onChange={(e) => updateTaskInModal('processSection', e.target.value || undefined)}><option value="">Not classified</option>{PROCESS_SECTIONS.map(section => <option key={section} value={section}>{section}</option>)}</select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Priority</label>
@@ -11196,13 +11446,40 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             Close Split View
                                         </button>
                                     </div>
-                                    <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col">
-                                        <RichTextEditor
-                                            key={splitViewNoteId}
-                                            content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
-                                            onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
-                                            onAttach={() => setShowDocPicker({ type: 'note', id: splitViewNoteId })}
-                                        />
+                                    <div className="flex-1 border border-gray-200 rounded-xl overflow-hidden shadow-sm flex flex-col min-h-0">
+                                        {localOpp.notes.find(n => n.id === splitViewNoteId)?.format === 'sow' ? (
+                                            <SowFormEmbed
+                                                key={splitViewNoteId}
+                                                content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
+                                                people={localOpp.stakeholders || []}
+                                                directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
+                                                areas={trackedAreas}
+                                                prefill={sowPrefill}
+                                                globalForm={globalSowForm}
+                                                scopeCatalog={scopeCatalog}
+                                                onGlobalFormChange={onGlobalSowFormChange}
+                                                onOpportunitySync={syncSowOpportunityFields}
+                                                onGeneratedNote={addGeneratedSowNote}
+                                                onQuickLinkRequest={addSowLinkToOverview}
+                                                tasks={localOpp.tasks}
+                                                onTaskOpen={openSowTask}
+                                                onTaskConvert={convertSowTaskToAssignment}
+                                                onTaskRaciUpdate={updateSowTaskRaci}
+                                                onTaskCreate={createSowTask}
+                                                onStakeholderCreate={createSowStakeholder}
+                                                backupKey={sowBackupKey(localOpp.id, splitViewNoteId)}
+                                                legacyBackupKey={sowNote?.id === splitViewNoteId ? legacySowBackupKey(localOpp.id) : undefined}
+                                                disabled={isSnapshot}
+                                                onChange={(json: string) => saveSowContent(splitViewNoteId, json)}
+                                            />
+                                        ) : (
+                                            <RichTextEditor
+                                                key={splitViewNoteId}
+                                                content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
+                                                onChange={(val) => updateNoteById(splitViewNoteId, 'content', val)}
+                                                onAttach={() => setShowDocPicker({ type: 'note', id: splitViewNoteId })}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -11340,6 +11617,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 scopeModalOpen && (
                     <ScopeQuickViewModal
                         sowNote={sowNote}
+                        catalog={scopeCatalog}
+                        legacyLabels={localOpp.labels || []}
                         disabled={isSnapshot}
                         onSaveFields={saveScopeFields}
                         onCreateSowNote={addSowNote}
@@ -11552,10 +11831,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
-                                        Commit Message for CURRENT work *
+                                        {versionToRestore ? 'Commit message for current work *' : `What did ${localOpp.revision || 'the current revision'} represent? *`}
                                     </label>
                                     <input className="w-full border-gray-200 rounded-lg text-sm" autoFocus placeholder={versionToRestore ? "e.g. Work before restoring V2" : "e.g. Initial Estimation"} value={newVersionData.commitMessage} onChange={e => setNewVersionData({ ...newVersionData, commitMessage: e.target.value })} />
                                 </div>
+                                {!versionToRestore && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
+                                            Why is the new revision being created? *
+                                        </label>
+                                        <textarea
+                                            className="w-full border-gray-200 rounded-lg text-sm min-h-[72px] resize-y"
+                                            placeholder="e.g. The customer requested scope changes"
+                                            value={newVersionData.revisionReason}
+                                            onChange={e => setNewVersionData({ ...newVersionData, revisionReason: e.target.value })}
+                                        />
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">SR / Branch (Optional)</label>
                                     <input className="w-full border-gray-200 rounded-lg text-sm font-mono" placeholder={localOpp.srId || "SR-1"} value={newVersionData.srId} onChange={e => setNewVersionData({ ...newVersionData, srId: e.target.value })} />
@@ -11607,7 +11899,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 </div>
                                 <div className="flex gap-2 justify-end mt-2">
                                     <button onClick={() => { setShowCreateVersionModal(false); setVersionToRestore(null); }} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold text-gray-600">Cancel</button>
-                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage || (!versionToRestore && taskStandards.length > 0 && selectableStandards.length !== 1 && !revisionTaskStandardId)} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
+                                    <button onClick={handleCreateVersion} disabled={!newVersionData.commitMessage.trim() || (!versionToRestore && !newVersionData.revisionReason.trim()) || (!versionToRestore && taskStandards.length > 0 && selectableStandards.length !== 1 && !revisionTaskStandardId)} className="px-4 py-2 bg-[#3DCD58] hover:bg-green-600 rounded-lg text-sm font-bold text-white disabled:opacity-50">
                                         {versionToRestore ? `Confirm Restore` : `Create Revision`}
                                     </button>
                                 </div>
@@ -11653,6 +11945,23 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             externalAreas: Array.from(new Set(ids.map(id => sowTeamMembers.find(m => m.id === id)?.area).filter((a): a is string => !!a))),
                             status: 'Missing Info',
                         })}
+                        onCreateMeetingTask={({ title, description, teamMemberIds }) => {
+                            const id = crypto.randomUUID();
+                            const members = teamMemberIds.map(memberId => sowTeamMembers.find(member => member.id === memberId)).filter((member): member is SowTeamMember => !!member);
+                            const nextOrder = Math.max(0, ...(localOpp.tasks || []).map(task => task.order || 0)) + 1;
+                            const task: Task = {
+                                id, title, description, status: 'Pending', priority: 'Medium',
+                                owner: members.length ? 'External Area' : 'Me',
+                                responsible: members.map(member => member.name).join(', '),
+                                responsibleTeamMemberIds: teamMemberIds,
+                                externalAreas: Array.from(new Set(members.map(member => member.area).filter(Boolean))),
+                                dueDate: '', stageContext: localOpp.stage, subtasks: [], linkedNoteIds: [],
+                                order: nextOrder, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false,
+                            };
+                            const updated = { ...localOpp, tasks: [...(localOpp.tasks || []), task], lastUpdated: new Date().toISOString() };
+                            setLocalOpp(updated); syncToParentNow(updated);
+                            return id;
+                        }}
                     />
                 )
             }

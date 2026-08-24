@@ -9,7 +9,7 @@ scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 motorPath = scriptDir & "\engine_opportunityos.bat"
 
 If Not fso.FileExists(motorPath) Then
-    MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "OpportunityOS Installer"
+    MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "Tender Control Installer"
     WScript.Quit 1
 End If
 

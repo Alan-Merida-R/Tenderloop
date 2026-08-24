@@ -155,8 +155,8 @@ export const variablesForKind = (kind: GeneratedEmailKind): EmailVariableDef[] =
   return EMAIL_VARIABLES.filter(v => groups.includes(v.group));
 };
 
-const P = 'style="margin:0 0 10px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#222"';
-const H = 'style="margin:14px 0 6px 0;font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#3DCD58;font-weight:bold"';
+const P = 'style="margin:0 0 10px 0;font-family:Arial,sans-serif;font-size:12pt;color:#222"';
+const H = 'style="margin:14px 0 6px 0;font-family:Arial,sans-serif;font-size:12pt;color:#3DCD58;font-weight:bold"';
 
 /**
  * Default bodies are built from optional blocks: each section lives inside a
@@ -227,7 +227,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
       `<div data-tl-block="opening"><p ${P}>{requestOpening}</p></div>`,
       `{?emailNotes}<div data-tl-block="notes"><p ${H}>Notes</p><p ${P}>{emailNotes}</p></div>{/?}`,
       `{?taskDescription}<div data-tl-block="description"><p ${H}>Details</p><p ${P}>{taskDescription}</p></div>{/?}`,
-      `{?taskDeliverable}<div data-tl-block="deliverable"><p ${H}>What would help us</p><p ${P}>{taskDeliverable}</p></div>{/?}`,
+      `{?taskDeliverable}<div data-tl-block="deliverable"><p ${H}>What would help me</p><p ${P}>{taskDeliverable}</p></div>{/?}`,
       `{?taskSubtasksList}<div data-tl-block="subtasks"><p ${H}>Checklist</p>{taskSubtasksList}</div>{/?}`,
       `{?linksBlock}<div data-tl-block="links">{linksBlock}</div>{/?}`,
       `{?requestClosing}<div data-tl-block="closing"><p ${P}>{requestClosing}</p></div>{/?}`,
@@ -277,6 +277,7 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
       `<div data-tl-block="opening"><p ${P}>{recapIntro}</p></div>`,
       `{?emailNotes}<div data-tl-block="notes"><p ${H}>Notes</p><p ${P}>{emailNotes}</p></div>{/?}`,
       `{?agreementsList}<div data-tl-block="agreements"><p ${H}>Agreements</p>{agreementsList}</div>{/?}`,
+      `{?nextStepNote}<div data-tl-block="nextStepNote"><p ${H}>What happens next</p>{nextStepNote}</div>{/?}`,
       `{?nextStepsList}<div data-tl-block="nextSteps"><p ${H}>Next steps</p>{nextStepsList}</div>{/?}`,
       `{?nextMeetingLine}<div data-tl-block="nextMeeting"><p ${P}>{nextMeetingLine}</p></div>{/?}`,
       `{?linksBlock}<div data-tl-block="links">{linksBlock}</div>{/?}`,

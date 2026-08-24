@@ -49,7 +49,7 @@ export const copyReplyToClipboard = async (html: string, text: string, attachmen
       ok: false,
       attachmentCount: 0,
       missingAttachments: [],
-      error: 'OpportunityOS helper is not running (port 3099).',
+      error: 'Tender Control helper is not running (port 3099).',
     };
   }
 };
@@ -65,7 +65,7 @@ export const composeOutlookDraft = async (payload: ComposeEmailRequest): Promise
   } catch {
     return {
       ok: false,
-      error: 'OpportunityOS helper is not running (port 3099). Launch the app with engine_opportunityos.bat or run "npm run server".',
+      error: 'Tender Control helper is not running (port 3099). Launch the app with engine_opportunityos.bat or run "npm run server".',
     };
   }
 

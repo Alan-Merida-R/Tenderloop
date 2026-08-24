@@ -115,6 +115,25 @@ export const setFolderPath = (opportunityId: string, revision: string, path: str
 };
 
 /**
+ * Erase the recorded path for one revision.
+ *
+ * The deliberate counterpart to setFolderPath's "an empty path is ignored" rule.
+ * Re-linking an opportunity to a DIFFERENT folder has to be able to drop the old
+ * path: keeping it meant a template created for an opportunity that already had a
+ * folder stayed pointed at the previous location, and every open/copy action went
+ * to the old folder while the tab listed the new one.
+ */
+export const clearFolderPath = (opportunityId: string, revision: string) => {
+  mutateOpp(opportunityId, opp => {
+    const paths = opp.folderPaths || {};
+    if (!(revision in paths)) return opp;
+    const next = { ...paths };
+    delete next[revision];
+    return { ...opp, folderPaths: next, folderLinked: Object.keys(next).length > 0 };
+  });
+};
+
+/**
  * Add paths recovered from an older browser-local installation to the shared DB.
  * Existing shared paths always win: an old browser must never overwrite a newer
  * folder change made by another browser or app version.

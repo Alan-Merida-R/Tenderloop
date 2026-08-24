@@ -10,6 +10,7 @@ import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards, visibleTaskStandards } from './components/SettingsModal';
+import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel } from './components/scopeCatalog';
 import { FolderOpen, Save, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, Settings as SettingsIcon, History, ChevronDown, Trash2, Activity, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
@@ -25,6 +26,21 @@ import { InteractiveTutorial } from './components/InteractiveTutorial';
 import { buildManagerReport, downloadManagerReport } from './services/managerReport';
 import { deriveReporterId, runDailyExportIfDue, writeManagerReportToFolder } from './services/managerReportSync';
 import { normalizeSearchText } from './components/OpportunitySearchInput';
+
+/** Keeps only reminders whose opportunity/task is still actionable. */
+const filterActionableReminders = (reminders: Reminder[], opportunities: Opportunity[]): Reminder[] => {
+  if (reminders.length === 0) return reminders;
+  const oppById = new Map(opportunities.map(opportunity => [opportunity.id, opportunity]));
+  const filtered = reminders.filter(reminder => {
+    const opportunity = oppById.get(reminder.opportunityId);
+    if (!opportunity) return true;
+    if (opportunity.detailedStatus === 'Completed' || opportunity.detailedStatus === 'Canceled' || opportunity.statusLabel === 'Canceled') return false;
+    if (!reminder.taskId) return true;
+    const task = opportunity.tasks.find(candidate => candidate.id === reminder.taskId);
+    return !task || (task.status !== 'Done' && task.status !== 'Canceled');
+  });
+  return filtered.length === reminders.length ? reminders : filtered;
+};
 
 
 type AppStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -745,9 +761,9 @@ function App() {
           setStorageMode('backend');
           backendRevisionRef.current = snapshot.status.revision;
           setBackendRevision(snapshot.status.revision);
-          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
+          setBackendName(snapshot.status.name || 'Tender Control backend DB');
           setCurrentDbNativePath(snapshot.status.path);
-          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+          setFallbackFileName(snapshot.status.name || 'Tender Control backend DB');
           setIsDbLoaded(true);
           setStartupHint(null);
           setErrorMessage(null);
@@ -891,6 +907,16 @@ function App() {
   );
   const stableHiddenOpportunityDetailSections = useMemo(() => appSettings.hiddenOpportunityDetailSections || EMPTY_ARR, [appSettings.hiddenOpportunityDetailSections]);
   const stableOpportunityDetailSectionOrder = useMemo(() => appSettings.opportunityDetailSectionOrder || EMPTY_ARR, [appSettings.opportunityDetailSectionOrder]);
+  // Normalized once here: the SOW iframe re-renders its option lists whenever this identity
+  // changes, so handing it a fresh object every render would rebuild the form on every keystroke.
+  const stableScopeCatalog = useMemo(() => {
+    const catalog = normalizeScopeCatalog(appSettings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
+    const extras = new Map(catalog.extras.map(option => [option.id, option]));
+    stableGlobalLabels.forEach(label => {
+      if (!catalogContainsLabel(catalog, label.text)) extras.set(label.id, { id: label.id, label: label.text, color: label.color });
+    });
+    return { ...catalog, extras: [...extras.values()].filter(option => !catalogContainsLabel(catalog, option.label)) };
+  }, [appSettings.scopeCatalog, stableGlobalLabels]);
   const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
 
   useEffect(() => {
@@ -1041,8 +1067,8 @@ function App() {
           const snapshot = await saveBackendDb(db, backendRevisionRef.current || undefined);
           backendRevisionRef.current = snapshot.status.revision;
           setBackendRevision(snapshot.status.revision);
-          setBackendName(snapshot.status.name || 'TenderLoop backend DB');
-          setFallbackFileName(snapshot.status.name || 'TenderLoop backend DB');
+          setBackendName(snapshot.status.name || 'Tender Control backend DB');
+          setFallbackFileName(snapshot.status.name || 'Tender Control backend DB');
           syncChannel.current?.postMessage({
             type: 'BACKEND_REVISION',
             revision: snapshot.status.revision,
@@ -1379,10 +1405,13 @@ function App() {
         hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
         hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
         opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
+        alarms={appSettings.alarms}
+        confirmExpectedDateChanges={appSettings.confirmExpectedDateChanges === true}
         userName={appSettings.userName || 'User'}
         emailComposeSettings={appSettings.emailCompose || null}
         globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
         onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
+        scopeCatalog={stableScopeCatalog}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
           if (payload) minimizeToDock(payload);
@@ -1618,13 +1647,13 @@ function App() {
 
       if (result.data) {
         if (!verifyDatabaseStructure(result.data)) {
-          setErrorMessage("The selected file is not a valid TenderLoop database.");
+          setErrorMessage("The selected file is not a valid Tender Control database.");
           setStatus('error');
           return;
         }
 
         if (!result.handle) {
-          setErrorMessage('This browser can read the database but cannot save changes back to it. Open TenderLoop in Chrome or Edge and select the file again.');
+          setErrorMessage('This browser can read the database but cannot save changes back to it. Open Tender Control in Chrome or Edge and select the file again.');
           setStatus('error');
           return;
         }
@@ -1638,7 +1667,7 @@ function App() {
         // @ts-ignore File System Access API permissions are Chromium-specific.
         const perm = await result.handle.requestPermission({ mode: 'readwrite' });
         if (perm !== 'granted') {
-          setErrorMessage('Write permission is required so TenderLoop can update the selected database.');
+          setErrorMessage('Write permission is required so Tender Control can update the selected database.');
           setStatus('error');
           return;
         }
@@ -1743,7 +1772,7 @@ function App() {
     try {
       if (storageMode === 'backend') await revealCurrentBackendDb();
       else if (currentDbNativePath) await revealNativePath(currentDbNativePath);
-      else throw new Error('The native path is not available yet. Reopen the database once after restarting TenderLoop.');
+      else throw new Error('The native path is not available yet. Reopen the database once after restarting Tender Control.');
     } catch (err: any) {
       console.error('[Backend DB] Could not reveal current database:', err);
       setErrorMessage('Could not open the current database folder: ' + (err?.message || String(err)));
@@ -1760,7 +1789,7 @@ function App() {
       const handle = await window.showSaveFilePicker({
         suggestedName: backendName || 'tendering_db.json',
         types: [{
-          description: 'TenderLoop JSON Database',
+          description: 'Tender Control JSON Database',
           accept: { 'application/json': ['.json'] },
         }],
       });
@@ -1836,7 +1865,8 @@ function App() {
       defaultTasks = selectedNamedStandard.tasks.map(tmpl => ({
         id: taskIdMap.get(tmpl.id)!,
         title: tmpl.title,
-        description: '',
+        description: tmpl.description || '',
+        processSection: tmpl.processSection,
         status: 'Pending',
         priority: tmpl.priority || 'Medium',
         owner: tmpl.owner || 'Me',
@@ -1865,7 +1895,8 @@ function App() {
         return {
           id: newTaskId,
           title: tmpl.title,
-          description: '',
+          description: tmpl.description || '',
+          processSection: tmpl.processSection,
           status: 'Pending',
           priority: tmpl.priority || 'Medium',
           owner: tmpl.owner || 'Me',
@@ -2152,9 +2183,14 @@ function App() {
           ? rebalancePriorities(initialMap, updatedOpp.id, orderChanged ? updatedOpp.priorityOrder : undefined, statusChanged)
           : initialMap;
 
+        const currentReminders = prev.userSettings?.reminders || [];
+        const reminders = filterActionableReminders(currentReminders, rebalanced);
         return {
           ...prev,
-          opportunities: rebalanced
+          opportunities: rebalanced,
+          ...(reminders === currentReminders ? {} : {
+            userSettings: { ...prev.userSettings, reminders }
+          })
         };
       });
     };
@@ -2390,7 +2426,12 @@ function App() {
 
       const light = {
         ...opp,
-        notes: (opp.notes || []).map(n => ({ ...n, content: '' })), // Content metadata only
+        // Content metadata only — EXCEPT the SOW note. What makes a note heavy is
+        // rich-text HTML; a SOW note is a small JSON answer sheet, and keeping the
+        // existing string reference costs nothing (strings are shared, not copied).
+        // Blanking it meant the dashboard could not read the Scope answers at all, so
+        // the cards had nothing to show and collectSowTeamMembers came back empty.
+        notes: (opp.notes || []).map(n => (n.format === 'sow' ? n : { ...n, content: '' })),
         versions: [], // Strip heavy snapshots
         versionsCount: (opp.versions || []).length, // Preserve the count for list/dashboard display
         versionsCreatedAt: (opp.versions || []).map(v => v.createdAt), // Preserve dates for monthly revision charts
@@ -2464,7 +2505,7 @@ function App() {
     // Every list hidden? Still ask, but start with the hidden ones revealed.
     if (selectable.length > 1 || (selectable.length === 0 && standards.length > 1)) {
       setShowHiddenTaskStandards(selectable.length === 0);
-      setPendingOpportunityCreation({ stage: creationStage, standardId: '' });
+      setPendingOpportunityCreation({ stage: creationStage, standardId: (selectable[0] || standards[0])?.id || '' });
       return;
     }
     createOpportunity(creationStage, (selectable[0] || standards[0])?.id);
@@ -2538,18 +2579,7 @@ function App() {
     setDb(prev => {
       const reminders = prev.userSettings?.reminders;
       if (!reminders || reminders.length === 0) return prev;
-      const oppById = new Map<string, Opportunity>(prev.opportunities.map(o => [o.id, o]));
-      const stillActive = (r: Reminder): boolean => {
-        const opp = oppById.get(r.opportunityId);
-        if (!opp) return true;
-        if (opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled' || opp.statusLabel === 'Canceled') return false;
-        if (r.taskId) {
-          const task = opp.tasks.find(t => t.id === r.taskId);
-          if (task && (task.status === 'Done' || task.status === 'Canceled')) return false;
-        }
-        return true;
-      };
-      const kept = reminders.filter(stillActive);
+      const kept = filterActionableReminders(reminders, prev.opportunities);
       if (kept.length === reminders.length) return prev;
       return { ...prev, userSettings: { ...prev.userSettings, reminders: kept } };
     });
@@ -2606,7 +2636,7 @@ function App() {
               className="flex items-center gap-2 font-bold text-gray-800 tracking-tight cursor-pointer hover:text-[#3DCD58] text-lg transition-colors"
               onClick={() => { setSelectedOppId(null); setActiveDeepLink(null); setCurrentView('general-dashboard'); }}
             >
-              OpportunityOS
+              Tender Control
             </div>
             <div data-tutorial="nav-tabs" className={`flex gap-1 bg-gray-50 p-1 rounded-lg ${isPending ? 'opacity-70 pointer-events-none' : ''}`}>
               {!(appSettings.hiddenViews || []).includes('general-dashboard') && <button
@@ -2803,9 +2833,9 @@ function App() {
           {/* Startup Screen Overlay — shown when no DB is loaded */}
           {!isDbLoaded && (
             <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center gap-6 p-8">
-              <img src="/icon.png?v=opportunityos-planner-2" className="w-20 h-20 rounded-2xl shadow-xl" alt="OpportunityOS" />
+              <img src="/icon.png?v=opportunityos-planner-2" className="w-20 h-20 rounded-2xl shadow-xl" alt="Tender Control" />
               <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900">OpportunityOS</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Tender Control</h2>
                 <p className="text-gray-500 text-sm mt-1">
                   {pendingHandle
                     ? `Your database "${(pendingHandle as any).name}" needs permission to reopen.`
@@ -2888,6 +2918,7 @@ function App() {
                   remindersEnabled={appSettings.remindersEnabled || false}
                   onAddReminder={handleAddReminder}
                   agendaFocusNonce={agendaFocusNonce}
+                  scopeCatalog={stableScopeCatalog}
                 />}
               </LocalErrorBoundary>
             </div>
@@ -2945,10 +2976,13 @@ function App() {
                     hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
                     hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
                     opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
+                    alarms={appSettings.alarms}
+                    confirmExpectedDateChanges={appSettings.confirmExpectedDateChanges === true}
                     userName={appSettings.userName || 'User'}
                     emailComposeSettings={appSettings.emailCompose || null}
                     globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
                     onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
+                    scopeCatalog={stableScopeCatalog}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}
                   />
@@ -3054,6 +3088,7 @@ function App() {
             userName={appSettings.userName || 'User'}
             onOppUpdate={updateOpportunity}
             onAddReminder={handleAddReminder}
+            onDeleteReminder={handleDeleteReminder}
             onClose={() => { setShowQuickOrganizer(false); setShowSettings(true); }}
             onPlanAccepted={() => {
               // Land the user directly on the accepted plan: Tasks view, Agenda mode.

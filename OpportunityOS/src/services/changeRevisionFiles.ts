@@ -4,7 +4,7 @@ import { getFolderHandleForRevision, verifyPermission } from './opportunityFolde
 import { getMeta, saveMeta } from './opportunityDocMetaStore';
 import { getFileRevisionHistory, saveFileRevisionEntry } from './fileRevisionHistoryStore';
 
-const REVISION_RE = /\bR(\d+)\.(\d+)\b/i;
+const REVISION_RE = /\bR(\d+)(?:\.(\d+))?\b/i;
 
 const splitFileName = (name: string) => {
   const dot = name.lastIndexOf('.');
@@ -18,7 +18,7 @@ export const normalizeDocumentRevision = (value: string): string => {
 
 export const documentRevisionFromName = (name: string): string => {
   const match = name.match(REVISION_RE);
-  return match ? `R${Number(match[1])}.${Number(match[2])}` : '';
+  return match ? `R${Number(match[1])}.${Number(match[2] || 0)}` : '';
 };
 
 export const suggestSharedDocumentRevision = (fileKeys: string[]): string => {
@@ -29,7 +29,7 @@ export const suggestSharedDocumentRevision = (fileKeys: string[]): string => {
     const match = revision.match(REVISION_RE);
     if (!match) return;
     const major = Number(match[1]);
-    const minor = Number(match[2]);
+    const minor = Number(match[2] || 0);
     if (major > bestMajor || (major === bestMajor && minor > bestMinor)) {
       bestMajor = major;
       bestMinor = minor;
@@ -40,7 +40,7 @@ export const suggestSharedDocumentRevision = (fileKeys: string[]): string => {
 
 export const buildDocumentRevisionName = (sourceName: string, revision: string): string => {
   const { base, ext } = splitFileName(sourceName);
-  const cleanBase = base.replace(/\s*[-_ ]?\bR\d+\.\d+\b\s*$/i, '').trim() || base;
+  const cleanBase = base.replace(/\s*[-_ ]?\bR\d+(?:\.\d+)?\b\s*$/i, '').trim() || base;
   return `${cleanBase} ${revision}${ext}`;
 };
 

@@ -13,6 +13,8 @@ interface Props {
     prefill?: Record<string, string>;
     globalForm?: { sections: any[]; questions: any[] };
     onGlobalFormChange?: (form: { sections: any[]; questions: any[] }) => void;
+    /** User-editable Scope / System / Notes-at-a-glance option lists (Settings → Labels & Scope). */
+    scopeCatalog?: unknown;
     onOpportunitySync?: (fields: Record<string, unknown>) => void;
     onGeneratedNote?: (note: { title?: string; content?: string }) => void;
     onQuickLinkRequest?: (link: { label: string; url: string }) => void;
@@ -48,7 +50,7 @@ interface Props {
  * reported back via 'save' so it can be written into that note's content field. This
  * keeps each opportunity's SOW form fully isolated from every other opportunity's.
  */
-export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], tasks = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onTaskOpen, onTaskConvert, onTaskRaciUpdate, onTaskCreate, onStakeholderCreate, onSellerMissing, onNavigationOpenChange, backupKey, legacyBackupKey, disabled }) => {
+export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], tasks = [], directoryPeople = [], areas = [], prefill = {}, globalForm = { sections: [], questions: [] }, scopeCatalog, onGlobalFormChange, onOpportunitySync, onGeneratedNote, onQuickLinkRequest, onTaskOpen, onTaskConvert, onTaskRaciUpdate, onTaskCreate, onStakeholderCreate, onSellerMissing, onNavigationOpenChange, backupKey, legacyBackupKey, disabled }) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const overviewIframeRef = useRef<HTMLIFrameElement>(null);
     const [overviewOpen, setOverviewOpen] = useState(false);
@@ -72,6 +74,10 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     const onSellerMissingRef = useRef(onSellerMissing);
     const onNavigationOpenChangeRef = useRef(onNavigationOpenChange);
     const lastPrefillSyncRef = useRef('');
+    const scopeCatalogRef = useRef(scopeCatalog);
+    // The exact JSON this iframe last sent us. `content` coming back identical is our own save
+    // echoing through React state — pushing it back in would overwrite whatever was typed since.
+    const lastFromIframeRef = useRef<string | null>(null);
     const backupKeyRef = useRef(backupKey);
     const legacyBackupKeyRef = useRef(legacyBackupKey);
     useEffect(() => { backupKeyRef.current = backupKey; }, [backupKey]);
@@ -88,11 +94,19 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
     // remounting this iframe. Push the current answers back into the live form so
     // both views always show the same scope immediately.
     useEffect(() => {
+        if (content === lastFromIframeRef.current) return;
         try {
             const parsed = content ? JSON.parse(content) : null;
             if (parsed?.fields) iframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'update-fields', fields: parsed.fields }, '*');
         } catch { /* invalid/empty SOW content is initialized by the iframe */ }
     }, [content]);
+    const scopeCatalogSignature = JSON.stringify(scopeCatalog ?? null);
+    useEffect(() => {
+        scopeCatalogRef.current = scopeCatalog;
+        const message = { source: 'tenderloop-sow-host', type: 'update-scope-catalog', scopeCatalog };
+        iframeRef.current?.contentWindow?.postMessage(message, '*');
+        overviewIframeRef.current?.contentWindow?.postMessage(message, '*');
+    }, [scopeCatalogSignature, scopeCatalog]);
     const prefillSignature = JSON.stringify(prefill);
     useEffect(() => {
         if (lastPrefillSyncRef.current === prefillSignature) return;
@@ -143,11 +157,11 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                     const source = contentRef.current || backup || (legacyKey ? localStorage.getItem(legacyKey) || '' : '');
                     payload = source ? JSON.parse(source) : null;
                 } catch { payload = null; }
-                iframeRef.current.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
+                iframeRef.current.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current, scopeCatalog: scopeCatalogRef.current }, '*');
             } else if (data.type === 'ready' && isOverviewFrame) {
                 let payload: any = null;
                 try { payload = contentRef.current ? JSON.parse(contentRef.current) : null; } catch { payload = null; }
-                overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current }, '*');
+                overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'init', payload, people: peopleRef.current, tasks: tasksRef.current, directoryPeople: directoryPeopleRef.current, areas: areasRef.current, prefill: prefillRef.current, globalForm: globalFormRef.current, scopeCatalog: scopeCatalogRef.current }, '*');
                 overviewIframeRef.current?.contentWindow?.postMessage({ source: 'tenderloop-sow-host', type: 'open-overview' }, '*');
             } else if (data.type === 'save' && !disabled) {
                 // Canonicalize the two representations used by the detailed SOW
@@ -164,8 +178,13 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
                     fields.included_scope = scope;
                     fields.scope_summary = scope;
                 }
+                // This timestamp also identifies the canonical SOW when an older opportunity
+                // still contains duplicate SOW notes. Refresh it on every form edit so reopening
+                // Scope cannot jump back to a stale duplicate with more populated fields.
+                data.payload.savedAt = new Date().toISOString();
                 const serialized = JSON.stringify(data.payload);
                 try { if (backupKeyRef.current) localStorage.setItem(backupKeyRef.current, serialized); } catch { /* non-critical backup */ }
+                if (isMainFrame) lastFromIframeRef.current = serialized;
                 onChangeRef.current(serialized);
             } else if (data.type === 'global-form-save' && !disabled && data.payload) {
                 onGlobalFormChangeRef.current?.(data.payload);
@@ -212,7 +231,10 @@ export const SowFormEmbed: React.FC<Props> = ({ content, onChange, people = [], 
             title="Scope of Work"
             srcDoc={SOW_TEMPLATE_HTML}
             sandbox="allow-scripts allow-modals allow-forms allow-downloads"
-            className="flex-1 h-full min-h-[calc(100vh-11rem)] w-full border-none bg-white"
+            /* No min-height: the form scrolls inside the iframe, so anything taller than the
+               pane it sits in gets clipped by the parent's overflow-hidden — which is how the
+               last question became unreachable whenever a linked-task panel shortened the pane. */
+            className="flex-1 h-full min-h-0 w-full border-none bg-white"
         />
         {overviewOpen && <>
             <button aria-label="Close Overview" className="fixed inset-0 z-[89] cursor-default bg-transparent" onClick={() => setOverviewOpen(false)} />

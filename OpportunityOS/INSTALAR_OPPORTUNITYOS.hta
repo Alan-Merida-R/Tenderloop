@@ -2,10 +2,10 @@
 <html>
 <head>
   <meta http-equiv="x-ua-compatible" content="IE=11">
-  <title>OpportunityOS Installer</title>
+  <title>Tender Control Installer</title>
   <hta:application
     id="OpportunityOSInstaller"
-    applicationname="OpportunityOS Installer"
+    applicationname="Tender Control Installer"
     border="thin"
     borderstyle="normal"
     caption="yes"
@@ -170,7 +170,7 @@
 <body>
   <div class="shell">
     <div class="header">
-      <h1 class="title">OpportunityOS Setup</h1>
+      <h1 class="title">Tender Control Setup</h1>
       <p class="subtitle">Installing the local Windows app shortcuts and dependencies.</p>
     </div>
 
@@ -184,7 +184,7 @@
       <div class="steps">
         <div id="step1" class="step">1. Check Node.js</div>
         <div id="step2" class="step">2. Install dependencies</div>
-        <div id="step3" class="step">3. Verify OpportunityOS</div>
+        <div id="step3" class="step">3. Verify Tender Control</div>
         <div id="step4" class="step">4. Create shortcuts</div>
         <div id="step5" class="step">5. Finish setup</div>
       </div>
@@ -346,7 +346,7 @@
           return;
         }
 
-        setStep(2, "Preparing local OpportunityOS services");
+        setStep(2, "Preparing local Tender Control services");
         var closer = scriptDir + "\\CLOSE_OPPORTUNITYOS.bat";
         if (!fso.FileExists(closer)) {
           failInstall("CLOSE_OPPORTUNITYOS.bat was not found in the installer folder.");
@@ -354,7 +354,7 @@
         }
         runCommand("call \"" + closer + "\" SILENT", function (closeCode) {
           if (closeCode !== 0) {
-            failInstall("A previous OpportunityOS process is still using a local port. Close that OpportunityOS window and choose Install to retry.");
+            failInstall("A previous Tender Control process is still using a local port. Close that Tender Control window and choose Install to retry.");
             return;
           }
           setStep(2, "Installing dependencies");
@@ -369,7 +369,7 @@
             // committed lockfile still pins the reviewed dependency versions.
             runCommand("cd /d \"" + scriptDir + "\" && npm.cmd install --include=dev --no-audit --no-fund", function (npmCode) {
               if (npmCode !== 0) {
-                failInstall("npm could not repair dependencies. Check the log for a corporate proxy, antivirus file lock, or Node.js issue; no administrator permission is required. Close other OpportunityOS windows and choose Install to retry.");
+                failInstall("npm could not repair dependencies. Check the log for a corporate proxy, antivirus file lock, or Node.js issue; no administrator permission is required. Close other Tender Control windows and choose Install to retry.");
                 return;
               }
               verifyOpportunityOS();
@@ -380,7 +380,7 @@
     }
 
     function verifyOpportunityOS() {
-      setStep(3, "Verifying OpportunityOS files");
+      setStep(3, "Verifying Tender Control files");
       if (!fso.FileExists(scriptDir + "\\engine_opportunityos.bat")) {
         failInstall("engine_opportunityos.bat was not found in the installer folder.");
         return;
@@ -389,9 +389,9 @@
         failInstall("Vite was not found after dependency installation.");
         return;
       }
-      logLine("[OK] OpportunityOS files verified.");
+      logLine("[OK] Tender Control files verified.");
       if (!fso.FileExists(scriptDir + "\\OpportunityOS.exe")) {
-        logLine("[INFO] OpportunityOS.exe is optional. Shortcuts use the stable launcher instead.");
+        logLine("[INFO] The optional legacy executable is not required. Shortcuts use the stable Tender Control launcher.");
       }
 
       setStep(4, "Creating shortcuts");
@@ -404,7 +404,7 @@
       // The launcher requires this marker in addition to Vite. It prevents a
       // partial node_modules folder from bypassing this visible setup flow.
       var marker = fso.CreateTextFile(scriptDir + "\\.opportunityos-setup-complete", true);
-      marker.WriteLine("OpportunityOS setup completed successfully.");
+      marker.WriteLine("Tender Control setup completed successfully.");
       marker.Close();
 
       setStep(5, "Setup complete");
@@ -418,7 +418,7 @@
     function createShortcuts() {
       try {
         var desktopDir = shell.SpecialFolders("Desktop");
-        var startMenuDir = shell.SpecialFolders("Programs") + "\\OpportunityOS";
+        var startMenuDir = shell.SpecialFolders("Programs") + "\\Tender Control";
         if (!fso.FolderExists(startMenuDir)) fso.CreateFolder(startMenuDir);
 
         var iconPath = scriptDir + "\\opportunityos.ico";
@@ -430,41 +430,41 @@
         // is reprovisioned self-heals the shortcut's target path instead of
         // leaving a stale one — shortcuts were previously removed entirely
         // to sidestep that exact failure mode on corporate machines.
-        var appShortcut = shell.CreateShortcut(desktopDir + "\\OpportunityOS.lnk");
+        var appShortcut = shell.CreateShortcut(desktopDir + "\\Tender Control.lnk");
         appShortcut.TargetPath = "wscript.exe";
         appShortcut.Arguments = "\"" + openTarget + "\"";
         appShortcut.WorkingDirectory = scriptDir;
         appShortcut.WindowStyle = 7;
         appShortcut.IconLocation = iconPath + ",0";
-        appShortcut.Description = "Open OpportunityOS";
+        appShortcut.Description = "Open Tender Control";
         appShortcut.Save();
 
-        var startShortcut = shell.CreateShortcut(startMenuDir + "\\OpportunityOS.lnk");
+        var startShortcut = shell.CreateShortcut(startMenuDir + "\\Tender Control.lnk");
         startShortcut.TargetPath = "wscript.exe";
         startShortcut.Arguments = "\"" + openTarget + "\"";
         startShortcut.WorkingDirectory = scriptDir;
         startShortcut.WindowStyle = 7;
         startShortcut.IconLocation = iconPath + ",0";
-        startShortcut.Description = "Open OpportunityOS";
+        startShortcut.Description = "Open Tender Control";
         // Windows only honors a shortcut's hotkey while it lives on the
         // Desktop or in the Start Menu; keep it on exactly one shortcut so
         // there's no ambiguity about which target Ctrl+Alt+O launches.
         startShortcut.Hotkey = "CTRL+ALT+O";
         startShortcut.Save();
 
-        var uninstallShortcut = shell.CreateShortcut(startMenuDir + "\\Uninstall OpportunityOS.lnk");
+        var uninstallShortcut = shell.CreateShortcut(startMenuDir + "\\Uninstall Tender Control.lnk");
         uninstallShortcut.TargetPath = "wscript.exe";
         uninstallShortcut.Arguments = "\"" + uninstallTarget + "\"";
         uninstallShortcut.WorkingDirectory = scriptDir;
         uninstallShortcut.WindowStyle = 1;
         uninstallShortcut.IconLocation = "%SystemRoot%\\System32\\shell32.dll,-131";
-        uninstallShortcut.Description = "Uninstall OpportunityOS";
+        uninstallShortcut.Description = "Uninstall Tender Control";
         uninstallShortcut.Save();
 
-        logLine("[OK] Desktop and Start Menu shortcuts created. Ctrl+Alt+O opens OpportunityOS from anywhere.");
+        logLine("[OK] Desktop and Start Menu shortcuts created. Ctrl+Alt+O opens Tender Control from anywhere.");
         logLine("[INFO] Pin the Desktop or Start Menu shortcut to your taskbar for a stable icon — pinning the app's live window instead can lose its icon after a restart.");
       } catch (err) {
-        logLine("[WARN] Could not create shortcuts: " + err.message + ". OpportunityOS still works via OPEN_OPPORTUNITYOS.vbs in this folder.");
+        logLine("[WARN] Could not create shortcuts: " + err.message + ". Tender Control still works via OPEN_OPPORTUNITYOS.vbs in this folder.");
       }
     }
 
@@ -481,17 +481,17 @@
       }
       el("openBtn").disabled = true;
       el("closeBtn").disabled = true;
-      setStep(5, "Closing previous OpportunityOS version");
-      el("remaining").innerText = "Freeing local OpportunityOS ports";
-      logLine("[INFO] Closing any previous OpportunityOS engine on ports 3000 and 3099. No terminal window is needed.");
+      setStep(5, "Closing previous Tender Control version");
+      el("remaining").innerText = "Freeing local Tender Control ports";
+      logLine("[INFO] Closing any previous Tender Control engine on ports 3000 and 3099. No terminal window is needed.");
       runCommand("call \"" + closer + "\" SILENT", function (closeCode) {
         if (closeCode !== 0) {
-          failInstall("The previous OpportunityOS engine could not be stopped. See the log above and retry.");
+          failInstall("The previous Tender Control engine could not be stopped. See the log above and retry.");
           return;
         }
-        setStep(5, "Starting OpportunityOS");
+        setStep(5, "Starting Tender Control");
         el("remaining").innerText = "Checking the local application";
-        logLine("[INFO] Starting the new OpportunityOS version in the background.");
+        logLine("[INFO] Starting the new Tender Control version in the background.");
         shell.Run("wscript.exe \"" + launcher + "\"", 1, false);
         launchAttempt = 0;
         window.setTimeout(checkAppStarted, 1000);
@@ -508,22 +508,22 @@
       } catch (ignore) {}
 
       if (started) {
-        el("status").innerText = "OpportunityOS started successfully";
+        el("status").innerText = "Tender Control started successfully";
         el("remaining").innerText = "You may close this setup window";
         el("bar").style.width = "100%";
-        logLine("[OK] OpportunityOS is running. The application window should now be open.");
-        alert("OpportunityOS started successfully. You can now close this setup window.");
+        logLine("[OK] Tender Control is running. The application window should now be open.");
+        alert("Tender Control started successfully. You can now close this setup window.");
         el("closeBtn").disabled = false;
         return;
       }
 
       launchAttempt++;
       if (launchAttempt >= 30) {
-        failInstall("OpportunityOS did not start within 30 seconds. No terminal is required: use the log above to identify the failed step, then choose Install to retry.");
+        failInstall("Tender Control did not start within 30 seconds. No terminal is required: use the log above to identify the failed step, then choose Install to retry.");
         return;
       }
 
-      el("remaining").innerText = "Waiting for OpportunityOS to start (" + launchAttempt + "/30)";
+      el("remaining").innerText = "Waiting for Tender Control to start (" + launchAttempt + "/30)";
       window.setTimeout(checkAppStarted, 1000);
     }
   </script>

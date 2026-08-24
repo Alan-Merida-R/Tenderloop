@@ -4,7 +4,7 @@ import { Opportunity, Reminder } from '../../types';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { createBlock } from '../schedule/executionBlockUtils';
 import { buildOrganizerPrompt, ORGANIZER_CHIPS, TimeRange } from './promptBuilder';
-import { ParsedDueDateRow, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
+import { ParsedDueDateRow, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
 import { QuickOrganizerIntro } from './QuickOrganizerIntro';
 import { QuickOrganizerReview } from './QuickOrganizerReview';
 
@@ -14,6 +14,7 @@ interface Props {
     userName: string;
     onOppUpdate: (updated: Opportunity, id?: string, immediate?: boolean) => void;
     onAddReminder: (reminder: Omit<Reminder, 'id' | 'createdAt'>) => void;
+    onDeleteReminder: (id: string) => void;
     onClose: () => void;
     /** Called right after a plan is accepted — the host navigates to the Tasks view in Agenda mode. */
     onPlanAccepted?: () => void;
@@ -44,7 +45,7 @@ const buildDayWindow = (): DayOption[] => {
     });
 };
 
-export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onClose, onPlanAccepted }) => {
+export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onDeleteReminder, onClose, onPlanAccepted }) => {
     const [phase, setPhase] = useState<'intro' | 'main' | 'review'>('intro');
     const [extraInstructions, setExtraInstructions] = useState('');
     const [activeChipIds, setActiveChipIds] = useState<string[]>([]);
@@ -103,6 +104,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const [blockerInsights, setBlockerInsights] = useState<string[]>([]);
     const [deliveryInsights, setDeliveryInsights] = useState<string[]>([]);
     const [missingTaskInsights, setMissingTaskInsights] = useState<string[]>([]);
+    const [opportunityAssessments, setOpportunityAssessments] = useState<ParsedOpportunityAssessment[]>([]);
     const [applied, setApplied] = useState(false);
 
     const stats = useMemo(() => {
@@ -165,6 +167,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         setBlockerInsights(result.blockerInsights);
         setDeliveryInsights(result.deliveryInsights);
         setMissingTaskInsights(result.missingTaskInsights);
+        setOpportunityAssessments(result.opportunityAssessments);
         const importedDueDateKeys = new Set<string>();
         setDueDateRows(result.dueDateRows.filter(row => {
             const key = `${row.oppId}::${row.taskId}`;
@@ -213,6 +216,16 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     };
 
     const handleApply = () => {
+        const selectedSet = new Set(selectedOppIds);
+        for (const reminder of reminders) {
+            if (!selectedSet.has(reminder.opportunityId)) continue;
+            const opp = opportunities.find(item => item.id === reminder.opportunityId);
+            const task = reminder.taskId ? opp?.tasks?.find(item => item.id === reminder.taskId) : undefined;
+            const obsolete = Boolean(reminder.seenAt)
+                || new Date(reminder.dueAt).getTime() < Date.now()
+                || Boolean(reminder.taskId && (!task || task.status === 'Done' || task.status === 'Canceled'));
+            if (obsolete) onDeleteReminder(reminder.id);
+        }
         const byOpp = new Map<string, Map<string, ParsedScheduleRow[]>>();
         for (const row of scheduleRows) {
             if (!byOpp.has(row.oppId)) byOpp.set(row.oppId, new Map());
@@ -266,8 +279,9 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             blockerInsights={blockerInsights}
             deliveryInsights={deliveryInsights}
             missingTaskInsights={missingTaskInsights}
+            opportunityAssessments={opportunityAssessments}
             dueDateRows={dueDateRows}
-            opportunities={opportunities}
+            opportunities={opportunities.filter(opp => selectedOppIds.includes(opp.id))}
             errors={parseErrors}
             onChange={updateScheduleRow}
             onReminderChange={updateReminderRow}

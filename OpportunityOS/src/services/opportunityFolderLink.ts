@@ -123,13 +123,35 @@ export const getStoredFolderPaths = async (opportunityId: string): Promise<Recor
 };
 
 /**
+ * True once this opportunity records a folder for at least one specific revision.
+ *
+ * The opportunity-level ("legacy") link means "this opportunity has one folder", which
+ * every revision may legitimately inherit. Once even one revision owns a folder of its
+ * own, that statement no longer holds — and inheriting the legacy entry anyway is how a
+ * newly created revision, and an SR import that lands on an existing opportunity, ended
+ * up silently linked to the previous revision's folder before the user had chosen
+ * between a template and an existing folder.
+ */
+const usesPerRevisionFolders = (opportunityId: string): boolean => {
+  const paths = readOpportunityFolderPaths(opportunityId);
+  return !!paths && Object.entries(paths).some(([key, value]) => key !== '' && !!value);
+};
+
+/**
  * Read a handle for a specific revision.
  *
- * Falls back to the legacy global key and then to ANY handle stored for this
- * opportunity. That last step is what keeps a newly created revision usable: revisions
- * of one opportunity live in the same folder tree far more often than not, so inheriting
- * the previous revision's handle is right in the common case and harmless otherwise —
- * the user can always re-link, and the per-revision key is written the moment they do.
+ * Falls back to the LEGACY opportunity-level key (the pre-per-revision scheme, which
+ * genuinely describes this opportunity's one folder) and to the even older
+ * TenderLoopFolders store. It deliberately does NOT fall back to another revision's
+ * handle any more.
+ *
+ * That fallback caused the worst folder bug: a fresh revision silently adopted a
+ * sibling revision's handle while its PATH came from the shared database, so the tab
+ * listed the contents of one folder while every native action (open, copy path, move)
+ * addressed another. Downloading a file into the "linked" folder then appeared to do
+ * nothing, and re-linking the same folder was the only cure. Reusing a previous
+ * revision's folder is still one click away — but it is now a click, in
+ * `inheritFolderLinkFromRevision`, rather than a guess.
  */
 export const getFolderHandleForRevision = async (opportunityId: string, revision?: string): Promise<FileSystemDirectoryHandle | null> => {
   const primary = await getFolderHandle(folderKey(opportunityId, revision));
@@ -140,18 +162,12 @@ export const getFolderHandleForRevision = async (opportunityId: string, revision
     return oldHandle;
   }
 
+  // The legacy opportunity-level handle is only inheritable while the opportunity
+  // still has ONE folder. See usesPerRevisionFolders above.
+  if (usesPerRevisionFolders(opportunityId)) return null;
+
   const legacy = await getFolderHandle(opportunityId);
   if (legacy) return legacy;
-
-  try {
-    const keys = await listHandleKeys(opportunityId);
-    for (const key of keys) {
-      const handle = await getFolderHandle(key);
-      if (handle) return handle;
-    }
-  } catch {
-    // Enumeration is a best-effort convenience; never fail the lookup over it.
-  }
 
   // Last-resort upgrade path from releases that stored one handle in
   // TenderLoopFolders/handles. Preserve it under both the legacy key and the current
@@ -165,36 +181,60 @@ export const getFolderHandleForRevision = async (opportunityId: string, revision
   return null;
 };
 
-/** Path-display counterpart to getFolderHandleForRevision (same inheritance rules). */
+/** Every revision of this opportunity that already holds a folder handle in this browser. */
+export const listLinkedRevisions = async (opportunityId: string): Promise<string[]> => {
+  try {
+    const keys = await listHandleKeys(opportunityId);
+    return keys.map(key => (key === opportunityId ? '' : key.slice(opportunityId.length + 2)));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Explicitly adopt another revision's folder for this revision.
+ *
+ * The deliberate counterpart to the automatic inheritance removed above: the user
+ * picks which revision to reuse, and both the handle and the path are written under
+ * this revision's own key, so nothing has to be guessed again later.
+ */
+export const inheritFolderLinkFromRevision = async (
+  opportunityId: string,
+  fromRevision: string,
+  toRevision: string,
+): Promise<{ handle: FileSystemDirectoryHandle | null; path: string }> => {
+  const fromKey = folderKey(opportunityId, fromRevision);
+  const toKey = folderKey(opportunityId, toRevision);
+  const handle = await getFolderHandle(fromKey);
+  if (handle) await setFolderHandle(toKey, handle);
+  const inheritedPath = await getRootPathDisplay(fromKey);
+  if (inheritedPath) await setRootPathDisplay(toKey, inheritedPath);
+  return { handle, path: inheritedPath };
+};
+
+/** Path-display counterpart to getFolderHandleForRevision (same strict rules). */
 export const getRootPathDisplayForRevision = async (opportunityId: string, revision?: string): Promise<string> => {
   const primary = await getRootPathDisplay(folderKey(opportunityId, revision));
   if (primary) return primary;
   if (!revision || !revision.trim()) return '';
-
-  const legacy = await getRootPathDisplay(opportunityId);
-  if (legacy) return legacy;
-
-  try {
-    const keys = await listHandleKeys(opportunityId);
-    for (const key of keys) {
-      const path = await getRootPathDisplay(key);
-      if (path) return path;
-    }
-  } catch {
-    // best effort
-  }
-  return '';
+  // Only the legacy opportunity-level entry, and only while it still describes the
+  // opportunity as a whole. Borrowing a sibling revision's path is what produced
+  // "the path is correct but it is showing another folder's files".
+  if (usesPerRevisionFolders(opportunityId)) return '';
+  return await getRootPathDisplay(opportunityId);
 };
 
 /**
- * Pick the best known absolute path for a revision out of the shared DB.
+ * The known absolute path for a revision, out of the shared DB.
  *
- * Order: the revision's own path, then the legacy unkeyed path, then the most recently
- * recorded path for any other revision. Object keys preserve insertion order through the
- * JSON round-trip, so the last entry is the one written most recently.
+ * Order: the revision's own path, then the legacy unkeyed path (which predates
+ * per-revision folders and describes the opportunity as a whole).
  *
- * Inheriting across revisions is the whole point: creating R1 must not force the user to
- * re-link a folder they already linked for R0.
+ * It used to end with "...otherwise the most recently recorded path for ANY other
+ * revision". That is what auto-linked a brand-new revision — and a new opportunity
+ * imported on top of an existing one — to whatever folder happened to be written
+ * last, before the user had any chance to choose between a template and an existing
+ * folder. Reuse is now offered explicitly, via `listInheritableFolderPaths`.
  */
 export const resolveFolderPathFromDb = (
   folderPaths: Record<string, string> | undefined,
@@ -203,11 +243,30 @@ export const resolveFolderPathFromDb = (
   if (!folderPaths) return '';
   const rev = (revision || '').trim();
   if (rev && folderPaths[rev]) return folderPaths[rev];
-  if (folderPaths['']) return folderPaths[''];
-  const values = Object.entries(folderPaths)
-    .filter(([key, value]) => key !== rev && !!value)
-    .map(([, value]) => value);
-  return values.length ? values[values.length - 1] : '';
+  // The unkeyed entry only speaks for the whole opportunity while no revision has a
+  // folder of its own; after that it is just the oldest revision's folder.
+  const hasPerRevision = Object.entries(folderPaths).some(([key, value]) => key !== '' && !!value);
+  if (rev && hasPerRevision) return '';
+  return folderPaths[''] || '';
+};
+
+/**
+ * Folders linked to OTHER revisions of the same opportunity, most recent first.
+ *
+ * Offered to the user as "reuse this one" when the current revision has no folder of
+ * its own. Object keys survive the JSON round-trip in insertion order, so the last
+ * entry is the most recently linked.
+ */
+export const listInheritableFolderPaths = (
+  folderPaths: Record<string, string> | undefined,
+  revision?: string,
+): { revision: string; path: string }[] => {
+  if (!folderPaths) return [];
+  const rev = (revision || '').trim();
+  return Object.entries(folderPaths)
+    .filter(([key, value]) => key !== rev && key !== '' && !!value)
+    .map(([key, value]) => ({ revision: key, path: value }))
+    .reverse();
 };
 
 /**
@@ -257,6 +316,11 @@ export const copyFolderLinkToRevision = async (opportunityId: string, fromRevisi
 export const moveLegacyFolderLinkToRevision = async (opportunityId: string, revision: string): Promise<boolean> => {
   const trimmedRevision = revision.trim();
   if (!trimmedRevision) return false;
+  // Same rule as getFolderHandleForRevision: once any revision owns a folder, the
+  // opportunity-level link no longer speaks for the opportunity, and copying it onto
+  // a revision that has not been linked yet would auto-link that revision to the
+  // oldest folder instead of letting the user choose.
+  if (usesPerRevisionFolders(opportunityId)) return false;
 
   const revisionKey = folderKey(opportunityId, trimmedRevision);
   const existingRevisionHandle = await getFolderHandle(revisionKey);
@@ -332,6 +396,24 @@ export const getRootPathDisplay = async (opportunityId: string): Promise<string>
     const store = transaction.objectStore(META_STORE);
     const request = store.get(opportunityId);
     request.onsuccess = () => resolve(request.result || '');
+    request.onerror = () => reject(request.error);
+  });
+};
+
+/**
+ * Forget only the directory handle, keeping the absolute path.
+ *
+ * Used when this browser's handle is found to point at a different folder than the
+ * path the shared database records. The path is the trustworthy half — it is shared,
+ * and the local helper confirmed it exists — so the handle is what has to go, and the
+ * tab falls back to read-only path browsing until the user re-links.
+ */
+export const clearFolderHandleOnly = async (opportunityId: string): Promise<void> => {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const request = transaction.objectStore(STORE_NAME).delete(opportunityId);
+    request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 };

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { StickyNote } from '../types';
 import type { GeneralQuickLink } from '../types';
-import { Bookmark, BriefcaseBusiness, FileText, Folder, Globe2, Link2, Mail, Search, Star, X } from 'lucide-react';
+import { Bookmark, BriefcaseBusiness, FileText, Folder, Globe2, GripVertical, Link2, Mail, Search, Star, X } from 'lucide-react';
 import { openAbsolutePath } from '../features/opportunity-folder/fileOps';
 
 interface Props {
@@ -15,9 +15,15 @@ export const StickyNotesWidget: React.FC<Props> = ({ notes, onNotesChange, timer
     const [open, setOpen] = useState(false);
     const [newText, setNewText] = useState('');
     const [search, setSearch] = useState('');
+    const [orderedNotes, setOrderedNotes] = useState(notes);
+    const draggedNoteIdRef = useRef<string | null>(null);
+    const isDraggingRef = useRef(false);
+    useEffect(() => {
+        if (!isDraggingRef.current) setOrderedNotes(notes);
+    }, [notes]);
     const visibleNotes = search.trim()
-        ? notes.filter(note => note.content.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
-        : notes;
+        ? orderedNotes.filter(note => note.content.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+        : orderedNotes;
 
     useEffect(() => {
         if (!open) return;
@@ -35,6 +41,32 @@ export const StickyNotesWidget: React.FC<Props> = ({ notes, onNotesChange, timer
     };
     const deleteNote = (id: string) => onNotesChange(prev => prev.filter(n => n.id !== id));
     const updateNote = (id: string, content: string) => onNotesChange(prev => prev.map(n => n.id === id ? { ...n, content } : n));
+
+    const previewNoteMove = (overId: string) => {
+        const draggedId = draggedNoteIdRef.current;
+        if (!draggedId || draggedId === overId) return;
+        setOrderedNotes(current => {
+            const from = current.findIndex(note => note.id === draggedId);
+            const to = current.findIndex(note => note.id === overId);
+            if (from < 0 || to < 0) return current;
+            const next = [...current];
+            const [moved] = next.splice(from, 1);
+            next.splice(to, 0, moved);
+            return next;
+        });
+    };
+
+    const saveNoteOrder = () => {
+        const ids = orderedNotes.map(note => note.id);
+        onNotesChange(current => {
+            const latestById = new Map(current.map(note => [note.id, note]));
+            const reordered = ids.map(id => latestById.get(id)).filter((note): note is StickyNote => !!note);
+            const known = new Set(ids);
+            return [...reordered, ...current.filter(note => !known.has(note.id))];
+        });
+        draggedNoteIdRef.current = null;
+        isDraggingRef.current = false;
+    };
 
     const insertAtCursor = (text: string) => {
         const el = document.getElementById('sticky-new-input') as HTMLTextAreaElement | null;
@@ -157,7 +189,17 @@ export const StickyNotesWidget: React.FC<Props> = ({ notes, onNotesChange, timer
                     {notes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No sticky notes yet.</p>}
                     {notes.length > 0 && visibleNotes.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No matching notes.</p>}
                     {visibleNotes.map(note => (
-                        <div key={note.id} className="bg-yellow-50 border border-yellow-200 rounded-xl shadow-sm group">
+                        <div key={note.id} onDragOver={event => event.preventDefault()} onDragEnter={() => previewNoteMove(note.id)} onDrop={event => { event.preventDefault(); saveNoteOrder(); }} className={`bg-yellow-50 border border-yellow-200 rounded-xl shadow-sm group transition ${draggedNoteIdRef.current === note.id ? 'opacity-50 ring-2 ring-yellow-400' : ''}`}>
+                            {!search.trim() && <div className="flex justify-center border-b border-yellow-100 py-0.5">
+                                <button type="button" draggable onDragStart={event => {
+                                    draggedNoteIdRef.current = note.id;
+                                    isDraggingRef.current = true;
+                                    event.dataTransfer.effectAllowed = 'move';
+                                    event.dataTransfer.setData('text/plain', note.id);
+                                }} onDragEnd={saveNoteOrder} className="cursor-grab text-yellow-500 hover:text-yellow-800 active:cursor-grabbing" title="Drag to reorder" aria-label="Drag note to reorder">
+                                    <GripVertical className="h-4 w-4" />
+                                </button>
+                            </div>}
                             <div className="p-2">{renderContent(note.content, note.id)}</div>
                             <details>
                                 <summary className="text-[9px] font-bold text-yellow-600 cursor-pointer px-2 pb-1 list-none hover:text-yellow-800">Edit ▾</summary>

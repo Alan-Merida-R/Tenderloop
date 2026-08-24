@@ -9,6 +9,7 @@ import { osRouter } from './routes/os';
 import { dbRouter } from './routes/db';
 import { webRouter } from './routes/web';
 import { dbRepository } from './db/repository';
+import { warmUpPowerShell, shutdownPowerShellWorker } from './os/psWorker';
 
 const app = express();
 app.disable('x-powered-by');
@@ -27,7 +28,7 @@ const TRUSTED_ORIGINS = new Set([
 app.use((req, res, next) => {
     const origin = req.get('origin');
     if (!origin || !TRUSTED_ORIGINS.has(origin)) {
-        return res.status(403).json({ error: 'Requests are restricted to the local OpportunityOS application.' });
+        return res.status(403).json({ error: 'Requests are restricted to the local Tender Control application.' });
     }
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -51,7 +52,7 @@ const health = (_req: express.Request, res: express.Response) => {
         db: dbRepository.status(),
         features: [
             'open', 'open-many', 'reveal', 'clipboard', 'clipboard-email-reply', 'locate',
-            'find-dir', 'copy-template', 'check-path', 'list-dir', 'write-manager-report',
+            'find-dir', 'copy-template', 'check-path', 'list-dir', 'write-manager-report', 'move',
             ...(ENABLE_WEB_AUTOMATION ? ['web-automation'] : []),
         ],
     });
@@ -76,7 +77,14 @@ app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
 const server = app.listen(PORT, HOST, () => {
     console.log(`[opportunityos-server] Ready on http://${HOST}:${PORT}`);
+    // Pay PowerShell's start-up cost now, in the background, so the user's first
+    // "open this folder" is as fast as every one after it.
+    if (ENABLE_OS_INTEGRATION) warmUpPowerShell();
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => { shutdownPowerShellWorker(); process.exit(0); });
+}
 
 server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {

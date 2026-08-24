@@ -359,8 +359,8 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       chapter: { en: 'Welcome', es: 'Bienvenida' },
       title: { en: "Hi! I'm Oppy 👋", es: '¡Hola! Soy Oppy 👋' },
       body: {
-        en: <>Welcome to <B>OpportunityOS</B>! This is a <G>hands-on tour</G>: in about <B>15 minutes</B> you'll create a real opportunity, add a task, log a history event, write a note and learn how to make the app yours. I explain — <B>you do the clicking</B>. What you build is real and stays after the tour. Press <B>Esc</B> to leave anytime.</>,
-        es: <>¡Bienvenido a <B>OpportunityOS</B>! Este es un <G>tutorial práctico</G>: en unos <B>15 minutos</B> crearás una oportunidad real, agregarás una tarea, registrarás un evento en el historial, escribirás una nota y aprenderás a configurar la app a tu gusto. Yo explico — <B>tú haces los clics</B>. Lo que construyas es real y se queda al terminar. Presiona <B>Esc</B> para salir cuando quieras.</>,
+        en: <>Welcome to <B>Tender Control</B>! This is a <G>hands-on tour</G>: in about <B>15 minutes</B> you'll create a real opportunity, add a task, log a history event, write a note and learn how to make the app yours. I explain — <B>you do the clicking</B>. What you build is real and stays after the tour. Press <B>Esc</B> to leave anytime.</>,
+        es: <>¡Bienvenido a <B>Tender Control</B>! Este es un <G>tutorial práctico</G>: en unos <B>15 minutos</B> crearás una oportunidad real, agregarás una tarea, registrarás un evento en el historial, escribirás una nota y aprenderás a configurar la app a tu gusto. Yo explico — <B>tú haces los clics</B>. Lo que construyas es real y se queda al terminar. Presiona <B>Esc</B> para salir cuando quieras.</>,
       },
     },
     {
@@ -485,11 +485,11 @@ const buildSteps = (lang: Lang): TutorialStep[] => {
       chapter: { en: 'Keyboard shortcuts', es: 'Atajos de teclado' },
       title: { en: 'Two shortcuts to rule them all', es: 'Dos atajos para dominarlo todo' },
       body: {
-        en: <>Now that your deal has a linked folder, learn the speed moves. <G>Ctrl + Alt + O</G> opens <B>OpportunityOS from anywhere in Windows</B> — even with the app closed (the installer wires it up). <G>Ctrl + Shift + E</G>, with an expediente open, jumps straight to its <B>linked folder in Explorer</B> — and in the Folder tab it opens the <B>file or subfolder you have selected</B>, so any document is two keys away. Try <B>Ctrl + Shift + E</B> right now!</>,
-        es: <>Ahora que tu negocio tiene carpeta ligada, aprende los movimientos rápidos. <G>Ctrl + Alt + O</G> abre <B>OpportunityOS desde cualquier lugar de Windows</B> — incluso con la app cerrada (el instalador lo configura). <G>Ctrl + Shift + E</G>, con un expediente abierto, salta directo a su <B>carpeta ligada en el Explorador</B> — y en la pestaña Folder abre el <B>archivo o subcarpeta que tengas seleccionado</B>, así cualquier documento queda a dos teclas. ¡Prueba <B>Ctrl + Shift + E</B> ahora mismo!</>,
+        en: <>Now that your deal has a linked folder, learn the speed moves. <G>Ctrl + Alt + O</G> opens <B>Tender Control from anywhere in Windows</B> — even with the app closed (the installer wires it up). <G>Ctrl + Shift + E</G>, with an expediente open, jumps straight to its <B>linked folder in Explorer</B> — and in the Folder tab it opens the <B>file or subfolder you have selected</B>, so any document is two keys away. Try <B>Ctrl + Shift + E</B> right now!</>,
+        es: <>Ahora que tu negocio tiene carpeta ligada, aprende los movimientos rápidos. <G>Ctrl + Alt + O</G> abre <B>Tender Control desde cualquier lugar de Windows</B> — incluso con la app cerrada (el instalador lo configura). <G>Ctrl + Shift + E</G>, con un expediente abierto, salta directo a su <B>carpeta ligada en el Explorador</B> — y en la pestaña Folder abre el <B>archivo o subcarpeta que tengas seleccionado</B>, así cualquier documento queda a dos teclas. ¡Prueba <B>Ctrl + Shift + E</B> ahora mismo!</>,
       },
       illustration: <IllusShortcuts
-        openApp={cap({ en: 'Open OpportunityOS from anywhere', es: 'Abre OpportunityOS desde donde sea' })}
+        openApp={cap({ en: 'Open Tender Control from anywhere', es: 'Abre Tender Control desde donde sea' })}
         openFolder={cap({ en: 'Open the deal folder / selected file', es: 'Abre la carpeta del negocio / archivo seleccionado' })}
       />,
     },

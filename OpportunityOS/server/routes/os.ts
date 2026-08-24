@@ -8,8 +8,10 @@ import { existsSync, statSync, readdirSync, writeFileSync, renameSync, rmSync } 
 import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard, copyEmailReplyToClipboard,
-    copyDirectoryBestEffort, findDirByName, findFileByMetadata, locateByMarker, setTimerWindowTopmost
+    copyDirectoryBestEffort, findDirByName, findDirByChildren, findFileByMetadata, locateByMarker,
+    setTimerWindowTopmost, movePath
 } from '../os/shell';
+import type { DirChildHint } from '../os/shell';
 import { composeEmail, findMissingAttachments } from '../os/outlookCompose';
 import type { ComposeMode } from '../os/outlookCompose';
 
@@ -23,6 +25,9 @@ const parsePaths = (raw: unknown): string[] => {
         return [];
     }
 };
+
+/** Characters Windows forbids in a file or folder name. */
+const INVALID_NAME_RE = /[\/:*?"<>|]/;
 
 const q = (req: Request, name: string): string => {
     const v = req.query[name];
@@ -196,15 +201,87 @@ osRouter.post('/write-manager-report', (req: Request, res: Response) => {
     }
 });
 
-// --- Find a directory's absolute path by NAME + child-name hints ---
+/** Parse the `children` param: a JSON array of {name, kind, size, mtime}. */
+const parseChildren = (raw: unknown): DirChildHint[] => {
+    if (!raw || typeof raw !== 'string') return [];
+    try {
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        return arr
+            .filter((c: any) => c && typeof c.name === 'string' && c.name.trim())
+            .map((c: any) => ({
+                name: String(c.name),
+                kind: c.kind === 'file' || c.kind === 'directory' ? c.kind : undefined,
+                size: Number.isFinite(c.size) ? Number(c.size) : undefined,
+                mtime: Number.isFinite(c.mtime) ? Number(c.mtime) : undefined,
+            }));
+    } catch {
+        return [];
+    }
+};
+
+// --- Find a directory's absolute path by NAME + the entries it contains ---
+// `children` (name + size + mtime) is what makes the answer trustworthy: two
+// opportunities often own a folder with the same name, but not one holding the
+// same file at the same byte size and timestamp. `hints` is the older
+// names-only form, still accepted.
 osRouter.get('/find-dir', async (req: Request, res: Response) => {
     const name = q(req, 'name').trim();
-    if (!name || /[\\/:*?"<>|]/.test(name)) return res.status(400).json({ error: 'Invalid "name"' });
-    const hints = parsePaths(req.query.hints);
+    if (!name || INVALID_NAME_RE.test(name)) return res.status(400).json({ error: 'Invalid "name"' });
+    const children = parseChildren(req.query.children);
+    // Absolute paths already known for this opportunity: a new folder is usually a
+    // sibling of the previous one, so searching there first is both fast and precise.
+    const near = parsePaths(req.query.near);
 
-    const found = await findDirByName(name, hints);
+    const found = children.length
+        ? await findDirByChildren(name, children, near)
+        : await findDirByName(name, parsePaths(req.query.hints));
     if (found) return res.json({ ok: true, ...found });
     return res.status(404).json({ error: 'Directory not found', name });
+});
+
+// --- Move a file/folder on disk (atomic rename, verified) ---
+// The browser's File System Access API can only emulate a move as copy + delete,
+// which leaves the app showing a file in its new location while the bytes are
+// still in the old one whenever the delete half fails. This does the real thing.
+osRouter.post('/move', (req: Request, res: Response) => {
+    const body = req.body || {};
+    const sources: string[] = Array.isArray(body.sources)
+        ? body.sources.filter((v: unknown): v is string => typeof v === 'string' && !!v.trim())
+        : (typeof body.source === 'string' ? [body.source] : []);
+    const destDirRaw = typeof body.destDir === 'string' ? body.destDir.trim() : '';
+    const overwrite = body.overwrite === true;
+
+    if (!sources.length) return res.status(400).json({ error: 'Missing "sources"' });
+    if (!destDirRaw) return res.status(400).json({ error: 'Missing "destDir"' });
+
+    const destDir = path.normalize(destDirRaw);
+    if (!existsSync(destDir) || !statSync(destDir).isDirectory()) {
+        return res.status(404).json({ error: 'Destination folder does not exist', path: destDir });
+    }
+
+    const moved: { source: string; target: string }[] = [];
+    const failed: { source: string; error: string }[] = [];
+    for (const raw of sources) {
+        const source = path.normalize(raw);
+        try {
+            const { target } = movePath(source, destDir, overwrite);
+            // Never report success on an unverified move: that is precisely how a file
+            // ended up listed in its new home while still living in the old one.
+            if (!existsSync(target) || existsSync(source)) {
+                failed.push({ source, error: 'The move could not be verified on disk.' });
+            } else {
+                moved.push({ source, target });
+            }
+        } catch (err: any) {
+            failed.push({ source, error: err?.message || String(err) });
+        }
+    }
+
+    if (moved.length === 0) {
+        return res.status(500).json({ error: failed[0]?.error || 'Nothing could be moved', moved, failed });
+    }
+    return res.json({ ok: true, moved, failed });
 });
 
 // --- Check whether an absolute path exists (used to validate persisted folder paths) ---

@@ -3,6 +3,7 @@ import { GitPullRequest, Paperclip, X } from 'lucide-react';
 import type { Person, TaskOwner } from '../types';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { suggestSharedDocumentRevision } from '../services/changeRevisionFiles';
+import { PROCESS_SECTIONS, type ProcessSection } from '../services/processSections';
 
 export interface ChangeRevisionFormValue {
   correctionTaskTitle: string;
@@ -14,6 +15,7 @@ export interface ChangeRevisionFormValue {
   responsibleTeamMemberIds: string[];
   requestedDate: string;
   committedDate: string;
+  processSection: ProcessSection;
   fileRevisions: Array<{ sourceFileKey: string; newRevision: string }>;
 }
 
@@ -59,6 +61,7 @@ export const ChangeRevisionModal: React.FC<Props> = ({ opportunityId, opportunit
   const [responsibleIds, setResponsibleIds] = useState<string[]>([]);
   const [requestedDate, setRequestedDate] = useState(today());
   const [committedDate, setCommittedDate] = useState('');
+  const [processSection, setProcessSection] = useState<ProcessSection>('Revision & Rework');
   const [createFiles, setCreateFiles] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [files, setFiles] = useState<Array<{ sourceFileKey: string; newRevision: string }>>([]);
@@ -91,6 +94,13 @@ export const ChangeRevisionModal: React.FC<Props> = ({ opportunityId, opportunit
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Correction Task Title *</label>
               <input value={title} onChange={e => setTitle(e.target.value)} className="mt-1 w-full rounded-xl border-gray-200 text-sm font-bold" />
+            </div>
+            <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-3">
+              <label className="text-[10px] font-black uppercase tracking-widest text-orange-700">Process section reopened by this revision</label>
+              <select value={processSection} onChange={e => setProcessSection(e.target.value as ProcessSection)} className="mt-1 w-full rounded-xl border-orange-200 bg-white text-sm font-bold text-gray-700">
+                {PROCESS_SECTIONS.map(section => <option key={section} value={section}>{section}</option>)}
+              </select>
+              <p className="mt-1 text-[10px] text-orange-700">Choose Scope Definition when architecture, BOM, services, integrations or responsibilities must be defined again.</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -139,7 +149,7 @@ export const ChangeRevisionModal: React.FC<Props> = ({ opportunityId, opportunit
 
           <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4">
             <button onClick={onClose} disabled={busy} className="rounded-xl px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-200">Cancel</button>
-            <button disabled={invalid || busy} onClick={() => onSubmit({ correctionTaskTitle: title.trim(), requiredChanges: requiredChanges.trim(), reason: reason.trim(), requestedByIds, informedIds, assignedTo, responsibleTeamMemberIds: responsibleIds, requestedDate, committedDate, fileRevisions: files })} className="rounded-xl bg-orange-500 px-5 py-2 text-sm font-black text-white shadow disabled:opacity-40">{busy ? 'Creating…' : 'Create Change Revision'}</button>
+            <button disabled={invalid || busy} onClick={() => onSubmit({ correctionTaskTitle: title.trim(), requiredChanges: requiredChanges.trim(), reason: reason.trim(), requestedByIds, informedIds, assignedTo, responsibleTeamMemberIds: responsibleIds, requestedDate, committedDate, processSection, fileRevisions: files })} className="rounded-xl bg-orange-500 px-5 py-2 text-sm font-black text-white shadow disabled:opacity-40">{busy ? 'Creating…' : 'Create Change Revision'}</button>
           </div>
         </div>
       </div>

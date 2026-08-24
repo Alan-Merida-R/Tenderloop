@@ -241,6 +241,22 @@
   body.flag-filtering .question-card:not(.flagged){display:none}
   .question-flag{margin-left:auto;border:0;background:transparent;color:#98a2b3;cursor:pointer;padding:2px 4px;border-radius:6px;font-size:17px;line-height:1}
   .question-flag:hover,.question-flag.active{color:#e5484d;background:#fff0f0}
+  /* Every classic (non guided-flow) question gets the same follow-up flag as the
+     guided cards, so section 1..10 answers can be marked TBD from where they are asked. */
+  .field>label{display:flex;align-items:flex-start;gap:6px}
+  .field>label>.question-flag{margin-left:auto;font-size:14px;padding:0 3px}
+  .check-row-head>.question-flag{margin-left:auto;font-size:14px;padding:0 3px}
+  .field.flagged>label,.check-row.flagged .check-row-head{color:#b42318}
+  .field.flagged>input,.field.flagged>select,.field.flagged>textarea,.field.flagged>.editable,
+  .field.flagged>.multi-choice,.field.flagged>.commercial-link>input{border-color:#f04438;background:#fff8f7}
+  .check-row.flagged{border-color:#f04438;background:#fff8f7}
+  body.flag-filtering .field:not(.flagged),body.flag-filtering .check-row:not(.flagged),
+  body.flag-filtering .choice-grid,body.flag-filtering .responsibility-grid,
+  body.flag-filtering .flow-step-goal,body.flag-filtering .section-intro{display:none}
+  .catalog-modules{display:grid;gap:8px;margin-top:9px}
+  .catalog-module{border-left:3px solid var(--primary);background:#f8fafc;border-radius:0 9px 9px 0;padding:8px 10px}
+  .catalog-module>b{display:block;font-size:11px;color:#344054;margin-bottom:6px}
+  .catalog-module.platform-hidden-field{display:none}
   .terminal-tag.tbd{color:#fbbf24}
   .nav-panel{position:fixed;z-index:75;inset:0 auto 0 0;width:min(390px,92vw);background:#fff;border-right:1px solid #d8dee8;box-shadow:12px 0 32px #0f172a2b;display:none;flex-direction:column}.nav-panel.open{display:flex}
   /* Push the document instead of overlaying it, so the panel never covers content the user is trying to read/edit. */
@@ -359,25 +375,36 @@
 <textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
 <div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
 </div></section>
-<div class="field" style="margin-top:13px">
-<label>Platforms included in this opportunity <span class="required-mark">*</span></label>
+<div class="field" id="scopeCatalogBlock" style="margin-top:13px">
+<label>Scope <span class="required-mark">*</span></label>
+<div class="multi-choice" data-key="scope_types" data-question-label="Scope" data-required=""></div>
+<div class="logic-hint">Green field, upgrade, migration, CF, parts or services. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
+</div>
+<div class="field" id="systemCatalogBlock" style="margin-top:13px">
+<label>System <span class="required-mark">*</span></label>
+<div class="multi-choice" data-key="sow_systems" data-question-label="System" data-required=""></div>
+<div class="catalog-modules" id="systemModulesHost"></div>
+<div class="logic-hint">Every system in scope, AVEVA and Cyber included. A system with sub-modules opens its own list right below. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
+</div>
+<div class="field" id="quickNotesBlock" style="margin-top:13px">
+<label>Notes at a glance</label>
+<div class="multi-choice" data-key="quick_notes" data-question-label="Notes at a glance"></div>
+<div class="catalog-modules" id="quickNoteModulesHost"></div>
+</div>
+<div class="field" id="scopeExtrasBlock" style="margin-top:13px">
+<label>Labels / Extras</label>
+<div class="multi-choice" data-key="scope_extras" data-question-label="Labels / Extras"></div>
+<div class="logic-hint">Historical labels appear here only when they do not match Scope, System, sub-system or another configured option.</div>
+</div>
+<!-- Mirror of the System catalog. These four keys still drive the 4A/4B/4C platform
+     sections and every saved SOW, so they stay in the document but are never shown. -->
+<div class="platform-hidden-field" id="platformMirror">
 <div class="platform-picker">
 <label><input class="platform-input platform-selector" data-key="platform_modicon" id="platform-modicon" type="checkbox"/><span class="platform-chip">Modicon PLC</span></label>
 <label><input class="platform-input platform-selector" data-key="platform_triconex" id="platform-triconex" type="checkbox"/><span class="platform-chip">Triconex</span></label>
 <label><input class="platform-input platform-selector" data-key="platform_foxboro" id="platform-foxboro" type="checkbox"/><span class="platform-chip">Foxboro DCS</span></label>
 <label><input class="platform-input platform-selector" data-key="platform_other" id="platform-other" type="checkbox"/><span class="platform-chip">Other / AVEVA / Cyber</span></label>
 </div>
-</div>
-<div class="field" id="triconexProductsBlock" style="margin-top:13px">
-<label>Which Triconex product(s) are included?</label>
-<div class="multi-choice" data-key="triconex_products">
-<label><input type="checkbox" value="Tricon CX"/>Tricon CX</label>
-<label><input type="checkbox" value="Tricon"/>Tricon</label>
-<label><input type="checkbox" value="SIS"/>SIS</label>
-<label><input type="checkbox" value="TMC"/>TMC</label>
-<label><input type="checkbox" value="BMS"/>BMS</label>
-</div>
-<div class="logic-hint">Shown because Triconex is selected above. Select every product in scope.</div>
 </div><div class="logic-note"><b>Guided questionnaire:</b> dependent questions appear only when they apply. Hidden answers are preserved. Toggle <b>Guided</b> in the toolbar to temporarily display every question.</div>
 </div>
 
@@ -428,7 +455,12 @@
 <summary>1. Project, Proposal &amp; Commercial Definition</summary>
 <div class="section-body">
 <div class="grid four">
-<div class="field"><label>Opportunity type <span class="required-mark">*</span></label><select data-key="opp_type" data-required=""><option value=""></option><option>Greenfield</option><option>Modernization</option><option>Migration</option><option>Upgrade</option><option>Expansion</option><option>Services only</option><option>Mixed</option></select></div>
+<!-- Opportunity type is asked once, as the Scope catalog in Base Data. These two controls are
+     kept, hidden, for one reason: captureFieldValues() only saves keys that exist in the
+     document, so removing them would delete every historical answer on the next save. They also
+     keep the opp_type / flow_B008 dependency rules working. -->
+<div class="field platform-hidden-field"><label>Opportunity type (legacy mirror of Scope)</label><select data-key="opp_type"><option value=""></option><option>Greenfield</option><option>Modernization</option><option>Migration</option><option>Upgrade</option><option>Expansion</option><option>Services only</option><option>Mixed</option></select></div>
+<div class="field platform-hidden-field"><label>Opportunity types (legacy multi-answer)</label><div class="multi-choice" data-key="flow_B008" data-question-label="Opportunity type (legacy)"><label><input type="checkbox" value="Greenfield"/>Greenfield</label><label><input type="checkbox" value="Modernization"/>Modernization</label><label><input type="checkbox" value="Migration"/>Migration</label><label><input type="checkbox" value="Upgrade"/>Upgrade</label><label><input type="checkbox" value="Expansion"/>Expansion</label><label><input type="checkbox" value="Services Only"/>Services Only</label><label><input type="checkbox" value="Mixed new + existing"/>Mixed new + existing</label><label><input type="checkbox" value="Modernize in place"/>Modernize in place</label><label><input type="checkbox" value="New HMI / operator stations"/>New HMI / operator stations</label><label><input type="checkbox" value="Connect to existing HMI"/>Connect to existing HMI</label><label><input type="checkbox" value="Replace existing HMI"/>Replace existing HMI</label><label><input type="checkbox" value="New SCADA / supervisory layer"/>New SCADA / supervisory layer</label><label><input type="checkbox" value="Modify existing SCADA"/>Modify existing SCADA</label><label><input type="checkbox" value="Program / database conversion"/>Program / database conversion</label><label><input type="checkbox" value="New configuration"/>New configuration</label></div></div>
 <div class="field"><label>Proposal type <span class="required-mark">*</span></label><select data-key="proposal_type" data-required=""><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
 <div class="field"><label>Scope type</label><select data-key="scope_type"><option value=""></option><option>Supply</option><option>Engineering</option><option>Integration</option><option>Services</option><option>Turnkey</option><option>Mixed</option></select></div>
 <div class="field"><label>Commercial structure</label><select data-key="commercial_structure"><option value=""></option><option>Hardware + Software + Services</option><option>Services only</option><option>Migration / Modernization</option><option>Change order / Revision</option></select></div>
@@ -439,7 +471,7 @@
 </div>
 <h3>Important Dates</h3>
 <div class="grid four">
-<div class="field"><label>Expected proposal delivery</label><input data-key="proposal_delivery" type="date"/></div>
+<div class="field"><label>Expected proposal delivery</label><input data-key="proposal_delivery" type="date"/><div class="logic-hint">Linked both ways with the expediente Expected Date.</div></div>
 <div class="field"><label>Expected order entry</label><input data-key="order_entry" type="date"/></div>
 <div class="field"><label>Execution start</label><input data-key="execution_start" type="date"/></div>
 <div class="field"><label>Required delivery / shipment</label><input data-key="delivery_date" type="date"/></div>
@@ -819,19 +851,9 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-hardware"></div>
-<summary>5. Cabinets, Panels, Installation &amp; Responsibility Matrix</summary>
+<summary>5. Installation &amp; Responsibility Matrix</summary>
 <div class="section-body">
-<div class="grid four">
-<div class="field"><label>Cabinets included?</label><select data-key="cabinets_included"><option></option><option>Yes</option><option>No</option><option>Partial</option><option>To be defined</option></select><div class="logic-hint">Cabinet design questions appear when cabinets are included, partial or still to be defined.</div></div>
-<div class="field conditional-block"><label>Cabinet scenario</label><select data-key="cabinet_scenario"><option></option><option>Existing</option><option>New</option><option>Mixed</option></select></div>
-<div class="field conditional-block"><label>Mounting</label><select data-key="cabinet_mounting"><option></option><option>Chassis / new cabinet</option><option>Baseplate / existing cabinet</option><option>Wall mounted</option><option>Floor mounted</option><option>Other</option></select></div>
-<div class="field conditional-block"><label>NEMA / IP rating</label><input data-key="cabinet_rating" type="text"/></div>
-<div class="field conditional-block"><label>Material / finish</label><input data-key="cabinet_material" placeholder="Steel, SS304, SS316, aluminum, paint..." type="text"/></div>
-<div class="field conditional-block"><label>Dimensions / quantity</label><input data-key="cabinet_dimensions" type="text"/></div>
-<div class="field conditional-block"><label>Cooling / ventilation</label><input data-key="cabinet_cooling" type="text"/></div>
-<div class="field conditional-block"><label>Certifications / inspection</label><input data-key="cabinet_certification" type="text"/></div>
-</div>
-<div class="field conditional-block"><label>Panel design notes: power distribution, UPS, grounding, surge protection, marshalling, terminals, labeling and cable entry</label><textarea data-key="panel_design_notes"></textarea></div>
+<p class="section-intro">Cabinet and panel definition now lives in <b>Step 4 &mdash; Hardware &amp; Cabinets</b> of the guided intake. This section only assigns who performs each installation activity.</p>
 <h3>Responsibility Matrix</h3>
 <div class="responsibility-grid">
 <div class="head">Activity</div><div class="head center">Customer</div><div class="head center">SE</div><div class="head center">Subcontractor</div><div class="head">Notes / boundary</div>
@@ -1077,6 +1099,47 @@
 </dialog>
 <script>(() => {
   const FLOW_DATA = {"steps":[{"Step":1,"Section":"Base Data","Goal":"Identify the opportunity and proposal deadline","KeyQuestions":"B001:B010","ShownWhen":"Always","Notes":"Start here. This should feel like opening an expediente."},{"Step":2,"Section":"Commercial","Goal":"Clarify commercial model, milestones and internal references","KeyQuestions":"C001:C011","ShownWhen":"After Base Data","Notes":"Keep commercial dates visible early."},{"Step":3,"Section":"Technical Scope","Goal":"Define platform, modernization intent, HMIs, configuration and integration","KeyQuestions":"T001:T010","ShownWhen":"After Commercial","Notes":"Core technical scoping block."},{"Step":4,"Section":"Hardware & Cabinets","Goal":"Clarify cabinets, marshaling, mounting type and Triconex software","KeyQuestions":"H001:H009","ShownWhen":"If hardware/cabinets/systems apply","Notes":"Important conditional branch."},{"Step":5,"Section":"Services & Execution","Goal":"Define services, hours/days, execution owner and travel costs","KeyQuestions":"S001:S007","ShownWhen":"If services apply","Notes":"Use repeatable ownership questions by context."},{"Step":6,"Section":"Tests & Site Activities","Goal":"Capture FAT/SAT/site activities","KeyQuestions":"P001:P007","ShownWhen":"If tests/site work apply","Notes":"Split FAT and SAT explicitly."},{"Step":7,"Section":"Training","Goal":"Capture training requirements","KeyQuestions":"TR001:TR004","ShownWhen":"If training applies","Notes":"Always ask course type + people count."},{"Step":8,"Section":"Documentation & Deliverables","Goal":"Capture current docs and required handover docs","KeyQuestions":"D001:D005","ShownWhen":"Always","Notes":"Close scope and handover requirements."}],"questions":[{"id":"B001","key":"flow_B001","section":"Base Data","subsection":"Opportunity Identity","label":"Opportunity / OP ID","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify opportunity","output":"Header, tracking, exports"},{"id":"B002","key":"flow_B002","section":"Base Data","subsection":"Opportunity Identity","label":"Investigative alias / short alias","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Quick identification","output":"Header, search"},{"id":"B003","key":"flow_B003","section":"Base Data","subsection":"Customer","label":"Customer / company name","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Commercial identity","output":"Header, proposal"},{"id":"B004","key":"flow_B004","section":"Base Data","subsection":"Commercial Timing","label":"Proposal due date","type":"date","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Proposal deadline","output":"Planning, priority"},{"id":"B005","key":"flow_B005","section":"Base Data","subsection":"Commercial Timing","label":"When is the proposal delivery expected?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Clarify required submission date","output":"Planning"},{"id":"B006","key":"flow_B006","section":"Base Data","subsection":"Commercial Contacts","label":"Who is the seller / CSE?","type":"text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify owner","output":"Follow-up"},{"id":"B007","key":"flow_B007","section":"Base Data","subsection":"Site","label":"Client site / plant location","type":"text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Site context","output":"Travel, FAT/SAT, execution"},{"id":"B008","key":"flow_B008","section":"Base Data","subsection":"Opportunity Type","label":"What type of opportunity is it?","type":"multi_select","options":["Greenfield","Modernization","Migration","Upgrade","Expansion","Services Only"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Classify opportunity","output":"Conditional flow"},{"id":"B009","key":"flow_B009","section":"Base Data","subsection":"Modernization","label":"If this is a modernization, what does the client want to modernize?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"Tender/TSC","purpose":"Scope definition","output":"Technical definition, commercial assumptions"},{"id":"B010","key":"flow_B010","section":"Base Data","subsection":"Stakeholders","label":"Who has the most important decision-making role?","type":"single_select","options":["Customer","Seller / CSE","TSC","Delivery","Service","Integrator"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify key decision-maker","output":"Communication strategy"},{"id":"C001","key":"flow_C001","section":"Commercial","subsection":"Commercial Structure","label":"What is the commercial structure?","type":"single_select","options":["Hardware + Software + Services","Services Only","Migration / Modernization","Change Order / Revision"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Define commercial model","output":"Pricing, milestones"},{"id":"C002","key":"flow_C002","section":"Commercial","subsection":"Commercial Structure","label":"What are the payment milestones?","type":"long_text","options":[],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Define milestone logic","output":"Commercial summary"},{"id":"C003","key":"flow_C003","section":"Commercial","subsection":"Commercial Structure","label":"When does the order enter?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Execution starting point","output":"Schedule"},{"id":"C004","key":"flow_C004","section":"Commercial","subsection":"Commercial Structure","label":"When is project execution expected to start?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Plan execution window","output":"Schedule, resources"},{"id":"C005","key":"flow_C005","section":"Commercial","subsection":"Commercial Structure","label":"When is the project expected to finish?","type":"date","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Plan project end","output":"Schedule, escalators"},{"id":"C006","key":"flow_C006","section":"Commercial","subsection":"Internal IDs","label":"Do you already have the SR?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check internal readiness","output":"SR, workflow"},{"id":"C007","key":"flow_C007","section":"Commercial","subsection":"Internal IDs","label":"SR number","type":"text","options":[],"required":true,"shownWhenText":"Shown if Do you already have the SR? = Yes","logic":{"op":"equals","source":"flow_C006","value":"Yes"},"repeatableContext":"SR","owner":"Tender","purpose":"Track internal request","output":"SR field, versions"},{"id":"C008","key":"flow_C008","section":"Commercial","subsection":"Internal IDs","label":"Do you have DSO?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Link to commercial reference","output":"Commercial references"},{"id":"C009","key":"flow_C009","section":"Commercial","subsection":"Internal IDs","label":"Do you have MSA?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check contract basis","output":"T&Cs"},{"id":"C010","key":"flow_C010","section":"Commercial","subsection":"Internal IDs","label":"Do you have CFA?","type":"link","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Check contract basis","output":"T&Cs"},{"id":"C011","key":"flow_C011","section":"Commercial","subsection":"Forecast","label":"Cost / revenue forecast (USD)","type":"currency","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Initial sizing","output":"Commercial view"},{"id":"T001","key":"flow_T001","section":"Technical Scope","subsection":"System","label":"What system(s) are being offered?","type":"multi_select","options":["Foxboro","Triconex","Modicon","AVEVA","Cyber"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Identify platform","output":"Conditional technical flow"},{"id":"T002","key":"flow_T002","section":"Technical Scope","subsection":"System","label":"How many systems are included and which ones are they?","type":"long_text","options":[],"required":true,"shownWhenText":"Shown if System(s) offered has any value","logic":{"op":"has_value","source":"flow_T001"},"repeatableContext":null,"owner":"TSC","purpose":"Define system scope","output":"Architecture, pricing"},{"id":"T003","key":"flow_T003","section":"Technical Scope","subsection":"Modernization","label":"What is the current system type?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"TSC","purpose":"Understand starting point","output":"Migration strategy"},{"id":"T004","key":"flow_T004","section":"Technical Scope","subsection":"Modernization","label":"Which controllers will be updated?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if Opportunity Type includes Modernization / Migration / Upgrade","logic":{"op":"includes_any","source":"flow_B008","value":["Modernization","Migration","Upgrade"]},"repeatableContext":null,"owner":"TSC","purpose":"Define controller scope","output":"Hardware BOM"},{"id":"T005","key":"flow_T005","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Will there be configuration work?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC/Delivery","purpose":"Enable services/configuration branch","output":"Services, engineering"},{"id":"T006","key":"flow_T006","section":"Technical Scope","subsection":"HMIs & Configuration","label":"How many HMIs are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Sizing","output":"Engineering, licensing"},{"id":"T007","key":"flow_T007","section":"Technical Scope","subsection":"HMIs & Configuration","label":"What type of system / architecture is involved?","type":"single_select","options":["DCS","SIS","PLC","Hybrid"],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify architecture","output":"Engineering definition"},{"id":"T008","key":"flow_T008","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Who will perform the configuration?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":"Configuration","owner":"TSC/Delivery","purpose":"Define responsibility","output":"Services"},{"id":"T009","key":"flow_T009","section":"Technical Scope","subsection":"HMIs & Configuration","label":"Who will perform the site configuration / commissioning?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if Will there be configuration work? = Yes","logic":{"op":"equals","source":"flow_T005","value":"Yes"},"repeatableContext":"Site configuration","owner":"TSC/Delivery","purpose":"Define site responsibility","output":"Services, assumptions"},{"id":"T010","key":"flow_T010","section":"Technical Scope","subsection":"Integration","label":"Who will perform the integration?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":"General integration","owner":"TSC/Delivery","purpose":"Clarify ownership","output":"Execution model"},{"id":"H001","key":"flow_H001","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Are cabinets included in the scope?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Enable cabinet branch","output":"Hardware flow"},{"id":"H002","key":"flow_H002","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cabinet scenario applies?","type":"single_select","options":["Existing","New","Mixed"],"required":true,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Define cabinet approach","output":"Mechanical/electrical design"},{"id":"H003","key":"flow_H003","section":"Hardware & Cabinets","subsection":"Cabinets","label":"If cabinets are included, is marshaling required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify cabinet content","output":"Cabinet design"},{"id":"H004","key":"flow_H004","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What type of cabinet is required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Clarify cabinet type","output":"Cabinet engineering"},{"id":"H005","key":"flow_H005","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cabinet dimensions are required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Sizing","output":"Cabinet engineering"},{"id":"H006","key":"flow_H006","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cooling / ventilation is required?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Are cabinets included in the scope? = Yes","logic":{"op":"equals","source":"flow_H001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Environmental needs","output":"Cabinet engineering"},{"id":"H007","key":"flow_H007","section":"Hardware & Cabinets","subsection":"Foxboro / Triconex Mounting","label":"For Foxboro / Triconex, what mounting type applies?","type":"single_select","options":["Chassis (new cabinet)","Baseplate (existing cabinet)"],"required":true,"shownWhenText":"Shown if System(s) offered includes Foxboro or Triconex","logic":{"op":"includes_any","source":"flow_T001","value":["Foxboro","Triconex"]},"repeatableContext":null,"owner":"TSC","purpose":"Correct hardware selection","output":"BOM"},{"id":"H008","key":"flow_H008","section":"Hardware & Cabinets","subsection":"Triconex Software","label":"For Triconex, is STV required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex","logic":{"op":"includes","source":"flow_T001","value":"Triconex"},"repeatableContext":null,"owner":"TSC","purpose":"Identify extra software","output":"Software BOM"},{"id":"H009","key":"flow_H009","section":"Hardware & Cabinets","subsection":"Triconex Software","label":"What TX / Triconex software is required?","type":"multi_select","options":["STV","TriStation / TX tools"],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex","logic":{"op":"includes","source":"flow_T001","value":"Triconex"},"repeatableContext":null,"owner":"TSC","purpose":"Software detail","output":"Software BOM"},{"id":"S001","key":"flow_S001","section":"Services & Execution","subsection":"Services","label":"Are services included?","type":"boolean","options":["Yes","No"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Enable services branch","output":"Services scope"},{"id":"S002","key":"flow_S002","section":"Services & Execution","subsection":"Services","label":"What type of services are required?","type":"multi_select","options":["Engineering","Configuration","FAT","SAT","IFAT","Site Support","Commissioning","Migration","Training","Documentation"],"required":true,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define service scope","output":"Services BOM"},{"id":"S003","key":"flow_S003","section":"Services & Execution","subsection":"Services","label":"How many total service hours are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Effort sizing","output":"Costing"},{"id":"S004","key":"flow_S004","section":"Services & Execution","subsection":"Services","label":"How many total service days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Effort sizing","output":"Costing"},{"id":"S005","key":"flow_S005","section":"Services & Execution","subsection":"Services","label":"Who will execute the services?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":true,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":"Service execution","owner":"Delivery","purpose":"Clarify responsibility","output":"Services assumptions"},{"id":"S006","key":"flow_S006","section":"Services & Execution","subsection":"Travel","label":"Are travel and living costs required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Travel applicability","output":"Commercial/services"},{"id":"S007","key":"flow_S007","section":"Services & Execution","subsection":"Travel","label":"What is the estimated travel and living cost?","type":"currency","options":[],"required":false,"shownWhenText":"Shown if Are travel and living costs required? = Yes","logic":{"op":"equals","source":"flow_S006","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Travel estimate","output":"Commercial/services"},{"id":"P001","key":"flow_P001","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Is FAT required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Delivery/TSC","purpose":"Enable FAT branch","output":"Services/testing"},{"id":"P002","key":"flow_P002","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"How many FAT days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Is FAT required? = Yes","logic":{"op":"equals","source":"flow_P001","value":"Yes"},"repeatableContext":"FAT days","owner":"Delivery","purpose":"Effort sizing","output":"Services/testing"},{"id":"P003","key":"flow_P003","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Where will FAT take place?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Is FAT required? = Yes","logic":{"op":"equals","source":"flow_P001","value":"Yes"},"repeatableContext":"FAT location","owner":"Delivery","purpose":"Travel/logistics","output":"Execution"},{"id":"P004","key":"flow_P004","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Is SAT required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Delivery/TSC","purpose":"Enable SAT branch","output":"Services/testing"},{"id":"P005","key":"flow_P005","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"How many SAT days are required?","type":"number","options":[],"required":false,"shownWhenText":"Shown if Is SAT required? = Yes","logic":{"op":"equals","source":"flow_P004","value":"Yes"},"repeatableContext":"SAT days","owner":"Delivery","purpose":"Effort sizing","output":"Services/testing"},{"id":"P006","key":"flow_P006","section":"Tests & Site Activities","subsection":"FAT/SAT","label":"Where will SAT take place?","type":"text","options":[],"required":false,"shownWhenText":"Shown if Is SAT required? = Yes","logic":{"op":"equals","source":"flow_P004","value":"Yes"},"repeatableContext":"SAT location","owner":"Delivery","purpose":"Travel/logistics","output":"Execution"},{"id":"P007","key":"flow_P007","section":"Tests & Site Activities","subsection":"Site Activities","label":"Who will perform site work / commissioning?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if Are services included? = Yes","logic":{"op":"equals","source":"flow_S001","value":"Yes"},"repeatableContext":"Site services","owner":"Delivery","purpose":"Clarify site responsibility","output":"Assumptions"},{"id":"TR001","key":"flow_TR001","section":"Training","subsection":"Courses","label":"Are training courses required?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Enable training branch","output":"Training scope"},{"id":"TR002","key":"flow_TR002","section":"Training","subsection":"Courses","label":"Which training courses are required?","type":"multi_select","options":["Foxboro Operation","Foxboro Maintenance","Triconex Operation","Triconex Maintenance","System Administration"],"required":true,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define training scope","output":"Training BOM"},{"id":"TR003","key":"flow_TR003","section":"Training","subsection":"Courses","label":"How many people will attend each course?","type":"number","options":[],"required":true,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Sizing","output":"Training BOM"},{"id":"TR004","key":"flow_TR004","section":"Training","subsection":"Courses","label":"What training modality is required?","type":"single_select","options":["On-site","Remote","Classroom"],"required":false,"shownWhenText":"Shown if Are training courses required? = Yes","logic":{"op":"equals","source":"flow_TR001","value":"Yes"},"repeatableContext":null,"owner":"Delivery","purpose":"Delivery model","output":"Training assumptions"},{"id":"D001","key":"flow_D001","section":"Documentation & Deliverables","subsection":"Input Documentation","label":"What documentation do we currently have available?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/TSC","purpose":"Assess input quality","output":"Engineering assumptions"},{"id":"D002","key":"flow_D002","section":"Documentation & Deliverables","subsection":"Input Documentation","label":"If PT2 / Triconex applies, what PT2 documentation is available?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if System(s) offered includes Triconex and configuration/site work by us = Yes","logic":{"all":[{"op":"includes","source":"flow_T001","value":"Triconex"},{"any":[{"op":"equals","source":"flow_T008","value":"Schneider / Us"},{"op":"equals","source":"flow_T009","value":"Schneider / Us"},{"op":"equals","source":"flow_P007","value":"Schneider / Us"}]}]},"repeatableContext":null,"owner":"TSC","purpose":"Assess readiness","output":"Engineering assumptions"},{"id":"D003","key":"flow_D003","section":"Documentation & Deliverables","subsection":"Deliverables","label":"What documentation is required at handover / delivery?","type":"multi_select","options":["As-built documentation","Configuration backup","Test protocols","Training material","Cabinet drawings","I/O list","Network architecture"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/Delivery","purpose":"Define deliverables","output":"Proposal scope"},{"id":"D004","key":"flow_D004","section":"Documentation & Deliverables","subsection":"Deliverables","label":"Who will prepare the deliverable documentation?","type":"single_select","options":["Schneider / Us","Customer","Integrator","Shared"],"required":false,"shownWhenText":"Shown if What documentation is required at handover / delivery? has any value","logic":{"op":"has_value","source":"flow_D003"},"repeatableContext":"Deliverables","owner":"Delivery","purpose":"Clarify responsibility","output":"Assumptions"},{"id":"D005","key":"flow_D005","section":"Documentation & Deliverables","subsection":"Deliverables","label":"Who will review / approve the deliverables?","type":"text","options":[],"required":false,"shownWhenText":"Shown if What documentation is required at handover / delivery? has any value","logic":{"op":"has_value","source":"flow_D003"},"repeatableContext":"Deliverables review","owner":"Tender/Customer","purpose":"Clarify approval path","output":"Schedule / communication"}],"catalogs":{"Opportunity Types":["Greenfield","Modernization","Migration","Upgrade","Expansion","Services Only"],"Systems":["Foxboro","Triconex","Modicon","AVEVA","Cyber"],"Commercial Structures":["Hardware + Software + Services","Services Only","Migration / Modernization","Change Order / Revision"],"Stakeholder Roles":["Customer","Seller / CSE","TSC","Delivery","Service","Integrator"],"Architecture Types":["DCS","SIS","PLC","Hybrid"],"Execution Owners":["Schneider / Us","Customer","Integrator","Shared"],"Service Types":["Engineering","Configuration","FAT","SAT","IFAT","Site Support","Commissioning","Migration","Training","Documentation"],"Course Types":["Foxboro Operation","Foxboro Maintenance","Triconex Operation","Triconex Maintenance","System Administration"],"Triconex Software":["STV","TriStation / TX tools"],"Deliverable Types":["As-built documentation","Configuration backup","Test protocols","Training material","Cabinet drawings","I/O list","Network architecture"]}};
+  /* FLOW_EXTRAS_BEGIN — parsed by SettingsModal.tsx (SOW Library) with a regex.
+     Keep both consts as plain JSON literals and keep the END marker right after them. */
+  const EXTRA_FLOW_STEPS = [
+    {"Step":9,"Section":"Bid Strategy & Inputs","Goal":"Capture the bid desk basis: strategy, people, timing and input files","KeyQuestions":"G001:G014","ShownWhen":"Always","Notes":"Mirrors the proposal request checklist."}
+  ];
+  const EXTRA_FLOW_QUESTIONS = [
+    {"id":"IB001","key":"flow_IB001","section":"Technical Scope","subsection":"Installed Base","label":"Is there an installed base involved?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Open the installed-base branch","output":"Migration strategy"},
+    {"id":"IB002","key":"flow_IB002","section":"Technical Scope","subsection":"Installed Base","label":"FERRET file or link (request it from SAV when missing)","type":"link","options":[],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Installed-base inventory","output":"BOM, Advantage"},
+    {"id":"IB003","key":"flow_IB003","section":"Technical Scope","subsection":"Installed Base","label":"Which installed-base documents do we already have?","type":"multi_select","options":["CFA","MSA","FERRET","Advantage return list","Site photos","None yet"],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"Tender/TSC","purpose":"Assess input quality","output":"T&Cs, discounts"},
+    {"id":"IB004","key":"flow_IB004","section":"Technical Scope","subsection":"Installed Base","label":"Will equipment be returned so Advantage discounts apply?","type":"boolean","options":["Yes","No"],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"Tender","purpose":"Apply Advantage discounts on CFA equipment","output":"Pricing"},
+    {"id":"IB005","key":"flow_IB005","section":"Technical Scope","subsection":"Installed Base","label":"Existing controllers: quantity, current model, target model and function","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Size the controller scope","output":"Hardware BOM"},
+    {"id":"IB006","key":"flow_IB006","section":"Technical Scope","subsection":"Installed Base","label":"Controller redundancy and protocols in use (Modbus, OPC, Ethernet, Foundation Fieldbus, other)","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Define interfaces","output":"Architecture"},
+    {"id":"IB007","key":"flow_IB007","section":"Technical Scope","subsection":"Installed Base","label":"What is replaced, what stays, and are all controllers replaced?","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Define migration boundary","output":"Scope, assumptions"},
+    {"id":"IB008","key":"flow_IB008","section":"Technical Scope","subsection":"Installed Base","label":"How many sites and which systems are affected?","type":"text","options":[],"required":false,"shownWhenText":"Shown if there is an installed base","logic":{"op":"equals","source":"flow_IB001","value":"Yes"},"repeatableContext":null,"owner":"TSC","purpose":"Execution sizing","output":"Services, travel"},
+    {"id":"H101","key":"cabinets_included","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Are cabinets included in the scope?","type":"single_select","options":["Yes","No","Partial","To be defined"],"required":true,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"TSC","purpose":"Open the cabinet branch","output":"Hardware flow"},
+    {"id":"H102","key":"cabinet_scenario","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What cabinet scenario applies?","type":"single_select","options":["Existing","New","Mixed"],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Define the cabinet approach","output":"Mechanical / electrical design"},
+    {"id":"H103","key":"cabinet_mounting","section":"Hardware & Cabinets","subsection":"Cabinets","label":"What mounting applies?","type":"single_select","options":["Chassis / new cabinet","Baseplate / existing cabinet","Wall mounted","Floor mounted","Other"],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Correct hardware selection","output":"BOM"},
+    {"id":"H104","key":"cabinet_rating","section":"Hardware & Cabinets","subsection":"Cabinets","label":"NEMA / IP rating","type":"text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Environmental rating","output":"Cabinet engineering"},
+    {"id":"H105","key":"cabinet_material","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Material / finish (steel, SS304, SS316, aluminum, paint...)","type":"text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Cabinet specification","output":"Cabinet engineering"},
+    {"id":"H106","key":"cabinet_dimensions","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Dimensions / quantity","type":"text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Sizing","output":"Cabinet engineering"},
+    {"id":"H107","key":"cabinet_cooling","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Cooling / ventilation","type":"text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Environmental needs","output":"Cabinet engineering"},
+    {"id":"H108","key":"cabinet_certification","section":"Hardware & Cabinets","subsection":"Cabinets","label":"Certifications / inspection","type":"text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Compliance","output":"Cabinet engineering"},
+    {"id":"H110","key":"panel_design_notes","section":"Hardware & Cabinets","subsection":"Panels","label":"Panel design notes: power distribution, UPS, grounding, surge protection, marshalling, terminals, labeling and cable entry","type":"long_text","options":[],"required":false,"shownWhenText":"Shown if cabinets are included, partial or to be defined","logic":{"op":"includes_any","source":"cabinets_included","value":["Yes","Partial","To be defined"]},"repeatableContext":null,"owner":"TSC","purpose":"Panel engineering detail","output":"Cabinet drawings"},
+    {"id":"G001","key":"included_scope","section":"Bid Strategy & Inputs","subsection":"Bid Basis","label":"Scope of work: hardware (Foxboro, Triconex, Modicon...), software, engineering, field service (FAT, SAT, commissioning), cabinets, spare parts, training, installation, construction, interfaces","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Same answer as Included scope in section 3","output":"Proposal scope"},
+    {"id":"G002","key":"flow_G002","section":"Bid Strategy & Inputs","subsection":"Bid Basis","label":"Project type","type":"multi_select","options":["Installed base upgrade / modernization","Greenfield","Brownfield","3rd party migration","Services only","Other"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Bid desk classification","output":"Strategy"},
+    {"id":"G003","key":"flow_G003","section":"Bid Strategy & Inputs","subsection":"Bid Basis","label":"RFP: is there one, and where are the files?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Locate the bid documents","output":"Input package"},
+    {"id":"G004","key":"flow_G004","section":"Bid Strategy & Inputs","subsection":"People","label":"TSC / SAE already involved","type":"text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify technical owner","output":"Follow-up"},
+    {"id":"G005","key":"flow_G005","section":"Bid Strategy & Inputs","subsection":"People","label":"Delivery contact already involved","type":"text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Identify execution owner","output":"Follow-up"},
+    {"id":"G006","key":"flow_G006","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"T&Cs basis","type":"single_select","options":["Standard SE","MSA (already approved)","New negotiation (requires legal request)"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Contract basis","output":"T&Cs"},
+    {"id":"G007","key":"flow_G007","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"Pricing strategy: standard (list price or MSA discounts) or competitive — what is the price to win?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Define pricing approach","output":"Pricing"},
+    {"id":"G008","key":"flow_G008","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"Is an EPC, SI or distributor involved? Who issues the PO if not the end user? Is this intercompany to another BU (which one)?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Commercial route","output":"Quotation, T&Cs"},
+    {"id":"G010","key":"flow_G010","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"Standalone proposal or embedded in a bigger one?","type":"single_select","options":["Standalone proposal","Embedded in a bigger proposal"],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Proposal packaging","output":"Deliverable format"},
+    {"id":"G012","key":"payment_milestones","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"Desired payment milestones when they differ from standard or MSA","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Same answer as Payment milestones in section 1","output":"Commercial summary"},
+    {"id":"G009","key":"flow_G009","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Bid status: is the scope 100% defined or still in process? What are the next steps (site visit, KOM, customer meeting...)?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Track readiness","output":"Planning"},
+    {"id":"G011","key":"flow_G011","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Project timing: expected PO date, approximate execution and project phases","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Plan execution window","output":"Schedule"},
+    {"id":"G013","key":"flow_G013","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Current or recent project activity with this customer","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Account context","output":"Strategy"},
+    {"id":"G014","key":"flow_G014","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Input files attached to the SR or email (BOM, system architecture, current FERRET file for upgrades...)","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Track the input package","output":"Engineering assumptions"}
+  ];
+  /* FLOW_EXTRAS_END */
+  FLOW_DATA.steps = [...FLOW_DATA.steps, ...EXTRA_FLOW_STEPS];
+
   const STORAGE_KEY = 'define-scope-multiplatform-v3';
   const LEGACY_STORAGE_KEY = 'define-scope-multiplatform-v1';
   const $ = (s, r=document) => r.querySelector(s);
@@ -1192,12 +1255,15 @@
     flaggedQuestions = new Set(Array.isArray(data.flags) ? data.flags : []);
     if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
     rebuildCustomForm(null, false);
+    renderScopeCatalogs();
     const restoredFields={...(data.fields || {})};
     reconcileSyncedFieldData(restoredFields);
     migrateLegacyDuplicateFields(restoredFields);
     restoreFieldValues(restoredFields);
     reconcileScopeFields();
+    mirrorScopeToOppType(false); mirrorSystemsToPlatforms(false);
     $$('.dynamic-table').forEach(t => { if(data.tables && data.tables[t.dataset.key]) restoreTable(t,data.tables[t.dataset.key]); });
+    decorateStaticFlags();
     updateGuidedButton(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
   }
 
@@ -1208,6 +1274,14 @@
     try{ window.parent.postMessage({source:'tenderloop-sow', type:'save', payload: state}, '*'); }catch(e){}
   }
   function save(){ clearTimeout(saveTimer); saveTimer=setTimeout(() => { persistNow(); updateProgress(); },180); }
+  /**
+   * Recomputing dependencies + progress + the whole Overview list on every keystroke made
+   * long answers stutter and let characters get dropped. Typing schedules this instead;
+   * `change` events (selects, checkboxes, blur) still run the update immediately.
+   */
+  let visualTimer;
+  function scheduleVisualUpdate(){ clearTimeout(visualTimer); visualTimer=setTimeout(() => { updateConditionalVisibility(); updateCommercialLinkActions(); },260); }
+  function flushVisualUpdate(){ clearTimeout(visualTimer); updateConditionalVisibility(); updateCommercialLinkActions(); }
 
   function isLogicVisible(el){ return !el.closest('.hidden-by-platform,.conditional-hidden'); }
   function requiredAndVisible(){ return $$('[data-required]').filter(isLogicVisible); }
@@ -1219,7 +1293,19 @@
   function renderOverview(){
     const body=$('#overviewBody'); if(!body) return;
     const query=String($('#overviewSearch')?.value||'').toLowerCase().trim();
-    const allRows=fields().map(el=>({key:el.dataset.key,label:fieldLabel(el),section:sectionLabel(el),value:getValue(el)}));
+    // A few answers are deliberately asked in two places (Scope of work and Payment milestones
+    // each have a classic field and a Step 9 card). They are one answer, so the Overview lists
+    // them once — keeping whichever copy actually holds the text.
+    const rowsByKey=new Map();
+    fields().forEach(el=>{
+      // Hidden mirrors (legacy opportunity type, platform_*, sub-modules of an unselected
+      // parent) restate an answer the Overview already shows under its real question.
+      if(el.closest('.platform-hidden-field'))return;
+      const row={key:el.dataset.key,label:fieldLabel(el),section:sectionLabel(el),value:getValue(el)};
+      const existing=rowsByKey.get(row.key);
+      if(!existing||(!filledValue(existing.value)&&filledValue(row.value)))rowsByKey.set(row.key,row);
+    });
+    const allRows=[...rowsByKey.values()];
     const filter=$('#overviewSectionFilter'); const sections=[...new Set(allRows.map(row=>row.section))].sort();
     if(filter){const current=filter.value;filter.innerHTML='<option value="">All sections</option>'+sections.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join('');filter.value=sections.includes(current)?current:'';}
     const selected=filter?.value||'';
@@ -1286,7 +1372,36 @@
   }
   function openNavigation(){ $('#navigationPanel').classList.add('open'); document.body.classList.add('nav-panel-open'); renderNavigation(); $('#navigationSearch').focus(); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-open'},'*');}catch(e){} }
   function closeNavigation(){ $('#navigationPanel').classList.remove('open'); document.body.classList.remove('nav-panel-open'); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-close'},'*');}catch(e){} }
-  function toggleFlag(key){ if(flaggedQuestions.has(key))flaggedQuestions.delete(key);else flaggedQuestions.add(key); const card=$(`.question-card[data-question-id="${key}"]`);if(card){card.classList.toggle('flagged',flaggedQuestions.has(key));const btn=$('[data-flag-question]',card);if(btn){btn.classList.toggle('active',flaggedQuestions.has(key));btn.title=flaggedQuestions.has(key)?'Remove follow-up flag':'Mark for follow-up';}}renderOverview();renderNavigation();persistNow(); }
+  function toggleFlag(key){ if(flaggedQuestions.has(key))flaggedQuestions.delete(key);else flaggedQuestions.add(key); const card=$(`.question-card[data-question-id="${key}"]`);if(card){card.classList.toggle('flagged',flaggedQuestions.has(key));const btn=$('[data-flag-question]',card);if(btn){btn.classList.toggle('active',flaggedQuestions.has(key));btn.title=flaggedQuestions.has(key)?'Remove follow-up flag':'Mark for follow-up';}}syncStaticFlagState();renderOverview();renderNavigation();persistNow(); }
+
+  /**
+   * The guided flow renders every question as a card with its own flag button. The classic
+   * sections (1..10 and Base Data) are hand-written markup, so the same button is injected
+   * into each field label here — one flag store, one behavior, wherever the question lives.
+   */
+  function decorateStaticFlags(){
+    $$('.field,.check-row').forEach(box=>{
+      if(box.closest('.question-card'))return;
+      const control=box.querySelector('[data-key]'); const key=control&&control.dataset.key;
+      if(!key)return;
+      const head=box.matches('.check-row')?$('.check-row-head',box):box.querySelector(':scope > label');
+      if(!head||$('[data-flag-question]',head))return;
+      const button=document.createElement('button');
+      button.type='button'; button.className='question-flag'; button.dataset.flagQuestion=key;
+      button.textContent='⚑'; button.setAttribute('aria-label','Flag question');
+      head.appendChild(button);
+      box.dataset.flagBox=key;
+    });
+    syncStaticFlagState();
+  }
+  function syncStaticFlagState(){
+    $$('[data-flag-box]').forEach(box=>{
+      const on=flaggedQuestions.has(box.dataset.flagBox);
+      box.classList.toggle('flagged',on);
+      const button=$('[data-flag-question]',box);
+      if(button){ button.classList.toggle('active',on); button.title=on?'Remove follow-up flag':'Mark for follow-up'; }
+    });
+  }
 
   function renderAnswerControl(def){
     const key=def.key, req=def.required?' data-required=""':'', labelAttr=` data-question-label="${esc(def.label)}"`;
@@ -1342,10 +1457,14 @@
   ];
   // Retired from the standard questionnaire. Existing saved answers are kept
   // in the note for backwards compatibility, but the question is not rendered.
+  function allFlowQuestions(){ return [...FLOW_DATA.questions,...EXTRA_FLOW_QUESTIONS,...LINKED_COMMERCIAL_QUESTIONS]; }
   const REMOVED_FLOW_QUESTIONS=new Set([
     // These answers already have a richer canonical control elsewhere in the SOW.
     // Saved legacy flow values are migrated through SYNC_PAIRS during applyState().
     'flow_B004','flow_B005',
+    // Opportunity type is asked once, as the Scope catalog in Base Data. flow_B008 stays
+    // readable as a logic source through opportunityTypeValues(), but is never rendered.
+    'flow_B008',
     'flow_C001','flow_C002','flow_C003','flow_C004','flow_C005','flow_C008','flow_C009','flow_C010','flow_C011',
     'flow_T001','flow_T007',
     'flow_H001','flow_H002','flow_H005','flow_H006','flow_H007','flow_H008','flow_H009',
@@ -1366,7 +1485,7 @@
       const summary=document.createElement('summary'); summary.innerHTML=`<span>Step ${esc(step.Step)} — ${esc(step.Section)}</span><span class="flow-count"></span>`;
       body.innerHTML=`<div class="flow-step-goal"><b>Goal:</b> ${esc(step.Goal)}${step.Notes?`<br/><b>Design note:</b> ${esc(step.Notes)}`:''}</div>`;
       const baseDataAlreadyShown=new Set(['flow_B001','flow_B002','flow_B003','flow_B005','flow_B006','flow_B007']);
-      const qs=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
+      const qs=allFlowQuestions().map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
       let current='', subsection, grid;
       qs.forEach(q=>{
         if(q.subsection!==current){
@@ -1419,13 +1538,109 @@
     if(runUpdate){ updateConditionalVisibility(); updateProgress(); }
   }
 
+  // --- Scope / System / Notes catalogs ---------------------------------------------------
+  // The three Base Data catalogs are edited by the user in Settings -> Labels & Scope, so
+  // their options are rendered from data the host sends instead of from static markup.
+  // Sub-module lists stay in the document when their parent is unselected — they are hidden,
+  // never removed, which is the same "hidden answers are preserved" rule used everywhere else.
+  const DEFAULT_SCOPE_CATALOG={
+    scope:[{id:'greenfield',label:'Green field'},{id:'upgrade',label:'Upgrade'},{id:'migration',label:'Migration'},{id:'cf',label:'CF'},{id:'parts',label:'Parts'},{id:'services',label:'Services'}],
+    systems:[{id:'eae',label:'EAE'},{id:'modicon-580',label:'Modicon 580'},{id:'modicon-580-safety',label:'Modicon 580 Safety'},{id:'epe',label:'EPE'},{id:'epp',label:'EPP'},{id:'foxboro',label:'Foxboro'},{id:'triconex',label:'Triconex',children:[{id:'tricon-cx',label:'Tricon CX'},{id:'sis',label:'SIS'},{id:'fg',label:'F&G'},{id:'bms',label:'BMS'},{id:'run-time',label:'Run time'}]},{id:'aveva',label:'AVEVA'},{id:'cyber',label:'Cyber'}],
+    quickNotes:[{id:'new-cabinets',label:'New Cabinets',children:[{id:'integration',label:'Integration'}]},{id:'resales-lt-20',label:'Resales <20%'},{id:'resales-gt-20',label:'Resales >20%'},{id:'no-resales',label:'No resales'}],
+    extras:[]
+  };
+  let scopeCatalog=DEFAULT_SCOPE_CATALOG;
+  const CATALOG_GROUPS=[
+    {group:'scope',listKey:'scope_types',hostId:''},
+    {group:'systems',listKey:'sow_systems',hostId:'systemModulesHost'},
+    {group:'quickNotes',listKey:'quick_notes',hostId:'quickNoteModulesHost'}
+    ,{group:'extras',listKey:'scope_extras',hostId:''}
+  ];
+  function catalogOptions(group){ const list=scopeCatalog&&Array.isArray(scopeCatalog[group])?scopeCatalog[group]:[]; return list.filter(option=>option&&option.label); }
+  // Triconex sub-products keep their historical key so every SOW saved before the catalog
+  // existed still shows its Tricon CX / SIS / BMS answers.
+  function moduleKey(group,option){ return group==='systems'&&/^triconex$/i.test(String(option.label).trim())?'triconex_products':`${group==='systems'?'sysmod':'qnmod'}_${slugify(option.id||option.label)}`; }
+  function renderCatalogGroup(group,listKey,hostId){
+    const list=keyEl(listKey);
+    if(list) list.innerHTML=catalogOptions(group).map(option=>`<label style="${/^#[0-9a-f]{3,6}$/i.test(String(option.color||''))?`border-color:${esc(option.color)};color:${esc(option.color)}`:''}"><input type="checkbox" value="${esc(option.label)}"/>${esc(option.label)}</label>`).join('')||(group==='extras'?'':'<span class="help">No options configured yet. Add them in Settings &rarr; Labels &amp; Scope.</span>');
+    const host=hostId?$('#'+hostId):null;
+    if(host) host.innerHTML=catalogOptions(group).filter(option=>Array.isArray(option.children)&&option.children.length).map(option=>`<div class="catalog-module" data-module-parent="${esc(option.label)}"><b>${esc(option.label)} &mdash; sub-modules</b><div class="multi-choice" data-key="${esc(moduleKey(group,option))}" data-question-label="${esc(option.label)} sub-modules">${option.children.filter(child=>child&&child.label).map(child=>`<label><input type="checkbox" value="${esc(child.label)}"/>${esc(child.label)}</label>`).join('')}</div></div>`).join('');
+  }
+  function renderScopeCatalogs(){
+    const snapshot=captureFieldValues();
+    CATALOG_GROUPS.forEach(({group,listKey,hostId})=>renderCatalogGroup(group,listKey,hostId));
+    restoreFieldValues(snapshot);
+    updateCatalogModuleVisibility();
+  }
+  function updateCatalogModuleVisibility(){
+    [['systemModulesHost','sow_systems'],['quickNoteModulesHost','quick_notes']].forEach(([hostId,listKey])=>{
+      const host=$('#'+hostId); if(!host)return;
+      const raw=value(listKey), chosen=new Set(Array.isArray(raw)?raw.map(String):[]);
+      $$('.catalog-module',host).forEach(mod=>mod.classList.toggle('platform-hidden-field',!chosen.has(mod.dataset.moduleParent)));
+    });
+  }
+  /** Every system in scope, however the answer was captured (new catalog or legacy platform chips). */
+  function systemValues(){
+    const out=[];
+    const push=v=>{const s=String(v||'').trim();if(s&&!out.includes(s))out.push(s);};
+    (Array.isArray(value('sow_systems'))?value('sow_systems'):[]).forEach(push);
+    ['Modicon','Triconex','Foxboro'].forEach(name=>{ if(checked(`platform_${name.toLowerCase()}`)&&!out.some(s=>s.toLowerCase().includes(name.toLowerCase())))push(name); });
+    if(checked('platform_other')&&!out.length)push('Other');
+    return out;
+  }
+  const LEGACY_OPP_TYPES=['Greenfield','Modernization','Migration','Upgrade','Expansion','Services Only','Mixed new + existing'];
+  /** "Green field" (catalog wording) and "Greenfield" (legacy wording) are the same answer. */
+  function normalizeLegacyOppType(label){
+    const clean=String(label||'').trim().toLowerCase().replace(/\s+/g,' ');
+    if(clean==='green field')return 'Greenfield';
+    return LEGACY_OPP_TYPES.find(option=>option.toLowerCase()===clean)||'';
+  }
+  /** Opportunity type for every downstream rule: the Scope catalog first, legacy answers after. */
+  function opportunityTypeValues(){
+    const out=[];
+    const push=v=>{const s=String(v||'').trim();if(s&&!out.includes(s))out.push(s);};
+    (Array.isArray(value('scope_types'))?value('scope_types'):[]).forEach(push);
+    (Array.isArray(value('flow_B008'))?value('flow_B008'):[]).forEach(push);
+    const single=String(value('opp_type')||''); if(single&&single!=='Mixed')push(single);
+    [...out].forEach(v=>push(normalizeLegacyOppType(v)));
+    return out;
+  }
+  /**
+   * Keeps platform_* (which still drives sections 4A/4B/4C) in step with the System catalog.
+   * `force` is only true for a user edit: on load an empty catalog must not clear the platform
+   * flags a legacy note still relies on.
+   */
+  function mirrorSystemsToPlatforms(force){
+    if(!keyEl('sow_systems'))return;
+    const systems=Array.isArray(value('sow_systems'))?value('sow_systems').map(String):[];
+    if(!systems.length&&!force)return;
+    const known=[['platform_modicon',/modicon/i],['platform_triconex',/tricon/i],['platform_foxboro',/foxboro/i]];
+    known.forEach(([key,test])=>{const el=keyEl(key);if(el)el.checked=systems.some(name=>test.test(name));});
+    const other=keyEl('platform_other');
+    if(other)other.checked=systems.some(name=>!known.some(([,test])=>test.test(name)));
+  }
+  /** Keeps the legacy single-value opp_type / flow_B008 answers in step with the Scope catalog. */
+  function mirrorScopeToOppType(force){
+    if(!keyEl('scope_types'))return;
+    const selected=Array.isArray(value('scope_types'))?value('scope_types'):[];
+    if(!selected.length&&!force)return;
+    const legacy=selected.map(normalizeLegacyOppType).filter(Boolean);
+    // Merge, never replace: flow_B008 can hold answers the Scope catalog has no equivalent for
+    // (Modernization, Expansion, the HMI/SCADA variants). Those must survive a Scope edit.
+    const b008=keyEl('flow_B008');
+    if(b008){
+      const current=new Set(Array.isArray(getValue(b008))?getValue(b008):[]);
+      LEGACY_OPP_TYPES.forEach(option=>{ if(legacy.includes(option))current.add(option); else current.delete(option); });
+      setValue(b008,[...current]);
+    }
+    const merged=b008?(Array.isArray(getValue(b008))?getValue(b008):[]):legacy;
+    const opp=keyEl('opp_type');
+    if(opp)setValue(opp,merged.length===1?merged[0].replace('Services Only','Services only'):(merged.length?'Mixed':''));
+  }
   function updatePlatformVisibility(){
     const state={modicon:$('#platform-modicon').checked,triconex:$('#platform-triconex').checked,foxboro:$('#platform-foxboro').checked};
     $$('.platform-section').forEach(sec=>sec.classList.toggle('hidden-by-platform',!state[sec.dataset.platform]));
-    // The Triconex product breakdown only makes sense once Triconex is in scope. Answers are
-    // kept when it is hidden, exactly like every other conditional block in this form.
-    const triProducts=$('#triconexProductsBlock');
-    if(triProducts)triProducts.classList.toggle('platform-hidden-field',!state.triconex);
+    updateCatalogModuleVisibility();
   }
   function fieldBox(key){ const el=keyEl(key); return el?(el.closest('.field')||el.closest('.choice')||el.closest('.check-row')||el):null; }
   function showElement(el,shouldShow){ if(!el)return; const visible=!guidedMode||!!shouldShow; el.classList.toggle('conditional-hidden',!visible); el.setAttribute('aria-hidden',visible?'false':'true'); }
@@ -1435,7 +1650,10 @@
   function conditionAnswer(source){
     const alias=SYNC_PAIRS[source] || Object.entries(SYNC_PAIRS).find(([,target])=>target===source)?.[0];
     const el=keyEl(source) || (alias ? keyEl(alias) : null);
-    if(!el && source==='flow_T001') return ['Modicon','Triconex','Foxboro'].filter(name=>checked(`platform_${name.toLowerCase()}`)).concat(checked('platform_other')?['Other']:[]);
+    // flow_T001 and flow_B008 are no longer rendered — the System and Scope catalogs replaced
+    // them — but every built-in dependency still names them, so they answer from the catalogs.
+    if(source==='flow_T001') return systemValues();
+    if(source==='flow_B008') return opportunityTypeValues();
     if(!el)return '';
     if(guidedMode && !isLogicVisible(el)) return '';
     return getValue(el);
@@ -1478,7 +1696,7 @@
     showField('team_tsc_modicon',checked('platform_modicon')); showField('team_tsc_triconex',checked('platform_triconex')); showField('team_tsc_foxboro',checked('platform_foxboro'));
     const contractSelected=anyChecked(['msa_available','cfa_available','customer_terms','se_standard_terms']);
     showField('msa_link',checked('msa_available')); showField('cfa_link',checked('cfa_available')); showField('contract_links',anyChecked(['customer_terms','se_standard_terms'])); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||'')));
-    const opp=String(value('opp_type')||''), opportunityTypes=Array.isArray(value('flow_B008'))?value('flow_B008'):[], existingScope=!opp||opp!=='Greenfield'||opportunityTypes.some(type=>['Modernization','Migration','Upgrade','Expansion','Mixed new + existing','Modernize in place'].includes(type));
+    const opportunityTypes=opportunityTypeValues(), opp=opportunityTypes.length===1?opportunityTypes[0]:'', existingScope=!opp||opp!=='Greenfield'||opportunityTypes.some(type=>['Modernization','Migration','Upgrade','Expansion','Mixed new + existing','Modernize in place'].includes(type));
     showField('installed_base_summary',existingScope); showField('data_validation_notes',existingScope);
     const mod=String(value('mod_scenario')||''), modChosen=!!mod, modSoftwareOnly=mod==='Software / services only', modExisting=modChosen&&!['New PLC system','Software / services only'].includes(mod), modMigration=modChosen&&['CPU + I/O modernization','CPU modernization, I/O remains','I/O modernization, CPU remains','Add new I/O','Competitor conversion'].includes(mod);
     showField('mod_existing_controller',modExisting); showField('mod_target_controller',modChosen&&!modSoftwareOnly); showField('mod_control_expert',modChosen); showBlock('modHardwareBlock',modChosen&&!modSoftwareOnly); showBlock('modMigrationBlock',modMigration); showBlock('modCommsBlock',modChosen); showBlock('modBomBlock',modChosen&&!modSoftwareOnly); showBlock('modValidationBlock',modChosen);
@@ -1490,7 +1708,8 @@
     showField('fox_existing_release',foxChosen&&!foxNew); showField('fox_support_status',foxChosen&&!foxNew); showField('fox_existing_architecture',foxChosen&&!foxNew); showField('fox_target_release',foxChosen&&!foxServices); showField('fox_target_architecture',foxChosen&&!foxServices); showBlock('foxControllerIoBlock',foxControllerScenarios.includes(fox)); showBlock('foxNetworkServerBlock',foxNetworkScenarios.includes(fox)); showBlock('foxApplicationBlock',foxApplicationScenarios.includes(fox)); showBlock('foxInterfaceMigrationBlock',foxChosen);
     const foxHasInterface=anyChecked(['fox_triconex_interface','fox_plc_interface','fox_opc_interface','fox_modbus_interface','fox_mes_interface','fox_third_party_apps']), foxHasMigration=anyChecked(['fox_phased_cutover','fox_shutdown_cutover'])||/migration|modernization|upgrade|refresh/i.test(fox);
     showField('fox_interfaces',foxHasInterface); showField('fox_migration',foxHasMigration); showBlock('foxTestBlock',foxChosen&&!foxServices); showBlock('foxBomBlock',foxBomScenarios.includes(fox)); showBlock('foxValidationBlock',foxChosen);
-    const cabinets=String(value('cabinets_included')||''), cabinetDetails=['Yes','Partial','To be defined'].includes(cabinets)||opportunityTypes.some(type=>['New enclosures','Modernize in place'].includes(type)); ['cabinet_scenario','cabinet_mounting','cabinet_rating','cabinet_material','cabinet_dimensions','cabinet_cooling','cabinet_certification','panel_design_notes'].forEach(k=>showField(k,cabinetDetails));
+    // Cabinets/panels now live in Step 4 as guided question cards; each card carries its own
+    // `logic` on cabinets_included, so there is nothing to toggle by hand here anymore.
     const serviceKeys=['svc_engineering','svc_configuration','svc_drawings','svc_fat','svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration','svc_training','svc_documentation','svc_project_management'], anyService=anyChecked(serviceKeys); showBlock('serviceEstimateBlock',anyService);
     const onsite=anyChecked(['svc_sat','svc_installation','svc_startup','svc_site_support','svc_migration'])||['Premium nights / weekends','On-site T&M','Mixed'].includes(String(value('work_schedule')||'')); ['downtime_window','site_access_hours','schedule_limitations'].forEach(k=>showField(k,onsite));
     const travel=String(value('tl_required')||''), travelDetails=!!travel&&travel!=='No'; ['tl_estimate','tl_trips','tl_policy','tl_assumptions'].forEach(k=>showField(k,travelDetails));
@@ -1503,7 +1722,10 @@
   }
 
   const SYNC_PAIRS={
-    flow_B001:'op_id',flow_B002:'alias',flow_B003:'customer',flow_B004:'proposal_due',flow_B005:'proposal_delivery',flow_B006:'team_cse',flow_B007:'site',
+    // flow_B004/flow_B005 both asked for the proposal delivery date before the question was
+    // consolidated into `proposal_delivery`, which is the field linked to the expediente's
+    // Expected Date. Both legacy keys migrate into it.
+    flow_B001:'op_id',flow_B002:'alias',flow_B003:'customer',flow_B004:'proposal_delivery',flow_B005:'proposal_delivery',flow_B006:'team_cse',flow_B007:'site',
     flow_C001:'commercial_structure',flow_C002:'payment_milestones',flow_C003:'order_entry',flow_C004:'execution_start',flow_C005:'project_completion',flow_C011:'forecast_usd',
     flow_H001:'cabinets_included',flow_H002:'cabinet_scenario',flow_H005:'cabinet_dimensions',flow_H006:'cabinet_cooling',flow_H007:'cabinet_mounting',
     flow_S003:'svc_hours',flow_S004:'svc_days',flow_S005:'svc_owner',flow_S006:'tl_required',flow_S007:'tl_estimate',
@@ -1547,6 +1769,25 @@
     const types=Array.isArray(data.flow_B008)?data.flow_B008:[];
     if(types.length) data.opp_type=types.length===1?types[0].replace('Services Only','Services only'):'Mixed';
     else if(filledValue(data.opp_type)&&data.opp_type!=='Mixed')data.flow_B008=[String(data.opp_type).replace('Services only','Services Only')];
+    // Seed the Scope / System catalogs from whatever this SOW captured before they existed,
+    // so an old note opens with its answers already ticked instead of looking empty.
+    const sameLabel=(a,b)=>String(a).toLowerCase().replace(/\s+/g,'')===String(b).toLowerCase().replace(/\s+/g,'');
+    if(!filledValue(data.scope_types)){
+      const scopeLabels=catalogOptions('scope').map(option=>option.label);
+      const seeded=[...types];
+      if(filledValue(data.opp_type)&&data.opp_type!=='Mixed')seeded.push(String(data.opp_type));
+      const mapped=[...new Set(seeded.map(v=>scopeLabels.find(label=>sameLabel(label,v))).filter(Boolean))];
+      if(mapped.length)data.scope_types=mapped;
+    }
+    if(!filledValue(data.sow_systems)){
+      const systemLabels=catalogOptions('systems').map(option=>option.label), seeded=[];
+      const add=label=>{if(label&&!seeded.includes(label))seeded.push(label);};
+      if(data.platform_modicon===true)add(systemLabels.find(label=>/modicon/i.test(label)));
+      if(data.platform_triconex===true)add(systemLabels.find(label=>/tricon/i.test(label)));
+      if(data.platform_foxboro===true)add(systemLabels.find(label=>/foxboro/i.test(label)));
+      (Array.isArray(data.flow_T001)?data.flow_T001:[]).forEach(name=>add(systemLabels.find(label=>label.toLowerCase().includes(String(name).toLowerCase()))));
+      if(seeded.length)data.sow_systems=seeded;
+    }
   }
   const EXPEDIENTE_SYNC_KEYS=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','proposal_delivery','flow_C012','flow_C013','flow_C014',...Object.keys(SYNC_PAIRS)]);
   let opportunitySyncTimer;
@@ -1571,6 +1812,9 @@
       if(/^platform_/.test(key)){ const current=new Set(Array.isArray(value('flow_T001'))?value('flow_T001'):[]); ['Modicon','Triconex','Foxboro'].forEach(name=>{ const el=keyEl(`platform_${name.toLowerCase()}`); if(el?.checked)current.add(name);else current.delete(name); }); if(keyEl('platform_other')?.checked){ if(!current.has('AVEVA')&&!current.has('Cyber'))current.add('AVEVA'); } else {current.delete('AVEVA');current.delete('Cyber');} setValue(keyEl('flow_T001'),[...current]); }
       if(key==='flow_B008'){ const vals=value(key); if(Array.isArray(vals)&&vals.length&&keyEl('opp_type')) setValue(keyEl('opp_type'),vals.length===1?vals[0].replace('Services Only','Services only'):'Mixed'); }
       if(key==='opp_type'&&value(key)&&value(key)!=='Mixed'){ setValue(keyEl('flow_B008'),[String(value(key)).replace('Services only','Services Only')]); }
+      if(key==='scope_types') mirrorScopeToOppType(true);
+      if(key==='sow_systems'){ mirrorSystemsToPlatforms(true); updatePlatformVisibility(); }
+      if(key==='quick_notes') updateCatalogModuleVisibility();
     } finally { syncing=false; }
     scheduleOpportunitySync(key);
   }
@@ -1599,7 +1843,7 @@
   function populateSectionSelect(selected=''){ const select=$('#questionSection');select.innerHTML=$$('[data-builder-section-id]').filter((s,i,a)=>a.findIndex(x=>x.dataset.builderSectionId===s.dataset.builderSectionId)===i).map(s=>`<option value="${esc(s.dataset.builderSectionId)}">${esc(sectionTitle(s))}</option>`).join(''); if(selected)select.value=selected; }
   function updateOptionsVisibility(){ $('#questionOptionsWrap').style.display=['single_select','multi_select'].includes($('#questionType').value)?'block':'none'; }
   function openQuestionDialog(sectionId='',questionId=''){
-    const base=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].find(q=>q.key===questionId);
+    const base=allFlowQuestions().find(q=>q.key===questionId);
     const existing=customForm.questions.find(q=>q.key===questionId)|| (base?{...base,...(customForm.flowOverrides?.[questionId]||{}),sectionId:`flow_${slugify(base.section)}`,isFlow:true}:null);
     $('#questionDialogTitle').textContent=existing?'Edit question':'Add question'; $('#questionEditId').value=existing?.key||''; populateSectionSelect(existing?.sectionId||sectionId); $('#questionType').value=existing?.type||'text'; $('#questionLabel').value=existing?.label||''; $('#questionSubsection').value=existing?.subsection||''; $('#questionOwner').value=existing?.owner||''; $('#questionOptions').value=(existing?.options||[]).join('\n'); $('#questionHelp').value=existing?.help||existing?.purpose||''; $('#questionOutput').value=existing?.output||''; $('#questionRequired').checked=!!existing?.required; $('#questionGlobal').checked=globalForm.questions.some(q=>q.key===existing?.key); const parsed=logicToEditor(existing?.logic); $('#questionConditionMatch').value=parsed.match; const host=$('#questionConditions');host.innerHTML='';parsed.rules.forEach(r=>addConditionRow(host,r,existing?.key||'')); updateOptionsVisibility(); $('#questionDialog').showModal();
   }
@@ -1613,8 +1857,8 @@
   function applyDesignerMode(){ document.body.classList.toggle('designer-mode',designerMode); const btn=$('#designerModeBtn');btn.textContent=designerMode?'Designer: ON':'Designer';btn.title=designerMode?'Form designer is ON — click to exit':'Design questions (form designer)';btn.classList.toggle('logic-active',designerMode);btn.setAttribute('aria-pressed',designerMode?'true':'false'); }
   function updateGuidedButton(){ const btn=$('#guidedModeBtn');btn.textContent=guidedMode?'Guided':'Show all';btn.title=guidedMode?'Guided mode: only applicable questions are shown':'Showing every question, including the ones that do not apply';btn.classList.toggle('logic-active',guidedMode);btn.setAttribute('aria-pressed',guidedMode?'true':'false'); }
 
-  document.addEventListener('input',e=>{if(e.target.matches('#raciTaskSearch')){renderTaskSearchResults();return;}if(e.target.matches('[data-stakeholder-search]')){const query=String(e.target.value||'').trim().toLowerCase(),picker=e.target.closest('.stakeholder-picker');$$('[data-stakeholder-option]',picker).forEach(option=>option.style.display=option.textContent.toLowerCase().includes(query)?'':'none');return;} if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); updateConditionalVisibility();updateCommercialLinkActions();save(); } });
-  document.addEventListener('change',e=>{const raciPicker=e.target.closest('[data-raci-role]');if(raciPicker&&e.target.matches('[data-stakeholder-id]')){updateStakeholderPickerSummary(raciPicker);const row=raciPicker.closest('[data-raci-task-id]');if(row)try{window.parent.postMessage({source:'tenderloop-sow',type:'update-task-raci',payload:{taskId:row.dataset.raciTaskId,responsibleTeamMemberIds:selectedValues($('[data-raci-role="responsible"]',row)),approverTeamMemberIds:selectedValues($('[data-raci-role="approver"]',row)),informedTeamMemberIds:selectedValues($('[data-raci-role="informed"]',row))}},'*');}catch(error){}return;} if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);updateConditionalVisibility();updateCommercialLinkActions();save(); } });
+  document.addEventListener('input',e=>{if(e.target.matches('#raciTaskSearch')){renderTaskSearchResults();return;}if(e.target.matches('[data-stakeholder-search]')){const query=String(e.target.value||'').trim().toLowerCase(),picker=e.target.closest('.stakeholder-picker');$$('[data-stakeholder-option]',picker).forEach(option=>option.style.display=option.textContent.toLowerCase().includes(query)?'':'none');return;} if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); scheduleVisualUpdate(); save(); } });
+  document.addEventListener('change',e=>{const raciPicker=e.target.closest('[data-raci-role]');if(raciPicker&&e.target.matches('[data-stakeholder-id]')){updateStakeholderPickerSummary(raciPicker);const row=raciPicker.closest('[data-raci-task-id]');if(row)try{window.parent.postMessage({source:'tenderloop-sow',type:'update-task-raci',payload:{taskId:row.dataset.raciTaskId,responsibleTeamMemberIds:selectedValues($('[data-raci-role="responsible"]',row)),approverTeamMemberIds:selectedValues($('[data-raci-role="approver"]',row)),informedTeamMemberIds:selectedValues($('[data-raci-role="informed"]',row))}},'*');}catch(error){}return;} if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);flushVisualUpdate();clearTimeout(saveTimer);persistNow();updateProgress(); } });
   // FLUSH-ON-BLUR: save() debounces 180ms so typing doesn't spam postMessage/localStorage.
   // But switching tabs/notes in the host unmounts this iframe (and its 'message' listener)
   // synchronously the instant the click is handled — if the debounce timer hasn't fired yet,
@@ -1622,7 +1866,7 @@
   // stale data. Clicking outside the iframe always fires focusout on the field that had
   // focus BEFORE the host's click handler runs, so flushing here — bypassing the debounce
   // entirely — guarantees the save reaches the host before any unmount can happen.
-  document.addEventListener('focusout',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]') && e.target.closest('[data-key]')){ clearTimeout(saveTimer); persistNow(); } });
+  document.addEventListener('focusout',e=>{ if(e.target.matches('input,select,textarea,[contenteditable="true"]') && e.target.closest('[data-key]')){ flushVisualUpdate(); clearTimeout(saveTimer); persistNow(); } });
   document.addEventListener('click',e=>{
     const openTask=e.target.closest('[data-open-task]');if(openTask){try{window.parent.postMessage({source:'tenderloop-sow',type:'open-task',taskId:openTask.dataset.openTask},'*');}catch(error){}return;}
     const convertTask=e.target.closest('[data-convert-task]');if(convertTask){try{window.parent.postMessage({source:'tenderloop-sow',type:'convert-task-assignment',taskId:convertTask.dataset.convertTask},'*');}catch(error){}return;}
@@ -1649,7 +1893,7 @@
   $('#addSectionBtn').addEventListener('click',()=>openSectionDialog());
   $('#guidedModeBtn').addEventListener('click',()=>{guidedMode=!guidedMode;updateGuidedButton();updateConditionalVisibility();save();});
   $('#reviewGapsBtn').addEventListener('click',reviewGaps);
-  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'🚩 Only flagged':'🚩 Flagged';$('#flaggedBtn').title=active?'Only flagged questions are shown — click to show all':'Show only flagged questions';if(active){const first=$('.question-card.flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
+  $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'🚩 Only flagged':'🚩 Flagged';$('#flaggedBtn').title=active?'Only flagged questions are shown — click to show all':'Show only flagged questions';if(active){const first=$('.question-card.flagged')||$('[data-flag-box].flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
   $('#navigationBtn').addEventListener('click',openNavigation);
   $('#closeNavigationBtn').addEventListener('click',closeNavigation);
   $('#navigationSearch').addEventListener('input',renderNavigation);
@@ -1667,7 +1911,7 @@
   $('#questionType').addEventListener('change',updateOptionsVisibility);
   $('#addQuestionConditionBtn').addEventListener('click',()=>addConditionRow($('#questionConditions'),{},$('#questionEditId').value));
   $('#addSectionConditionBtn').addEventListener('click',()=>addConditionRow($('#sectionConditions')));
-  $('#questionForm').addEventListener('submit',e=>{e.preventDefault();const editId=$('#questionEditId').value,key=editId||uid('custom_q'),type=$('#questionType').value,label=$('#questionLabel').value.trim(),sectionId=$('#questionSection').value;if(!label||!sectionId)return;const options=$('#questionOptions').value.split('\n').map(x=>x.trim()).filter(Boolean);if(['single_select','multi_select'].includes(type)&&!options.length){alert('Add at least one option for this question type.');return;}const base=[...FLOW_DATA.questions,...LINKED_COMMERCIAL_QUESTIONS].find(q=>q.key===key);const def={...(base||{}),id:base?.id||(editId?(customForm.questions.find(q=>q.key===editId)?.id||'CUSTOM'):`CQ-${String(customForm.questions.length+1).padStart(3,'0')}`),key,sectionId,section:sectionTitle($(`[data-builder-section-id="${sectionId}"]`))||base?.section,label,type,options,required:$('#questionRequired').checked,subsection:$('#questionSubsection').value.trim(),owner:$('#questionOwner').value.trim(),help:$('#questionHelp').value.trim(),output:$('#questionOutput').value.trim(),logic:readConditions($('#questionConditions'),$('#questionConditionMatch').value)};const snap=captureFieldValues();if(base){customForm.flowOverrides=customForm.flowOverrides||{};customForm.flowOverrides[key]=def;renderFlow();prepareBuilderSections();}else{const idx=customForm.questions.findIndex(q=>q.key===key);if(idx>=0)customForm.questions[idx]=def;else customForm.questions.push(def);}if($('#questionGlobal').checked&&!base){const gidx=globalForm.questions.findIndex(q=>q.key===key);if(gidx>=0)globalForm.questions[gidx]=def;else globalForm.questions.push(def);try{window.parent.postMessage({source:'tenderloop-sow',type:'global-form-save',payload:globalForm},'*');}catch(e){}}rebuildCustomForm(snap);$('#questionDialog').close();persistNow();});
+  $('#questionForm').addEventListener('submit',e=>{e.preventDefault();const editId=$('#questionEditId').value,key=editId||uid('custom_q'),type=$('#questionType').value,label=$('#questionLabel').value.trim(),sectionId=$('#questionSection').value;if(!label||!sectionId)return;const options=$('#questionOptions').value.split('\n').map(x=>x.trim()).filter(Boolean);if(['single_select','multi_select'].includes(type)&&!options.length){alert('Add at least one option for this question type.');return;}const base=allFlowQuestions().find(q=>q.key===key);const def={...(base||{}),id:base?.id||(editId?(customForm.questions.find(q=>q.key===editId)?.id||'CUSTOM'):`CQ-${String(customForm.questions.length+1).padStart(3,'0')}`),key,sectionId,section:sectionTitle($(`[data-builder-section-id="${sectionId}"]`))||base?.section,label,type,options,required:$('#questionRequired').checked,subsection:$('#questionSubsection').value.trim(),owner:$('#questionOwner').value.trim(),help:$('#questionHelp').value.trim(),output:$('#questionOutput').value.trim(),logic:readConditions($('#questionConditions'),$('#questionConditionMatch').value)};const snap=captureFieldValues();if(base){customForm.flowOverrides=customForm.flowOverrides||{};customForm.flowOverrides[key]=def;renderFlow();prepareBuilderSections();}else{const idx=customForm.questions.findIndex(q=>q.key===key);if(idx>=0)customForm.questions[idx]=def;else customForm.questions.push(def);}if($('#questionGlobal').checked&&!base){const gidx=globalForm.questions.findIndex(q=>q.key===key);if(gidx>=0)globalForm.questions[gidx]=def;else globalForm.questions.push(def);try{window.parent.postMessage({source:'tenderloop-sow',type:'global-form-save',payload:globalForm},'*');}catch(e){}}rebuildCustomForm(snap);$('#questionDialog').close();persistNow();});
   $('#sectionForm').addEventListener('submit',e=>{e.preventDefault();const editId=$('#sectionEditId').value,id=editId||uid('custom_section'),title=$('#sectionTitle').value.trim();if(!title)return;const def={id,title,color:$('#sectionColor').value||'#2c7be5',description:$('#sectionDescription').value.trim(),logic:readConditions($('#sectionConditions'),$('#sectionConditionMatch').value)};const snap=captureFieldValues();const idx=customForm.sections.findIndex(s=>s.id===id);if(idx>=0)customForm.sections[idx]=def;else customForm.sections.push(def);rebuildCustomForm(snap);$('#sectionDialog').close();persistNow();});
 
   // Do not lose the last edit if the note, tab, or browser is closed before the debounce completes.
@@ -1676,7 +1920,7 @@
 
   const beforePrintState=new Map();window.addEventListener('beforeprint',()=>{$$('details').forEach(d=>{beforePrintState.set(d,d.open);d.open=true;});});window.addEventListener('afterprint',()=>{beforePrintState.forEach((v,d)=>d.open=v);beforePrintState.clear();});
 
-  renderFlow(); prepareBuilderSections(); rebuildCustomForm(null,false); applyDesignerMode(); updateGuidedButton();
+  renderFlow(); prepareBuilderSections(); rebuildCustomForm(null,false); renderScopeCatalogs(); decorateStaticFlags(); applyDesignerMode(); updateGuidedButton();
 
   // --- TenderLoop host handshake -------------------------------------------------
   // This form is embedded in a sandboxed iframe by TenderLoop (one instance per
@@ -1706,6 +1950,16 @@
     }
     applyTaskContext({tasks:config?.tasks,people});
   }
+  function applyScopeCatalog(catalog){
+    if(!catalog||typeof catalog!=='object')return;
+    const group=name=>Array.isArray(catalog[name])?catalog[name].filter(option=>option&&option.label):null;
+    scopeCatalog={
+      scope:group('scope')||DEFAULT_SCOPE_CATALOG.scope,
+      systems:group('systems')||DEFAULT_SCOPE_CATALOG.systems,
+      quickNotes:group('quickNotes')||DEFAULT_SCOPE_CATALOG.quickNotes
+      ,extras:group('extras')||DEFAULT_SCOPE_CATALOG.extras
+    };
+  }
   const HOST_AUTHORITATIVE_KEYS=new Set(['flow_C006','flow_C007','sr_link']);
   function applyHostPrefill(prefill){
     if(!prefill || typeof prefill!=='object') return;
@@ -1713,7 +1967,9 @@
   }
   function applyLinkedPrefill(prefill){
     if(!prefill || typeof prefill!=='object') return;
-    const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C006','flow_C007','flow_C012','flow_C013','flow_C014','sr_link','link_bfo','link_dso','link_rfq','link_installed_base','msa_link','cfa_link']);
+    // proposal_delivery is the SOW side of the expediente's Expected Date: both directions
+    // are linked, so a date changed in the expediente header must land here too.
+    const linked=new Set(['op_id','op_name','alias','sr_qlk','customer','team_cse','site','objective','proposal_type','proposal_delivery','flow_B001','flow_B002','flow_B003','flow_B004','flow_B006','flow_B007','flow_C006','flow_C007','flow_C012','flow_C013','flow_C014','sr_link','link_bfo','link_dso','link_rfq','link_installed_base','msa_link','cfa_link']);
     // A parent rerender may carry an empty legacy value. Never let that erase
     // a value just selected in the SOW (notably Proposal type and Seller).
     Object.entries(prefill).forEach(([key,val])=>{const el=keyEl(key);if(linked.has(key)&&el&&(HOST_AUTHORITATIVE_KEYS.has(key)||(val!==undefined&&val!==null&&val!=='')))setValue(el,val??'');});
@@ -1726,15 +1982,24 @@
       applyHostOptions(e.data);
       hostPrefill=e.data.prefill || {};
       globalForm=normalizeCustomForm(e.data.globalForm);
+      applyScopeCatalog(e.data.scopeCatalog);
       if(e.data.payload){ applyState(e.data.payload); applyHostPrefill(hostPrefill); updateConditionalVisibility(); persistNow(); }
-      else { customForm=mergeGlobalForm(customForm); applyHostPrefill(hostPrefill); rebuildCustomForm(null,false); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); persistNow(); }
+      else { customForm=mergeGlobalForm(customForm); applyHostPrefill(hostPrefill); rebuildCustomForm(null,false); renderScopeCatalogs(); decorateStaticFlags(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); persistNow(); }
     }
+    if(e.data.type === 'update-scope-catalog'){ applyScopeCatalog(e.data.scopeCatalog); renderScopeCatalogs(); decorateStaticFlags(); updateConditionalVisibility(); updateProgress(); }
     if(e.data.type === 'open-overview'){ $('#terminalOverview').classList.add('open');renderOverview(); }
     if(e.data.type === 'update-prefill'){ hostPrefill=e.data.prefill || hostPrefill; applyLinkedPrefill(hostPrefill); }
     if(e.data.type === 'update-task-context')applyTaskContext(e.data);
     // updatePlatformVisibility must run too: a platform toggled from the Overview Scope panel
     // has to reveal/hide its sections here immediately, not only after the next local edit.
-    if(e.data.type === 'update-fields' && e.data.fields){ restoreFieldValues(e.data.fields); reconcileScopeFields(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); }
+    // The field being typed in is skipped: this message can arrive as an echo of our own save,
+    // and writing a value back into the focused control drops the characters typed since.
+    if(e.data.type === 'update-fields' && e.data.fields){
+      const incoming={...e.data.fields};
+      const editing=document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-key]') : null;
+      if(editing && editing.dataset.key) delete incoming[editing.dataset.key];
+      restoreFieldValues(incoming); reconcileScopeFields(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
+    }
   });
   try{ window.parent.postMessage({source:'tenderloop-sow', type:'ready'}, '*'); }catch(e){}
 

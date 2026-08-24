@@ -3,7 +3,7 @@ import { AlertTriangle, Bell, Bot, CalendarDays, Check, ChevronLeft, Clock3, Lay
 import { Opportunity } from '../../types';
 import { CalendarView } from '../../components/CalendarView';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
-import { ParsedDueDateRow, ParsedReminderRow, ParsedScheduleRow } from './responseParser';
+import { ParsedDueDateRow, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow } from './responseParser';
 import { QuickOrganizerWeekAgenda } from './QuickOrganizerWeekAgenda';
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
     deliveryInsights: string[];
     missingTaskInsights: string[];
     dueDateRows: ParsedDueDateRow[];
+    opportunityAssessments: ParsedOpportunityAssessment[];
     opportunities: Opportunity[];
     errors: { section: string; line: string; reason: string }[];
     onChange: (id: string, patch: Partial<ParsedScheduleRow>) => void;
@@ -61,7 +62,7 @@ const parseRecommendation = (text: string): ParsedRecommendation => {
 
 /** Complete draft workspace. Nothing in here mutates an opportunity until onApply is confirmed. */
 export const QuickOrganizerReview: React.FC<Props> = ({
-    rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunities, errors, onChange, onReminderChange, onDueDateChange,
+    rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunityAssessments, opportunities, errors, onChange, onReminderChange, onDueDateChange,
     onRemove, onRemoveReminder, onRemoveDueDate, onScheduleTask, onBack, onApply,
 }) => {
     const [taskTab, setTaskTab] = useState<'scheduled' | 'unscheduled' | 'all'>('scheduled');
@@ -92,7 +93,7 @@ export const QuickOrganizerReview: React.FC<Props> = ({
         <header className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-[#3DCD58] flex items-center justify-center shrink-0"><Sparkles className="w-5 h-5 text-white" /></div>
-                <div className="min-w-0"><h1 className="font-black">AI Organizer</h1><p className="text-[11px] text-gray-400">This is only a draft. Edit it freely; TenderLoop will not change until you accept the plan.</p></div>
+                <div className="min-w-0"><h1 className="font-black">AI Organizer</h1><p className="text-[11px] text-gray-400">This is only a draft. Edit it freely; Tender Control will not change until you accept the plan.</p></div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
                 <button onClick={onBack} className="flex items-center gap-1 px-3 py-2 text-xs font-bold text-gray-300 hover:bg-gray-800 rounded-lg"><ChevronLeft className="w-4 h-4" /> Back</button>
@@ -102,6 +103,18 @@ export const QuickOrganizerReview: React.FC<Props> = ({
 
         <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_360px]">
             <main className="min-w-0 overflow-y-auto p-5 space-y-5">
+                <section>
+                    <div className="mb-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Opportunity health at a glance</h2><p className="text-[11px] text-gray-500 mt-1">Realistic readiness, capacity and the single most important move for each selected opportunity.</p></div>
+                    {opportunityAssessments.length ? <div className="grid xl:grid-cols-2 gap-3">{opportunityAssessments.map(item => {
+                        const healthCls = item.health >= 75 ? 'text-emerald-300 bg-emerald-950/60 border-emerald-800' : item.health >= 45 ? 'text-amber-300 bg-amber-950/60 border-amber-800' : 'text-rose-300 bg-rose-950/60 border-rose-800';
+                        const feasibleCls = item.feasible === 'YES' ? 'text-emerald-300' : item.feasible === 'NO' ? 'text-rose-300' : 'text-amber-300';
+                        return <article key={item.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="font-black truncate">{item.oppLabel}</h3><p className="text-[11px] text-gray-400 mt-1">{item.summary}</p></div><div className={`shrink-0 w-16 h-16 rounded-2xl border flex flex-col items-center justify-center ${healthCls}`}><span className="text-xl font-black">{item.health}%</span><span className="text-[8px] font-black uppercase">health</span></div></div>
+                            <div className="grid grid-cols-3 gap-2 mt-3 text-center"><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Required</p><p className="text-sm font-black">{item.requiredHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Available</p><p className="text-sm font-black">{item.availableHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Feasible</p><p className={`text-xs font-black ${feasibleCls}`}>{item.feasible}</p></div></div>
+                            <div className="mt-3 space-y-1.5 text-[11px]"><p><span className="text-gray-500 font-bold">What stops it:</span> {item.blocker}</p><p><span className="text-[#3DCD58] font-bold">Do now:</span> {item.nextAction}</p><p><span className="text-gray-500 font-bold">Delivery:</span> {item.suggestedDelivery || 'Needs confirmation'} · {item.reason}</p></div>
+                        </article>;
+                    })}</div> : <div className="rounded-2xl border border-dashed border-gray-700 p-5 text-xs text-gray-500">The AI reply did not include the structured opportunity assessment. Regenerate the prompt to see health, capacity and realistic delivery dates.</div>}
+                </section>
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
                     <h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bot className="w-4 h-4 text-[#3DCD58]" /> AI recommendations</h2>
                     {recommendations.length ? (

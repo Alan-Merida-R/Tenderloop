@@ -8,6 +8,7 @@ import { playSound } from '../services/soundService';
 import { sanitizeHtml } from '../services/sanitizeHtml';
 import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
 import { GENERAL_QUICK_LINK_ICON_OPTIONS } from './StickyNotesWidget';
+import { ScopeCatalog, ScopeCatalogGroup, ScopeCatalogOption, DEFAULT_SCOPE_CATALOG, SCOPE_CATALOG_GROUPS, normalizeScopeCatalog } from './scopeCatalog';
 import {
   mergeEmailComposeSettings, resolveTemplates, variablesForKind,
   DEFAULT_EMAIL_TEMPLATES, DEFAULT_SUBJECT_FORMAT, DEFAULT_FULLNAME_FORMAT,
@@ -15,14 +16,27 @@ import {
 } from '../services/emailTemplates';
 import { deriveReporterId, reportFilename, checkFolderPath } from '../services/managerReportSync';
 import { locateFolderPath } from '../features/opportunity-folder/fileOps';
+import { PROCESS_SECTIONS, ProcessSection, SIMPLE_STANDARD_ID } from '../services/processSections';
 
+// The SOW's question set is defined once, inside the iframe template, and read back out here
+// so this library stays a view of what the SOW actually renders. FLOW_DATA holds the original
+// eight Steps; the EXTRA_* literals hold everything added since (installed base, cabinets moved
+// out of section 5, and the Bid Strategy step).
 const DEFAULT_SOW_FLOW: { steps: any[]; questions: any[] } = (() => {
-  try {
-    const match = SOW_TEMPLATE_HTML.match(/const FLOW_DATA = (\{[\s\S]*?\});\s*\n\s*const STORAGE_KEY/);
-    return match ? JSON.parse(match[1]) : { steps: [], questions: [] };
-  } catch { return { steps: [], questions: [] }; }
+  const parse = (pattern: RegExp) => {
+    try {
+      const match = SOW_TEMPLATE_HTML.match(pattern);
+      return match ? JSON.parse(match[1]) : null;
+    } catch { return null; }
+  };
+  const base = parse(/const FLOW_DATA = (\{[\s\S]*?\});\s*\n\s*\/\* FLOW_EXTRAS_BEGIN/) || { steps: [], questions: [] };
+  const extraSteps = parse(/const EXTRA_FLOW_STEPS = (\[[\s\S]*?\]);\s*\n\s*const EXTRA_FLOW_QUESTIONS/) || [];
+  const extraQuestions = parse(/const EXTRA_FLOW_QUESTIONS = (\[[\s\S]*?\]);\s*\n\s*\/\* FLOW_EXTRAS_END/) || [];
+  return { steps: [...(base.steps || []), ...extraSteps], questions: [...(base.questions || []), ...extraQuestions] };
 })();
 const RETIRED_DUPLICATE_SOW_KEYS = new Set([
+  // flow_B008 asked for the opportunity type; the Scope catalog in Base Data replaced it.
+  'flow_B008',
   'flow_B001','flow_B002','flow_B003','flow_B004','flow_B005','flow_B006','flow_B007','flow_C001','flow_C002','flow_C003','flow_C004','flow_C005','flow_C008','flow_C009','flow_C010','flow_C011','flow_T001','flow_T007',
   'flow_H001','flow_H002','flow_H005','flow_H006','flow_H007','flow_H008','flow_H009','flow_S002','flow_S003','flow_S004','flow_S005','flow_S006','flow_S007',
   'flow_P001','flow_P002','flow_P003','flow_P004','flow_P005','flow_P006','flow_TR001','flow_TR002','flow_TR003','flow_TR004','flow_D001','flow_D003','flow_D004','flow_D005'
@@ -33,6 +47,7 @@ export interface TaskTemplate {
   id: string;
   title: string;
   description: string;
+  processSection?: ProcessSection;
   status: TaskStatus;
   priority: TaskPriority;
   owner: TaskOwner;
@@ -51,6 +66,8 @@ export interface TaskStandard {
   tasks: TaskTemplate[];
   /** Hidden lists stay available but are left out of the pickers unless the user asks to see them. */
   hidden?: boolean;
+  /** Version of an application-provided list; user-created lists leave this undefined. */
+  builtInVersion?: number;
 }
 
 /** Lists offered by default in the pickers (new opportunity, new revision). */
@@ -94,15 +111,17 @@ export const APP_VIEWS: { key: AppViewKey; label: string }[] = [
 
 export type OpportunityHeaderFieldKey =
   | 'address' | 'seller' | 'nextStep' | 'quoteType' | 'labels'
+  | 'stakeholdersTable'
   | 'emailButton' | 'exportImport' | 'revisions' | 'exportPdf' | 'copySummary' | 'autoFillEmail' | 'delete'
-  | 'principalStatus' | 'processStatus' | 'priority';
+  | 'processStatus' | 'priority' | 'deliveryAlarm';
 
 export const OPPORTUNITY_HEADER_FIELDS: { key: OpportunityHeaderFieldKey; label: string }[] = [
   { key: 'address', label: 'Address' },
   { key: 'seller', label: 'Seller' },
   { key: 'nextStep', label: 'Next Step badge' },
   { key: 'quoteType', label: 'Quote type badge' },
-  { key: 'labels', label: 'Labels' },
+  { key: 'labels', label: 'Systems / Solutions' },
+  { key: 'stakeholdersTable', label: 'Stakeholders quick table' },
   { key: 'emailButton', label: 'Email button' },
   { key: 'exportImport', label: 'Export / Import buttons' },
   { key: 'revisions', label: 'Revisions button' },
@@ -110,9 +129,9 @@ export const OPPORTUNITY_HEADER_FIELDS: { key: OpportunityHeaderFieldKey; label:
   { key: 'copySummary', label: 'Copy Summary button' },
   { key: 'autoFillEmail', label: 'Auto-fill from Email button' },
   { key: 'delete', label: 'Delete button' },
-  { key: 'principalStatus', label: 'Principal Status' },
   { key: 'processStatus', label: 'Process Status' },
   { key: 'priority', label: 'Priority' },
+  { key: 'deliveryAlarm', label: 'Expected delivery traffic light' },
 ];
 
 export type SoundType =
@@ -148,10 +167,15 @@ export interface AppSettings {
   timerEnabled?: boolean;
   alarms?: import('../types').AlarmConfig[];
   emailIntegrationEnabled?: boolean;
-  /** Whether the "+ SOW" note-template button is available in the Notes tab. Off by default. */
+  /**
+   * Whether the SOW exists in the Notes tab at all: the "+ SOW" button and the SOW note itself.
+   * Off by default. Answers are never deleted — the note is filtered out of the list.
+   */
   sowSectionEnabled?: boolean;
   /** Whether the read-only CQA quick-open link shows in the Commercial tab's Project Financial View. On by default. */
   commercialCqaLinkVisible?: boolean;
+  /** Ask for a type/reason before changing an opportunity's expected delivery date. Off by default. */
+  confirmExpectedDateChanges?: boolean;
   hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
   opportunityDetailSectionOrder?: OpportunityDetailSectionKey[];
   processRadialWidgetEnabled?: boolean;
@@ -186,6 +210,8 @@ export interface AppSettings {
   emailCompose?: EmailComposeSettings;
   /** Reusable SOW sections/questions shared by every opportunity. */
   globalSowForm?: { sections: any[]; questions: any[]; flowOverrides?: Record<string, any> };
+  /** Scope / System / Notes-at-a-glance option lists asked in the SOW and the Scope quick view. */
+  scopeCatalog?: ScopeCatalog;
 }
 export const DEFAULT_STAKEHOLDER_ROLES = ['CSE', 'Tender Engineer', 'TSC', 'Delivery', 'Field Services', 'FoxMass', 'Supply Chain', 'Other'];
 export const DEFAULT_TRACKED_AREAS = [
@@ -233,16 +259,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   emailIntegrationEnabled: false,
   sowSectionEnabled: false,
   commercialCqaLinkVisible: true,
+  confirmExpectedDateChanges: false,
   remindersEnabled: false,
   stakeholdersSectionEnabled: false,
-  hiddenOpportunityDetailSections: [],
+  hiddenOpportunityDetailSections: ['emails'],
   opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
   processRadialWidgetEnabled: false,
   defaultStartView: 'general-dashboard',
   hiddenViews: ['indicators-dashboard'],
   hiddenIndicatorSections: [],
   hiddenOpportunityHeaderFields: [],
-  hiddenProposalProcessColumns: ['Info Needed'],
+  hiddenProposalProcessColumns: ['Info Needed', 'Completed', 'Canceled'],
   processBoardColors: {},
   userName: 'User',
   dailyManagerReportEnabled: false,
@@ -250,6 +277,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dailyManagerReportFullName: '',
   globalContacts: [],
   globalSowForm: { sections: [], questions: [] },
+  scopeCatalog: DEFAULT_SCOPE_CATALOG,
   alarms: [
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
     { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
@@ -260,16 +288,68 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
 };
 
+const SIMPLE_STANDARD: TaskStandard = {
+  id: SIMPLE_STANDARD_ID,
+  name: 'Simple Standard',
+  builtInVersion: 5,
+  tasks: [
+    { id: 'simple-intake', title: 'Prepare the proposal workspace', description: 'Standardize the request, identifiers, links, folder and source information.', processSection: 'Intake & Standardization', status: 'Pending', priority: 'Medium', owner: 'Me', order: 1, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [{ id: 'simple-intake-qlk', title: 'Create or confirm QLK and links', completed: false }, { id: 'simple-intake-folder', title: 'Create or confirm the working folder', completed: false }, { id: 'simple-intake-info', title: 'Download and organize the available information', completed: false }] },
+    { id: 'simple-scope', title: 'Define and confirm the complete scope', description: 'Reach an agreed and usable scope across every involved area. These activities may progress in parallel while information is still pending.', processSection: 'Scope Definition', status: 'Pending', priority: 'High', owner: 'Me', order: 2, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-scope-architecture', title: 'Create or validate the solution architecture', completed: false },
+      { id: 'simple-scope-bom', title: 'Obtain, review and confirm the BOM', completed: false },
+      { id: 'simple-scope-services', title: 'Define service activities and required hours', completed: false },
+      { id: 'simple-scope-third-parties', title: 'Identify third parties, integrations and external dependencies', completed: false },
+      { id: 'simple-scope-responsibilities', title: 'Confirm responsibilities and boundaries between teams', completed: false },
+      { id: 'simple-scope-meetings', title: 'Complete the required internal, cross-team, KOM and customer scope meetings', completed: false },
+      { id: 'simple-scope-signoff', title: 'Record the agreed scope and remaining assumptions or exclusions', completed: false },
+    ] },
+    { id: 'simple-costing', title: 'Complete the cost and commercial baseline', description: 'Build a traceable cost and selling-price baseline. Costing may start with preliminary scope and be refined as BOM, service hours and third-party information become available.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 3, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-costing-third-parties', title: 'Request third-party quotations from Supply Chain', completed: false },
+      { id: 'simple-costing-travel', title: 'Request Travel & Living costs from Delivery', completed: false },
+      { id: 'simple-costing-equipment', title: 'Quote equipment and validate the cost baseline', completed: false },
+      { id: 'simple-costing-bom', title: 'Review and incorporate BOM corrections', completed: false },
+      { id: 'simple-costing-sell-price', title: 'Define and validate the selling price and margin', completed: false },
+      { id: 'simple-costing-discounts', title: 'Review discounts and commercial exceptions', completed: false },
+      { id: 'simple-costing-agreements', title: 'Review applicable CFA, MSA and contractual conditions', completed: false },
+      { id: 'simple-costing-record', title: 'Record assumptions, pending quotations and commercial risks', completed: false },
+    ] },
+    { id: 'simple-proposal', title: 'Build the customer proposal', description: 'Turn the agreed scope and commercial baseline into a clear, customer-focused proposal. A draft may begin while some scope or costing inputs are still being confirmed.', processSection: 'Proposal Development', status: 'Pending', priority: 'High', owner: 'Me', order: 4, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-proposal-document', title: 'Create the proposal document from the approved template', completed: false },
+      { id: 'simple-proposal-customer-value', title: 'Present the scope, solution and value most relevant to the customer', completed: false },
+      { id: 'simple-proposal-commercial', title: 'Include the validated commercial information, assumptions and exclusions', completed: false },
+      { id: 'simple-proposal-supporting-files', title: 'Attach the required technical and commercial supporting documents', completed: false },
+      { id: 'simple-proposal-quality', title: 'Review clarity, consistency, formatting and customer-facing quality', completed: false },
+      { id: 'simple-proposal-cqa', title: 'Create or update the proposal in CQA and upload the required files', completed: false },
+      { id: 'simple-proposal-draft-ready', title: 'Leave the complete draft ready for review and approval', completed: false },
+    ] },
+    { id: 'simple-approval', title: 'Obtain the required approvals', description: 'Secure explicit approval of every element required before submission. Reviews may run in parallel and a rejected item can return to its originating process section for correction.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 5, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-approval-document', title: 'Obtain review and approval of the proposal document', completed: false },
+      { id: 'simple-approval-technical', title: 'Obtain technical and scope approval when required', completed: false },
+      { id: 'simple-approval-price', title: 'Obtain selling-price, margin and discount approval', completed: false },
+      { id: 'simple-approval-commercial', title: 'Obtain approval of commercial terms, exceptions and contractual conditions', completed: false },
+      { id: 'simple-approval-changes', title: 'Resolve requested changes and submit the corrected version for approval', completed: false },
+      { id: 'simple-approval-evidence', title: 'Record approvers, decisions, dates and approved files', completed: false },
+      { id: 'simple-approval-final', title: 'Confirm the final approved version is ready for submission', completed: false },
+    ] },
+    { id: 'simple-submit', title: 'Submit and close the proposal cycle', description: 'Send or publish the approved proposal, record delivery and leave the opportunity ready for its next commercial outcome.', processSection: 'Submission & Closure', status: 'Pending', priority: 'Medium', owner: 'Me', order: 6, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [] },
+  ],
+};
+
 export const normalizeTaskStandards = (settings: AppSettings): AppSettings => {
-  if (settings.taskStandards?.length) return settings;
-  return {
-    ...settings,
-    taskStandards: [{
-      id: crypto.randomUUID(),
-      name: 'General standard',
-      tasks: settings.defaultTasks || [],
-    }],
-  };
+  // Remove the retired built-in four-task experiment only. User-created lists
+  // have different ids and remain untouched.
+  const existing = (settings.taskStandards?.length
+    ? settings.taskStandards
+    : [{ id: crypto.randomUUID(), name: 'General standard', tasks: settings.defaultTasks || [] }])
+    .filter(standard => standard.id !== 'tender-control-four-task-standard-v1');
+  const installedSimple = existing.find(standard => standard.id === SIMPLE_STANDARD_ID);
+  const withSimple = installedSimple
+    ? existing.map(standard => standard.id === SIMPLE_STANDARD_ID && (standard.builtInVersion || 0) < (SIMPLE_STANDARD.builtInVersion || 0) ? SIMPLE_STANDARD : standard)
+    : [...existing, SIMPLE_STANDARD];
+  const currentSimple = withSimple.find(standard => standard.id === SIMPLE_STANDARD_ID) || SIMPLE_STANDARD;
+  // Simple Standard is the default; all user lists keep their content and order.
+  const taskStandards = [currentSimple, ...withSimple.filter(standard => standard.id !== SIMPLE_STANDARD_ID)];
+  return { ...settings, taskStandards };
 };
 
 interface Props {
@@ -461,8 +541,46 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
     setSettings(prev => ({ ...prev, globalSowForm: updater(prev.globalSowForm || { sections: [], questions: [] }) }));
   };
   const sowStepOptions = [
-    ['flow_base-data', 'Step 1 — Base Data'], ['flow_commercial', 'Step 2 — Commercial'], ['flow_technical-scope', 'Step 3 — Technical Scope'], ['flow_hardware-cabinets', 'Step 4 — Hardware & Cabinets'], ['flow_services-execution', 'Step 5 — Services & Execution'], ['flow_tests-site-activities', 'Step 6 — Tests & Site Activities'], ['flow_training', 'Step 7 — Training'], ['flow_documentation-deliverables', 'Step 8 — Documentation & Deliverables'],
+    ['flow_base-data', 'Step 1 — Base Data'], ['flow_commercial', 'Step 2 — Commercial'], ['flow_technical-scope', 'Step 3 — Technical Scope'], ['flow_hardware-cabinets', 'Step 4 — Hardware & Cabinets'], ['flow_services-execution', 'Step 5 — Services & Execution'], ['flow_tests-site-activities', 'Step 6 — Tests & Site Activities'], ['flow_training', 'Step 7 — Training'], ['flow_documentation-deliverables', 'Step 8 — Documentation & Deliverables'], ['flow_bid-strategy-inputs', 'Step 9 — Bid Strategy & Inputs'],
   ];
+
+  const scopeCatalog = normalizeScopeCatalog(settings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
+  const updateScopeCatalogGroup = (group: ScopeCatalogGroup, next: ScopeCatalogOption[]) => {
+    setSettings(prev => ({ ...prev, scopeCatalog: { ...(normalizeScopeCatalog(prev.scopeCatalog) || DEFAULT_SCOPE_CATALOG), [group]: next } }));
+  };
+  // Only the label changes; the id stays put because it is what the sub-module answer key is
+  // derived from, so a rename never moves a whole sub-module list to a different key.
+  const renameScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number], label: string) => {
+    const list = scopeCatalog[group].map((option, index) => {
+      if (index !== path[0]) return option;
+      if (path.length === 1) return { ...option, label };
+      return { ...option, children: (option.children || []).map((child, childIndex) => childIndex === path[1] ? { ...child, label } : child) };
+    });
+    updateScopeCatalogGroup(group, list);
+  };
+  const recolorScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number], color: string) => {
+    updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => {
+      if (index !== path[0]) return option;
+      if (path.length === 1) return { ...option, color };
+      return { ...option, children: (option.children || []).map((child, childIndex) => childIndex === path[1] ? { ...child, color } : child) };
+    }));
+  };
+  const addScopeOption = (group: ScopeCatalogGroup, parentIndex?: number) => {
+    const stamp = `${Date.now().toString(36)}`;
+    if (parentIndex === undefined) {
+      updateScopeCatalogGroup(group, [...scopeCatalog[group], { id: `opt-${stamp}`, label: 'New option' }]);
+      return;
+    }
+    updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => index === parentIndex
+      ? { ...option, children: [...(option.children || []), { id: `sub-${stamp}`, label: 'New sub-module' }] }
+      : option));
+  };
+  const removeScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number]) => {
+    if (path.length === 1) { updateScopeCatalogGroup(group, scopeCatalog[group].filter((_, index) => index !== path[0])); return; }
+    updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => index === path[0]
+      ? { ...option, children: (option.children || []).filter((_, childIndex) => childIndex !== path[1]) }
+      : option));
+  };
 
   const selectedTaskStandard = (settings.taskStandards || []).find(standard => standard.id === selectedTaskStandardId)
     || settings.taskStandards?.[0];
@@ -664,7 +782,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
             onClick={() => setActiveTab('labels')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'labels' ? 'border-[#3DCD58] text-[#3DCD58]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
-            <Tag className="w-4 h-4" /> Labels
+            <Tag className="w-4 h-4" /> Labels &amp; Scope
           </button>
           <button
             onClick={() => setActiveTab('taskview')}
@@ -785,7 +903,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           <RefreshCw className="w-4 h-4 text-[#3DCD58]" /> Daily manager report update
                         </h3>
                         <p className="text-xs text-gray-500 max-w-2xl">
-                          Once per day, while OpportunityOS is open, the full read-only report is written to a shared folder so Manager Tool always sees the latest data.
+                          Once per day, while Tender Control is open, the full read-only report is written to a shared folder so Manager Tool always sees the latest data.
                           The same file is overwritten every time — one file per user, never one per day.
                         </p>
                       </div>
@@ -1249,6 +1367,26 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           {/* OPPORTUNITY DETAIL TAB */}
           {activeTab === 'expediente' && (
             <div className="space-y-4">
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                <div className="flex items-start justify-between gap-5">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800">Ask why the expected delivery date changed</h3>
+                    <p className="mt-1 text-xs text-gray-500 max-w-2xl">
+                      When enabled, changing Expected asks whether it is a correction or a schedule change and requires a reason for schedule changes. It is disabled by default.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!settings.confirmExpectedDateChanges}
+                    onClick={() => setSettings(prev => ({ ...prev, confirmExpectedDateChanges: !prev.confirmExpectedDateChanges }))}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${settings.confirmExpectedDateChanges ? 'bg-[#3DCD58]' : 'bg-gray-300'}`}
+                    title="Toggle expected-date confirmation"
+                  >
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${settings.confirmExpectedDateChanges ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-start justify-between gap-4 mb-5">
                   <div>
@@ -1431,6 +1569,21 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           {/* TASKS TAB */}
           {activeTab === 'tasks' && (
             <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800">Shared proposal process</h3>
+                    <p className="text-xs text-slate-500">Common measurement layer across teams. Lists and detailed tasks remain specific to each area.</p>
+                  </div>
+                  <span className="mt-2 w-fit rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200 sm:mt-0">Parallel work allowed</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {PROCESS_SECTIONS.map((section, index) => (
+                    <span key={section} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600"><span className="mr-1 text-slate-400">{index + 1}</span>{section}</span>
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-slate-500">The order describes the normal flow, not a hard gate. Use task dependencies only when one deliverable truly blocks another.</p>
+              </div>
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                   <div className="flex-1">
@@ -1582,7 +1735,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               </div>
 
               <div className="flex justify-between items-center bg-blue-50 p-3 rounded-lg border border-blue-100 mb-4">
-                <p className="text-xs text-blue-700">Editing <b>{selectedTaskStandard?.name || 'list'}</b>. If only one visible list exists, it is used automatically.</p>
+                <p className="text-xs text-blue-700">Editing <b>{selectedTaskStandard?.name || 'list'}</b>. Process sections measure where time is spent; they do not prevent parallel tasks or revisions from returning to an earlier section.</p>
                 <div className="flex gap-2">
                   <button title="Sort by Due Date (Not available for templates)" disabled className="flex items-center gap-1 bg-white border border-gray-200 text-gray-300 px-2 py-1 rounded text-[10px] font-bold shadow-sm cursor-not-allowed">
                     <Calendar className="w-3 h-3" /> Sort by due date
@@ -1636,6 +1789,17 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
                   {/* Row 2: Dependencies and Locking */}
                   <div className="flex items-center gap-4 pl-8 border-t border-gray-50 pt-2">
+                    <div className="w-52 shrink-0">
+                      <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Process section</label>
+                      <select
+                        value={task.processSection || ''}
+                        onChange={e => handleTaskChange(task.id, 'processSection', (e.target.value || undefined) as ProcessSection | undefined)}
+                        className="w-full rounded border border-gray-200 p-1.5 text-xs font-semibold text-gray-700"
+                      >
+                        <option value="">Not classified</option>
+                        {PROCESS_SECTIONS.map(section => <option key={section} value={section}>{section}</option>)}
+                      </select>
+                    </div>
                     <div className="flex-1 max-w-sm">
                       <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Depends on</label>
                       <SimpleMultiSelect
@@ -1678,7 +1842,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <div className="flex items-center justify-between gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
                 <div>
                   <p className="text-sm font-bold text-gray-800">SOW Section</p>
-                  <p className="text-xs text-gray-500">Show the "+ SOW" button next to the note templates so users can add the Scope of Work guided form.</p>
+                  <p className="text-xs text-gray-500">Show the "+ SOW" button next to the note templates and the SOW note itself in the Notes list. Turning it off hides both; every answer stays saved in the opportunity and comes back when you turn it on again.</p>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
                   <input
@@ -1693,8 +1857,8 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
 
               <div className="flex items-center justify-between gap-4 bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
                 <div>
-                  <p className="text-sm font-bold text-gray-800">Stakeholders</p>
-                  <p className="text-xs text-gray-500">Show the "Stakeholders" button next to the note templates so users can open the opportunity team panel.</p>
+                  <p className="text-sm font-bold text-gray-800">Stakeholders quick table</p>
+                  <p className="text-xs text-gray-500">Show the quick Area / Name table in the fixed expediente header and the full Stakeholders panel in Notes. Off by default.</p>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
                   <input
@@ -1799,8 +1963,8 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <div>
-                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Tag className="w-4 h-4" /> Global Labels</h3>
-                    <p className="text-xs text-gray-500">Define standardized labels for opportunities. These can be selected in any opportunity.</p>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Tag className="w-4 h-4" /> Legacy Systems</h3>
+                    <p className="text-xs text-gray-500">Older opportunity labels are preserved here so no historical data is lost. New technology names should be configured in Systems below; that catalog is shared by the expediente, Scope and SOW.</p>
                   </div>
                 </div>
 
@@ -1826,7 +1990,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           setSettings({ ...settings, globalLabels: newLabels });
                         }}
                         className="flex-1 text-sm font-bold text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
-                        placeholder="Label Name"
+                        placeholder="Legacy system name"
                       />
                       <button
                         onClick={() => {
@@ -1848,9 +2012,81 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                   }}
                   className="w-full mt-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2"
                 >
-                  <Plus className="w-4 h-4" /> Add Label
+                    <Plus className="w-4 h-4" /> Add legacy system
                 </button>
               </div>
+
+              {SCOPE_CATALOG_GROUPS.map(group => (
+                <div key={group.key} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Tag className="w-4 h-4" /> {group.title}</h3>
+                    <p className="text-xs text-gray-500">{group.hint} Asked in the SOW Base Data card and in the expediente's Scope button.</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {scopeCatalog[group.key].map((option, index) => (
+                      <div key={option.id} className="border border-gray-100 rounded-lg p-2 space-y-2 hover:bg-gray-50/60">
+                        <div className="flex items-center gap-2">
+                          <input type="color" value={option.color || (group.key === 'scope' ? '#2db64a' : group.key === 'systems' ? '#2563eb' : '#64748b')} onChange={e => recolorScopeOption(group.key, [index], e.target.value)} className="w-8 h-8 rounded cursor-pointer border-none p-0 bg-transparent" title={`Color for ${option.label}`} />
+                          <input
+                            type="text"
+                            value={option.label}
+                            onChange={(e) => renameScopeOption(group.key, [index], e.target.value)}
+                            className="flex-1 text-sm font-bold text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
+                            placeholder="Option name"
+                          />
+                          <button
+                            onClick={() => addScopeOption(group.key, index)}
+                            className="px-2 py-1.5 text-[10px] font-black uppercase tracking-wider text-gray-400 rounded hover:bg-gray-100 hover:text-[#3DCD58]"
+                            title="Add a sub-module under this option"
+                          >
+                            + Sub
+                          </button>
+                          <button onClick={() => removeScopeOption(group.key, [index])} className="p-2 text-gray-300 hover:text-red-500 rounded hover:bg-red-50">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {!!option.children?.length && (
+                          <div className="pl-4 border-l-2 border-emerald-100 space-y-1.5">
+                            {option.children.map((child, childIndex) => (
+                              <div key={child.id} className="flex items-center gap-2">
+                                <input type="color" value={child.color || '#60a5fa'} onChange={e => recolorScopeOption(group.key, [index, childIndex], e.target.value)} className="w-7 h-7 rounded cursor-pointer border-none p-0 bg-transparent" title={`Color for ${child.label}`} />
+                                <input
+                                  type="text"
+                                  value={child.label}
+                                  onChange={(e) => renameScopeOption(group.key, [index, childIndex], e.target.value)}
+                                  className="flex-1 text-xs font-semibold text-gray-600 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
+                                  placeholder="Sub-module name"
+                                />
+                                <button onClick={() => removeScopeOption(group.key, [index, childIndex])} className="p-1.5 text-gray-300 hover:text-red-500 rounded hover:bg-red-50">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={() => addScopeOption(group.key)}
+                      className="flex-1 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 font-bold hover:border-[#3DCD58] hover:text-[#3DCD58] transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" /> Add option
+                    </button>
+                    <button
+                      onClick={() => updateScopeCatalogGroup(group.key, DEFAULT_SCOPE_CATALOG[group.key])}
+                      className="px-4 py-3 text-xs font-bold text-gray-400 rounded-xl hover:bg-gray-100 hover:text-gray-600 flex items-center gap-2"
+                      title="Restore the built-in list"
+                    >
+                      <RotateCcw className="w-4 h-4" /> Reset
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-3 italic">Answers are stored by name. Removing or renaming an option stops it being offered and leaves any SOW that had it ticked showing it unticked — the rest of the note is untouched.</p>
+                </div>
+              ))}
             </div>
           )}
 

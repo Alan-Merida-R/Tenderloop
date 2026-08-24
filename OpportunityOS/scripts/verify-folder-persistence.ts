@@ -15,7 +15,7 @@
 
 import assert from 'node:assert/strict';
 import type { Opportunity, FolderDocRecord } from '../src/types';
-import { resolveFolderPathFromDb } from '../src/services/opportunityFolderLink';
+import { resolveFolderPathFromDb, listInheritableFolderPaths } from '../src/services/opportunityFolderLink';
 import {
   reconcileDirectory,
   registerOpportunityFolderBridge,
@@ -54,16 +54,40 @@ test('path: exact revision wins', () => {
   assert.equal(resolveFolderPathFromDb({ R0: 'C:\\a', R1: 'C:\\b' }, 'R1'), 'C:\\b');
 });
 
-test('path: legacy unkeyed path is used when the revision has none', () => {
+test('path: legacy unkeyed path is used when NO revision owns a folder', () => {
   assert.equal(resolveFolderPathFromDb({ '': 'C:\\legacy' }, 'R2'), 'C:\\legacy');
 });
 
-test('path: a NEW revision inherits the most recent known path (was the re-link bug)', () => {
-  assert.equal(resolveFolderPathFromDb({ R0: 'C:\\a', R1: 'C:\\b' }, 'R2'), 'C:\\b');
+// The unkeyed entry means "this opportunity has one folder". Once a revision owns a
+// folder of its own that is no longer true, and treating the unkeyed path as a
+// fallback would auto-link every later revision to the oldest folder.
+test('path: the legacy unkeyed path stops being inherited once a revision owns a folder', () => {
+  assert.equal(resolveFolderPathFromDb({ '': 'C:\\legacy', R0: 'C:\\a' }, 'R2'), '');
+  assert.equal(resolveFolderPathFromDb({ '': 'C:\\legacy', R0: 'C:\\a' }, 'R0'), 'C:\\a');
 });
 
-test('path: no revision falls back to any recorded path', () => {
-  assert.equal(resolveFolderPathFromDb({ R0: 'C:\\a' }, ''), 'C:\\a');
+// Previously a new revision silently adopted the most recently recorded path. That is
+// what linked a brand-new revision — and an SR import landing on an existing
+// opportunity — to the wrong folder before the user had chosen between a template and
+// an existing folder. Reuse is now offered explicitly instead of guessed.
+test('path: a NEW revision does NOT inherit another revision path', () => {
+  assert.equal(resolveFolderPathFromDb({ R0: 'C:\\a', R1: 'C:\\b' }, 'R2'), '');
+});
+
+test('path: an unrevisioned opportunity does not adopt a revision folder either', () => {
+  assert.equal(resolveFolderPathFromDb({ R0: 'C:\\a' }, ''), '');
+});
+
+test('path: reuse candidates are offered, newest first, excluding the current revision', () => {
+  assert.deepEqual(
+    listInheritableFolderPaths({ R0: 'C:\\a', R1: 'C:\\b', R2: 'C:\\c' }, 'R2'),
+    [{ revision: 'R1', path: 'C:\\b' }, { revision: 'R0', path: 'C:\\a' }],
+  );
+});
+
+test('path: reuse candidates ignore the legacy unkeyed entry and empty values', () => {
+  assert.deepEqual(listInheritableFolderPaths({ '': 'C:\\legacy', R0: '' }, 'R1'), []);
+  assert.deepEqual(listInheritableFolderPaths(undefined, 'R1'), []);
 });
 
 test('path: empty input resolves to empty, never throws', () => {

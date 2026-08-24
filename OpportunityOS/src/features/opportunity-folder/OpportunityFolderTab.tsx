@@ -33,9 +33,9 @@ import {
   History,
   Download
 } from 'lucide-react';
-import { setFolderHandle, verifyPermission, setRootPathDisplay, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb } from '../../services/opportunityFolderLink';
-import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath } from './fileOps';
+import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
+import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -61,7 +61,58 @@ interface Props {
   onSelectionChange?: (path: string[] | null) => void;
 }
 
-const REVISION_RE = /\bR(\d+)\.(\d+)\b/i;
+const REVISION_RE = /\bR(\d+)(?:\.(\d+))?\b/i;
+
+/** Trailing folder name of an absolute Windows path. */
+const basenameOf = (absolutePath: string) =>
+  (absolutePath || '').trim().replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+
+/**
+ * Does this directory handle really point at `absolutePath`?
+ *
+ * The two halves of a folder link are stored independently — the handle lives in
+ * this browser's IndexedDB, the absolute path in the shared database — and nothing
+ * used to check that they still agreed. When they drifted apart, the tab listed the
+ * contents of the folder the HANDLE pointed at while opening, copying and moving all
+ * used the PATH, which is exactly the reported "the path was right but it was showing
+ * another folder's files, and files I downloaded never appeared".
+ *
+ * Returns 'unknown' when the helper cannot answer: an unverifiable link is left alone,
+ * because dropping a working link on a transient failure is worse than a stale one.
+ */
+const handleMatchesPath = async (
+  handle: FileSystemDirectoryHandle,
+  absolutePath: string,
+): Promise<'match' | 'mismatch' | 'unknown'> => {
+  if (!absolutePath) return 'unknown';
+  if (basenameOf(absolutePath).toLowerCase() !== handle.name.toLowerCase()) return 'mismatch';
+
+  let onDisk: { name: string }[];
+  try {
+    onDisk = await listDirByPath(absolutePath, []);
+  } catch {
+    return 'unknown'; // helper offline / path unreadable — not evidence of anything
+  }
+
+  const diskNames = new Set(onDisk.map(entry => entry.name.toLowerCase()));
+  let checked = 0;
+  let hits = 0;
+  try {
+    // @ts-ignore
+    for await (const entry of handle.values()) {
+      checked += 1;
+      if (diskNames.has(entry.name.toLowerCase())) hits += 1;
+      if (checked >= 12) break;
+    }
+  } catch {
+    return 'unknown'; // permission lapsed mid-enumeration
+  }
+
+  if (checked === 0) return diskNames.size === 0 ? 'match' : 'mismatch';
+  // Tolerant on purpose: a file renamed or deleted between the two reads must not
+  // invalidate the link. Only a listing that mostly disagrees means a different folder.
+  return hits * 2 >= checked ? 'match' : 'mismatch';
+};
 
 const splitFileName = (name: string) => {
   const dot = name.lastIndexOf('.');
@@ -78,27 +129,27 @@ const normalizeRevision = (value: string) => {
 
 const getRevisionFromName = (name: string) => {
   const match = name.match(REVISION_RE);
-  return match ? `R${Number(match[1])}.${Number(match[2])}` : '';
+  return match ? `R${Number(match[1])}.${Number(match[2] || 0)}` : '';
 };
 
 const suggestNextRevision = (name: string) => {
   const current = getRevisionFromName(name);
-  if (!current) return 'R0.0';
+  if (!current) return 'R0.1';
   const match = current.match(REVISION_RE);
-  if (!match) return 'R0.0';
-  return `R${Number(match[1])}.${Number(match[2]) + 1}`;
+  if (!match) return 'R0.1';
+  return `R${Number(match[1])}.${Number(match[2] || 0) + 1}`;
 };
 
 const buildRevisionFamilyKey = (relativePath: string[]) => {
   const fileName = relativePath[relativePath.length - 1] || '';
   const { base, ext } = splitFileName(fileName);
-  const familyBase = base.replace(/\s*[-_ ]?\bR\d+\.\d+\b\s*$/i, '').trim();
+  const familyBase = base.replace(/\s*[-_ ]?\bR\d+(?:\.\d+)?\b\s*$/i, '').trim();
   return [...relativePath.slice(0, -1), `${familyBase}${ext}`].join('/');
 };
 
 const buildRevisionFileName = (sourceName: string, revision: string) => {
   const { base, ext } = splitFileName(sourceName);
-  const cleanedBase = base.replace(/\s*[-_ ]?\bR\d+\.\d+\b\s*$/i, '').trim() || base;
+  const cleanedBase = base.replace(/\s*[-_ ]?\bR\d+(?:\.\d+)?\b\s*$/i, '').trim() || base;
   return `${cleanedBase} ${revision}${ext}`;
 };
 
@@ -184,6 +235,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   // Auto path resolution (F1)
   const [isLocating, setIsLocating] = useState(false);      // blocking (link/template)
   const [autoDetecting, setAutoDetecting] = useState(false); // background (on load)
+  /** Set when this browser's handle turned out to point somewhere else than the saved path. */
+  const [handleMismatch, setHandleMismatch] = useState(false);
+  /** Set when a fresh link could not be resolved to an absolute path. */
+  const [pathUndetected, setPathUndetected] = useState(false);
 
   // In-app drag-to-folder move (F2)
   const [dragOverDirKey, setDragOverDirKey] = useState<string | null>(null);
@@ -332,16 +387,18 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           await moveLegacyFolderLinkToRevision(opportunityId, revision);
         }
       }
-      const handle = await getFolderHandleForRevision(opportunityId, revision);
+      let handle = await getFolderHandleForRevision(opportunityId, revision);
       const rp = await getRootPathDisplayForRevision(opportunityId, revision);
       if (cancelled) return;
-      // Shared-DB fallback: another browser/machine resolved the path before, or a
-      // previous revision of this same opportunity did. resolveFolderPathFromDb walks
-      // that whole chain, so a fresh browser (or a brand-new revision) starts with a
-      // working folder instead of an empty "link a folder" screen.
+      // Shared-DB fallback: another browser or machine already resolved the path for
+      // THIS revision, so a fresh browser starts with a working folder instead of an
+      // empty "link a folder" screen. It no longer borrows a different revision's
+      // path — that is what silently linked new opportunities to the wrong folder.
       const dbPath = resolveFolderPathFromDb(opportunity.folderPaths, revision);
       const effectivePath = rp || dbPath;
       setRootPathDisplayVal(effectivePath);
+      setHandleMismatch(false);
+      setPathUndetected(false);
       if (!rp && dbPath) {
         // Heal this browser's IndexedDB from the shared DB.
         try { await setRootPathDisplay(storageKey, dbPath); } catch { /* non-critical */ }
@@ -363,6 +420,24 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       setPathMode(false);
       setHelperOffline(false);
       setMissingPath('');
+
+      // The handle and the path are stored in two different places (this browser's
+      // IndexedDB and the shared database) and nothing used to check that they still
+      // described the same folder. When they drifted, the tab listed one folder while
+      // every native action addressed another: files dropped into the real folder
+      // never appeared, renames looked ignored, and only re-linking fixed it. The path
+      // is the half that is shared and helper-verified, so a mismatching handle is
+      // dropped and the folder opens read-only by path until the user re-links.
+      if (handle && effectivePath) {
+        const agreement = await handleMatchesPath(handle, effectivePath);
+        if (cancelled) return;
+        if (agreement === 'mismatch') {
+          try { await clearFolderHandleOnly(storageKey); } catch { /* non-critical */ }
+          handle = null;
+          setHandleMismatch(true);
+        }
+      }
+
       if (!handle) {
         // No handle in this browser. If the shared DB knows the path and it still
         // exists, browse read-only by path; only a truly missing path prompts a re-pick.
@@ -393,10 +468,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setPath([]);
         setHistory([{ handle, path: [] }]);
         setHistoryIdx(0);
-        // Revalidate even a previously stored path in the background. Older
-        // versions could save the first similarly named folder returned by a
-        // broad scan; a proven exact match safely replaces that legacy value.
-        detectPathSilently(handle);
+        if (effectivePath) {
+          // A path we already have has just been proven to match this handle, so leave
+          // it alone. Re-detecting it on every load is what made a correct path turn
+          // into a different, wrong one after restarting the app: detection can only
+          // ever return a same-named folder, and replacing a verified value with a
+          // fresh guess is a coin flip the user always loses.
+          rememberFolderPathHint(effectivePath);
+        } else {
+          detectPathSilently(handle);
+        }
       } else {
         // Browsers reset File System Access permission to "prompt" on almost every
         // restart, and re-granting needs a user gesture we don't have here. Rather than
@@ -431,6 +512,28 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     if (!searchQuery) {
       loadCurrentDirectory();
     }
+  }, [loadCurrentDirectory, searchQuery]);
+
+  /**
+   * Re-list the folder whenever the user comes back to the app.
+   *
+   * Nothing tells a web page that a file appeared on disk, so a download saved into
+   * the linked folder — or a rename done in Explorer — stayed invisible until the
+   * user happened to navigate away and back. Coming back from another window is the
+   * exact moment they are most likely to have just changed something out there.
+   */
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (searchQuery) return;
+      loadCurrentDirectory();
+    };
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
   }, [loadCurrentDirectory, searchQuery]);
 
   // Deep Navigation Effect
@@ -513,17 +616,29 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleGrantPermission = async () => {
     if (!pendingPermHandle) return;
     try {
-      if (await verifyPermission(pendingPermHandle, true)) {
-        setRootHandle(pendingPermHandle);
-        setCurrentHandle(pendingPermHandle);
-        setPath([]);
-        setHistory([{ handle: pendingPermHandle, path: [] }]);
-        setHistoryIdx(0);
-        // Leave the read-only fallback now that a real handle is available.
-        setPathMode(false);
-        if (!rootPathDisplay) detectPathSilently(pendingPermHandle);
+      if (!(await verifyPermission(pendingPermHandle, true))) return;
+      // The handle could not be enumerated while it was unreadable, so this is the
+      // first chance to check it still describes the folder the saved path points at.
+      if (rootPathDisplay && (await handleMatchesPath(pendingPermHandle, rootPathDisplay)) === 'mismatch') {
+        try { await clearFolderHandleOnly(storageKey); } catch { /* non-critical */ }
         setPendingPermHandle(null);
+        setHandleMismatch(true);
+        alert(
+          'The folder linked in this browser is not the folder this opportunity points at any more.\n\n' +
+          'It has been unlinked. Use "Link folder in this browser" and pick the folder shown in Base Path.'
+        );
+        return;
       }
+      setRootHandle(pendingPermHandle);
+      setCurrentHandle(pendingPermHandle);
+      setPath([]);
+      setHistory([{ handle: pendingPermHandle, path: [] }]);
+      setHistoryIdx(0);
+      // Leave the read-only fallback now that a real handle is available.
+      setPathMode(false);
+      setHandleMismatch(false);
+      if (!rootPathDisplay) detectPathSilently(pendingPermHandle);
+      setPendingPermHandle(null);
     } catch (e) { }
   };
 
@@ -541,11 +656,21 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     // which made the old marker-first order unreliable (and browser-dependent, since
     // each browser's File System Access implementation flushes writes to disk on a
     // different schedule). The marker strategy is now only a fallback.
+    // Paths we already know about. A folder being linked now is nearly always a
+    // sibling of one linked before, so these turn a multi-second search into an
+    // instant answer — and since the helper still verifies the folder's contents,
+    // a stale hint can only cost time, never point at the wrong folder.
+    const knownPaths: Record<string, string> = oppRef.current.opportunity.folderPaths || {};
+    const near = [...Object.values(knownPaths), ...getFolderPathHints()].filter(Boolean);
+
     try {
-      const byName = await locateFolderPath(handle);
-      if (byName) return byName;
+      const byContent = await locateFolderPath(handle, near);
+      if (byContent) {
+        rememberFolderPathHint(byContent);
+        return byContent;
+      }
     } catch (err) {
-      console.warn('Folder path detection by name failed', err);
+      console.warn('Folder path detection by content failed', err);
     }
     if (fallbackToMarker) {
       try {
@@ -557,6 +682,17 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     return '';
   };
 
+  /**
+   * Point this revision at `handle` as its folder root.
+   *
+   * This always establishes a NEW link, so the previously stored path is never kept
+   * as a fallback. Keeping it is what made "create a folder from a template for an
+   * opportunity that already had one" leave the old path in place: the tab listed the
+   * freshly created folder while opening, copying and Ctrl+Shift+E all went to the
+   * previous one. If the path cannot be resolved we say so and clear it, because a
+   * known-stale path is worse than a missing one — a missing path only disables
+   * native actions, a stale path sends them somewhere else.
+   */
   const finalizeRootLink = async (handle: FileSystemDirectoryHandle, presetPath?: string) => {
     await setFolderHandle(storageKey, handle);
 
@@ -569,26 +705,54 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         setIsLocating(false);
       }
     }
-    // Never prompt the user for the path. If auto-detection didn't resolve it
-    // (helper not running yet / unusual location), fall back to whatever we already
-    // know for this opportunity rather than erasing it: a transient detection failure
-    // must not turn a working link into one the user has to rebuild. The sidebar keeps
-    // offering "Re-detect" for the case where nothing is known at all.
-    if (!resolved) {
-      resolved = rootPathDisplay || resolveFolderPathFromDb(opportunity.folderPaths, revision);
-    }
+
     if (resolved) {
       await setRootPathDisplay(storageKey, resolved);
-      setRootPathDisplayVal(resolved);
+      rememberFolderPathHint(resolved);
+      if (!isSnapshot) persistFolderPath(resolved);
+    } else {
+      // Drop the stale path in both stores rather than letting it survive the relink.
+      try { await clearRootPathDisplay(storageKey); } catch { /* non-critical */ }
+      if (!isSnapshot) clearFolderPath(opportunityId, revision);
     }
+    setRootPathDisplayVal(resolved);
+    setPathUndetected(!resolved);
 
-    // Don't mutate the live record while viewing a snapshot — the link is
-    // already persisted per-revision in IndexedDB above.
-    if (!isSnapshot) persistFolderPath(resolved);
     setPathMode(false);
+    setHandleMismatch(false);
     setMissingPath('');
     setRootHandle(handle);
     navigateTo(handle, [], true);
+  };
+
+  /** Adopt another revision's folder for this one — the explicit form of what used
+   *  to happen automatically (and often wrongly) whenever a revision was created. */
+  const handleReuseRevisionFolder = async (fromRevision: string) => {
+    setIsLocating(true);
+    try {
+      const { handle, path: inheritedPath } = await inheritFolderLinkFromRevision(opportunityId, fromRevision, revision);
+      if (inheritedPath) {
+        await setRootPathDisplay(storageKey, inheritedPath);
+        setRootPathDisplayVal(inheritedPath);
+        if (!isSnapshot) persistFolderPath(inheritedPath);
+      }
+      if (handle) {
+        setPathMode(false);
+        setRootHandle(handle);
+        navigateTo(handle, [], true);
+        return;
+      }
+      // No handle in this browser for the donor revision either: the path alone is
+      // enough to browse read-only, which is the same state a second browser sees.
+      if (inheritedPath && (await checkOsPath(inheritedPath)) === 'ok') {
+        setPathMode(true);
+        setHistory([{ handle: null, path: [] }]);
+        setHistoryIdx(0);
+        navigateTo(null, [], true);
+      }
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   const handleChangeRoot = async () => {
@@ -681,7 +845,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         if (!resolvedDest) {
           throw new Error(
             'Could not determine the destination path.\n\n' +
-            'Make sure OpportunityOS is running via OPEN_OPPORTUNITYOS.'
+            'Make sure Tender Control is running via OPEN_OPPORTUNITYOS.'
           );
         }
         const helperResult = await copyTemplateFromOsPath(templateOsPath!, resolvedDest, folderName);
@@ -1190,6 +1354,89 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     e.dataTransfer.effectAllowed = 'copyMove';
   };
 
+  /**
+   * Move entries into a destination folder.
+   *
+   * Goes through the local helper (a real OS rename) whenever the absolute base path
+   * is known, and only falls back to the browser's copy-then-delete emulation when it
+   * is not. The emulation is what produced "it moved in the app but not in the folder,
+   * and then it would not open": if the delete half failed, the destination listing had
+   * already been refreshed, so the app showed the file in a place it had never reached.
+   * Both routes now verify before reporting success.
+   */
+  const performMove = async (movers: FileItem[], destRelativePath: string[], destHandle?: FileSystemDirectoryHandle): Promise<boolean> => {
+    if (movers.length === 0) return false;
+
+    const base = await ensureRootPath();
+    if (base) {
+      try {
+        const destAbsolute = destRelativePath.length ? toAbsolutePath(base, destRelativePath) : base;
+        const result = await moveViaHelper(movers.map(item => toAbsolutePath(base, item.relativePath)), destAbsolute);
+        const movedNames = new Set(result.moved.map(entry => entry.source.split(/[\\/]/).pop()?.toLowerCase()));
+        for (const item of movers) {
+          if (!movedNames.has(item.name.toLowerCase())) continue;
+          await copyRevisionMetadataToPath(item, [...destRelativePath, item.name]);
+        }
+        if (result.failed.length > 0) {
+          alert(
+            `${result.failed.length} item(s) could not be moved and were left where they were:\n\n` +
+            result.failed.slice(0, 5).map(f => `${f.source.split(/[\\/]/).pop()}: ${f.error}`).join('\n')
+          );
+        }
+        return result.moved.length > 0;
+      } catch (err: any) {
+        // Only an unreachable helper justifies the browser fallback. A helper that
+        // answered and refused (name collision, locked file) made a deliberate
+        // decision; copy+delete would overwrite exactly what it protected.
+        if (!err?.helperUnreachable) throw err;
+        console.warn('Local helper unreachable, falling back to the browser copy+delete', err);
+      }
+    }
+
+    if (!destHandle) {
+      alert(
+        'This folder can only be moved through the local helper, which is not reachable.\n\n' +
+        'Reopen Tender Control with OPEN_OPPORTUNITYOS and try again.'
+      );
+      return false;
+    }
+
+    if (!(await verifyPermission(destHandle, true))) {
+      alert('Write permission denied on the destination folder.');
+      return false;
+    }
+
+    let movedAny = false;
+    for (const item of movers) {
+      if (!(await verifyPermission(item.handle, true))) {
+        // @ts-ignore
+        await item.handle.requestPermission({ mode: 'readwrite' });
+      }
+      await moveEntryToDir(item, destHandle);
+      // Confirm the original is really gone: a copy that survived as a duplicate is
+      // not a move, and reporting it as one is how the file ended up "missing".
+      let stillThere = false;
+      try {
+        if (item.kind === 'file') {
+          // @ts-ignore
+          await (currentHandle as FileSystemDirectoryHandle)?.getFileHandle(item.name);
+        } else {
+          // @ts-ignore
+          await (currentHandle as FileSystemDirectoryHandle)?.getDirectoryHandle(item.name);
+        }
+        stillThere = true;
+      } catch {
+        stillThere = false;
+      }
+      if (stillThere) {
+        throw new Error(`"${item.name}" was copied to the destination but could not be removed from its original folder. Both copies still exist — delete the one you do not want.`);
+      }
+      await copyRevisionMetadataToPath(item, [...destRelativePath, item.name]);
+      movedAny = true;
+    }
+    return movedAny;
+  };
+
   const handleDirDrop = async (targetDir: FileItem, e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1203,22 +1450,14 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       keys.includes(i.relativePath.join('/')) && i.relativePath.join('/') !== targetKey
     );
     if (movers.length === 0) return;
-    const destHandle = targetDir.handle as FileSystemDirectoryHandle;
     try {
-      if (!(await verifyPermission(destHandle, true))) { alert('Write permission denied on the destination folder.'); return; }
-      for (const item of movers) {
-        if (!(await verifyPermission(item.handle, true))) {
-          // @ts-ignore
-          await item.handle.requestPermission({ mode: 'readwrite' });
-        }
-        await moveEntryToDir(item, destHandle);
-        await copyRevisionMetadataToPath(item, [...targetDir.relativePath, item.name]);
-      }
+      await performMove(movers, targetDir.relativePath, targetDir.handle as FileSystemDirectoryHandle | undefined);
       clearSelection();
       loadCurrentDirectory();
     } catch (err: any) {
       console.error('Move via drag failed', err);
       alert(`Could not move: ${err.message}`);
+      loadCurrentDirectory();
     }
   };
 
@@ -1242,32 +1481,24 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         }
 
         try {
-          for (const item of clipboard.items) {
-            // 2. Verify Source Permissions
-            // For move: need write (to delete) on source parent usually,
-            // or at least read on item. We check item handle permission.
-            if (clipboard.op === 'move') {
-              if (!(await verifyPermission(item.handle, true))) {
-                // Try requesting readwrite
-                // @ts-ignore
-                await item.handle.requestPermission({ mode: 'readwrite' });
-              }
-            } else {
+          if (clipboard.op === 'move') {
+            await performMove(clipboard.items, path, currentHandle);
+          } else {
+            for (const item of clipboard.items) {
               if (!(await verifyPermission(item.handle, false))) {
                 // @ts-ignore
                 await item.handle.requestPermission({ mode: 'read' });
               }
+              await copyEntryToDir(item, currentHandle);
+              await copyRevisionMetadataToPath(item, [...path, item.name]);
             }
-
-            if (clipboard.op === 'move') await moveEntryToDir(item, currentHandle);
-            else await copyEntryToDir(item, currentHandle);
-            await copyRevisionMetadataToPath(item, [...path, item.name]);
           }
           setClipboard(null);
           loadCurrentDirectory();
         } catch (e: any) {
           console.error("Paste failed", e);
-          alert(`Failed to ${opName.toLowerCase()} items: ${e.message}. Ensure you have permissions on both source and destination.`);
+          alert(`Failed to ${opName.toLowerCase()} items: ${e.message}`);
+          loadCurrentDirectory();
         }
       }
     });
@@ -1404,6 +1635,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     await setRootPathDisplay(storageKey, value);
     setRootPathDisplayVal(value);
     persistFolderPath(value);
+    rememberFolderPathHint(value);
+    setPathUndetected(false);
   };
 
   /** Detect the absolute base path silently (no blocking spinner). Used on load. */
@@ -1415,6 +1648,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         await setRootPathDisplay(storageKey, p);
         setRootPathDisplayVal(p);
         persistFolderPath(p);
+        setPathUndetected(false);
         return p;
       }
     } catch { /* ignore */ } finally { setAutoDetecting(false); }
@@ -1435,7 +1669,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   };
 
   const PATH_UNAVAILABLE_MSG =
-    'Could not detect the folder path. Make sure the local helper is running (open OpportunityOS with OPEN_OPPORTUNITYOS), then click "Re-detect" in the Base Path panel.';
+    'Could not detect the folder path. Make sure the local helper is running (open Tender Control with OPEN_OPPORTUNITYOS), then click "Re-detect" in the Base Path panel.';
 
   /** User-initiated re-detection of the base path (blocking, shows spinner). */
   const handleRedetectPath = async () => {
@@ -1447,8 +1681,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         await setRootPathDisplay(storageKey, p);
         setRootPathDisplayVal(p);
         persistFolderPath(p);
+        setPathUndetected(false);
       }
-      else alert('The folder path could not be detected yet. Keep OpportunityOS open and try again in a few seconds. You do not need to enter the path manually.');
+      else alert('The folder path could not be detected yet. Keep Tender Control open and try again in a few seconds. You do not need to enter the path manually.');
     } finally {
       setIsLocating(false);
     }
@@ -1539,6 +1774,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       </tbody>
     </table>
   );
+
+  // Folders linked to OTHER revisions of this opportunity. Offered as a one-click
+  // reuse on the unlinked screen instead of being adopted behind the user's back.
+  const inheritableFolders = isSnapshot ? [] : listInheritableFolderPaths(opportunity.folderPaths, revision);
 
   if (!isApiSupported) return <div className="p-10 text-center">FileSystem API not supported.</div>;
 
@@ -1860,7 +2099,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <h3 className="text-xl font-bold">Local Helper Not Running</h3>
             <p className="text-gray-500 mb-6 max-w-md">
               This opportunity has a linked folder, but the path could not be verified because the local helper
-              (port 3099) is not reachable. Nothing has been lost — close OpportunityOS and reopen it with
+              (port 3099) is not reachable. Nothing has been lost — close Tender Control and reopen it with
               OPEN_OPPORTUNITYOS, or link the folder directly in this browser.
             </p>
             <button onClick={handleChangeRoot} className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-6 py-2 rounded-lg font-bold shadow-sm">Link the folder in this browser</button>
@@ -1880,7 +2119,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Project Folder Not Linked</h2>
           <p className="text-sm text-gray-500 max-w-md mb-8">
-            Link a local folder to sync documents directly from your operating system without uploading them.
+            Choose how this opportunity gets its folder. Nothing is linked automatically — a folder picked for
+            you is a folder that can be the wrong one.
           </p>
           <div data-tutorial="link-folder" className="flex gap-4 flex-wrap justify-center">
             <button onClick={handleChangeRoot} className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-6 py-2 rounded-lg font-bold shadow-sm transition-colors">
@@ -1890,8 +2130,31 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               Create from Template
             </button>
           </div>
-          
-          <div className="mt-8 text-left bg-blue-50 p-4 rounded-xl border border-blue-100 max-w-md">  </div>
+
+          {/* Another revision of this same opportunity already has a folder. Reusing it
+              is usually right, but it is offered rather than assumed: silently adopting
+              it is what linked new revisions to the previous revision's folder before
+              the user had chosen anything. */}
+          {inheritableFolders.length > 0 && (
+            <div className="mt-8 w-full max-w-md text-left bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">
+                Reuse a folder from another revision
+              </p>
+              <div className="space-y-2">
+                {inheritableFolders.map(entry => (
+                  <button
+                    key={entry.revision}
+                    onClick={() => handleReuseRevisionFolder(entry.revision)}
+                    className="w-full text-left bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-[#3DCD58] hover:bg-emerald-50/40 transition-colors"
+                  >
+                    <span className="text-xs font-bold text-gray-700">{entry.revision}</span>
+                    <span className="block text-[10px] font-mono text-gray-400 break-all">{entry.path}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {renderTemplateModals()}
         </div>
         )}
@@ -1910,6 +2173,30 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         <div className="p-4 border-b border-gray-100">
           {/* Read-only path mode: the folder is open and fully browsable, but editing
               files needs a directory handle this browser doesn't currently hold. */}
+          {/* This browser's folder link no longer described the folder the saved path
+              points at, so it was dropped in favour of the path. Without this the tab
+              silently listed one folder while opening files from another. */}
+          {handleMismatch && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-2.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-rose-700">Link repaired</p>
+              <p className="mt-1 text-[11px] leading-snug text-rose-800">
+                The folder linked in this browser pointed somewhere else than the saved path, so it was
+                discarded. You are seeing the saved path. Re-link to restore editing.
+              </p>
+            </div>
+          )}
+          {/* A freshly linked folder whose absolute path could not be resolved. Saying so
+              is the point: the old path is deliberately NOT kept, because native actions
+              would then silently address the previous folder. */}
+          {pathUndetected && !rootPathDisplay && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Path not detected</p>
+              <p className="mt-1 text-[11px] leading-snug text-amber-800">
+                The folder is linked and browsable, but its Windows path is unknown, so opening files in their
+                native app is disabled. Use Re-detect below, or paste the path manually.
+              </p>
+            </div>
+          )}
           {pathMode && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Read-only</p>

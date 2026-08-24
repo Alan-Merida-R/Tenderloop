@@ -8,11 +8,11 @@ if "%MODE%"=="" set "MODE=VISIBLE"
 :: app-style window (see _open_browser.bat). Defaults to the app window.
 set "BROWSER_MODE=%~2"
 if "%BROWSER_MODE%"=="" set "BROWSER_MODE=APP"
-title OpportunityOS - Installer and launcher
+title Tender Control - Installer and launcher
 
 if "%MODE%"=="VISIBLE" (
     cls
-    echo OpportunityOS
+    echo Tender Control
     echo =============
     echo.
     echo Preparing the local Windows app...
@@ -20,7 +20,7 @@ if "%MODE%"=="VISIBLE" (
 )
 if "%MODE%"=="INSTALL" (
     cls
-    echo OpportunityOS Installer
+    echo Tender Control Installer
     echo =======================
     echo.
     echo This window will stay open until setup is complete.
@@ -38,7 +38,7 @@ if not errorlevel 1 (
         start "" /B cmd /c call "%~dp0_open_browser.bat" %BROWSER_MODE%
         exit /b 0
     )
-    if not "%MODE%"=="HIDDEN" echo [INFO] An older or incomplete OpportunityOS instance was found. Restarting it now.
+    if not "%MODE%"=="HIDDEN" echo [INFO] An older or incomplete Tender Control instance was found. Restarting it now.
     call "%~dp0CLOSE_OPPORTUNITYOS.bat" SILENT
     timeout /t 1 /nobreak >nul
 )
@@ -47,7 +47,7 @@ if not errorlevel 1 (
 :: OpportunityOS process. Clear the reserved ports before the strict-port checks
 :: below so a hung Vite process cannot block the new application forever.
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do (
-    if not "%MODE%"=="HIDDEN" echo [INFO] Clearing a non-responsive OpportunityOS process on port 3000.
+    if not "%MODE%"=="HIDDEN" echo [INFO] Clearing a non-responsive Tender Control process on port 3000.
     call "%~dp0CLOSE_OPPORTUNITYOS.bat" SILENT
     timeout /t 1 /nobreak >nul
 )
@@ -55,12 +55,12 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENIN
 if "%MODE%"=="VISIBLE" echo [1/5] Checking local ports... 4 steps remaining.
 if "%MODE%"=="INSTALL" echo [1/5] Checking local ports... 4 steps remaining.
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING"') do (
-    echo [ERROR] Port 3000 is in use by another application. OpportunityOS will not close it.
+    echo [ERROR] Port 3000 is in use by another application. Tender Control will not close it.
     if not "%MODE%"=="HIDDEN" pause
     exit /b 1
 )
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3099 " ^| findstr "LISTENING"') do (
-    echo [ERROR] Port 3099 is in use by another application. OpportunityOS will not close it.
+    echo [ERROR] Port 3099 is in use by another application. Tender Control will not close it.
     if not "%MODE%"=="HIDDEN" pause
     exit /b 1
 )
@@ -124,7 +124,7 @@ if "%MODE%"=="INSTALL" (
     REM directly instead of the .vbs launchers used by the HTA installer's
     REM shortcuts. Re-running this after the folder moves self-heals the
     REM target path, since re-saving a shortcut with the same name replaces it.
-    powershell.exe -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; try { $shell = New-Object -ComObject WScript.Shell; $root = '%~dp0'.TrimEnd('\'); $desktop = $shell.SpecialFolders('Desktop'); $startMenu = Join-Path $shell.SpecialFolders('Programs') 'OpportunityOS'; if (-not (Test-Path $startMenu)) { New-Item -ItemType Directory -Path $startMenu -Force | Out-Null }; $icon = Join-Path $root 'opportunityos.ico'; $s1 = $shell.CreateShortcut((Join-Path $desktop 'OpportunityOS.lnk')); $s1.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s1.WorkingDirectory = $root; $s1.WindowStyle = 7; $s1.IconLocation = $icon + ',0'; $s1.Description = 'Open OpportunityOS'; $s1.Save(); $s2 = $shell.CreateShortcut((Join-Path $startMenu 'OpportunityOS.lnk')); $s2.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s2.WorkingDirectory = $root; $s2.WindowStyle = 7; $s2.IconLocation = $icon + ',0'; $s2.Description = 'Open OpportunityOS'; $s2.Hotkey = 'CTRL+ALT+O'; $s2.Save(); $s3 = $shell.CreateShortcut((Join-Path $startMenu 'Uninstall OpportunityOS.lnk')); $s3.TargetPath = Join-Path $root 'DESINSTALAR_OPPORTUNITYOS.bat'; $s3.WorkingDirectory = $root; $s3.IconLocation = '%SystemRoot%\System32\shell32.dll,-131'; $s3.Description = 'Uninstall OpportunityOS'; $s3.Save(); Write-Output '[OK] Shortcuts created. Ctrl+Alt+O opens OpportunityOS.' } catch { Write-Output ('[WARN] Could not create shortcuts: ' + $_.Exception.Message) }"
+    powershell.exe -NoProfile -Command "$ErrorActionPreference='SilentlyContinue'; try { $shell = New-Object -ComObject WScript.Shell; $root = '%~dp0'.TrimEnd('\'); $desktop = $shell.SpecialFolders('Desktop'); $startMenu = Join-Path $shell.SpecialFolders('Programs') 'Tender Control'; if (-not (Test-Path $startMenu)) { New-Item -ItemType Directory -Path $startMenu -Force | Out-Null }; $icon = Join-Path $root 'opportunityos.ico'; $s1 = $shell.CreateShortcut((Join-Path $desktop 'Tender Control.lnk')); $s1.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s1.WorkingDirectory = $root; $s1.WindowStyle = 7; $s1.IconLocation = $icon + ',0'; $s1.Description = 'Open Tender Control'; $s1.Save(); $s2 = $shell.CreateShortcut((Join-Path $startMenu 'Tender Control.lnk')); $s2.TargetPath = Join-Path $root 'OPEN_OPPORTUNITYOS.bat'; $s2.WorkingDirectory = $root; $s2.WindowStyle = 7; $s2.IconLocation = $icon + ',0'; $s2.Description = 'Open Tender Control'; $s2.Hotkey = 'CTRL+ALT+O'; $s2.Save(); $s3 = $shell.CreateShortcut((Join-Path $startMenu 'Uninstall Tender Control.lnk')); $s3.TargetPath = Join-Path $root 'DESINSTALAR_OPPORTUNITYOS.bat'; $s3.WorkingDirectory = $root; $s3.IconLocation = '%SystemRoot%\System32\shell32.dll,-131'; $s3.Description = 'Uninstall Tender Control'; $s3.Save(); Write-Output '[OK] Shortcuts created. Ctrl+Alt+O opens Tender Control.' } catch { Write-Output ('[WARN] Could not create shortcuts: ' + $_.Exception.Message) }"
     echo [5/5] Setup complete. 0 steps remaining.
     echo.
     choice /c OC /n /m "Press O to Open app, or C to Close installer: "
@@ -138,13 +138,13 @@ if "%MODE%"=="VISIBLE" echo [4/5] Starting local engine... 1 step remaining.
 if exist "server\index.ts" (
     start "" /B node_modules\.bin\tsx.cmd server\index.ts
 ) else (
-    echo [ERROR] OpportunityOS server files are missing.
+    echo [ERROR] Tender Control server files are missing.
     if not "%MODE%"=="HIDDEN" pause
     exit /b 1
 )
 
 :: --- Open browser when Vite is ready ---
-if "%MODE%"=="VISIBLE" echo [5/5] Opening OpportunityOS... 0 steps remaining.
+if "%MODE%"=="VISIBLE" echo [5/5] Opening Tender Control... 0 steps remaining.
 start "" /B cmd /c call "%~dp0_open_browser.bat" %BROWSER_MODE%
 
 :: --- Start Vite (keeps running until closed) ---

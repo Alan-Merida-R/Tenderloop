@@ -1,6 +1,6 @@
 import React from 'react';
-import { Activity, ExternalLink, History, X, Zap } from 'lucide-react';
-import { Opportunity } from '../types';
+import { Activity, ExternalLink, History, Maximize2, Minimize2, X, Zap } from 'lucide-react';
+import { DETAILED_STATUS_LABELS, Opportunity } from '../types';
 import { getNextTask } from '../services/taskUtils';
 
 const CHANNEL_NAME = 'tenderloop_process_radial_widget';
@@ -149,6 +149,7 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
     height: typeof window !== 'undefined' ? window.innerHeight : 520,
   }));
   const [tick, setTick] = React.useState(0);
+  const [longCards, setLongCards] = React.useState(false);
   const channelRef = React.useRef<BroadcastChannel | null>(null);
   const sourceOpportunities = floating && remoteOpportunities.length > 0 ? remoteOpportunities : opportunities;
 
@@ -223,11 +224,22 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
 
   const activeOpps = React.useMemo(() => {
     void tick;
-    return sourceOpportunities
-      .filter(opp => opp.statusLabel === 'In Progress' || opp.statusLabel === 'On Hold')
+    // Snapshots can briefly contain the same record twice while the database and
+    // BroadcastChannel updates converge. Keep the latest object for each id so a
+    // single opportunity can never render as two cards.
+    const uniqueOpportunities = new Map<string, Opportunity>();
+    sourceOpportunities.forEach((opp, index) => {
+      if (opp.statusLabel !== 'In Progress' && opp.statusLabel !== 'On Hold') return;
+      uniqueOpportunities.set(opp.id || `missing-id-${index}`, opp);
+    });
+    return [...uniqueOpportunities.values()]
       .map(opp => ({ opp, metric: buildMetric(opp) }))
-      // Longest-running opportunities (most calendar days elapsed) first.
-      .sort((a, b) => b.metric.elapsedDays - a.metric.elapsedDays);
+      // Active work first; On Hold is deliberately grouped at the end. Within
+      // each group, keep the longest-running opportunities first.
+      .sort((a, b) => {
+        const holdDifference = Number(a.opp.statusLabel === 'On Hold') - Number(b.opp.statusLabel === 'On Hold');
+        return holdDifference || b.metric.elapsedDays - a.metric.elapsedDays;
+      });
   }, [sourceOpportunities, tick]);
 
   const displayMode = !floating
@@ -241,6 +253,7 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
         : windowSize.width >= 640 && windowSize.height >= 560
           ? 'expanded'
           : 'normal';
+  const cardMode = longCards && displayMode !== 'tiny' ? 'expanded' : displayMode;
 
   const handleOpenWindow = () => {
     openProcessRadialWidgetWindow();
@@ -311,11 +324,11 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
             </div>
           ) : (
             <div className={`grid ${
-              displayMode === 'tiny'
+              cardMode === 'tiny'
                 ? 'grid-cols-[repeat(auto-fit,minmax(58px,1fr))] gap-1.5'
-                : displayMode === 'compact'
+                : cardMode === 'compact'
                   ? 'grid-cols-[repeat(auto-fit,minmax(90px,1fr))] gap-2'
-                  : displayMode === 'expanded'
+                  : cardMode === 'expanded'
                     ? 'grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4'
                     : 'grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3'
             }`}>
@@ -324,7 +337,7 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
                   key={opp.id}
                   opportunity={opp}
                   metric={metric}
-                  mode={displayMode}
+                  mode={cardMode}
                   onSelect={() => handleSelect(opp.id)}
                 />
               ))}
@@ -339,6 +352,17 @@ export const ProcessRadialWidget: React.FC<ProcessRadialWidgetProps> = ({ opport
               {activeOpps.length} active
             </span>
           </div>
+          {displayMode !== 'tiny' && (
+            <button
+              type="button"
+              onClick={() => setLongCards(value => !value)}
+              className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-wide transition-colors ${longCards ? 'bg-[#3DCD58] text-slate-950' : 'bg-white/8 text-white/65 hover:bg-white/12 hover:text-white'}`}
+              title={longCards ? 'Use compact cards' : 'Make cards longer to show the next task and latest update'}
+            >
+              {longCards ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+              <span>{longCards ? 'Compact cards' : 'Long cards'}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => window.close()}
@@ -367,6 +391,7 @@ const RadialOpportunityButton: React.FC<{
   const isTiny = mode === 'tiny';
   const isCompact = mode === 'compact';
   const isExpanded = mode === 'expanded';
+  const isOnHold = opportunity.statusLabel === 'On Hold';
   const radius = isTiny ? 44 : 42;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - metric.taskProgressRatio);
@@ -378,14 +403,19 @@ const RadialOpportunityButton: React.FC<{
     ? [...(opportunity.history || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0]?.content
     : undefined;
   const nextTask = isExpanded ? getNextTask(opportunity.tasks || []) : undefined;
+  const processStatus = opportunity.detailedStatus || (isOnHold ? 'Paused' : 'Working on it');
+  const processStatusLabel = DETAILED_STATUS_LABELS[processStatus] || processStatus;
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`${isTiny ? 'rounded-full border-transparent bg-transparent p-0.5 shadow-none' : isCompact ? 'rounded-[16px] p-1.5' : 'rounded-[22px] p-2.5'} group min-w-0 border border-white/10 bg-white/[0.055] text-left shadow-lg transition-all hover:-translate-y-0.5 hover:bg-white/[0.09] hover:shadow-emerald-950/30 focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/60`}
+      className={`${isTiny ? `rounded-full p-0.5 shadow-none ${isOnHold ? 'border border-amber-400/70 bg-amber-400/10' : 'border-transparent bg-transparent'}` : isCompact ? 'rounded-[16px] p-1.5' : 'rounded-[22px] p-2.5'} ${isOnHold && !isTiny ? 'border-amber-400/60 bg-amber-400/[0.13] shadow-amber-950/30' : !isTiny ? 'border-white/10 bg-white/[0.055]' : ''} group relative min-w-0 overflow-hidden border text-left shadow-lg transition-all hover:-translate-y-0.5 hover:bg-white/[0.09] hover:shadow-emerald-950/30 focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/60`}
       title={`${alias} - ${metric.taskProgressPercent}% tasks - ${daysLabel}`}
     >
+      <div className={`absolute left-1/2 top-0 z-10 max-w-[92%] -translate-x-1/2 truncate rounded-b-md border-x border-b px-1.5 py-px text-center font-black uppercase tracking-[0.08em] ${isTiny ? 'text-[6px] leading-[8px]' : 'text-[8px] leading-[11px]'} ${isOnHold ? 'border-amber-300/40 bg-amber-400 text-slate-950' : 'border-white/10 bg-slate-900/90 text-white/65'}`} title={`Process Status: ${processStatusLabel}`}>
+        {processStatusLabel}
+      </div>
       <div className={`${isTiny ? 'block' : 'block'}`}>
         <div className={`${isTiny ? 'h-[58px] w-[58px]' : isCompact ? 'h-[76px] w-[76px]' : 'h-[108px] w-[108px]'} relative mx-auto shrink-0`}>
         <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90 drop-shadow-lg">

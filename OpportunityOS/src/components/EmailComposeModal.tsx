@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Mail, X, Paperclip, Folder as FolderIcon, FileText, ChevronRight, Search, Copy, Check,
+    Mail, X, Paperclip, Folder as FolderIcon, FileText, ChevronRight, Search,
     AlertTriangle, AlertCircle, RefreshCw, Trash2, ArrowLeft, Loader2, Link as LinkIcon
 } from 'lucide-react';
 import type { Opportunity, Task, Person, GlobalContact, GeneratedEmailRecord, GeneratedEmailKind } from '../types';
@@ -14,7 +14,7 @@ import {
     GREETING_STYLES, fmtFriendlyDate,
 } from '../services/emailComposer';
 import type { ComposeManualFields, EmailRecipient } from '../services/emailComposer';
-import { composeOutlookDraft, copyReplyToClipboard } from '../services/emailDraftService';
+import { composeOutlookDraft } from '../services/emailDraftService';
 import { sanitizeHtml } from '../services/sanitizeHtml';
 import { getFolderHandleForRevision, resolveEffectiveRootPath } from '../services/opportunityFolderLink';
 import { listDirectory, toAbsolutePath } from '../features/opportunity-folder/fileOps';
@@ -45,6 +45,7 @@ interface Props {
     sowTeamMembers?: SowTeamMember[];
     /** Turns a regular task into a tracked assignment in place (responsible, owner, status) without leaving the composer. */
     onAssignTask?: (taskId: string, teamMemberIds: string[]) => void;
+    onCreateMeetingTask?: (input: { title: string; description: string; teamMemberIds: string[] }) => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +373,7 @@ const DUE_DATE_CHIPS: { label: string; iso: () => string }[] = [
 export const EmailComposeModal: React.FC<Props> = ({
     isOpen, onClose, opportunity, emailSettings, userName,
     globalContacts = [], initialTemplateId, initialTaskIds, onGenerated, onRequestAssignTask,
-    sowTeamMembers = [], onAssignTask,
+    sowTeamMembers = [], onAssignTask, onCreateMeetingTask,
 }) => {
     const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
     const [assignPickIds, setAssignPickIds] = useState<string[]>([]);
@@ -395,13 +396,14 @@ export const EmailComposeModal: React.FC<Props> = ({
     const [recipientsTouched, setRecipientsTouched] = useState(false);
     const [showFolderPicker, setShowFolderPicker] = useState(false);
     const [sending, setSending] = useState(false);
-    const [copyingReply, setCopyingReply] = useState(false);
-    const [copyReplyNotice, setCopyReplyNotice] = useState('');
     const [sendError, setSendError] = useState('');
     const [missingAttachmentPaths, setMissingAttachmentPaths] = useState<string[]>([]);
     const [stageTouched, setStageTouched] = useState(false);
     const [requestItemInput, setRequestItemInput] = useState('');
     const [taskSearch, setTaskSearch] = useState('');
+    const [newMeetingTaskTitle, setNewMeetingTaskTitle] = useState('');
+    const [newMeetingTaskDescription, setNewMeetingTaskDescription] = useState('');
+    const [newMeetingTaskMemberIds, setNewMeetingTaskMemberIds] = useState<string[]>([]);
     const bodyRef = useRef<HTMLDivElement>(null);
     /** Per-block baseline of what we last wrote to the DOM, to tell user edits apart. */
     const writtenBlocksRef = useRef<Map<string, string>>(new Map());
@@ -463,7 +465,6 @@ export const EmailComposeModal: React.FC<Props> = ({
         setBodyDirty(false);
         setRecipientsTouched(false);
         setSendError('');
-        setCopyReplyNotice('');
         setMissingAttachmentPaths([]);
         setShowFolderPicker(false);
         setStageTouched(false);
@@ -743,9 +744,13 @@ export const EmailComposeModal: React.FC<Props> = ({
         setSendError('');
         setMissingAttachmentPaths([]);
         const bodyHtml = currentBodyHtml();
+        const outgoing = document.createElement('div');
+        outgoing.innerHTML = bodyHtml;
+        outgoing.querySelectorAll('[data-tl-block="signature"]').forEach(node => node.remove());
+        const outgoingBodyHtml = outgoing.innerHTML;
         const result = await composeOutlookDraft({
             to, cc, bcc, subject,
-            htmlBody: `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${bodyHtml}</div>`,
+            htmlBody: `<div style="font-family:Arial,sans-serif;font-size:12pt">${outgoingBodyHtml}</div>`,
             attachments: attachments.map(a => a.absolutePath),
             mode: emailSettings.outlookMode,
         });
@@ -776,35 +781,6 @@ export const EmailComposeModal: React.FC<Props> = ({
         };
         onGenerated(record);
         onClose();
-    };
-
-    const handleCopyForReply = async () => {
-        if (copyingReply) return;
-        setCopyingReply(true);
-        setSendError('');
-        setCopyReplyNotice('');
-        setMissingAttachmentPaths([]);
-        const bodyHtml = currentBodyHtml();
-        const temp = document.createElement('div');
-        temp.innerHTML = bodyHtml;
-        const plainText = temp.innerText || temp.textContent || '';
-        const result = await copyReplyToClipboard(
-            `<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">${bodyHtml}</div>`,
-            plainText,
-            attachments.map(attachment => attachment.absolutePath),
-        );
-        setCopyingReply(false);
-        if (!result.ok) {
-            setSendError(result.error || 'Could not copy the reply to the Windows clipboard.');
-            setMissingAttachmentPaths(result.missingAttachments);
-            return;
-        }
-        setMissingAttachmentPaths(result.missingAttachments);
-        setCopyReplyNotice(
-            result.attachmentCount
-                ? `Reply copied with ${result.attachmentCount} attachment${result.attachmentCount === 1 ? '' : 's'}. Open the email thread, choose Reply All, and paste.`
-                : 'Reply copied. Open the email thread, choose Reply All, and paste.'
-        );
     };
 
     if (!isOpen) return null;
@@ -1229,6 +1205,25 @@ export const EmailComposeModal: React.FC<Props> = ({
                                     <textarea value={manual.agreements || ''} onChange={e => setManual(m => ({ ...m, agreements: e.target.value }))} rows={3} placeholder={'Scope confirmed for buildings A and B\nCustomer to send the load list'} className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1" />
                                     <p className="text-[10px] text-gray-400 mt-0.5">Next steps come from the tasks you check above — owner and due date included automatically.</p>
                                 </div>
+                                <div>
+                                    <label className="text-[9px] font-bold text-gray-500 uppercase">Next step note (optional)</label>
+                                    <textarea value={manual.nextStepNote || ''} onChange={e => setManual(m => ({ ...m, nextStepNote: e.target.value }))} rows={2} placeholder="Describe what happens next, including tasks that run in parallel." className="w-full text-xs border-gray-200 rounded-lg bg-white mt-1" />
+                                </div>
+                                {onCreateMeetingTask && (
+                                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                                        <label className="text-[9px] font-bold text-emerald-700 uppercase">Create and include a new task</label>
+                                        <input value={newMeetingTaskTitle} onChange={e => setNewMeetingTaskTitle(e.target.value)} placeholder="Task title" className="w-full text-xs border-gray-200 rounded-lg bg-white" />
+                                        <textarea value={newMeetingTaskDescription} onChange={e => setNewMeetingTaskDescription(e.target.value)} rows={2} placeholder="Task description" className="w-full text-xs border-gray-200 rounded-lg bg-white" />
+                                        <div className="flex flex-wrap gap-1">
+                                            {sowTeamMembers.map(member => <button key={member.id} type="button" onClick={() => setNewMeetingTaskMemberIds(ids => ids.includes(member.id) ? ids.filter(id => id !== member.id) : [...ids, member.id])} className={`px-2 py-1 rounded-full border text-[10px] font-bold ${newMeetingTaskMemberIds.includes(member.id) ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-gray-200 text-gray-600'}`}>{member.name}</button>)}
+                                        </div>
+                                        <button type="button" disabled={!newMeetingTaskTitle.trim()} onClick={() => {
+                                            const id = onCreateMeetingTask({ title: newMeetingTaskTitle.trim(), description: newMeetingTaskDescription.trim(), teamMemberIds: newMeetingTaskMemberIds });
+                                            setSelectedTaskIds(ids => [...new Set([...ids, id])]);
+                                            setNewMeetingTaskTitle(''); setNewMeetingTaskDescription(''); setNewMeetingTaskMemberIds([]);
+                                        }} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-40">Create task</button>
+                                    </div>
+                                )}
                             </div>
                         )}
                         {SECTION_DEFS[kind] && (
@@ -1347,24 +1342,10 @@ export const EmailComposeModal: React.FC<Props> = ({
                             {validation.warnings.map((w, i) => <div key={`w${i}`} className="flex items-start gap-1.5 text-xs text-amber-600"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />{w}</div>)}
                         </div>
                     )}
-                    {copyReplyNotice && (
-                        <div role="status" className="flex items-start gap-1.5 text-xs font-medium text-emerald-700">
-                            <Check className="w-3.5 h-3.5 mt-0.5 shrink-0" />{copyReplyNotice}
-                        </div>
-                    )}
                     <div className="flex items-center justify-between">
                         <p className="text-[10px] text-gray-400">Mode: {emailSettings.outlookMode === 'auto' ? 'Auto (COM → .eml fallback)' : emailSettings.outlookMode === 'com' ? 'Classic Outlook (COM)' : '.eml file (new Outlook compatible)'}</p>
                         <div className="flex items-center gap-2">
                             <button onClick={onClose} className="px-4 py-2 text-sm font-bold text-gray-500 hover:bg-gray-100 rounded-xl">Cancel</button>
-                            <button
-                                onClick={handleCopyForReply}
-                                disabled={copyingReply || sending}
-                                title="Copy the formatted body and attachments for pasting into an existing Outlook reply"
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-xl border border-[#3DCD58] bg-white text-[#278a3b] hover:bg-emerald-50 disabled:opacity-40"
-                            >
-                                {copyingReply ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-                                Copy for Reply
-                            </button>
                             <button
                                 onClick={handleOpenInOutlook}
                                 disabled={validation.errors.length > 0 || sending}

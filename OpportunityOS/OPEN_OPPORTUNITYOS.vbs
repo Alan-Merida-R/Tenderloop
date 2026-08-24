@@ -28,7 +28,7 @@ If fso.FileExists(togglePath) Then
 End If
 
 If Not fso.FileExists(motorPath) Then
-    MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "OpportunityOS"
+    MsgBox "engine_opportunityos.bat was not found in this folder." & vbCrLf & scriptDir, vbCritical, "Tender Control"
     WScript.Quit 1
 End If
 

@@ -30,7 +30,7 @@ export class RootErrorBoundary extends React.Component<Props, State> {
           <div className="max-w-lg w-full bg-red-50 border border-red-200 rounded-2xl p-8 shadow-2xl text-center space-y-6">
             <div className="text-6xl animate-bounce">⚠️</div>
             <div className="space-y-2">
-              <h1 className="text-2xl font-black text-red-700">OpportunityOS Crash Detected</h1>
+              <h1 className="text-2xl font-black text-red-700">Tender Control Crash Detected</h1>
               <p className="text-red-600 font-medium">The last database or update contains an error that prevents the app from starting.</p>
             </div>
             <div className="bg-white/50 p-4 rounded-xl border border-red-100 text-left">

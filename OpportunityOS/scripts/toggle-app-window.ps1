@@ -43,7 +43,7 @@ public class OpportunityOSWindow {
 # Only match windows owned by a browser process, so a coincidentally-titled
 # window from an unrelated app is never toggled.
 $browserProcessNames = @('chrome', 'chrome_proxy', 'msedge', 'vivaldi', 'brave')
-$candidates = [OpportunityOSWindow]::FindByTitle('OpportunityOS')
+$candidates = [OpportunityOSWindow]::FindByTitle('Tender Control')
 
 $target = [IntPtr]::Zero
 foreach ($hwnd in $candidates) {

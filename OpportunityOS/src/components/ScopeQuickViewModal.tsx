@@ -1,112 +1,46 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Crosshair, Plus } from 'lucide-react';
-import { MeetingNote } from '../types';
-
-export const SOW_PLATFORM_OPTIONS: { key: string; label: string }[] = [
-    { key: 'platform_modicon', label: 'Modicon PLC' },
-    { key: 'platform_triconex', label: 'Triconex' },
-    { key: 'platform_foxboro', label: 'Foxboro DCS' },
-    { key: 'platform_other', label: 'Other / AVEVA / Cyber' },
-];
+import { MeetingNote, OpportunityLabel } from '../types';
+import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, scopeModuleKey, scopeOptionColor, scopeLabelKey, catalogContainsLabel } from './scopeCatalog';
+// The same readers the proposal cards use, so the card and this modal can never disagree
+// about which options are selected. See services/scopeSummary.ts.
+import { parseSowFields, asLabels, selectedFromFields, scopeFromLegacy, systemsFromLegacy, modulesFromFields } from '../services/scopeSummary';
 
 /**
- * Follow-up question shown right under the platforms when Triconex is selected. Mirrors the
- * `triconex_products` multi-choice in sowTemplate.html — keep both lists identical.
+ * Legacy Opportunity Type wording. The Scope catalog replaced it as the question the user
+ * answers, but flow_B008 / opp_type are still what the SOW's built-in dependency rules read,
+ * so a Scope option whose label matches one of these keeps those branches working.
  */
-export const SOW_TRICONEX_PRODUCTS = ['Tricon CX', 'Tricon', 'SIS', 'TMC', 'BMS'];
-
-// Matches the SOW's flow_B008 "What type of opportunity is it?" catalog exactly
-// (services_only spelling and casing included) — that question is multi_select,
-// so this list must stay in sync with it rather than with the legacy single-value
-// opp_type <select>, whose static HTML options historically drifted from it.
-export const SOW_OPP_TYPES = ['Greenfield', 'Modernization', 'Migration', 'Upgrade', 'Expansion', 'Services Only'];
-
-const parseSowFields = (note: MeetingNote | null): Record<string, any> => {
-    if (!note?.content) return {};
-    try {
-        const parsed = JSON.parse(note.content);
-        return parsed && typeof parsed === 'object' && parsed.fields && typeof parsed.fields === 'object' ? parsed.fields : {};
-    } catch {
-        return {};
-    }
+const LEGACY_OPP_TYPES = ['Greenfield', 'Modernization', 'Migration', 'Upgrade', 'Expansion', 'Services Only'];
+const toLegacyOppType = (label: string): string => {
+    const clean = label.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (clean === 'green field') return 'Greenfield';
+    return LEGACY_OPP_TYPES.find(option => option.toLowerCase() === clean) || '';
 };
 
-/**
- * Reverse of buildMirroredFlowKeys: the guided-flow question (flow_T001 "Which
- * automation platform(s)...") is what most users actually answer first. The SOW
- * mirrors it into platform_modicon/etc. live via syncChangedKey, but that mirror
- * only fires on user interaction inside the iframe — so a note whose platforms
- * were only ever set through the flow question still needs this fallback here.
- */
-const platformsFromFlow = (fields: Record<string, any>): Record<string, boolean> => {
-    const t001 = new Set<string>(Array.isArray(fields.flow_T001) ? fields.flow_T001 : []);
-    return {
-        platform_modicon: t001.has('Modicon'),
-        platform_triconex: t001.has('Triconex'),
-        platform_foxboro: t001.has('Foxboro'),
-        platform_other: t001.has('AVEVA') || t001.has('Cyber'),
-    };
-};
-
-/** Case-insensitive match against the catalog, so older data saved as "Services only" (the legacy opp_type <select> spelling) still matches "Services Only". */
-const normalizeOppType = (value: string): string | null => {
-    const trimmed = value.trim();
-    return SOW_OPP_TYPES.find(o => o.toLowerCase() === trimmed.toLowerCase()) || null;
-};
-
-/**
- * flow_B008 is the actual multi_select question the guided flow asks
- * ("What type of opportunity is it?"). The legacy opp_type <select> can only
- * ever hold one value, so it is merged in as an extra candidate, not the
- * source of truth — Opportunity Type here must support multiple selections
- * to represent what the SOW question actually allows.
- */
-const oppTypesFromSowFields = (fields: Record<string, any>): string[] => {
-    const found = new Set<string>();
-    if (typeof fields.opp_type === 'string' && fields.opp_type) {
-        const match = normalizeOppType(fields.opp_type);
-        if (match) found.add(match);
-    }
-    (Array.isArray(fields.flow_B008) ? fields.flow_B008 : []).forEach((v: unknown) => {
-        const match = normalizeOppType(String(v ?? ''));
-        if (match) found.add(match);
-    });
-    return SOW_OPP_TYPES.filter(o => found.has(o));
-};
-
-/**
- * Mirrors the SOW iframe's syncChangedKey logic (sowTemplate.html) so edits made
- * here keep the guided-flow answers (flow_T001 platforms, flow_B008 opp type)
- * consistent with the platform checkboxes and opp_type select.
- */
-const buildMirroredFlowKeys = (fields: Record<string, any>, platforms: Record<string, boolean>, oppTypes: string[]) => {
-    const t001 = new Set<string>(Array.isArray(fields.flow_T001) ? fields.flow_T001 : []);
-    (['Modicon', 'Triconex', 'Foxboro'] as const).forEach(name => {
-        if (platforms[`platform_${name.toLowerCase()}`]) t001.add(name); else t001.delete(name);
-    });
-    if (platforms.platform_other) {
-        if (!t001.has('AVEVA') && !t001.has('Cyber')) t001.add('AVEVA');
-    } else {
-        t001.delete('AVEVA');
-        t001.delete('Cyber');
-    }
-    const b008 = new Set<string>(Array.isArray(fields.flow_B008) ? fields.flow_B008 : []);
-    // Only replace membership for options this UI knows about; anything else
-    // already in flow_B008 (e.g. saved before this catalog existed) is kept.
-    SOW_OPP_TYPES.forEach(opt => { if (oppTypes.includes(opt)) b008.add(opt); else b008.delete(opt); });
-    return { flow_T001: [...t001], flow_B008: [...b008] };
+/** platform_* still drives the SOW's 4A/4B/4C platform sections, so it follows the System answer. */
+const platformMirror = (systems: string[]): Record<string, boolean> => {
+    const known: Array<[string, RegExp]> = [['platform_modicon', /modicon/i], ['platform_triconex', /tricon/i], ['platform_foxboro', /foxboro/i]];
+    const mirror: Record<string, boolean> = {};
+    known.forEach(([key, test]) => { mirror[key] = systems.some(name => test.test(name)); });
+    mirror.platform_other = systems.some(name => !known.some(([, test]) => test.test(name)));
+    return mirror;
 };
 
 interface Props {
     sowNote: MeetingNote | null;
+    catalog?: ScopeCatalog;
     disabled?: boolean;
+    legacyLabels?: OpportunityLabel[];
     onSaveFields: (patch: Record<string, unknown>) => void;
     onCreateSowNote: () => void;
     onClose: () => void;
 }
 
-const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSaveFields, onCreateSowNote, onClose }) => {
+const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels = [], disabled = false, onSaveFields, onCreateSowNote, onClose }) => {
     const fields = useMemo(() => parseSowFields(sowNote), [sowNote]);
+    const resolvedCatalog = useMemo(() => normalizeScopeCatalog(catalog) || DEFAULT_SCOPE_CATALOG, [catalog]);
+
     // `included_scope` is the actual detailed SOW answer. `scope_summary` is
     // retained for old SOW notes, but must never mask a newer SOW response.
     // An empty included_scope is still a string, so prefer it only when it
@@ -115,57 +49,121 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSav
     const summaryScope = typeof fields.scope_summary === 'string' ? fields.scope_summary : '';
     const scopeFromSow = includedScope.trim() ? includedScope : summaryScope;
     const [scope, setScope] = useState<string>(scopeFromSow);
-    const oppTypesFromSow = useMemo(() => oppTypesFromSowFields(fields), [fields]);
-    const [oppTypes, setOppTypes] = useState<string[]>(oppTypesFromSow);
-    const platformsFromSow = useMemo(() => {
-        const flowFallback = platformsFromFlow(fields);
-        return Object.fromEntries(SOW_PLATFORM_OPTIONS.map(p => [p.key, fields[p.key] === true || flowFallback[p.key]]));
-    }, [fields]);
-    const [platforms, setPlatforms] = useState<Record<string, boolean>>(platformsFromSow);
-    const triconexFromSow = useMemo(() => {
-        const saved = Array.isArray(fields.triconex_products) ? fields.triconex_products.map(String) : [];
-        return SOW_TRICONEX_PRODUCTS.filter(p => saved.includes(p));
-    }, [fields]);
-    const [triconexProducts, setTriconexProducts] = useState<string[]>(triconexFromSow);
+
+    const scopeTypesFromSow = useMemo(() => {
+        const direct = selectedFromFields(fields, 'scope_types', resolvedCatalog.scope);
+        return direct.length ? direct : scopeFromLegacy(fields, resolvedCatalog.scope);
+    }, [fields, resolvedCatalog]);
+    const systemsFromSow = useMemo(() => {
+        const direct = selectedFromFields(fields, 'sow_systems', resolvedCatalog.systems);
+        return direct.length ? direct : systemsFromLegacy(fields, resolvedCatalog.systems);
+    }, [fields, resolvedCatalog]);
+    const quickNotesFromSow = useMemo(() => selectedFromFields(fields, 'quick_notes', resolvedCatalog.quickNotes), [fields, resolvedCatalog]);
+    const extrasFromSow = useMemo(() => {
+        const direct = selectedFromFields(fields, 'scope_extras', resolvedCatalog.extras);
+        const legacy = legacyLabels.filter(label => !catalogContainsLabel(resolvedCatalog, label.text)).map(label => label.text);
+        return Array.from(new Set([...direct, ...legacy]));
+    }, [fields, resolvedCatalog, legacyLabels]);
+    // One flat map of sub-module answers, keyed exactly like the SOW stores them
+    // (Triconex keeps `triconex_products` so pre-catalog answers survive).
+    const modulesFromSow = useMemo(() => modulesFromFields(fields, resolvedCatalog), [fields, resolvedCatalog]);
+
+    const [scopeTypes, setScopeTypes] = useState<string[]>(scopeTypesFromSow);
+    const [systems, setSystems] = useState<string[]>(systemsFromSow);
+    const [quickNotes, setQuickNotes] = useState<string[]>(quickNotesFromSow);
+    const [extras, setExtras] = useState<string[]>(extrasFromSow);
+    const [modules, setModules] = useState<Record<string, string[]>>(modulesFromSow);
     useEffect(() => { setScope(scopeFromSow); }, [scopeFromSow]);
-    useEffect(() => { setOppTypes(oppTypesFromSow); }, [oppTypesFromSow]);
-    useEffect(() => { setPlatforms(platformsFromSow); }, [platformsFromSow]);
-    useEffect(() => { setTriconexProducts(triconexFromSow); }, [triconexFromSow]);
-    const toggleOppType = (type: string) => {
-        setOppTypes(prev => prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]);
-    };
-    const toggleTriconexProduct = (product: string) => {
-        setTriconexProducts(prev => prev.includes(product) ? prev.filter(p => p !== product) : [...prev, product]);
-    };
+    useEffect(() => { setScopeTypes(scopeTypesFromSow); }, [scopeTypesFromSow]);
+    useEffect(() => { setSystems(systemsFromSow); }, [systemsFromSow]);
+    useEffect(() => { setQuickNotes(quickNotesFromSow); }, [quickNotesFromSow]);
+    useEffect(() => { setExtras(extrasFromSow); }, [extrasFromSow]);
+    useEffect(() => { setModules(modulesFromSow); }, [modulesFromSow]);
+
+    const toggle = (list: string[], value: string) => list.includes(value) ? list.filter(item => item !== value) : [...list, value];
+    const toggleModule = (key: string, label: string) => setModules(prev => ({ ...prev, [key]: toggle(prev[key] || [], label) }));
 
     const handleSave = () => {
+        const legacyTypes = scopeTypes.map(toLegacyOppType).filter(Boolean);
+        // Merge, never replace: flow_B008 can hold answers this catalog has no equivalent for
+        // (Modernization, Expansion, the HMI/SCADA variants). Only membership of the options
+        // this modal knows about is rewritten.
+        const mergedTypes = new Set(asLabels(fields.flow_B008));
+        LEGACY_OPP_TYPES.forEach(option => { if (legacyTypes.includes(option)) mergedTypes.add(option); else mergedTypes.delete(option); });
+        const legacyList = [...mergedTypes];
         onSaveFields({
             scope_summary: scope,
             // The detailed SOW question and the Overview quick view describe
             // the same scope, so keep both answer keys aligned.
             included_scope: scope,
-            // The legacy single-value select can only represent one answer: set it
-            // when exactly one type is selected, otherwise leave it as the SOW had
-            // it (mirrors how the SOW's own flow_B008 -> opp_type sync behaves).
-            opp_type: oppTypes.length === 1 ? oppTypes[0] : (typeof fields.opp_type === 'string' ? fields.opp_type : ''),
-            ...platforms,
-            // Kept even when Triconex is unchecked, matching the SOW's "hidden answers are
-            // preserved" rule — re-checking the platform brings the products back.
-            triconex_products: triconexProducts,
-            ...buildMirroredFlowKeys(fields, platforms, oppTypes),
+            scope_types: scopeTypes,
+            sow_systems: systems,
+            quick_notes: quickNotes,
+            scope_extras: extras,
+            // Sub-modules are written even when their parent is unselected, matching the SOW's
+            // "hidden answers are preserved" rule — re-checking the parent brings them back.
+            ...modules,
+            ...platformMirror(systems),
+            // Legacy mirrors: the SOW's built-in dependency rules still read these.
+            flow_B008: legacyList,
+            opp_type: legacyList.length === 1 ? legacyList[0].replace('Services Only', 'Services only') : (legacyList.length ? 'Mixed' : ''),
         });
         onClose();
     };
 
+    const chip = (active: boolean) => `flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${active ? 'text-white border-white/20 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500'} ${disabled ? 'opacity-60 cursor-default' : 'hover:border-slate-400'}`;
+
+    const renderGroup = (group: 'systems' | 'quickNotes', selected: string[], setSelected: (next: string[]) => void) => (
+        <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+                {resolvedCatalog[group].map(option => (
+                    <label key={option.id} className={chip(selected.includes(option.label))} style={selected.includes(option.label) ? { backgroundColor: scopeOptionColor(option, group === 'systems' ? 'systems' : 'quickNotes') } : undefined}>
+                        <input
+                            type="checkbox"
+                            checked={selected.includes(option.label)}
+                            onChange={() => setSelected(toggle(selected, option.label))}
+                            disabled={disabled}
+                            className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                        />
+                        {option.label}
+                    </label>
+                ))}
+            </div>
+            {resolvedCatalog[group].filter(option => option.children?.length && selected.includes(option.label)).map(option => {
+                const key = scopeModuleKey(group, option);
+                const chosen = modules[key] || [];
+                return (
+                    <div key={key} className="border-l-2 border-emerald-200 pl-3 ml-1">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{option.label} sub-modules</p>
+                        <div className="flex flex-wrap gap-2">
+                            {option.children!.map(child => (
+                                <label key={child.id} className={chip(chosen.includes(child.label))} style={chosen.includes(child.label) ? { backgroundColor: scopeOptionColor(child, 'submodule') } : undefined}>
+                                    <input
+                                        type="checkbox"
+                                        checked={chosen.includes(child.label)}
+                                        onChange={() => toggleModule(key, child.label)}
+                                        disabled={disabled}
+                                        className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                    />
+                                    {child.label}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+
     return (
-        <div className="fixed inset-0 z-[500] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[500] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => disabled ? onClose() : handleSave()}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden animate-in zoom-in duration-200 max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 shrink-0">
                     <h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-widest">
                         <Crosshair className="w-5 h-5 text-[#3DCD58]" />
                         Scope
                     </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                    <button onClick={() => disabled ? onClose() : handleSave()} className="text-gray-400 hover:text-gray-600" title={disabled ? 'Close' : 'Save and close'}><X className="w-5 h-5" /></button>
                 </div>
 
                 {!sowNote ? (
@@ -184,79 +182,57 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, disabled = false, onSav
                     <>
                         <div className="p-6 space-y-5 overflow-y-auto">
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope description</label>
                                 <textarea
                                     value={scope}
                                     onChange={(e) => setScope(e.target.value)}
                                     disabled={disabled}
                                     placeholder="Describe el alcance de la oportunidad..."
-                                    className="w-full text-lg leading-relaxed p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent min-h-[40vh] resize-y disabled:bg-gray-50"
+                                    className="w-full text-base leading-relaxed p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent min-h-[22vh] resize-y disabled:bg-gray-50"
                                 />
                                 <p className="text-[11px] text-gray-400 mt-1 italic">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;. Sincronizado con la nota SOW.</p>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Opportunity Type</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {SOW_OPP_TYPES.map(t => (
-                                            <label key={t} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${oppTypes.includes(t) ? 'bg-emerald-50 border-emerald-200 text-[#2db64a]' : 'bg-gray-50 border-gray-200 text-gray-500'} ${disabled ? 'opacity-60 cursor-default' : 'hover:border-emerald-300'}`}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={oppTypes.includes(t)}
-                                                    onChange={() => toggleOppType(t)}
-                                                    disabled={disabled}
-                                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
-                                                />
-                                                {t}
-                                            </label>
-                                        ))}
-                                    </div>
-                                    <p className="text-[11px] text-gray-400 mt-1 italic">Linked to "What type of opportunity is it?" in the SOW — select all that apply.</p>
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Platforms Included</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {SOW_PLATFORM_OPTIONS.map(p => (
-                                            <label key={p.key} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${platforms[p.key] ? 'bg-emerald-50 border-emerald-200 text-[#2db64a]' : 'bg-gray-50 border-gray-200 text-gray-500'} ${disabled ? 'opacity-60 cursor-default' : 'hover:border-emerald-300'}`}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={platforms[p.key]}
-                                                    onChange={(e) => setPlatforms(prev => ({ ...prev, [p.key]: e.target.checked }))}
-                                                    disabled={disabled}
-                                                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
-                                                />
-                                                {p.label}
-                                            </label>
-                                        ))}
-                                    </div>
-                                    {platforms.platform_triconex && (
-                                        <div className="mt-3">
-                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Which Triconex product(s)?</label>
-                                            <div className="flex flex-wrap gap-2">
-                                                {SOW_TRICONEX_PRODUCTS.map(product => (
-                                                    <label key={product} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${triconexProducts.includes(product) ? 'bg-emerald-50 border-emerald-200 text-[#2db64a]' : 'bg-gray-50 border-gray-200 text-gray-500'} ${disabled ? 'opacity-60 cursor-default' : 'hover:border-emerald-300'}`}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={triconexProducts.includes(product)}
-                                                            onChange={() => toggleTriconexProduct(product)}
-                                                            disabled={disabled}
-                                                            className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
-                                                        />
-                                                        {product}
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <p className="text-[11px] text-gray-400 mt-1 italic">Linked to "Which Triconex product(s) are included?" in the SOW.</p>
-                                        </div>
-                                    )}
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {resolvedCatalog.scope.map(option => (
+                                        <label key={option.id} className={chip(scopeTypes.includes(option.label))} style={scopeTypes.includes(option.label) ? { backgroundColor: scopeOptionColor(option, 'scope') } : undefined}>
+                                            <input
+                                                type="checkbox"
+                                                checked={scopeTypes.includes(option.label)}
+                                                onChange={() => setScopeTypes(toggle(scopeTypes, option.label))}
+                                                disabled={disabled}
+                                                className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                                            />
+                                            {option.label}
+                                        </label>
+                                    ))}
                                 </div>
                             </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">System</label>
+                                {renderGroup('systems', systems, setSystems)}
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Notes at a glance</label>
+                                {renderGroup('quickNotes', quickNotes, setQuickNotes)}
+                            </div>
+
+                            {!!resolvedCatalog.extras.length && <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Labels / Extras</label>
+                                <div className="flex flex-wrap gap-2">{resolvedCatalog.extras.map(option => <label key={option.id} className={chip(extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label)))} style={extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label)) ? { backgroundColor: scopeOptionColor(option, 'extra') } : undefined}><input type="checkbox" checked={extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label))} onChange={() => setExtras(toggle(extras, option.label))} disabled={disabled} className="rounded border-gray-300 text-slate-600 focus:ring-slate-500" />{option.label}</label>)}</div>
+                                <p className="text-[11px] text-gray-400 mt-1 italic">Only historical labels that do not match another Scope option appear here.</p>
+                            </div>}
+
+                            <p className="text-[11px] text-gray-400 italic">These three lists are the same ones the SOW asks in Base Data. Add or remove options in Settings &rarr; Labels &amp; Scope.</p>
                         </div>
 
                         <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 shrink-0">
                             <button onClick={onClose} className="px-4 py-2 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-gray-700">
-                                {disabled ? 'Close' : 'Cancel'}
+                                {disabled ? 'Close' : 'Discard'}
                             </button>
                             {!disabled && (
                                 <button onClick={handleSave} className="px-5 py-2 bg-[#3DCD58] text-white text-xs font-black uppercase tracking-widest rounded-xl hover:bg-[#2db64a] transition-colors">

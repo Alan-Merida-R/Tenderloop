@@ -196,6 +196,8 @@ export interface Task {
   id: string;
   title: string;
   description: string;
+  /** Cross-team process category used for cycle-time reporting. It does not block parallel work. */
+  processSection?: import('./services/processSections').ProcessSection;
   status: TaskStatus;
   priority: TaskPriority;
   owner: TaskOwner;
@@ -734,6 +736,8 @@ export interface OpportunityVersion {
   opportunityId: string;
   srId: string;
   commitMessage: string;
+  /** Why the next opportunity revision was created from this saved snapshot. */
+  revisionReason?: string;
   tags: string[];
   createdAt: string;
   createdBy: string;

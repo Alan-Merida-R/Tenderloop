@@ -89,7 +89,7 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       <input
         type="file"
         accept=".json"
@@ -100,18 +100,18 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
       {opportunity && (
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"
+          className="flex items-center gap-1.5 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"
           title="Export Opportunity Package"
         >
-          <Download className="w-4 h-4" /> Export
+          <Download className="w-3.5 h-3.5" /> Export
         </button>
       )}
       <button
         onClick={handleImportClick}
-        className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:text-[#3DCD58] transition-all shadow-sm"
+        className="flex items-center gap-1.5 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"
         title="Import Opportunity Package"
       >
-        <Upload className="w-4 h-4" /> Import
+        <Upload className="w-3.5 h-3.5" /> Import
       </button>
     </div>
   );
