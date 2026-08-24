@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Bell, Bot, CalendarDays, Check, ChevronLeft, Clock3, LayoutGrid, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, Bot, CalendarDays, Check, ChevronLeft, ClipboardList, Clock3, Gauge, LayoutGrid, Moon, Plus, Search, Sparkles, Sun, Trash2 } from 'lucide-react';
 import { Opportunity } from '../../types';
 import { CalendarView } from '../../components/CalendarView';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
-import { ParsedDueDateRow, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow } from './responseParser';
+import { ParsedDueDateRow, ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow } from './responseParser';
 import { QuickOrganizerWeekAgenda } from './QuickOrganizerWeekAgenda';
+import { QuickOrganizerPmDashboard } from './QuickOrganizerPmDashboard';
 
 interface Props {
     rows: ParsedScheduleRow[];
@@ -14,6 +15,7 @@ interface Props {
     blockerInsights: string[];
     deliveryInsights: string[];
     missingTaskInsights: string[];
+    missingTaskSuggestions: ParsedMissingTaskSuggestion[];
     dueDateRows: ParsedDueDateRow[];
     opportunityAssessments: ParsedOpportunityAssessment[];
     opportunities: Opportunity[];
@@ -25,6 +27,11 @@ interface Props {
     onRemoveReminder: (id: string) => void;
     onRemoveDueDate: (id: string) => void;
     onScheduleTask: (oppId: string, taskId: string) => void;
+    onCreateSuggestedTask: (suggestion: ParsedMissingTaskSuggestion) => void;
+    language: 'en' | 'es';
+    theme: 'light' | 'dark';
+    onLanguageChange: (language: 'en' | 'es') => void;
+    onThemeChange: (theme: 'light' | 'dark') => void;
     onBack: () => void;
     onApply: () => void;
 }
@@ -62,13 +69,16 @@ const parseRecommendation = (text: string): ParsedRecommendation => {
 
 /** Complete draft workspace. Nothing in here mutates an opportunity until onApply is confirmed. */
 export const QuickOrganizerReview: React.FC<Props> = ({
-    rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunityAssessments, opportunities, errors, onChange, onReminderChange, onDueDateChange,
-    onRemove, onRemoveReminder, onRemoveDueDate, onScheduleTask, onBack, onApply,
+    rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, missingTaskSuggestions, dueDateRows, opportunityAssessments, opportunities, errors, onChange, onReminderChange, onDueDateChange,
+    onRemove, onRemoveReminder, onRemoveDueDate, onScheduleTask, onCreateSuggestedTask, language, theme, onLanguageChange, onThemeChange, onBack, onApply,
 }) => {
+    const es = language === 'es';
+    const [workspaceView, setWorkspaceView] = useState<'pm' | 'plan'>('pm');
     const [taskTab, setTaskTab] = useState<'scheduled' | 'unscheduled' | 'all'>('scheduled');
     const [search, setSearch] = useState('');
     const [plannerView, setPlannerView] = useState<'agenda' | 'calendar'>('agenda');
     const [showMissingTasks, setShowMissingTasks] = useState(true);
+    const [createdSuggestionIds, setCreatedSuggestionIds] = useState<string[]>([]);
 
     const allTasks = useMemo(() => opportunities.flatMap(opp =>
         isOpportunitySchedulable(opp)
@@ -87,36 +97,42 @@ export const QuickOrganizerReview: React.FC<Props> = ({
     const invalidDueDates = dueDateRows.filter(row => !/^\d{4}-\d{2}-\d{2}$/.test(row.date) || row.date < isoToday());
     const invalidReminders = reminderRows.filter(row => !row.title.trim() || isNaN(new Date(row.remindAt).getTime()));
     const invalidCount = invalidRows.length + invalidDueDates.length + invalidReminders.length;
-    const canApply = rows.length + reminderRows.length + dueDateRows.length > 0 && invalidCount === 0;
+    const canApply = rows.length + reminderRows.length + dueDateRows.length + createdSuggestionIds.length > 0 && invalidCount === 0;
 
-    return <div className="fixed inset-0 z-[210] bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
+    return <div className={`fixed inset-0 z-[210] bg-gray-950 text-gray-100 flex flex-col overflow-hidden ${theme === 'light' ? 'qo-theme-light' : 'qo-theme-dark'}`}>
         <header className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-xl bg-[#3DCD58] flex items-center justify-center shrink-0"><Sparkles className="w-5 h-5 text-white" /></div>
-                <div className="min-w-0"><h1 className="font-black">AI Organizer</h1><p className="text-[11px] text-gray-400">This is only a draft. Edit it freely; Tender Control will not change until you accept the plan.</p></div>
+                <div className="min-w-0"><h1 className="font-black">Quick Organizer PM</h1><p className="text-[11px] text-gray-400">{es ? 'Análisis guardado y plan editable. Nada cambia hasta que aceptes el plan.' : 'Saved analysis and editable plan. Nothing changes until you accept the plan.'}</p></div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <button onClick={onBack} className="flex items-center gap-1 px-3 py-2 text-xs font-bold text-gray-300 hover:bg-gray-800 rounded-lg"><ChevronLeft className="w-4 h-4" /> Back</button>
-                <button disabled={!canApply} onClick={onApply} className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-[#3DCD58] text-white rounded-lg hover:bg-[#34b34c] disabled:opacity-40 disabled:cursor-not-allowed"><Check className="w-4 h-4" /> Accept plan</button>
+                <div className="flex overflow-hidden rounded-lg border border-gray-700 text-[10px] font-black"><button onClick={() => onLanguageChange('es')} className={`px-2 py-1.5 ${language === 'es' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}>ES</button><button onClick={() => onLanguageChange('en')} className={`px-2 py-1.5 ${language === 'en' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}>EN</button></div>
+                <button onClick={() => onThemeChange(theme === 'light' ? 'dark' : 'light')} className="rounded-lg p-2 text-gray-400 hover:bg-gray-800" title={es ? 'Cambiar tema' : 'Change theme'}>{theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}</button>
+                <button onClick={onBack} className="flex items-center gap-1 px-3 py-2 text-xs font-bold text-gray-300 hover:bg-gray-800 rounded-lg"><ChevronLeft className="w-4 h-4" /> {es ? 'Volver' : 'Back'}</button>
+                <button disabled={!canApply} onClick={onApply} className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-[#3DCD58] text-white rounded-lg hover:bg-[#34b34c] disabled:opacity-40 disabled:cursor-not-allowed"><Check className="w-4 h-4" /> {es ? 'Aceptar plan' : 'Accept plan'}</button>
             </div>
         </header>
 
-        <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_360px]">
+        <nav className="flex shrink-0 items-center gap-2 border-b border-gray-800 bg-gray-900 px-6 py-2">
+            <button onClick={() => setWorkspaceView('pm')} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-black ${workspaceView === 'pm' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:bg-gray-800'}`}><Gauge className="h-4 w-4" />{es ? 'TABLERO PM' : 'PM DASHBOARD'}</button>
+            <button onClick={() => setWorkspaceView('plan')} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-black ${workspaceView === 'plan' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:bg-gray-800'}`}><ClipboardList className="h-4 w-4" />{es ? 'MI PLAN Y AGENDA' : 'MY PLAN & AGENDA'}</button>
+            <span className="ml-auto text-[10px] text-gray-500">{es ? `${opportunities.length} oportunidades · ${rows.length} bloques propuestos` : `${opportunities.length} opportunities · ${rows.length} proposed blocks`}</span>
+        </nav>
+
+        {workspaceView === 'pm' ? <div className="flex-1 overflow-y-auto bg-gray-100 p-5"><div className="mx-auto max-w-7xl"><QuickOrganizerPmDashboard opportunities={opportunities} rows={rows} assessments={opportunityAssessments} recommendations={recommendations} language={language} /></div></div> : <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_360px]">
             <main className="min-w-0 overflow-y-auto p-5 space-y-5">
                 <section>
-                    <div className="mb-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400">Opportunity health at a glance</h2><p className="text-[11px] text-gray-500 mt-1">Realistic readiness, capacity and the single most important move for each selected opportunity.</p></div>
+                    <div className="mb-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{es ? 'Avance operativo según la IA' : 'AI-estimated operating progress'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Estimación realista basada en entregables, trabajo restante, dependencias, información y aprobaciones; no es el porcentaje de tareas terminadas.' : 'Realistic estimate based on deliverables, remaining work, dependencies, information and approvals; it is not task completion percentage.'}</p></div>
                     {opportunityAssessments.length ? <div className="grid xl:grid-cols-2 gap-3">{opportunityAssessments.map(item => {
-                        const healthCls = item.health >= 75 ? 'text-emerald-300 bg-emerald-950/60 border-emerald-800' : item.health >= 45 ? 'text-amber-300 bg-amber-950/60 border-amber-800' : 'text-rose-300 bg-rose-950/60 border-rose-800';
-                        const feasibleCls = item.feasible === 'YES' ? 'text-emerald-300' : item.feasible === 'NO' ? 'text-rose-300' : 'text-amber-300';
                         return <article key={item.id} className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-                            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="font-black truncate">{item.oppLabel}</h3><p className="text-[11px] text-gray-400 mt-1">{item.summary}</p></div><div className={`shrink-0 w-16 h-16 rounded-2xl border flex flex-col items-center justify-center ${healthCls}`}><span className="text-xl font-black">{item.health}%</span><span className="text-[8px] font-black uppercase">health</span></div></div>
-                            <div className="grid grid-cols-3 gap-2 mt-3 text-center"><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Required</p><p className="text-sm font-black">{item.requiredHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Available</p><p className="text-sm font-black">{item.availableHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">Feasible</p><p className={`text-xs font-black ${feasibleCls}`}>{item.feasible}</p></div></div>
-                            <div className="mt-3 space-y-1.5 text-[11px]"><p><span className="text-gray-500 font-bold">What stops it:</span> {item.blocker}</p><p><span className="text-[#3DCD58] font-bold">Do now:</span> {item.nextAction}</p><p><span className="text-gray-500 font-bold">Delivery:</span> {item.suggestedDelivery || 'Needs confirmation'} · {item.reason}</p></div>
+                            <div className="flex items-start justify-between gap-4"><div className="min-w-0 flex-1"><h3 className="font-black truncate">{item.oppLabel}</h3><p className="text-[11px] text-gray-400 mt-1">{item.summary}</p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-800"><div className="h-full rounded-full bg-[#3DCD58]" style={{ width: `${item.health}%` }} /></div></div><div className="shrink-0 text-right"><span className="text-2xl font-black tabular-nums">{item.health}%</span><span className="block text-[8px] font-black uppercase text-gray-500">{es ? 'avance IA' : 'AI progress'}</span></div></div>
+                            <div className="grid grid-cols-3 gap-2 mt-3 text-center"><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">{es ? 'Requeridas' : 'Required'}</p><p className="text-sm font-black">{item.requiredHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">{es ? 'Disponibles' : 'Available'}</p><p className="text-sm font-black">{item.availableHours}h</p></div><div className="rounded-lg bg-gray-950 p-2"><p className="text-[9px] text-gray-500 uppercase">{es ? 'Viable' : 'Feasible'}</p><p className="text-xs font-black">{item.feasible}</p></div></div>
+                            <div className="mt-3 space-y-1.5 text-[11px]"><p><span className="text-gray-500 font-bold">{es ? 'Qué la frena:' : 'What stops it:'}</span> {item.blocker}</p><p><span className="text-[#3DCD58] font-bold">{es ? 'Haz ahora:' : 'Do now:'}</span> {item.nextAction}</p><p><span className="text-gray-500 font-bold">{es ? 'Entrega:' : 'Delivery:'}</span> {item.suggestedDelivery || (es ? 'Requiere confirmación' : 'Needs confirmation')} · {item.reason}</p></div>
                         </article>;
-                    })}</div> : <div className="rounded-2xl border border-dashed border-gray-700 p-5 text-xs text-gray-500">The AI reply did not include the structured opportunity assessment. Regenerate the prompt to see health, capacity and realistic delivery dates.</div>}
+                    })}</div> : <div className="rounded-2xl border border-dashed border-gray-700 p-5 text-xs text-gray-500">{es ? 'La respuesta no incluyó la evaluación estructurada. Regenera el prompt para ver avance IA, capacidad y fechas realistas.' : 'The AI reply did not include the structured assessment. Regenerate the prompt to see AI progress, capacity and realistic delivery dates.'}</div>}
                 </section>
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bot className="w-4 h-4 text-[#3DCD58]" /> AI recommendations</h2>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bot className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Recomendaciones de IA' : 'AI recommendations'}</h2>
                     {recommendations.length ? (
                         <div className="mt-3 divide-y divide-gray-800/80 rounded-xl border border-gray-800 overflow-hidden">
                             {recommendations
@@ -131,33 +147,37 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                                     </div>
                                 ))}
                         </div>
-                    ) : <p className="mt-3 text-xs text-gray-500">The response did not include recommendations.</p>}
+                    ) : <p className="mt-3 text-xs text-gray-500">{es ? 'La respuesta no incluyó recomendaciones.' : 'The response did not include recommendations.'}</p>}
                 </section>
 
                 <div className="grid lg:grid-cols-3 gap-3">
-                    {([['20/80 high-leverage tasks', paretoInsights], ['Blockers and dependencies', blockerInsights], ['Delivery outlook', deliveryInsights]] as const).map(([title, items]) => <section key={title} className="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h2 className="text-[10px] font-black uppercase tracking-widest text-[#3DCD58]">{title}</h2><div className="mt-3 space-y-2">{items.length ? items.map((item, index) => <p key={index} className="text-xs leading-relaxed text-gray-200">{item}</p>) : <p className="text-xs text-gray-600">No analysis returned.</p>}</div></section>)}
+                    {([[es ? 'Tareas 20/80 de mayor impacto' : '20/80 high-leverage tasks', paretoInsights], [es ? 'Bloqueos y dependencias' : 'Blockers and dependencies', blockerInsights], [es ? 'Panorama de entrega' : 'Delivery outlook', deliveryInsights]] as const).map(([title, items]) => <section key={title} className="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h2 className="text-[10px] font-black uppercase tracking-widest text-[#3DCD58]">{title}</h2><div className="mt-3 space-y-2">{items.length ? items.map((item, index) => <p key={index} className="text-xs leading-relaxed text-gray-200">{item}</p>) : <p className="text-xs text-gray-600">{es ? 'La IA no devolvió análisis.' : 'No analysis returned.'}</p>}</div></section>)}
                 </div>
 
-                <section className="bg-amber-950/30 border border-amber-800/70 rounded-2xl overflow-hidden">
-                    <button onClick={() => setShowMissingTasks(value => !value)} className="w-full flex items-center justify-between gap-3 p-4 text-left"><div><h2 className="text-xs font-black uppercase tracking-widest text-amber-300">Missing tasks suggested by AI</h2><p className="text-[10px] text-amber-200/50 mt-1">Potential process steps or deliverables that do not currently exist in the opportunity task list.</p></div><span className="text-[10px] font-black text-amber-300 border border-amber-700 rounded-lg px-2 py-1">{showMissingTasks ? 'HIDE' : `SHOW (${missingTaskInsights.length})`}</span></button>
-                    {showMissingTasks && <div className="border-t border-amber-800/50 p-4 space-y-2">{missingTaskInsights.length ? missingTaskInsights.map((item, index) => <p key={index} className="text-xs leading-relaxed text-amber-100 bg-amber-950/40 rounded-lg p-2.5">{item}</p>) : <p className="text-xs text-amber-200/50">No missing tasks were suggested.</p>}<p className="text-[10px] text-amber-200/40 pt-1">Suggestions are informational only. They are not created or added to the accepted plan automatically.</p></div>}
+                <section className={`border rounded-2xl overflow-hidden ${theme === 'light' ? 'bg-amber-50 border-amber-300' : 'bg-amber-950/30 border-amber-800/70'}`}>
+                    <button onClick={() => setShowMissingTasks(value => !value)} className="w-full flex items-center justify-between gap-3 p-4 text-left"><div><h2 className={`text-xs font-black uppercase tracking-widest ${theme === 'light' ? 'text-amber-900' : 'text-amber-300'}`}>{es ? 'Tareas faltantes sugeridas por IA' : 'Missing tasks suggested by AI'}</h2><p className={`text-[10px] mt-1 ${theme === 'light' ? 'text-gray-700' : 'text-amber-200/70'}`}>{es ? 'Pasos operativos que parecen faltar. El título se guardará en inglés.' : 'Operational steps that appear to be missing. The title is saved in English.'}</p></div><span className={`text-[10px] font-black border rounded-lg px-2 py-1 ${theme === 'light' ? 'text-amber-900 border-amber-400' : 'text-amber-300 border-amber-700'}`}>{showMissingTasks ? (es ? 'OCULTAR' : 'HIDE') : `${es ? 'MOSTRAR' : 'SHOW'} (${missingTaskSuggestions.length + missingTaskInsights.length})`}</span></button>
+                    {showMissingTasks && <div className={`border-t p-4 space-y-2 ${theme === 'light' ? 'border-amber-300' : 'border-amber-800/50'}`}>
+                        {missingTaskSuggestions.map(item => { const created = createdSuggestionIds.includes(item.id); return <article key={item.id} className={`flex items-start justify-between gap-3 rounded-xl border p-3 ${theme === 'light' ? 'border-amber-200 bg-white' : 'border-amber-800/50 bg-amber-950/40'}`}><div className="min-w-0"><p className={`text-[10px] font-black uppercase ${theme === 'light' ? 'text-amber-800' : 'text-amber-300'}`}>{item.oppLabel}</p><p className={`mt-0.5 text-xs font-bold ${theme === 'light' ? 'text-gray-900' : 'text-amber-50'}`}>{item.titleEnglish}</p><p className={`mt-1 text-[10px] leading-relaxed ${theme === 'light' ? 'text-gray-700' : 'text-amber-100/80'}`}>{item.reason} · {item.dueDate || (es ? 'fecha por definir' : 'date to confirm')}</p></div><button disabled={created} onClick={() => { onCreateSuggestedTask(item); setCreatedSuggestionIds(ids => [...ids, item.id]); }} className="shrink-0 rounded-lg bg-amber-400 px-3 py-2 text-[10px] font-black text-amber-950 disabled:opacity-50">{created ? (es ? 'AGREGADA AL PLAN' : 'ADDED TO PLAN') : (es ? 'AGREGAR AL PLAN' : 'ADD TO PLAN')}</button></article>; })}
+                        {missingTaskInsights.map((item, index) => <p key={index} className={`rounded-lg p-2.5 text-xs leading-relaxed ${theme === 'light' ? 'bg-white text-gray-800' : 'bg-amber-950/40 text-amber-100'}`}>{item}</p>)}
+                        {!missingTaskSuggestions.length && !missingTaskInsights.length && <p className={`text-xs ${theme === 'light' ? 'text-gray-600' : 'text-amber-200/70'}`}>{es ? 'No se sugirieron tareas faltantes.' : 'No missing tasks were suggested.'}</p>}
+                    </div>}
                 </section>
 
                 {(errors.length > 0 || invalidCount > 0) && <section className="bg-rose-950/50 border border-rose-800 rounded-xl p-3">
-                    <p className="text-xs font-bold text-rose-300 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {errors.length + invalidCount} item(s) require review{invalidCount ? ' before the plan can be accepted' : ''}.</p>
+                    <p className="text-xs font-bold text-rose-300 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {es ? `${errors.length + invalidCount} elementos requieren revisión${invalidCount ? ' antes de aceptar el plan' : ''}.` : `${errors.length + invalidCount} item(s) require review${invalidCount ? ' before the plan can be accepted' : ''}.`}</p>
                     {errors.map((e, i) => <p key={i} className="text-[11px] text-rose-300/80 mt-1">[{e.section}] {e.reason}</p>)}
-                    {invalidDueDates.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">Task due dates cannot be blank or in the past.</p>}
-                    {invalidReminders.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">Reminders need a valid date/time and a concrete title.</p>}
+                    {invalidDueDates.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">{es ? 'Las fechas de tarea no pueden estar vacías ni en el pasado.' : 'Task due dates cannot be blank or in the past.'}</p>}
+                    {invalidReminders.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">{es ? 'Los recordatorios necesitan fecha, hora y un título concreto.' : 'Reminders need a valid date/time and a concrete title.'}</p>}
                 </section>}
 
                 <section className="space-y-3">
-                    <div className="flex items-center justify-between gap-4"><div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-[#3DCD58]" /> Proposed schedule</h2><p className="text-[11px] text-gray-500 mt-1">Drag a block to another day or time, or select it to edit its exact values. Previous blocks for rescheduled active tasks are replaced when you accept.</p></div><div className="flex bg-gray-900 border border-gray-700 rounded-lg p-1"><button onClick={() => setPlannerView('agenda')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black ${plannerView === 'agenda' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}><CalendarDays className="w-3.5 h-3.5" /> AGENDA</button><button onClick={() => setPlannerView('calendar')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black ${plannerView === 'calendar' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}><LayoutGrid className="w-3.5 h-3.5" /> CALENDAR</button></div></div>
-                    {plannerView === 'agenda' ? <QuickOrganizerWeekAgenda rows={rows} onChange={onChange} onRemove={onRemove} /> : <div className="h-[650px] rounded-2xl overflow-hidden border border-gray-800 bg-white text-gray-900"><CalendarView<ParsedDueDateRow> items={dueDateRows} getDate={row => row.date} onDateDrop={(id, _type, newDate) => onDueDateChange(id, { date: newDate })} renderItem={row => <div draggable onDragStart={e => { e.dataTransfer.setData('id', row.id); e.dataTransfer.setData('type', 'ai-due-date'); }} className="rounded bg-amber-50 border border-amber-200 px-2 py-1 text-[10px] text-amber-800 cursor-grab" title={row.rationale}><b>Due:</b> {row.taskLabel}</div>} className="h-full" /></div>}
-                    {!dates.length && <div className="bg-gray-900 border border-dashed border-gray-700 rounded-2xl py-10 text-center"><p className="text-xs text-gray-500">The AI did not propose any sessions. Add tasks from the right panel.</p></div>}
+                    <div className="flex items-center justify-between gap-4"><div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Agenda propuesta' : 'Proposed schedule'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Arrastra un bloque para cambiar día u hora, o selecciónalo para editarlo.' : 'Drag a block to another day or time, or select it to edit its exact values.'}</p></div><div className="flex bg-gray-900 border border-gray-700 rounded-lg p-1"><button onClick={() => setPlannerView('agenda')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black ${plannerView === 'agenda' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}><CalendarDays className="w-3.5 h-3.5" /> AGENDA</button><button onClick={() => setPlannerView('calendar')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black ${plannerView === 'calendar' ? 'bg-[#3DCD58] text-white' : 'text-gray-400'}`}><LayoutGrid className="w-3.5 h-3.5" /> {es ? 'CALENDARIO' : 'CALENDAR'}</button></div></div>
+                    {plannerView === 'agenda' ? <QuickOrganizerWeekAgenda rows={rows} onChange={onChange} onRemove={onRemove} language={language} /> : <div className="h-[650px] rounded-2xl overflow-hidden border border-gray-800 bg-white text-gray-900"><CalendarView<ParsedDueDateRow> items={dueDateRows} getDate={row => row.date} onDateDrop={(id, _type, newDate) => onDueDateChange(id, { date: newDate })} renderItem={row => <div draggable onDragStart={e => { e.dataTransfer.setData('id', row.id); e.dataTransfer.setData('type', 'ai-due-date'); }} className="rounded bg-amber-50 border border-amber-200 px-2 py-1 text-[10px] text-amber-800 cursor-grab" title={row.rationale}><b>{es ? 'Fecha:' : 'Due:'}</b> {row.taskLabel}</div>} className="h-full" /></div>}
+                    {!dates.length && <div className="bg-gray-900 border border-dashed border-gray-700 rounded-2xl py-10 text-center"><p className="text-xs text-gray-500">{es ? 'La IA no propuso sesiones. Agrega tareas desde el panel derecho.' : 'The AI did not propose any sessions. Add tasks from the right panel.'}</p></div>}
                 </section>
 
                 {dueDateRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
-                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-amber-400" /> Task due-date changes</h2><p className="text-[11px] text-gray-500 mt-1">Review each change against the proposal delivery date. Accepting the plan updates your task dates.</p></div>
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><CalendarDays className="w-4 h-4 text-amber-400" /> {es ? 'Cambios de fecha en tareas' : 'Task due-date changes'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Revisa cada cambio contra la fecha de entrega de la propuesta.' : 'Review each change against the proposal delivery date.'}</p></div>
                     {dueDateRows.map(row => {
                         const opp = opportunities.find(item => item.id === row.oppId);
                         const task = opp?.tasks?.find(item => item.id === row.taskId);
@@ -165,13 +185,13 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                     })}
                 </section>}
 
-                {reminderRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bell className="w-4 h-4 text-[#3DCD58]" /> Proposed reminders</h2>{reminderRows.map(row => <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_180px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2"><div><p className="text-xs font-bold">{row.taskLabel}</p><input value={row.title} onChange={e => onReminderChange(row.id, { title: e.target.value })} className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-[11px]"/></div><input type="datetime-local" value={row.remindAt} onChange={e => onReminderChange(row.id, { remindAt: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveReminder(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>)}</section>}
+                {reminderRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bell className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Recordatorios propuestos' : 'Proposed reminders'}</h2>{reminderRows.map(row => <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_180px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2"><div><p className="text-xs font-bold">{row.taskLabel}</p><input value={row.title} onChange={e => onReminderChange(row.id, { title: e.target.value })} className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-[11px]"/></div><input type="datetime-local" value={row.remindAt} onChange={e => onReminderChange(row.id, { remindAt: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveReminder(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>)}</section>}
             </main>
 
             <aside className="border-l border-gray-800 bg-gray-900/70 flex flex-col min-h-0">
-                <div className="p-4 border-b border-gray-800"><h2 className="font-black text-sm">Organizer tasks</h2><p className="text-[10px] text-gray-500 mt-1">Add or remove tasks from the draft before accepting it.</p><div className="mt-3 flex items-center gap-2 bg-gray-950 border border-gray-700 rounded-lg px-2"><Search className="w-3.5 h-3.5 text-gray-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…" className="w-full bg-transparent border-0 px-0 py-2 text-xs focus:ring-0"/></div></div>
+                <div className="p-4 border-b border-gray-800"><h2 className="font-black text-sm">{es ? 'Tareas del organizador' : 'Organizer tasks'}</h2><p className="text-[10px] text-gray-500 mt-1">{es ? 'Agrega tareas al borrador antes de aceptar.' : 'Add tasks to the draft before accepting it.'}</p><div className="mt-3 flex items-center gap-2 bg-gray-950 border border-gray-700 rounded-lg px-2"><Search className="w-3.5 h-3.5 text-gray-500"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder={es ? 'Buscar tareas…' : 'Search tasks…'} className="w-full bg-transparent border-0 px-0 py-2 text-xs focus:ring-0"/></div></div>
                 <div className="grid grid-cols-3 border-b border-gray-800">
-                    {([['scheduled', `Scheduled (${scheduledTasks.length})`], ['unscheduled', `Unscheduled (${unscheduledTasks.length})`], ['all', `All (${allTasks.length})`]] as const).map(([id,label]) => <button key={id} onClick={() => setTaskTab(id)} className={`py-2.5 text-[9px] font-black uppercase border-b-2 ${taskTab === id ? 'text-[#3DCD58] border-[#3DCD58]' : 'text-gray-500 border-transparent'}`}>{label}</button>)}
+                    {([['scheduled', `${es ? 'Agendadas' : 'Scheduled'} (${scheduledTasks.length})`], ['unscheduled', `${es ? 'Sin agenda' : 'Unscheduled'} (${unscheduledTasks.length})`], ['all', `${es ? 'Todas' : 'All'} (${allTasks.length})`]] as const).map(([id,label]) => <button key={id} onClick={() => setTaskTab(id)} className={`py-2.5 text-[9px] font-black uppercase border-b-2 ${taskTab === id ? 'text-[#3DCD58] border-[#3DCD58]' : 'text-gray-500 border-transparent'}`}>{label}</button>)}
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-2">
                     {visibleTasks.map(({ opp, task }) => { const planned = plannedKeys.has(`${opp.id}::${task.id}`); const existing = (task.executionBlocks || []).length; return <div key={`${opp.id}::${task.id}`} className="bg-gray-800 border border-gray-700 rounded-xl p-3"><div className="flex justify-between gap-2"><div className="min-w-0"><p className="text-[10px] font-black text-[#3DCD58] truncate">{opp.alias || opp.title}</p><p className="text-xs font-bold mt-0.5 leading-snug">{task.title}</p></div><span className={`h-fit text-[8px] font-black uppercase px-2 py-1 rounded-full ${planned ? 'bg-emerald-900/60 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}>{planned ? 'In plan' : 'Unscheduled'}</span></div><div className="mt-2 flex items-center justify-between"><span className="text-[9px] text-gray-500 flex items-center gap-1"><Clock3 className="w-3 h-3"/>{existing ? `${existing} current block(s)` : `No current schedule`}</span>{!planned && <button onClick={() => onScheduleTask(opp.id, task.id)} className="flex items-center gap-1 text-[10px] font-bold text-[#3DCD58] hover:underline"><Plus className="w-3 h-3"/> Schedule</button>}</div></div>; })}
@@ -179,6 +199,6 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                 </div>
                 <div className="p-3 border-t border-gray-800 bg-gray-950/60"><p className="text-[10px] text-gray-500">Default when adding manually: {isoToday()}, 09:00–10:00. You can edit it immediately in the agenda.</p></div>
             </aside>
-        </div>
+        </div>}
     </div>;
 };

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Added optional SharePoint-folder updates, including per-PC Settings, package checksum validation, backup and automatic recovery without blocking normal startup.
+- Added `PUBLICAR_ACTUALIZACION.bat`, which validates the project, asks for the release destination, and generates the versioned ZIP plus `latest.json`.
+- Added the installed application version to Settings > General.
 - Added web automation (`/api/web/*`, disabled with `OPPORTUNITYOS_DISABLE_WEB=1`). It drives the Chrome already installed on the machine against a dedicated OpportunityOS profile under `%APPDATA%`, so the user signs in to corporate sites once by hand and later runs reuse that session. This first phase is reconnaissance only: `POST /login` opens a visible window for SSO/MFA, `POST /probe` inspects a page and writes its artifacts (HTML, text, screenshot, captured JSON) to `web-probes`, `GET /status` reports the session and `POST /close` releases the browser. OpportunityOS never sees, stores or types a credential.
 - Added a per-opportunity workflow timeline to the expediente: a Gantt-style view of execution and approval phases per task, day-by-day summaries (completed, expected, missed, worked hours, scheduled blocks) and per-area breakdowns resolved from stakeholder assignments.
 - Added an explicit completion date on tasks (`Task.completionDate`). Marking a task Done now asks which day the work actually finished, kept independent from `dueDate` (the commitment) and `completedAt` (the click timestamp) so a task closed late or early still reports the real completion day.

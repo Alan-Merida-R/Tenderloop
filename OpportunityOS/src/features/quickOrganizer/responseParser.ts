@@ -43,6 +43,16 @@ export interface ParsedOpportunityAssessment {
     reason: string; blocker: string; nextAction: string; summary: string;
 }
 
+/** A new task proposed by the AI. The saved task title stays in English; the reason is localized. */
+export interface ParsedMissingTaskSuggestion {
+    id: string;
+    oppId: string;
+    oppLabel: string;
+    titleEnglish: string;
+    reason: string;
+    dueDate: string;
+}
+
 export interface ParseError {
     section: 'SCHEDULE' | 'REMINDERS';
     line: string;
@@ -57,6 +67,7 @@ export interface ParseResult {
     blockerInsights: string[];
     deliveryInsights: string[];
     missingTaskInsights: string[];
+    missingTaskSuggestions: ParsedMissingTaskSuggestion[];
     dueDateRows: ParsedDueDateRow[];
     opportunityAssessments: ParsedOpportunityAssessment[];
     errors: ParseError[];
@@ -210,6 +221,7 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
     const blockerInsights: string[] = [];
     const deliveryInsights: string[] = [];
     const missingTaskInsights: string[] = [];
+    const missingTaskSuggestions: ParsedMissingTaskSuggestion[] = [];
     const dueDateRows: ParsedDueDateRow[] = [];
     const opportunityAssessments: ParsedOpportunityAssessment[] = [];
     const errors: ParseError[] = [];
@@ -231,6 +243,23 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         if (/^(REMINDERS|RECORDATORIOS)\b/.test(heading)) { section = 'REMINDERS'; continue; }
         if (/^(OPPORTUNITY ASSESSMENT|OP ASSESSMENT|EVALUACION DE OPORTUNIDADES)\b/.test(heading)) { section = 'OP_ASSESSMENT'; continue; }
         if (!section) continue;
+        if (section === 'MISSING_TASKS' && line.includes('|')) {
+            const cells = splitCells(line);
+            if (/^oppid$/i.test(cells[0] || '') || /^[-:\s]+$/.test(cells[0] || '')) continue;
+            if (cells.length >= 5) {
+                const [oppId, oppLabel, titleEnglish, reason, rawDueDate] = cells;
+                const opp = opportunities.find(item => item.id === oppId.trim());
+                const dueDate = normalizeDate(rawDueDate);
+                if (opp && titleEnglish.trim()) {
+                    missingTaskSuggestions.push({
+                        id: nextId(), oppId: opp.id, oppLabel: opp.alias || opp.title || oppLabel,
+                        titleEnglish: titleEnglish.trim(), reason: reason.trim(),
+                        dueDate: isDateValid(dueDate) ? dueDate : '',
+                    });
+                }
+            }
+            continue;
+        }
         if (section === 'RECOMMENDATIONS' || section === 'PARETO' || section === 'BLOCKERS' || section === 'DELIVERY' || section === 'MISSING_TASKS') {
             if (!/^```/.test(line)) {
                 const value = cleanNarrative(line.replace(/^[-*]\s*/, ''));
@@ -359,5 +388,5 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         }
     }
 
-    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, dueDateRows, opportunityAssessments, errors };
+    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, missingTaskSuggestions, dueDateRows, opportunityAssessments, errors };
 };

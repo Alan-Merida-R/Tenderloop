@@ -437,6 +437,9 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   const [templateMsg, setTemplateMsg] = useState<{ text: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [selectedTaskStandardId, setSelectedTaskStandardId] = useState('');
   const [quickLinkIconPickerId, setQuickLinkIconPickerId] = useState<string | null>(null);
+  const [updateFolderPath, setUpdateFolderPath] = useState('');
+  const [updateFolderBusy, setUpdateFolderBusy] = useState(false);
+  const [updateFolderMessage, setUpdateFolderMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
 
   // Reset internal state when modal opens
   useEffect(() => {
@@ -450,6 +453,11 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
       setContactSearch('');
       setContactRoleFilter('');
       setQuickLinkIconPickerId(null);
+      setUpdateFolderMessage(null);
+      fetch('http://127.0.0.1:3099/api/update-settings')
+        .then(response => response.ok ? response.json() : Promise.reject())
+        .then(value => setUpdateFolderPath(typeof value?.folderPath === 'string' ? value.folderPath : ''))
+        .catch(() => setUpdateFolderMessage({ kind: 'error', text: 'Update settings are unavailable. Tender Control will continue without automatic updates.' }));
     }
   }, [isOpen, initialSettings]);
 
@@ -1272,6 +1280,65 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-6 py-4 shadow-sm">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-gray-800">Application</h3>
+                  <p className="mt-1 text-xs text-gray-500">Installed Tender Control release.</p>
+                </div>
+                <span className="rounded-full bg-gray-100 px-3 py-1.5 font-mono text-xs font-bold text-gray-700">
+                  Version {__APP_VERSION__}
+                </span>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+                <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-gray-800">
+                  <RefreshCw className="h-4 w-4 text-[#3DCD58]" /> Application updates
+                </h3>
+                <p className="mt-2 max-w-2xl text-xs text-gray-500">
+                  Select the SharePoint folder synchronized on this computer. If no folder is selected, Tender Control will work normally but will not receive updates.
+                </p>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    value={updateFolderPath}
+                    onChange={event => setUpdateFolderPath(event.target.value)}
+                    className="min-w-0 flex-1 rounded-lg border-gray-200 p-2.5 font-mono text-sm focus:border-[#3DCD58] focus:ring-0"
+                    placeholder="C:\\Users\\Name\\Company\\OpportunityOS Updates"
+                  />
+                  <button type="button" disabled={updateFolderBusy} onClick={async () => {
+                    setUpdateFolderMessage(null);
+                    try {
+                      const handle = await (window as any).showDirectoryPicker({ mode: 'read' });
+                      const located = await locateFolderPath(handle);
+                      if (!located) throw new Error('Could not resolve the selected folder path.');
+                      setUpdateFolderPath(located);
+                    } catch (error: any) {
+                      if (error?.name !== 'AbortError') setUpdateFolderMessage({ kind: 'error', text: error?.message || 'Folder selection failed.' });
+                    }
+                  }} className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                    <FolderOpen className="h-4 w-4" /> Choose folder...
+                  </button>
+                  <button type="button" disabled={updateFolderBusy} onClick={async () => {
+                    setUpdateFolderBusy(true); setUpdateFolderMessage(null);
+                    try {
+                      const response = await fetch('http://127.0.0.1:3099/api/update-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderPath: updateFolderPath }) });
+                      const value = await response.json().catch(() => ({}));
+                      if (!response.ok) throw new Error(value?.error || 'The update folder could not be saved.');
+                      setUpdateFolderPath(value.folderPath || '');
+                      setUpdateFolderMessage({ kind: 'ok', text: value.folderPath ? 'Update folder saved.' : 'Automatic updates are disabled. Tender Control will continue to work normally.' });
+                    } catch (error: any) {
+                      setUpdateFolderMessage({ kind: 'error', text: error?.message || 'The update folder could not be saved.' });
+                    } finally { setUpdateFolderBusy(false); }
+                  }} className="rounded-lg bg-[#3DCD58] px-4 py-2 text-xs font-bold text-white hover:bg-[#32b84d] disabled:opacity-50">
+                    Save folder
+                  </button>
+                  <button type="button" disabled={updateFolderBusy} onClick={() => setUpdateFolderPath('')} className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50">Clear</button>
+                </div>
+                <p className={`mt-2 text-[11px] font-bold ${updateFolderMessage?.kind === 'error' ? 'text-red-600' : 'text-emerald-700'}`}>
+                  {updateFolderMessage?.text || (updateFolderPath ? 'Updates are enabled after this folder is saved.' : 'Updates are currently disabled.')}
+                </p>
               </div>
             </div>
           )}

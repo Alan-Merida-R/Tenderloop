@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, Check, ChevronDown, ChevronUp, Copy, Sparkles, Trash2, X } from 'lucide-react';
-import { Opportunity, Reminder } from '../../types';
+import { Bot, Check, ChevronDown, ChevronUp, Copy, History, Moon, Sparkles, Sun, Trash2, X } from 'lucide-react';
+import { Opportunity, QuickOrganizerPreferences, QuickOrganizerRun, Reminder, Task } from '../../types';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { createBlock } from '../schedule/executionBlockUtils';
 import { buildOrganizerPrompt, ORGANIZER_CHIPS, TimeRange } from './promptBuilder';
-import { ParsedDueDateRow, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
-import { QuickOrganizerIntro } from './QuickOrganizerIntro';
+import { ParsedDueDateRow, ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
 import { QuickOrganizerReview } from './QuickOrganizerReview';
+import { QuickOrganizerAvailabilityPicker } from './QuickOrganizerAvailabilityPicker';
 
 interface Props {
     opportunities: Opportunity[];
@@ -16,6 +16,11 @@ interface Props {
     onAddReminder: (reminder: Omit<Reminder, 'id' | 'createdAt'>) => void;
     onDeleteReminder: (id: string) => void;
     onClose: () => void;
+    organizerHistory: QuickOrganizerRun[];
+    organizerPreferences: QuickOrganizerPreferences;
+    onSaveOrganizerRun: (run: QuickOrganizerRun) => void;
+    onDeleteOrganizerRun: (id: string) => void;
+    onOrganizerPreferencesChange: (preferences: QuickOrganizerPreferences) => void;
     /** Called right after a plan is accepted — the host navigates to the Tasks view in Agenda mode. */
     onPlanAccepted?: () => void;
 }
@@ -30,7 +35,7 @@ interface DayOption {
 }
 
 /** Today through the same weekday next week (8 days, inclusive). */
-const buildDayWindow = (): DayOption[] => {
+const buildDayWindow = (language: 'en' | 'es'): DayOption[] => {
     const base = new Date();
     base.setHours(0, 0, 0, 0);
     return Array.from({ length: 8 }, (_, i) => {
@@ -38,19 +43,22 @@ const buildDayWindow = (): DayOption[] => {
         d.setDate(d.getDate() + i);
         return {
             iso: d.toLocaleDateString('en-CA'),
-            weekday: d.toLocaleDateString('en-US', { weekday: 'short' }),
+            weekday: d.toLocaleDateString(language === 'es' ? 'es-MX' : 'en-US', { weekday: 'short' }),
             dayNum: d.getDate(),
             isToday: i === 0,
         };
     });
 };
 
-export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onDeleteReminder, onClose, onPlanAccepted }) => {
-    const [phase, setPhase] = useState<'intro' | 'main' | 'review'>('intro');
+export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onDeleteReminder, onClose, organizerHistory, organizerPreferences, onSaveOrganizerRun, onDeleteOrganizerRun, onOrganizerPreferencesChange, onPlanAccepted }) => {
+    const [phase, setPhase] = useState<'main' | 'review'>('main');
     const [extraInstructions, setExtraInstructions] = useState('');
     const [activeChipIds, setActiveChipIds] = useState<string[]>([]);
-    const [recommendationLanguage, setRecommendationLanguage] = useState<'en' | 'es'>('es');
-    const dayWindow = useMemo(buildDayWindow, []);
+    const [recommendationLanguage, setRecommendationLanguage] = useState<'en' | 'es'>(organizerPreferences.displayLanguage || 'es');
+    const [organizerTheme, setOrganizerTheme] = useState<'light' | 'dark'>(organizerPreferences.theme || 'light');
+    const [availabilityMode, setAvailabilityMode] = useState<'classic' | 'calendar'>('classic');
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
+    const dayWindow = useMemo(() => buildDayWindow(recommendationLanguage), [recommendationLanguage]);
 
     const eligibleOpps = useMemo(
         () => opportunities
@@ -89,7 +97,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         ...prev,
         [iso]: (prev[iso] || []).map((r, i) => i === idx ? { ...r, ...patch } : r),
     }));
-    const todayLabel = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }), []);
+    const todayLabel = useMemo(() => new Date().toLocaleDateString(recommendationLanguage === 'es' ? 'es-MX' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' }), [recommendationLanguage]);
     const [prompt, setPrompt] = useState('');
     const [promptDirty, setPromptDirty] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -104,6 +112,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const [blockerInsights, setBlockerInsights] = useState<string[]>([]);
     const [deliveryInsights, setDeliveryInsights] = useState<string[]>([]);
     const [missingTaskInsights, setMissingTaskInsights] = useState<string[]>([]);
+    const [missingTaskSuggestions, setMissingTaskSuggestions] = useState<ParsedMissingTaskSuggestion[]>([]);
+    const [queuedTaskSuggestions, setQueuedTaskSuggestions] = useState<ParsedMissingTaskSuggestion[]>([]);
     const [opportunityAssessments, setOpportunityAssessments] = useState<ParsedOpportunityAssessment[]>([]);
     const [applied, setApplied] = useState(false);
 
@@ -135,6 +145,15 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         setActiveChipIds(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
     };
 
+    const changeLanguage = (language: 'en' | 'es') => {
+        setRecommendationLanguage(language);
+        onOrganizerPreferencesChange({ theme: organizerTheme, displayLanguage: language });
+    };
+    const changeTheme = (theme: 'light' | 'dark') => {
+        setOrganizerTheme(theme);
+        onOrganizerPreferencesChange({ theme, displayLanguage: recommendationLanguage });
+    };
+
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(prompt);
@@ -143,8 +162,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         } catch { /* clipboard permission denied — user can still select+copy manually */ }
     };
 
-    const handleParse = () => {
-        const result = parseOrganizerResponse(pasteText, opportunities, { dayWindows: timeRangesByDate });
+    const importAnalysis = (sourceText: string, windows: Record<string, TimeRange[]>, saveAsNew: boolean) => {
+        const result = parseOrganizerResponse(sourceText, opportunities, { dayWindows: windows });
         setScheduleRows(result.scheduleRows);
         const tasksWithCurrentReminder = new Set(reminders
             .filter(reminder => !reminder.seenAt)
@@ -167,6 +186,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         setBlockerInsights(result.blockerInsights);
         setDeliveryInsights(result.deliveryInsights);
         setMissingTaskInsights(result.missingTaskInsights);
+        setMissingTaskSuggestions(result.missingTaskSuggestions);
+        setQueuedTaskSuggestions([]);
         setOpportunityAssessments(result.opportunityAssessments);
         const importedDueDateKeys = new Set<string>();
         setDueDateRows(result.dueDateRows.filter(row => {
@@ -176,9 +197,32 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             return true;
         }));
         setApplied(false);
+        if (saveAsNew) {
+            const now = new Date().toISOString();
+            const run: QuickOrganizerRun = {
+                id: crypto.randomUUID(), createdAt: now, updatedAt: now,
+                displayLanguage: recommendationLanguage, selectedOppIds: [...selectedOppIds],
+                dayWindows: windows, prompt, response: sourceText,
+            };
+            setActiveRunId(run.id);
+            onSaveOrganizerRun(run);
+        }
         // Always open review after a non-empty paste. Even a partially malformed answer
         // must be inspectable so the user is never trapped on the paste screen.
-        if (pasteText.trim()) setPhase('review');
+        if (sourceText.trim()) setPhase('review');
+    };
+
+    const handleParse = () => importAnalysis(pasteText, timeRangesByDate, true);
+
+    const openSavedRun = (run: QuickOrganizerRun) => {
+        setActiveRunId(run.id);
+        setSelectedOppIds(run.selectedOppIds);
+        setTimeRangesByDate(run.dayWindows);
+        setRecommendationLanguage(run.displayLanguage);
+        setPrompt(run.prompt);
+        setPromptDirty(true);
+        setPasteText(run.response);
+        importAnalysis(run.response, run.dayWindows, false);
     };
 
     const removeScheduleRow = (id: string) => setScheduleRows(prev => prev.filter(r => r.id !== id));
@@ -215,6 +259,10 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         }]);
     };
 
+    const queueSuggestedTask = (suggestion: ParsedMissingTaskSuggestion) => setQueuedTaskSuggestions(current =>
+        current.some(item => item.id === suggestion.id) ? current : [...current, suggestion]
+    );
+
     const handleApply = () => {
         const selectedSet = new Set(selectedOppIds);
         for (const reminder of reminders) {
@@ -234,7 +282,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             byTask.get(row.taskId)!.push(row);
         }
 
-        const affectedOppIds = new Set([...byOpp.keys(), ...dueDateRows.map(row => row.oppId)]);
+        const affectedOppIds = new Set([...byOpp.keys(), ...dueDateRows.map(row => row.oppId), ...queuedTaskSuggestions.map(item => item.oppId)]);
         for (const oppId of affectedOppIds) {
             const byTask = byOpp.get(oppId) || new Map<string, ParsedScheduleRow[]>();
             const opp = opportunities.find(o => o.id === oppId);
@@ -247,7 +295,17 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 const blocks = rows ? rows.map(r => createBlock(r.date, r.startTime, r.endTime)) : t.executionBlocks;
                 return { ...t, executionBlocks: blocks, ...(proposedDueDate ? { dueDate: proposedDueDate } : {}) };
             });
-            onOppUpdate({ ...opp, tasks: updatedTasks, lastUpdated: new Date().toISOString() }, oppId, true);
+            let nextOrder = Math.max(0, ...updatedTasks.map(task => task.order || 0));
+            const existingTitles = new Set(updatedTasks.map(task => task.title.trim().toLowerCase()));
+            const createdTasks: Task[] = queuedTaskSuggestions
+                .filter(item => item.oppId === oppId && !existingTitles.has(item.titleEnglish.trim().toLowerCase()))
+                .map(item => ({
+                    id: crypto.randomUUID(), title: item.titleEnglish, description: '', status: 'Pending',
+                    priority: 'Medium', owner: 'Me', externalAreas: [], responsible: '', dueDate: item.dueDate,
+                    stageContext: opp.stage, subtasks: [], linkedNoteIds: [], order: ++nextOrder,
+                    dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false,
+                }));
+            onOppUpdate({ ...opp, tasks: [...updatedTasks, ...createdTasks], lastUpdated: new Date().toISOString() }, oppId, true);
         }
 
         const existingTaskReminders = new Set(reminders
@@ -263,12 +321,17 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             onAddReminder({ title: row.title, dueAt: due.toISOString(), opportunityId: row.oppId, taskId: row.taskId });
         }
 
-        setApplied(true);
-    };
+        if (activeRunId) {
+            const now = new Date().toISOString();
+            const existing = organizerHistory.find(run => run.id === activeRunId);
+            onSaveOrganizerRun(existing
+                ? { ...existing, updatedAt: now, appliedAt: now }
+                : { id: activeRunId, createdAt: now, updatedAt: now, appliedAt: now, displayLanguage: recommendationLanguage, selectedOppIds: [...selectedOppIds], dayWindows: timeRangesByDate, prompt, response: pasteText });
+        }
 
-    if (phase === 'intro') {
-        return <QuickOrganizerIntro userName={userName} onDone={() => setPhase('main')} />;
-    }
+        setApplied(true);
+        setQueuedTaskSuggestions([]);
+    };
 
     if (phase === 'review') {
         return <QuickOrganizerReview
@@ -279,6 +342,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             blockerInsights={blockerInsights}
             deliveryInsights={deliveryInsights}
             missingTaskInsights={missingTaskInsights}
+            missingTaskSuggestions={missingTaskSuggestions}
             opportunityAssessments={opportunityAssessments}
             dueDateRows={dueDateRows}
             opportunities={opportunities.filter(opp => selectedOppIds.includes(opp.id))}
@@ -290,6 +354,11 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             onRemoveReminder={removeReminderRow}
             onRemoveDueDate={removeDueDateRow}
             onScheduleTask={scheduleTaskInDraft}
+            onCreateSuggestedTask={queueSuggestedTask}
+            language={recommendationLanguage}
+            theme={organizerTheme}
+            onLanguageChange={changeLanguage}
+            onThemeChange={changeTheme}
             onBack={() => setPhase('main')}
             onApply={() => {
                 handleApply();
@@ -301,7 +370,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     }
 
     return (
-        <div className="qo-scene-in fixed inset-0 z-[200] bg-gray-950 text-gray-100 flex flex-col overflow-hidden">
+        <div className={`qo-scene-in fixed inset-0 z-[200] bg-gray-950 text-gray-100 flex flex-col overflow-hidden ${organizerTheme === 'light' ? 'qo-theme-light' : 'qo-theme-dark'}`}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-[#3DCD58] flex items-center justify-center">
@@ -310,27 +379,29 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                     <div>
                         <h1 className="text-base font-black">Quick Organizer</h1>
                         <p className="text-[11px] text-gray-400">
-                            Today is <span className="text-[#3DCD58] font-bold">{todayLabel}</span> · {stats.eligibleTasks} open task{stats.eligibleTasks === 1 ? '' : 's'} across {stats.opps} opportunit{stats.opps === 1 ? 'y' : 'ies'} · {stats.alreadyScheduled} already scheduled
+                            {recommendationLanguage === 'es' ? <>Hoy es <span className="text-[#3DCD58] font-bold">{todayLabel}</span> · {stats.eligibleTasks} tareas abiertas en {stats.opps} oportunidades · {stats.alreadyScheduled} ya agendadas</> : <>Today is <span className="text-[#3DCD58] font-bold">{todayLabel}</span> · {stats.eligibleTasks} open task{stats.eligibleTasks === 1 ? '' : 's'} across {stats.opps} opportunit{stats.opps === 1 ? 'y' : 'ies'} · {stats.alreadyScheduled} already scheduled</>}
                         </p>
                     </div>
                 </div>
-                <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-800 transition-colors" title="Back to Settings">
-                    <X className="w-5 h-5 text-gray-400" />
-                </button>
+                <div className="flex items-center gap-1"><button onClick={() => changeTheme(organizerTheme === 'light' ? 'dark' : 'light')} className="p-2 rounded-lg hover:bg-gray-800 transition-colors" title={recommendationLanguage === 'es' ? 'Cambiar tema' : 'Change theme'}>{organizerTheme === 'light' ? <Moon className="w-4 h-4 text-gray-500" /> : <Sun className="w-4 h-4 text-gray-400" />}</button><button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-800 transition-colors" title="Back to Settings"><X className="w-5 h-5 text-gray-400" /></button></div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl mx-auto w-full">
+                {organizerHistory.length > 0 && <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+                    <div className="flex items-center justify-between gap-3"><div><h2 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-gray-400"><History className="h-4 w-4 text-[#3DCD58]" />{recommendationLanguage === 'es' ? 'Análisis PM guardados' : 'Saved PM analyses'}</h2><p className="mt-1 text-[10px] text-gray-500">{recommendationLanguage === 'es' ? 'Reabre un diagnóstico anterior sin volver a pasar por la IA.' : 'Reopen a previous diagnosis without returning to the AI.'}</p></div><span className="text-[10px] font-bold text-gray-500">{organizerHistory.length}/20</span></div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">{organizerHistory.slice(0, 6).map(run => <article key={run.id} className="flex items-center gap-3 rounded-xl border border-gray-700 bg-gray-800/60 p-3"><button onClick={() => openSavedRun(run)} className="min-w-0 flex-1 text-left"><p className="truncate text-xs font-bold">{run.selectedOppIds.length} {recommendationLanguage === 'es' ? 'oportunidades analizadas' : 'opportunities analyzed'}</p><p className="mt-0.5 text-[9px] text-gray-500">{new Date(run.createdAt).toLocaleString(recommendationLanguage === 'es' ? 'es-MX' : 'en-US')} · {run.appliedAt ? (recommendationLanguage === 'es' ? 'Aplicado' : 'Applied') : (recommendationLanguage === 'es' ? 'Borrador' : 'Draft')}</p></button><button onClick={() => onDeleteOrganizerRun(run.id)} className="rounded p-1.5 text-gray-500 hover:bg-rose-950/50 hover:text-rose-400" title={recommendationLanguage === 'es' ? 'Eliminar análisis' : 'Delete analysis'}><Trash2 className="h-3.5 w-3.5" /></button></article>)}</div>
+                </section>}
                 {/* Step 1: opportunity picker */}
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">1. Select and prioritize opportunities</h2>
-                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === Math.min(8, eligibleOpps.length) ? [] : eligibleOpps.slice(0, 8).map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === Math.min(8, eligibleOpps.length) ? 'Exclude all' : 'Include first 8'}</button>
+                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '1. Selecciona y prioriza oportunidades' : '1. Select and prioritize opportunities'}</h2>
+                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === Math.min(8, eligibleOpps.length) ? [] : eligibleOpps.slice(0, 8).map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === Math.min(8, eligibleOpps.length) ? (recommendationLanguage === 'es' ? 'Excluir todas' : 'Exclude all') : (recommendationLanguage === 'es' ? 'Incluir primeras 8' : 'Include first 8')}</button>
                     </div>
                     <p className="text-[11px] text-gray-500">
-                        Select up to 8 opportunities so the prompt stays reliable in smaller AI models. Use the arrows to set priority. ({selectedOppIds.length}/8 selected)
+                        {recommendationLanguage === 'es' ? `Selecciona hasta 8 oportunidades y usa las flechas para definir su prioridad. (${selectedOppIds.length}/8 seleccionadas)` : `Select up to 8 opportunities so the prompt stays reliable in smaller AI models. Use the arrows to set priority. (${selectedOppIds.length}/8 selected)`}
                     </p>
                     {eligibleOpps.length === 0 ? (
-                        <p className="text-xs text-gray-500 py-2">No opportunities with open tasks.</p>
+                        <p className="text-xs text-gray-500 py-2">{recommendationLanguage === 'es' ? 'No hay oportunidades con tareas abiertas.' : 'No opportunities with open tasks.'}</p>
                     ) : (
                         <div className="space-y-2">
                             {[...eligibleOpps].sort((a, b) => { const ai = selectedOppIds.indexOf(a.id), bi = selectedOppIds.indexOf(b.id); if (ai >= 0 && bi >= 0) return ai - bi; if (ai >= 0) return -1; if (bi >= 0) return 1; return a.label.localeCompare(b.label); }).map(opp => {
@@ -340,7 +411,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                     <div key={opp.id} className={`grid grid-cols-[28px_32px_minmax(0,1fr)_auto] gap-2 items-center rounded-xl border p-2 ${active ? 'bg-emerald-950/30 border-[#3DCD58]/50' : 'bg-gray-800/40 border-gray-800 opacity-60'}`}>
                                         <input type="checkbox" checked={active} disabled={!active && selectedOppIds.length >= 8} onChange={() => toggleOpp(opp.id)} className="rounded border-gray-600 text-[#3DCD58] focus:ring-[#3DCD58] disabled:opacity-30" />
                                         <span className={`text-xs font-black text-center ${active ? 'text-[#3DCD58]' : 'text-gray-600'}`}>{active ? `#${rank + 1}` : '—'}</span>
-                                        <button onClick={() => toggleOpp(opp.id)} className="text-left min-w-0"><p className="text-xs font-bold truncate">{opp.label}</p><p className="text-[10px] text-gray-400 mt-0.5">Delivery: {opp.expected || 'Not set'} · {opp.quoteType} · {opp.pendingDays === null ? 'Age unknown' : `${opp.pendingDays} calendar days`} · {opp.taskCount} open tasks</p></button>
+                                        <button onClick={() => toggleOpp(opp.id)} className="text-left min-w-0"><p className="text-xs font-bold truncate">{opp.label}</p><p className="text-[10px] text-gray-400 mt-0.5">{recommendationLanguage === 'es' ? <>Entrega: {opp.expected || 'Sin fecha'} · {opp.quoteType} · {opp.pendingDays === null ? 'Antigüedad desconocida' : `${opp.pendingDays} días calendario`} · {opp.taskCount} tareas abiertas</> : <>Delivery: {opp.expected || 'Not set'} · {opp.quoteType} · {opp.pendingDays === null ? 'Age unknown' : `${opp.pendingDays} calendar days`} · {opp.taskCount} open tasks</>}</p></button>
                                         <div className="flex gap-1"><button disabled={!active || rank === 0} onClick={() => moveOpp(opp.id, -1)} className="p-1 text-gray-400 hover:text-white disabled:opacity-20"><ChevronUp className="w-4 h-4" /></button><button disabled={!active || rank === selectedOppIds.length - 1} onClick={() => moveOpp(opp.id, 1)} className="p-1 text-gray-400 hover:text-white disabled:opacity-20"><ChevronDown className="w-4 h-4" /></button></div>
                                     </div>
                                 );
@@ -352,20 +423,32 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 {/* Step 2: day picker + per-day time ranges */}
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">2. Which days — and what time ranges — should I schedule? (optional)</h2>
+                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '2. ¿Qué días y horarios quieres organizar? (opcional)' : '2. Which days and time ranges should I schedule? (optional)'}</h2>
                         {Object.keys(timeRangesByDate).length > 0 && (
                             <button onClick={() => setTimeRangesByDate({})} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">
-                                Clear
+                                {recommendationLanguage === 'es' ? 'Limpiar' : 'Clear'}
                             </button>
                         )}
                     </div>
                     <p className="text-[11px] text-gray-500">
-                        Pick one or more days — e.g. only Monday, or Monday and Tuesday — then set the time range(s) you're free that day. Leave empty to let the AI use any day/time.
+                        {recommendationLanguage === 'es' ? 'Elige los días y los intervalos en que realmente puedes trabajar. Déjalo vacío para no limitar la propuesta.' : "Pick one or more days, then set the time ranges you're free. Leave empty to let the AI use any day/time."}
                     </p>
                     <div className="flex flex-wrap gap-2">
-                        <button onClick={selectNextWorkWeek} className="px-3 py-1.5 rounded-lg border border-[#3DCD58]/60 text-[11px] font-bold text-[#3DCD58] hover:bg-emerald-950/40">Select next 5 workdays</button>
-                        <span className="self-center text-[10px] text-gray-500">Adds one clean 08:00-17:00 window per day.</span>
+                        <button onClick={selectNextWorkWeek} className="px-3 py-1.5 rounded-lg border border-[#3DCD58]/60 text-[11px] font-bold text-[#3DCD58] hover:bg-emerald-950/40">{recommendationLanguage === 'es' ? 'Seleccionar próximos 5 días hábiles' : 'Select next 5 workdays'}</button>
+                        <span className="self-center text-[10px] text-gray-500">{recommendationLanguage === 'es' ? 'Agrega un intervalo 08:00–17:00 por día.' : 'Adds one clean 08:00–17:00 window per day.'}</span>
                     </div>
+                    <div className="flex w-fit rounded-lg border border-gray-700 bg-gray-950 p-1 text-[10px] font-black">
+                        <button onClick={() => setAvailabilityMode('classic')} className={`rounded-md px-3 py-1.5 ${availabilityMode === 'classic' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-gray-200'}`}>{recommendationLanguage === 'es' ? 'HORARIOS CLÁSICOS' : 'CLASSIC TIMES'}</button>
+                        <button onClick={() => setAvailabilityMode('calendar')} className={`rounded-md px-3 py-1.5 ${availabilityMode === 'calendar' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-gray-200'}`}>{recommendationLanguage === 'es' ? 'CALENDARIO VISUAL' : 'VISUAL CALENDAR'}</button>
+                    </div>
+                    {availabilityMode === 'calendar' && <QuickOrganizerAvailabilityPicker
+                        days={dayWindow}
+                        rangesByDate={timeRangesByDate}
+                        onToggleDay={toggleDate}
+                        onChange={setTimeRangesByDate}
+                        language={recommendationLanguage}
+                    />}
+                    {availabilityMode === 'classic' && <>
                     <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                         {dayWindow.map(day => {
                             const active = isDaySelected(day.iso);
@@ -377,7 +460,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                 >
                                     <span className="text-[9px] font-bold uppercase tracking-wide">{day.weekday}</span>
                                     <span className="text-sm font-black">{day.dayNum}</span>
-                                    {day.isToday && <span className={`text-[8px] font-bold uppercase ${active ? 'text-white/80' : 'text-[#3DCD58]'}`}>Today</span>}
+                                    {day.isToday && <span className={`text-[8px] font-bold uppercase ${active ? 'text-white/80' : 'text-[#3DCD58]'}`}>{recommendationLanguage === 'es' ? 'Hoy' : 'Today'}</span>}
                                 </button>
                             );
                         })}
@@ -418,7 +501,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                                     </div>
                                                 ))}
                                                 <button onClick={() => addRange(iso)} className="text-[11px] font-bold text-[#3DCD58] hover:underline px-1">
-                                                    + Add range
+                                                    {recommendationLanguage === 'es' ? '+ Agregar horario' : '+ Add range'}
                                                 </button>
                                             </div>
                                         </div>
@@ -426,22 +509,23 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                 })}
                         </div>
                     )}
+                    </>}
                 </section>
 
                 {/* Step 1: extra instructions */}
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">3. Extra instructions (optional)</h2>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '3. Instrucciones adicionales (opcional)' : '3. Extra instructions (optional)'}</h2>
                     <div className="flex items-center justify-between gap-3 rounded-xl bg-gray-800/60 border border-gray-700 px-3 py-2">
-                        <span className="text-[11px] font-bold text-gray-300 flex items-center gap-1.5"><Bot className="w-3.5 h-3.5 text-[#3DCD58]" /> AI recommendations language</span>
+                        <span className="text-[11px] font-bold text-gray-300 flex items-center gap-1.5"><Bot className="w-3.5 h-3.5 text-[#3DCD58]" /> {recommendationLanguage === 'es' ? 'Idioma del análisis y recordatorios' : 'Analysis and reminder language'}</span>
                         <div className="flex rounded-lg overflow-hidden border border-gray-700 text-[11px] font-bold">
-                            <button onClick={() => setRecommendationLanguage('es')} className={`px-2.5 py-1 ${recommendationLanguage === 'es' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-white'}`}>Español</button>
-                            <button onClick={() => setRecommendationLanguage('en')} className={`px-2.5 py-1 ${recommendationLanguage === 'en' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-white'}`}>English</button>
+                            <button onClick={() => changeLanguage('es')} className={`px-2.5 py-1 ${recommendationLanguage === 'es' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-white'}`}>Español</button>
+                            <button onClick={() => changeLanguage('en')} className={`px-2.5 py-1 ${recommendationLanguage === 'en' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-white'}`}>English</button>
                         </div>
                     </div>
                     <textarea
                         value={extraInstructions}
                         onChange={e => setExtraInstructions(e.target.value)}
-                        placeholder="e.g. I stepped away from the original plan, reschedule everything starting tomorrow…"
+                        placeholder={recommendationLanguage === 'es' ? 'Ej.: Reorganiza todo desde mañana y deja libre la hora de comida…' : 'e.g. Reschedule everything starting tomorrow and keep lunch free…'}
                         className={`${inputCls} h-16 resize-none`}
                     />
                     <div className="flex flex-wrap gap-2">
@@ -460,15 +544,15 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 {/* Step 2: prompt */}
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">4. Copy this prompt into your AI chat</h2>
+                        <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '4. Copia este prompt en tu chat de IA' : '4. Copy this prompt into your AI chat'}</h2>
                         <div className="flex items-center gap-2">
                             {promptDirty && (
                                 <button onClick={() => { setPromptDirty(false); setPrompt(generatedPrompt); }} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">
-                                    Regenerate
+                                    {recommendationLanguage === 'es' ? 'Regenerar' : 'Regenerate'}
                                 </button>
                             )}
                             <button onClick={handleCopy} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#3DCD58] text-white rounded-lg hover:bg-[#34b34c] transition-colors">
-                                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} {copied ? 'Copied' : 'Copy Prompt'}
+                                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} {copied ? (recommendationLanguage === 'es' ? 'Copiado' : 'Copied') : (recommendationLanguage === 'es' ? 'Copiar prompt' : 'Copy Prompt')}
                             </button>
                         </div>
                     </div>
@@ -489,11 +573,11 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
 
                 {/* Step 3: paste response */}
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">5. Paste the AI's reply</h2>
+                    <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '5. Pega la respuesta de la IA' : "5. Paste the AI's reply"}</h2>
                     <textarea
                         value={pasteText}
                         onChange={e => setPasteText(e.target.value)}
-                        placeholder="Paste Copilot's full reply here — it must include the ### SCHEDULE table (use 'Copy' on the whole message, not a screenshot)…"
+                        placeholder={recommendationLanguage === 'es' ? 'Pega aquí la respuesta completa; debe incluir la tabla ### SCHEDULE.' : 'Paste the full AI reply here; it must include the ### SCHEDULE table.'}
                         className={`${inputCls} h-40 font-mono text-[11px] resize-y`}
                     />
                     <button
@@ -501,7 +585,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                         disabled={!pasteText.trim()}
                         className="px-3 py-1.5 text-xs font-bold bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                        <Bot className="w-4 h-4 inline mr-1.5" /> Review AI plan
+                        <Bot className="w-4 h-4 inline mr-1.5" /> {recommendationLanguage === 'es' ? 'Revisar plan de IA' : 'Review AI plan'}
                     </button>
                 </section>
 

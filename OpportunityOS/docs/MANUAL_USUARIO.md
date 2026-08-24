@@ -234,3 +234,18 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 - Cópialo periódicamente a un disco externo o nube.
 - Si cambias de PC, basta con descomprimir el ZIP de nuevo, instalar Node, ejecutar el `.vbs` y abrir el mismo JSON desde **Open DB**.
+
+---
+
+## 11. Actualizaciones opcionales desde SharePoint
+
+1. Sincroniza en Windows la carpeta de actualizaciones indicada por el responsable.
+2. Abre **Settings > General > Application updates**.
+3. Pulsa **Choose folder...**, selecciona la carpeta y pulsa **Save folder**.
+4. Al iniciar, Tender Control comprobara e instalara una version mas reciente antes de abrir.
+
+Esta configuracion es opcional. Sin carpeta, con SharePoint desconectado o con un
+paquete invalido, Tender Control abre la version instalada y sigue funcionando.
+Para desactivar las actualizaciones pulsa **Clear** y despues **Save folder**.
+Los mensajes del actualizador aparecen en ingles. La version instalada se muestra
+en **Settings > General > Application**.

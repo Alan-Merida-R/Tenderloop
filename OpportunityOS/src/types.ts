@@ -763,6 +763,30 @@ export interface Reminder {
   seenAt?: string;
 }
 
+/** Persistent preferences for the standalone Quick Organizer workspace. */
+export interface QuickOrganizerPreferences {
+  /** The organizer is intentionally light by default, independently of the legacy app theme. */
+  theme: 'light' | 'dark';
+  /** Language used for UI guidance, AI analysis and reminders. Existing task titles are never translated. */
+  displayLanguage: 'en' | 'es';
+}
+
+/**
+ * One imported AI analysis. We retain the source prompt/response rather than a fragile copy of
+ * every parsed row, so a saved analysis can be reopened and validated against the live OP data.
+ */
+export interface QuickOrganizerRun {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  appliedAt?: string;
+  displayLanguage: 'en' | 'es';
+  selectedOppIds: string[];
+  dayWindows: Record<string, Array<{ start: string; end: string }>>;
+  prompt: string;
+  response: string;
+}
+
 export interface UserSettings {
   theme: 'light' | 'dark';
   userName: string;
@@ -796,6 +820,9 @@ export interface UserSettings {
   };
   /** Daily Manager-report auto-export. Lives in the database so it survives browser/cache changes. */
   managerReportSync?: ManagerReportSyncSettings;
+  /** Preferences and recent imported PM analyses stored with the database. */
+  quickOrganizerPreferences?: QuickOrganizerPreferences;
+  quickOrganizerHistory?: QuickOrganizerRun[];
 }
 
 export interface ManagerReportSyncSettings {

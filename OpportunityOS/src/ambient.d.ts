@@ -3,3 +3,6 @@ declare module "*.html?raw" {
   const content: string;
   export default content;
 }
+
+/** Application release version injected by Vite from package.json. */
+declare const __APP_VERSION__: string;

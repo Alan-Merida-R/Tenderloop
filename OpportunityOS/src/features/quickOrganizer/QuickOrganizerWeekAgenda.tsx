@@ -7,6 +7,7 @@ interface Props {
     rows: ParsedScheduleRow[];
     onChange: (id: string, patch: Partial<ParsedScheduleRow>) => void;
     onRemove: (id: string) => void;
+    language?: 'en' | 'es';
 }
 
 const iso = (date: Date) => date.toLocaleDateString('en-CA');
@@ -18,7 +19,8 @@ const mondayOf = (date: Date) => {
 };
 const toMinutes = (time: string) => { const [h, m] = time.split(':').map(Number); return h * 60 + m; };
 
-export const QuickOrganizerWeekAgenda: React.FC<Props> = ({ rows, onChange, onRemove }) => {
+export const QuickOrganizerWeekAgenda: React.FC<Props> = ({ rows, onChange, onRemove, language = 'en' }) => {
+    const locale = language === 'es' ? 'es-MX' : 'en-US';
     const [anchor, setAnchor] = useState(() => rows[0]?.date ? new Date(`${rows[0].date}T00:00:00`) : new Date());
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const weekStart = useMemo(() => mondayOf(anchor), [anchor]);
@@ -31,13 +33,13 @@ export const QuickOrganizerWeekAgenda: React.FC<Props> = ({ rows, onChange, onRe
 
     return <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
-            <div className="flex items-center gap-1"><button onClick={() => shift(-7)} className="p-1.5 hover:bg-gray-800 rounded"><ChevronLeft className="w-4 h-4" /></button><button onClick={() => setAnchor(new Date())} className="px-2 py-1 text-[10px] font-black border border-gray-700 rounded">TODAY</button><button onClick={() => shift(7)} className="p-1.5 hover:bg-gray-800 rounded"><ChevronRight className="w-4 h-4" /></button></div>
-            <p className="text-xs font-bold">{weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – {days[4].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-            <span className="text-[10px] text-gray-500">{rows.length} session{rows.length === 1 ? '' : 's'}</span>
+            <div className="flex items-center gap-1"><button onClick={() => shift(-7)} className="p-1.5 hover:bg-gray-800 rounded"><ChevronLeft className="w-4 h-4" /></button><button onClick={() => setAnchor(new Date())} className="px-2 py-1 text-[10px] font-black border border-gray-700 rounded">{language === 'es' ? 'HOY' : 'TODAY'}</button><button onClick={() => shift(7)} className="p-1.5 hover:bg-gray-800 rounded"><ChevronRight className="w-4 h-4" /></button></div>
+            <p className="text-xs font-bold">{weekStart.toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – {days[4].toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+            <span className="text-[10px] text-gray-500">{rows.length} {language === 'es' ? (rows.length === 1 ? 'sesión' : 'sesiones') : `session${rows.length === 1 ? '' : 's'}`}</span>
         </div>
         <div className="grid" style={{ gridTemplateColumns: '58px repeat(5,minmax(110px,1fr))' }}>
             <div className="border-r border-gray-800" />
-            {days.map(day => <div key={iso(day)} className="text-center py-2 border-r last:border-r-0 border-gray-800 bg-gray-800/50"><p className="text-[9px] font-black text-[#3DCD58]">{day.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}</p><p className="text-sm font-bold">{day.getDate()}</p></div>)}
+            {days.map(day => <div key={iso(day)} className="text-center py-2 border-r last:border-r-0 border-gray-800 bg-gray-800/50"><p className="text-[9px] font-black text-[#3DCD58]">{day.toLocaleDateString(locale, { weekday: 'short' }).toUpperCase()}</p><p className="text-sm font-bold">{day.getDate()}</p></div>)}
         </div>
         <div className="overflow-y-auto max-h-[590px]">
             <div className="grid" style={{ gridTemplateColumns: '58px repeat(5,minmax(110px,1fr))' }}>

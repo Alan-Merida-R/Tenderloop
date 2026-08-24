@@ -170,6 +170,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('SCHEDULE header: Key | Opportunity | Task | Date(YYYY-MM-DD) | Start(HH:mm) | End(HH:mm) | Note');
     lines.push('PROPOSED_DUE_DATES header: Key | Opportunity | Task | DueDate(YYYY-MM-DD) | Rationale');
     lines.push('REMINDERS header: Key | Opportunity | Task | RemindAt(YYYY-MM-DDTHH:mm) | Title');
+    lines.push('MISSING TASKS header: OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD)');
     lines.push('Copy the full supplied Key (oppId::taskId) and exact task title. Never invent or combine tasks.');
     lines.push('');
     lines.push('Act as a rigorous, concise PM and workload assistant. Prevent overload: expose capacity gaps honestly and give only the few actions that materially improve delivery.');
@@ -248,8 +249,10 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
             const existingBlocks = (task.executionBlocks || [])
                 .map(block => `${block.date} ${block.startTime}-${block.endTime}`)
                 .join(', ') || 'none';
+            const loggedSeconds = (task.timeLogs || []).reduce((total, log) => total + (log.durationSeconds || 0), 0);
+            const lastWorkAt = (task.timeLogs || []).map(log => log.start).filter(Boolean).sort().at(-1) || 'none';
             lines.push(
-                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | responsibleDue:${task.responsibleDueDate || '-'} | approvalDue:${task.approvalDueDate || '-'} | blocks:${existingBlocks} | description:${compact(task.description, 120) || 'none'} | deliverable:${compact(task.deliverable, 80) || 'none'} | missing:${missing.join(',') || 'none'}`
+                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | responsibleDue:${task.responsibleDueDate || '-'} | approvalDue:${task.approvalDueDate || '-'} | blocks:${existingBlocks} | loggedHours:${(loggedSeconds / 3600).toFixed(2)} | lastWorked:${lastWorkAt} | description:${compact(task.description, 120) || 'none'} | deliverable:${compact(task.deliverable, 80) || 'none'} | missing:${missing.join(',') || 'none'}`
             );
         }
     }
@@ -257,7 +260,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('');
     lines.push('=== WHAT TO RETURN ===');
     if (options.recommendationLanguage === 'es') {
-        lines.push('LANGUAGE: Write the RECOMMENDATIONS bullet text and the REMINDERS Title column in Spanish — these are read directly by the user. EVERYTHING else stays in English, never translated: headings, table headers, CATEGORY tokens, Keys, dates/times, the SCHEDULE Note column, and the PARETO 20/80, BLOCKERS, DELIVERY OUTLOOK and MISSING TASKS sections.');
+        lines.push('LANGUAGE: Keep headings, table headers, CATEGORY tokens, Keys, dates/times and every supplied existing task title exactly as written. Write ALL user-facing analysis in Spanish: recommendations, reminders, schedule notes, due-date rationale, assessment Why/MainBlocker/NextAction/Summary, Pareto, blockers, delivery outlook and missing-task reasons. New missing-task titles must be concise professional English so they can be saved as application tasks. Never translate an existing task title.');
     } else {
         lines.push('LANGUAGE: Write the entire response in English, including every heading, header and CATEGORY token exactly as printed below.');
     }
@@ -267,7 +270,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('2. Structured rows use exactly " | ", one row per line, no leading/trailing pipes or separator rows. Copy full Keys and exact task titles.');
     lines.push('3. Use YYYY-MM-DD, HH:mm and YYYY-MM-DDTHH:mm. Sort chronologically, never overlap, and keep every block inside one allowed window.');
     lines.push('4. If actionable work and time exist, return at least one SCHEDULE row. Do not create a reminder for every unscheduled task.');
-    lines.push('5. Under SCHEDULE, PROPOSED_DUE_DATES and REMINDERS, write only the exact header followed by data rows. Do not put bullets, explanations, placeholders, "none", or instructions inside these three sections. If optional sections have no rows, leave only their header.');
+    lines.push('5. Under SCHEDULE, PROPOSED_DUE_DATES, REMINDERS and MISSING TASKS, write only the exact header followed by data rows. Do not put bullets, explanations, placeholders, "none", or instructions inside these sections. If an optional structured section has no rows, leave only its header.');
     lines.push(`6. REMINDERS: maximum 3 total and one per task. Use only for a critical alert or specific external follow-up; never duplicate CURRENT REMINDERS. Title must be a concrete action in ${options.recommendationLanguage === 'es' ? 'Spanish' : 'English'}, maximum 10 words.`);
     lines.push('7. No emojis/icons anywhere. No text before SCHEDULE or after MISSING TASKS.');
     lines.push('');
@@ -281,7 +284,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('Key | Opportunity | Task | RemindAt(YYYY-MM-DDTHH:mm) | Title');
     lines.push('');
     lines.push('### OPPORTUNITY ASSESSMENT');
-    lines.push('OppId | Opportunity | Health(0-100) | RequiredHours | AvailableHours | Feasible(YES/NO/AT RISK) | SuggestedDelivery(YYYY-MM-DD) | Why | MainBlocker | NextAction | Summary');
+    lines.push('OppId | Opportunity | Progress(0-100) | RequiredHours | AvailableHours | Feasible(YES/NO/AT RISK) | SuggestedDelivery(YYYY-MM-DD) | Why | MainBlocker | NextAction | Summary');
     lines.push('');
     lines.push('### RECOMMENDATIONS');
     lines.push(`- Max 5 bullets, one per line, formatted "CATEGORY: text". CATEGORY: FOCUS, RISK, WAITING or TIP${options.recommendationLanguage === 'es' ? '; keep the token in English and the text in Spanish' : ''}. Start with one FOCUS. Max 18 words each.`);
@@ -296,9 +299,10 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('- One short bullet per OP: delivery date, risk and assumption.');
     lines.push('');
     lines.push('### MISSING TASKS');
-    lines.push('- Max 3 bullets: opportunity — missing task — reason. Otherwise: No missing tasks detected.');
+    lines.push('OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD)');
     lines.push('');
-    lines.push('OPPORTUNITY ASSESSMENT: exactly one row per selected OP. Health is evidence-based readiness: 100 means realistically ready to deliver, not optimism. Estimate RequiredHours conservatively from all remaining work, statuses, dependencies, scope and existing blocks. AvailableHours is that OP\'s fair share of supplied windows before delivery. If no windows were supplied, use 0 and AT RISK; never invent capacity. Keep the current delivery date only if feasible; otherwise give the earliest credible workday. Why, MainBlocker, NextAction and Summary must be specific and at most 14 words each. Missing data must reduce confidence and health.');
+    lines.push('OPPORTUNITY ASSESSMENT: exactly one row per selected OP. Progress is the AI\'s evidence-based estimate of real operational advancement toward a deliverable proposal: consider completed deliverables, remaining work, dependencies, approvals, missing information, rework and scope readiness. It is NOT the percentage of tasks marked Done and must not be optimistic. 100 means realistically ready to deliver now. Estimate RequiredHours conservatively from all remaining work, statuses, dependencies, scope and existing blocks. AvailableHours is that OP\'s fair share of supplied windows before delivery. If no windows were supplied, use 0 and AT RISK; never invent capacity. Keep the current delivery date only if feasible; otherwise give the earliest credible workday. Why, MainBlocker, NextAction and Summary must be specific and at most 14 words each. Missing data must reduce confidence and progress.');
+    lines.push('MISSING TASKS: maximum 3 rows. Suggest only a genuinely absent execution step. TaskTitleEnglish must be an actionable English task title; ReasonLocalized must use the selected user-facing language. Use the selected opportunity id and a realistic future due date.');
     lines.push('SILENT CHECK: exact headings/order; valid full Keys; one assessment per selected OP; valid dates/times; blocks inside allowed windows with no overlap; max one reminder per task and no duplicates; concise text; no extra text.');
 
     return lines.join('\n');
