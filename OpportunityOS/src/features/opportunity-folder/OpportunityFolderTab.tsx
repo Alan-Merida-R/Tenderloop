@@ -1520,7 +1520,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   };
 
   const handleRename = async (item: FileItem) => {
-    const newName = prompt("Enter new name:", item.name);
+    // File extensions are part of the file type, not the editable display name.
+    // Keep them out of the prompt and append the original one after the user edits
+    // the base name so a rename cannot inadvertently change (or remove) it.
+    const { base, ext } = item.kind === 'file' ? splitFileName(item.name) : { base: item.name, ext: '' };
+    const requestedName = prompt(
+      item.kind === 'file' ? 'Enter new name (extension will be kept):' : 'Enter new name:',
+      base,
+    );
+    if (requestedName === null) return;
+    const newName = item.kind === 'file' ? `${requestedName}${ext}` : requestedName;
     if (!newName || newName === item.name || !currentHandle) return;
 
     try {

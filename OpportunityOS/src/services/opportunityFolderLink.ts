@@ -17,7 +17,7 @@
  * and never because auto-detection happened to fail this time.
  */
 
-import { readOpportunityFolderPaths } from './opportunityFolderStore';
+import { readOpportunityFolderPaths, setFolderPath } from './opportunityFolderStore';
 
 const DB_NAME = 'OpportunityFolderDB';
 const STORE_NAME = 'Handles';
@@ -138,6 +138,26 @@ const usesPerRevisionFolders = (opportunityId: string): boolean => {
 };
 
 /**
+ * Whether this opportunity has started using revision-specific links in either
+ * persistence layer. Once it has, the old unkeyed link must never be borrowed by
+ * a different revision: that would make a new revision look linked before the user
+ * chooses either an existing folder or a template.
+ */
+const hasPerRevisionFolderLink = async (opportunityId: string): Promise<boolean> => {
+  if (usesPerRevisionFolders(opportunityId)) return true;
+  try {
+    const handleKeys = await listHandleKeys(opportunityId);
+    if (handleKeys.some(key => key.startsWith(`${opportunityId}::`))) return true;
+    const storedPaths = await getStoredFolderPaths(opportunityId);
+    return Object.entries(storedPaths).some(([revision, path]) => !!revision && !!path);
+  } catch {
+    // If local storage cannot be inspected, do not risk opening a different
+    // revision's legacy folder. The user can still explicitly link a folder.
+    return true;
+  }
+};
+
+/**
  * Read a handle for a specific revision.
  *
  * Falls back to the LEGACY opportunity-level key (the pre-per-revision scheme, which
@@ -164,7 +184,7 @@ export const getFolderHandleForRevision = async (opportunityId: string, revision
 
   // The legacy opportunity-level handle is only inheritable while the opportunity
   // still has ONE folder. See usesPerRevisionFolders above.
-  if (usesPerRevisionFolders(opportunityId)) return null;
+  if (await hasPerRevisionFolderLink(opportunityId)) return null;
 
   const legacy = await getFolderHandle(opportunityId);
   if (legacy) return legacy;
@@ -220,7 +240,7 @@ export const getRootPathDisplayForRevision = async (opportunityId: string, revis
   // Only the legacy opportunity-level entry, and only while it still describes the
   // opportunity as a whole. Borrowing a sibling revision's path is what produced
   // "the path is correct but it is showing another folder's files".
-  if (usesPerRevisionFolders(opportunityId)) return '';
+  if (await hasPerRevisionFolderLink(opportunityId)) return '';
   return await getRootPathDisplay(opportunityId);
 };
 
@@ -297,11 +317,13 @@ export const resolveEffectiveRootPath = async (opportunityId: string, revision?:
  */
 export const copyFolderLinkToRevision = async (opportunityId: string, fromRevision: string, toRevision: string): Promise<boolean> => {
   const handle = await getFolderHandleForRevision(opportunityId, fromRevision);
-  if (!handle) return false;
-  await setFolderHandle(folderKey(opportunityId, toRevision), handle);
+  if (handle) await setFolderHandle(folderKey(opportunityId, toRevision), handle);
   const path = await getRootPathDisplayForRevision(opportunityId, fromRevision);
-  if (path) await setRootPathDisplay(folderKey(opportunityId, toRevision), path);
-  return true;
+  if (path) {
+    await setRootPathDisplay(folderKey(opportunityId, toRevision), path);
+    setFolderPath(opportunityId, toRevision, path);
+  }
+  return !!handle;
 };
 
 /**
@@ -320,7 +342,7 @@ export const moveLegacyFolderLinkToRevision = async (opportunityId: string, revi
   // opportunity-level link no longer speaks for the opportunity, and copying it onto
   // a revision that has not been linked yet would auto-link that revision to the
   // oldest folder instead of letting the user choose.
-  if (usesPerRevisionFolders(opportunityId)) return false;
+  if (await hasPerRevisionFolderLink(opportunityId)) return false;
 
   const revisionKey = folderKey(opportunityId, trimmedRevision);
   const existingRevisionHandle = await getFolderHandle(revisionKey);
@@ -331,7 +353,10 @@ export const moveLegacyFolderLinkToRevision = async (opportunityId: string, revi
 
   const legacyPath = await getRootPathDisplay(opportunityId);
   await setFolderHandle(revisionKey, legacyHandle);
-  if (legacyPath) await setRootPathDisplay(revisionKey, legacyPath);
+  if (legacyPath) {
+    await setRootPathDisplay(revisionKey, legacyPath);
+    setFolderPath(opportunityId, trimmedRevision, legacyPath);
+  }
   return true;
 };
 

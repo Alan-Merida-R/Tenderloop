@@ -19,7 +19,7 @@ export type DetailedStatus = 'Working on it' | 'Review' | 'Info Needed' | 'Pause
 
 /** Valid choices for an opportunity's detailed status. Legacy labels are display-only. */
 export const DETAILED_STATUS_ORDER: DetailedStatus[] = [
-  'Working on it', 'Review', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'
+  'Working on it', 'Review', 'Info Needed', 'Approval', 'Meeting', 'Paused', 'Completed', 'Canceled'
 ];
 
 /** Labels shown in the UI; persisted database keys intentionally remain unchanged. */
@@ -138,6 +138,9 @@ export interface Commercial {
    */
   cqaOfficialMargin: number;
 
+  /** BFO Opportunity Lines URL. Filled by the bFO autofill, editable by hand. */
+  oppLinesLink?: string;
+
   /** PA Cost used in Price Approval emails. */
   paCost?: number;
 }
@@ -167,6 +170,18 @@ export interface Subtask {
   completed: boolean;
   /** System-managed phase for assignment tasks. */
   assignmentPhase?: 'execution' | 'approval';
+  /**
+   * The Scope system (a top-level system, never a sub-module) this subtask was generated for, on
+   * tasks flagged `subtasksPerSystem`. Its presence is what makes the subtask system-managed:
+   * subtasks without it are the user's own and are never touched by the Scope sync.
+   */
+  systemKey?: string;
+  /**
+   * The system was deselected in the Scope after this subtask existed. It is kept rather than
+   * deleted so an accidental deselect never discards recorded work, is shown struck through with
+   * a delete button, and stops counting towards the task's completion.
+   */
+  outOfScope?: boolean;
 }
 
 export interface InlineTask {
@@ -280,6 +295,26 @@ export interface Task {
    * timestamp) so a task closed late/early still reports the real completion day.
    */
   completionDate?: string;
+
+  /**
+   * The user attached the opportunity Scope to this task. Any task can carry it — the Scope
+   * itself stays single and lives in the SOW note; this only says the task editor should show it
+   * and offer to close the task once the Scope is filled in.
+   */
+  scopeAttached?: boolean;
+  /**
+   * Signature of the Scope answers the last time the user was asked whether this task can be
+   * closed. Stored so the question is asked when the Scope actually changes instead of on every
+   * render, and so "not yet" is remembered until the Scope moves again.
+   */
+  scopeCompletionPromptedKey?: string;
+
+  /**
+   * Keep one subtask per system selected in the Scope (top-level systems only — sub-modules are
+   * not tracked here). The list is reconciled automatically whenever the Scope changes: new
+   * systems add a subtask, deselected ones are marked `outOfScope` rather than removed.
+   */
+  subtasksPerSystem?: boolean;
 }
 
 export interface TimeLog {
@@ -764,11 +799,49 @@ export interface Reminder {
 }
 
 /** Persistent preferences for the standalone Quick Organizer workspace. */
+/**
+ * Focus and recovery policy applied when the organizer lays out the week.
+ *
+ * Breaks are not tasks, so they are never stored as execution blocks: the policy is expressed as
+ * gaps the scheduler must leave BETWEEN blocks, plus a hard ceiling on focused hours per day. The
+ * point is a week that can actually be worked, not one that looks full on paper.
+ */
+export interface FocusPolicy {
+  enabled: boolean;
+  /** Longest uninterrupted work block, in minutes. */
+  sessionMinutes: number;
+  /** Minimum gap left between two consecutive work blocks, in minutes. */
+  breakMinutes: number;
+  /** After this many consecutive sessions, a longer recovery gap is required. */
+  longBreakAfterSessions: number;
+  /** Length of that longer gap, in minutes. */
+  longBreakMinutes: number;
+  /** Hard ceiling of focused work per day, in hours. Capacity beyond this is not real. */
+  maxDailyFocusHours: number;
+}
+
+/** Sensible starting point: 90-minute sessions, 15-minute breaks, a long break every 3, 6h/day. */
+export const DEFAULT_FOCUS_POLICY: FocusPolicy = {
+  enabled: true,
+  sessionMinutes: 90,
+  breakMinutes: 15,
+  longBreakAfterSessions: 3,
+  longBreakMinutes: 45,
+  maxDailyFocusHours: 6,
+};
 export interface QuickOrganizerPreferences {
   /** The organizer is intentionally light by default, independently of the legacy app theme. */
   theme: 'light' | 'dark';
   /** Language used for UI guidance, AI analysis and reminders. Existing task titles are never translated. */
   displayLanguage: 'en' | 'es';
+  /** Focus/recovery policy used when building the agenda. Omitted = DEFAULT_FOCUS_POLICY. */
+  focusPolicy?: FocusPolicy;
+  /**
+   * Last computed execution model. A pure function of the opportunities, so never the source of
+   * truth — stored so the calibration travels with the database and can be shown without
+   * recomputing. See services/executionModel.ts.
+   */
+  executionModel?: import('./services/executionModel').ExecutionModel;
 }
 
 /**

@@ -24,8 +24,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 1,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "73edcadb-2302-4475-8407-9b257a3ff766",
@@ -40,8 +39,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 2,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "394d612e-6c8f-4c70-8199-8244acaa8928",
@@ -59,8 +57,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 3,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "53d004f2-a6b1-4fa2-beb9-3ac5e007c095",
@@ -78,8 +75,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 4,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "46bba0db-c4dd-4647-ae31-9a26f1344bd9",
@@ -94,8 +90,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 5,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: true
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "d27e7e05-7e26-4724-844a-d146fdc0cad1",
@@ -115,8 +110,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 6,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "0d86163a-bd8d-43b4-a0c2-cc3530e15979",
@@ -131,8 +125,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 7,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "d52448ad-1db4-4218-81c3-1f6572b90f13",
@@ -147,8 +140,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 8,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "4520d51c-4b11-4a66-a5f6-5ed39a9c45ec",
@@ -163,8 +155,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 9,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "bc7378ee-afe5-47a7-9d3f-9e922a2fe8fa",
@@ -179,8 +170,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 10,
         dependsOnTaskIds: ["73edcadb-2302-4475-8407-9b257a3ff766"],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "453c7749-5a6c-4cbf-9931-6645f4ef6160",
@@ -195,8 +185,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 11,
         dependsOnTaskIds: ["0d86163a-bd8d-43b4-a0c2-cc3530e15979"],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "24d8876f-fc0c-48f4-a60e-4cae21a1f9ff",
@@ -211,8 +200,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 12,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "f6c863ff-d6ad-406f-908e-8641720f364d",
@@ -227,8 +215,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 13,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "13e223c4-7e29-4f1e-b7cc-7e2d139bd876",
@@ -243,8 +230,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 14,
         dependsOnTaskIds: ["453c7749-5a6c-4cbf-9931-6645f4ef6160"],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "0609807c-60d5-4a1f-8f5e-91fec111f80d",
@@ -262,8 +248,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
             "453c7749-5a6c-4cbf-9931-6645f4ef6160",
             "13e223c4-7e29-4f1e-b7cc-7e2d139bd876"
         ],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "94e53656-d29b-4b71-a93c-e4ec01429e24",
@@ -278,8 +263,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 16,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "f09e6c00-5c6b-4942-94e4-7b0f9ae8d49f",
@@ -294,8 +278,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 17,
         dependsOnTaskIds: ["13e223c4-7e29-4f1e-b7cc-7e2d139bd876"],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "6fc993c7-9d24-4ed2-8587-911f8cdb7cbc",
@@ -312,8 +295,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 18,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "fddfd57e-f397-4045-9680-5e54ea705480",
@@ -328,8 +310,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 19,
         dependsOnTaskIds: ["f09e6c00-5c6b-4942-94e4-7b0f9ae8d49f"],
-        blockDoneUntilDependenciesDone: true,
-        calendarized: false
+        blockDoneUntilDependenciesDone: true
     },
     {
         id: "9667ab26-e47d-43d1-8cdf-6873a9cbdc83",
@@ -349,8 +330,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 20,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "6188ecce-7641-40d6-a247-91286fb04bbb",
@@ -365,8 +345,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 21,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "0b559707-8be4-45f3-b190-89cd0cb953f5",
@@ -381,8 +360,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 22,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "c4d61405-b9da-4aa9-bbf1-f67104498d1c",
@@ -397,8 +375,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 23,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "ba5b43ba-8253-40e4-8259-7ad2b434fbde",
@@ -413,8 +390,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 24,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "21fc90c9-2c47-4d6e-8bcf-71dcfe1acd72",
@@ -432,8 +408,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         ],
         order: 25,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "9e765b72-4662-4a1a-af92-cb1cec780c56",
@@ -448,8 +423,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 26,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "31954685-49bf-4956-94b5-1f08c1a91030",
@@ -464,8 +438,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 27,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "07156ac3-e58a-4dc5-a658-516609c742fe",
@@ -480,8 +453,7 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 28,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     },
     {
         id: "b39331f2-5952-4df4-9929-79e45b344981",
@@ -496,7 +468,6 @@ export const STANDARD_TASKS: Partial<Task>[] = [
         subtasks: [],
         order: 29,
         dependsOnTaskIds: [],
-        blockDoneUntilDependenciesDone: false,
-        calendarized: false
+        blockDoneUntilDependenciesDone: false
     }
 ];

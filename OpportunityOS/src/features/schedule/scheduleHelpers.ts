@@ -34,6 +34,11 @@ const hslToHex = (h: number, s: number, l: number): string => {
     return `#${f(0)}${f(8)}${f(4)}`;
 };
 
+/** Distinct, deterministic agenda palette. The golden-angle step keeps adjacent
+ * opportunities visually separated even when the list grows. */
+export const getOpportunityPaletteColor = (index: number): string =>
+    hslToHex((index * 137.508 + 212) % 360, 62, index % 2 === 0 ? 43 : 52);
+
 export const isTaskActive = (task: Task): boolean => {
     return task.status !== 'Done' && task.status !== 'Canceled';
 };

@@ -75,6 +75,15 @@ export const parseSowFields = (note: MeetingNote | null): Record<string, any> =>
 
 export const asLabels = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : []);
 
+const legacyLabelsForOption = (option: ScopeCatalogOption): string[] => {
+    if (option.id === 'resales-lt-49' || option.label === 'Resales <49%') return ['Resales >20%'];
+    if (option.id === 'fg' || option.label === 'SF&G') return ['F&G'];
+    return [];
+};
+
+const savedIncludesOption = (saved: Set<string>, option: ScopeCatalogOption): boolean =>
+    saved.has(option.label) || legacyLabelsForOption(option).some(label => saved.has(label));
+
 /**
  * Reads a catalog group's answer, keeping only options the catalog still offers. Answers for
  * options the user later deleted stay untouched in the note — they are simply not shown.
@@ -85,7 +94,7 @@ export const selectedFromFields = (
     options: ScopeCatalogOption[],
 ): string[] => {
     const saved = new Set(asLabels(fields[key]));
-    return options.filter(option => saved.has(option.label)).map(option => option.label);
+    return options.filter(option => savedIncludesOption(saved, option)).map(option => option.label);
 };
 
 /**
@@ -126,7 +135,7 @@ export const modulesFromFields = (
             if (!option.children?.length) return;
             const key = scopeModuleKey(group, option);
             const saved = new Set(asLabels(fields[key]));
-            map[key] = option.children.filter(child => saved.has(child.label)).map(child => child.label);
+            map[key] = option.children.filter(child => savedIncludesOption(saved, child)).map(child => child.label);
         });
     });
     return map;
@@ -175,6 +184,7 @@ export const flattenSystems = (selection: ScopeSelection, catalog: ScopeCatalog)
 export interface ScopeGlance {
     scope: string[];
     systems: string[];
+    quickNotes: string[];
     extras: string[];
     /** False when the opportunity has no SOW answers at all — nothing to render. */
     hasAny: boolean;
@@ -200,16 +210,17 @@ export const readScopeGlance = (
     const scope = Array.from(new Set([...selection.scope, ...legacyMatches(resolved.scope)]));
     const systemOptions = resolved.systems.flatMap(option => [option, ...(option.children || [])]);
     const systems = Array.from(new Set([...flattenSystems(selection, resolved), ...legacyMatches(systemOptions)]));
+    const quickNotes = Array.from(new Set([...selection.quickNotes, ...legacyMatches(resolved.quickNotes)]));
     const extras = Array.from(new Map([
         ...selection.extras,
         ...legacyLabels.filter(label => !catalogContainsLabel(resolved, label.text)).map(label => label.text),
     ].map(label => [scopeLabelKey(label), label])).values());
-    return { scope, systems, extras, hasAny: scope.length > 0 || systems.length > 0 || extras.length > 0 };
+    return { scope, systems, quickNotes, extras, hasAny: scope.length > 0 || systems.length > 0 || quickNotes.length > 0 || extras.length > 0 };
 };
 
 /** Plain-text form, e.g. "Upgrade, Migration and CF - EAE, Triconex, SIS". Used for tooltips. */
 export const formatScopeGlance = (glance: ScopeGlance): string => {
     const join = (list: string[]) =>
         list.length <= 1 ? (list[0] || '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
-    return [join(glance.scope), glance.systems.join(', '), glance.extras.join(', ')].filter(Boolean).join(' - ');
+    return [join(glance.scope), [...glance.systems, ...glance.quickNotes].join(', '), glance.extras.join(', ')].filter(Boolean).join(' - ');
 };

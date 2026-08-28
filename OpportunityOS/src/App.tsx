@@ -10,7 +10,8 @@ import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards, visibleTaskStandards } from './components/SettingsModal';
-import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel } from './components/scopeCatalog';
+import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel, ScopeCatalog } from './components/scopeCatalog';
+import { readScopeGlance } from './services/scopeSummary';
 import { FolderOpen, Save, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, Settings as SettingsIcon, History, ChevronDown, Trash2, Activity, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
 import { TimerWidget } from './components/TimerWidget';
@@ -153,50 +154,29 @@ const syncTaskAssignmentTimeline = (opp: Opportunity, task: Task, holidays: stri
 };
 
 /**
- * Creates one compact, lower-cased text index for dashboard searches.  It is
- * calculated only when an opportunity changes, so searching long rich-text
- * notes, SOW answers and stakeholders never has to traverse the complete
- * opportunity object while typing.
+ * Creates one compact, lower-cased text index for dashboard searches. It is
+ * calculated only when an opportunity changes, so searching never has to
+ * traverse the complete opportunity object while typing.
+ *
+ * Deliberately narrow: OP number, alias, overview description, client,
+ * vendor, and the scope/systems/labels read off the SOW (via
+ * `readScopeGlance`, the same source the Scope filter uses). Earlier this
+ * walked the entire opportunity object (tasks, notes, history, commercial
+ * data...), which made every search return far too many unrelated matches.
  */
-const buildOpportunitySearchIndex = (opportunity: Opportunity): string => {
-  const values: string[] = [];
-  const visited = new WeakSet<object>();
-
-  const collect = (value: unknown) => {
-    if (value === null || value === undefined) return;
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      values.push(String(value));
-      return;
-    }
-    if (typeof value !== 'object') return;
-    if (visited.has(value)) return;
-    visited.add(value);
-
-    if (Array.isArray(value)) {
-      value.forEach(item => collect(item));
-      return;
-    }
-
-    Object.entries(value as Record<string, unknown>).forEach(([childKey, childValue]) => {
-      // Internal cache data is not user-searchable. Version snapshots repeat
-      // the entire opportunity and would needlessly inflate the search index.
-      if (childKey.startsWith('_') || childKey === 'snapshot') return;
-      collect(childValue);
-    });
-  };
-
-  collect(opportunity);
-
-  // SOW data is a serialized form. Its values are included by `collect`, and
-  // adding the field keys lets searches also find meaningful custom SOW terms
-  // without parsing that JSON on the hot, per-keystroke search path.
-  (opportunity.notes || []).forEach(note => {
-    if (note.format !== 'sow') return;
-    try {
-      const fields = JSON.parse(note.content || '')?.fields;
-      if (fields && typeof fields === 'object') values.push(...Object.keys(fields));
-    } catch { /* An incomplete SOW remains searchable through its raw content. */ }
-  });
+const buildOpportunitySearchIndex = (opportunity: Opportunity, scopeCatalog: ScopeCatalog): string => {
+  const glance = readScopeGlance(opportunity.notes, scopeCatalog, opportunity.labels || []);
+  const values = [
+    opportunity.id,
+    opportunity.alias,
+    opportunity.description,
+    opportunity.customer,
+    opportunity.seller,
+    ...glance.scope,
+    ...glance.systems,
+    ...glance.quickNotes,
+    ...glance.extras,
+  ].filter(Boolean) as string[];
 
   return normalizeSearchText(values.join(' '));
 };
@@ -315,6 +295,7 @@ class LocalErrorBoundary extends React.Component {
 // the same reference — keeps React.memo equality stable when settings keys are
 // undefined.
 const EMPTY_ARR: any[] = Object.freeze([]) as any[];
+const EMPTY_SOW_FORM = Object.freeze({ sections: EMPTY_ARR, questions: EMPTY_ARR }) as { sections: any[]; questions: any[] };
 
 /**
  * Main Application component for TenderLoop.
@@ -481,7 +462,7 @@ function App() {
     }
   }, []);
 
-  const handleSaveSettings = (newSettings: AppSettings) => {
+  const handleSaveSettings = useCallback((newSettings: AppSettings) => {
     setAppSettings(newSettings);
     localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(newSettings));
     const syncFullName = (newSettings.dailyManagerReportFullName || '').trim();
@@ -511,7 +492,7 @@ function App() {
         generalQuickLinksMigrated: true,
       }
     }));
-  };
+  }, []);
 
   // Visibility preferences are database-owned so the same configuration is
   // restored when this database is opened from another browser or computer.
@@ -885,11 +866,11 @@ function App() {
    * close together (or from two mounted instances of the same opportunity)
    * can race and the second silently overwrites the first.
    */
-  const applyGlobalContactsUpdate = (update: GlobalContact[] | ((prev: GlobalContact[]) => GlobalContact[])) => {
+  const applyGlobalContactsUpdate = useCallback((update: GlobalContact[] | ((prev: GlobalContact[]) => GlobalContact[])) => {
     const prev = appSettingsRef.current.globalContacts || [];
     const next = typeof update === 'function' ? (update as (prev: GlobalContact[]) => GlobalContact[])(prev) : update;
     handleSaveSettings({ ...appSettingsRef.current, globalContacts: next });
-  };
+  }, [handleSaveSettings]);
   const selectedOppIdRef = useRef(selectedOppId);
   selectedOppIdRef.current = selectedOppId;
 
@@ -907,6 +888,9 @@ function App() {
   );
   const stableHiddenOpportunityDetailSections = useMemo(() => appSettings.hiddenOpportunityDetailSections || EMPTY_ARR, [appSettings.hiddenOpportunityDetailSections]);
   const stableOpportunityDetailSectionOrder = useMemo(() => appSettings.opportunityDetailSectionOrder || EMPTY_ARR, [appSettings.opportunityDetailSectionOrder]);
+  const stableHiddenOpportunityHeaderFields = useMemo(() => appSettings.hiddenOpportunityHeaderFields || EMPTY_ARR, [appSettings.hiddenOpportunityHeaderFields]);
+  const stableAlarms = useMemo(() => appSettings.alarms || EMPTY_ARR, [appSettings.alarms]);
+  const stableGlobalSowForm = useMemo(() => appSettings.globalSowForm || EMPTY_SOW_FORM, [appSettings.globalSowForm]);
   // Normalized once here: the SOW iframe re-renders its option lists whenever this identity
   // changes, so handing it a fresh object every render would rebuild the form on every keystroke.
   const stableScopeCatalog = useMemo(() => {
@@ -1392,25 +1376,28 @@ function App() {
         trackedAreas={stableTrackedAreas}
         globalContacts={stableGlobalContacts}
         onGlobalContactsChange={applyGlobalContactsUpdate}
-        onTrackedAreasChange={(areas) => handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas })}
+        onTrackedAreasChange={handleTrackedAreasChange}
         globalLabels={stableGlobalLabels}
         emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
         sowSectionEnabled={appSettings.sowSectionEnabled || false}
         stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
         commercialCqaLinkVisible={appSettings.commercialCqaLinkVisible !== false}
-        onHideCommercialCqaLink={() => handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: false })}
-        onShowCommercialCqaLink={() => handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: true })}
+        onHideCommercialCqaLink={hideCommercialCqaLink}
+        onShowCommercialCqaLink={showCommercialCqaLink}
+        commercialOppLinesLinkVisible={appSettings.commercialOppLinesLinkVisible !== false}
+        onHideCommercialOppLinesLink={hideCommercialOppLinesLink}
+        onShowCommercialOppLinesLink={showCommercialOppLinesLink}
         remindersEnabled={appSettings.remindersEnabled || false}
         onAddReminder={handleAddReminder}
-        hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
+        hiddenOpportunityHeaderFields={stableHiddenOpportunityHeaderFields}
         hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
         opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
-        alarms={appSettings.alarms}
+        alarms={stableAlarms}
         confirmExpectedDateChanges={appSettings.confirmExpectedDateChanges === true}
         userName={appSettings.userName || 'User'}
         emailComposeSettings={appSettings.emailCompose || null}
-        globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
-        onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
+        globalSowForm={stableGlobalSowForm}
+        onGlobalSowFormChange={handleGlobalSowFormChange}
         scopeCatalog={stableScopeCatalog}
         deepLink={tab.data.deepLink}
         onMinimize={(payload?: FloatingTab) => {
@@ -1616,7 +1603,21 @@ function App() {
           return o;
         }
       });
-      return { ...data, opportunities: migratedOpps };
+      // Keep one global, gap-free rank for active proposals. Closed proposals do
+      // not participate; legacy duplicate ranks are repaired deterministically.
+      const active = migratedOpps
+        .filter(o => !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel) && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled')
+        .sort((a, b) => {
+          const aRank = Number(a.priorityOrder) || Number.MAX_SAFE_INTEGER;
+          const bRank = Number(b.priorityOrder) || Number.MAX_SAFE_INTEGER;
+          if (aRank !== bRank) return aRank - bRank;
+          const aDate = a.kpis?.timeline?.receivedAt || a.dates?.requested || '';
+          const bDate = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
+          return aDate.localeCompare(bDate) || a.id.localeCompare(b.id);
+        });
+      const rankById = new Map(active.map((opp, index) => [opp.id, index + 1]));
+      const normalizedRanks = migratedOpps.map(opp => ({ ...opp, priorityOrder: rankById.get(opp.id) || null }));
+      return { ...data, opportunities: normalizedRanks };
     } catch (err: any) {
       console.error("[Migration] Critical error during migration:", err);
       throw err;
@@ -1815,14 +1816,12 @@ function App() {
     }
   };
 
-  const deleteOpportunity = async (id: string) => {
-    if (!db || !isDbLoaded) return;
+  const deleteOpportunity = useCallback((id: string) => {
+    if (!isDbLoaded) return;
     setSelectedOppId(null);
-    const newOpps = db.opportunities.filter(o => o.id !== id);
-    const newDb = { ...db, opportunities: newOpps };
-    setDb(newDb);
+    setDb(current => ({ ...current, opportunities: current.opportunities.filter(o => o.id !== id) }));
     // Auto-save effect will handle persistence
-  };
+  }, [isDbLoaded]);
 
   const renderStatusBadge = () => {
     switch (status) {
@@ -1878,7 +1877,7 @@ function App() {
         order: tmpl.order,
         dependsOnTaskIds: (tmpl.dependsOnTaskIds || []).map(depId => taskIdMap.get(depId)).filter(Boolean) as string[],
         blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false,
-        calendarized: tmpl.calendarized || false
+        subtasksPerSystem: tmpl.subtasksPerSystem || false
       }));
     }
     // --- CASE B: Legacy default tasks ---
@@ -1908,7 +1907,7 @@ function App() {
           order: tmpl.order,
           dependsOnTaskIds: mappedDependencies,
           blockDoneUntilDependenciesDone: tmpl.blockDoneUntilDependenciesDone || false,
-          calendarized: tmpl.calendarized || false
+          subtasksPerSystem: tmpl.subtasksPerSystem || false
         };
       });
     }
@@ -1962,7 +1961,7 @@ function App() {
         cqaOfficialMargin: 0,
         internalRevisions: []
       },
-      links: { bfo: '', internalFolder: '', officialFolder: '', cqaLink: '', ba: '', srLink: '', geet: '' },
+      links: { bfo: '', oppLines: '', internalFolder: '', officialFolder: '', cqaLink: '', ba: '', srLink: '', geet: '' },
       notes: initialNotes,
       emails: {
         folders: [],
@@ -1994,77 +1993,51 @@ function App() {
     };
 
     setDb(prev => {
-      const initialOpps = [newOpp, ...prev.opportunities];
-      const rebalanced = rebalancePrioritiesRef.current(initialOpps, newOpp.id, 1, true);
-      return { ...prev, opportunities: rebalanced };
+      // Arrival order is the default rank. Calculate against the latest state so
+      // two fast creations cannot receive the same number.
+      const activeOpportunities = prev.opportunities.filter(o =>
+        !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel)
+        && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled'
+      );
+      const arrivalRank = Math.max(0, ...activeOpportunities.map(o => Number(o.priorityOrder) || 0)) + 1;
+      return { ...prev, opportunities: [{ ...newOpp, priorityOrder: arrivalRank }, ...prev.opportunities] };
     });
     setSelectedOppId(newId);
   }, []);
 
-  const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged: boolean = false) => {
-    // Optimization: If no priority or status change, return early (or just basic sort)
-    // But for safety and to keep the 1..N property, we'll run an O(N) version.
-
-    const statuses: OpportunityStatus[] = ['In Progress', 'On Hold', 'Submitted', 'Won', 'Lost', 'Canceled'];
-
-    // 1. Group by status - O(N)
-    const groups: Record<string, Opportunity[]> = {};
-    statuses.forEach(s => groups[s] = []);
-    opps.forEach(o => {
-        if (groups[o.statusLabel]) groups[o.statusLabel].push(o);
-        else (groups['In Progress'] as Opportunity[]).push(o); // Fallback
+  const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, _statusChanged: boolean = false) => {
+    // Rank is global and independent from status: by default it reflects arrival
+    // order, while a manual edit inserts the opportunity at the requested place.
+    const isRankedActive = (opp: Opportunity) =>
+      !['Submitted', 'Won', 'Lost', 'Canceled'].includes(opp.statusLabel)
+      && opp.detailedStatus !== 'Completed' && opp.detailedStatus !== 'Canceled';
+    const activeOpps = opps.filter(isRankedActive);
+    const originalIndex = new Map(activeOpps.map((opp, index) => [opp.id, index]));
+    const ordered = [...activeOpps].sort((a, b) => {
+      const aRank = Number(a.priorityOrder);
+      const bRank = Number(b.priorityOrder);
+      const aValid = Number.isFinite(aRank) && aRank > 0;
+      const bValid = Number.isFinite(bRank) && bRank > 0;
+      if (aValid && bValid && aRank !== bRank) return aRank - bRank;
+      if (aValid !== bValid) return aValid ? -1 : 1;
+      const aReceived = a.kpis?.timeline?.receivedAt || a.dates?.requested || '';
+      const bReceived = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
+      return aReceived.localeCompare(bReceived) || (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
     });
 
-    const resultOpps: Opportunity[] = [];
-
-    // 2. Process each group
-    statuses.forEach(status => {
-      let group = groups[status];
-      if (group.length === 0) return;
-
-      const targetInGroup = changedId ? group.find(o => o.id === changedId) : null;
-
-      if (targetInGroup && statusChanged) {
-        // Change of status/new: Shift to 2nd position (UX requirement)
-        const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
-        if (others.length > 0) {
-          group = [others[0], targetInGroup, ...others.slice(1)];
-        } else {
-          group = [targetInGroup];
-        }
-      } else if (targetInGroup && newOrder !== undefined && newOrder !== null) {
-        // Manual reorder (Drag & Drop or direct edit)
-        const others = group.filter(o => o.id !== changedId).sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
-        const newGroup: Opportunity[] = [];
-        let inserted = false;
-        const targetPos = Math.max(1, newOrder);
-
-        others.forEach((o, idx) => {
-          if (idx + 1 === targetPos) {
-            newGroup.push(targetInGroup);
-            inserted = true;
-          }
-          newGroup.push(o);
-        });
-        if (!inserted) newGroup.push(targetInGroup);
-        group = newGroup;
-      } else {
-        // Stable sort to maintain 1..N even if some gaps exist
-        group.sort((a, b) => (a.priorityOrder ?? 9999) - (b.priorityOrder ?? 9999));
+    if (changedId && newOrder !== undefined && newOrder !== null) {
+      const currentIndex = ordered.findIndex(opp => opp.id === changedId);
+      if (currentIndex >= 0) {
+        const [changed] = ordered.splice(currentIndex, 1);
+        ordered.splice(Math.min(Math.max(1, newOrder), ordered.length + 1) - 1, 0, changed);
       }
+    }
 
-      // 3. Re-index 1..N and collect into results (returning new objects only if needed for immutability)
-      group.forEach((o, idx) => {
-        const order = idx + 1;
-        if (o.priorityOrder !== order) {
-            resultOpps.push({ ...o, priorityOrder: order });
-        } else {
-            resultOpps.push(o);
-        }
-      });
+    const rankById = new Map(ordered.map((opp, index) => [opp.id, index + 1]));
+    return opps.map(opp => {
+      const nextRank = isRankedActive(opp) ? (rankById.get(opp.id) || null) : null;
+      return opp.priorityOrder === nextRank ? opp : { ...opp, priorityOrder: nextRank };
     });
-
-    return resultOpps;
   }, []);
   rebalancePrioritiesRef.current = rebalancePriorities;
 
@@ -2168,6 +2141,11 @@ function App() {
                 : ['Submitted', 'Won', 'Lost'].includes(oldOpp.statusLabel)
                   ? null
                   : currentTimeline.deliveredAt,
+              cancelledAt: cleanedUpdate.statusLabel === 'Canceled'
+                ? (currentTimeline.cancelledAt || new Date().toISOString().split('T')[0])
+                : oldOpp.statusLabel === 'Canceled'
+                  ? null
+                  : currentTimeline.cancelledAt,
             },
           } as KPIs;
         }
@@ -2409,6 +2387,10 @@ function App() {
   // hasn't actually changed — no extra memo needed.
   const stableOpportunities = db.opportunities;
 
+  // The dashboard is completely covered while either detail view is open. Keep
+  // its expensive search/index projection frozen until it becomes visible again.
+  const isOverlayOpen = !!selectedOppId || !!splitTab;
+
   // HOTFIX PERFORMANCE: Persistent Cache for Light Opportunities (v5000)
   // Stripping thousands of 1MB HTML notes on every keystroke/drag kills the UI thread.
   // This cache ensures we only map the changed objects, keeping the drag & drop buttery smooth.
@@ -2422,7 +2404,7 @@ function App() {
       const existing = lightCacheRef.current.get(opp.id);
       // If the reference to the full object hasn't changed, reuse the light reference.
       // This is extremely important for React.memo performance in Dashboard.OpportunityCard.
-      if (existing && existing._originalRef === opp) return existing;
+      if (existing && (existing._originalRef === opp || isOverlayOpen)) return existing;
 
       const light = {
         ...opp,
@@ -2440,7 +2422,7 @@ function App() {
         _isLight: true, // Safety tag to prevent overwriting full records in updateOpportunity
         // Includes every stored field (including rich-text notes) before the
         // light object removes note content for rendering performance.
-        _searchIndex: buildOpportunitySearchIndex(opp)
+        _searchIndex: buildOpportunitySearchIndex(opp, stableScopeCatalog)
       };
       lightCacheRef.current.set(opp.id, light);
       return light;
@@ -2455,7 +2437,7 @@ function App() {
       }
     }
     return result;
-  }, [stableOpportunities]);
+  }, [stableOpportunities, isOverlayOpen, stableScopeCatalog]);
 
   // CRITICAL PERF: Freeze Dashboard inputs while a full-screen overlay is open.
   // The detail overlay and split-view both cover the entire viewport with opaque/semi-opaque
@@ -2463,7 +2445,6 @@ function App() {
   // invisible work (filteredOpps, kpiData, taskData, groupedOpps all recompute).
   // We keep the last visible snapshot and swap back to live data when the overlay closes.
   const frozenDashboardOppsRef = useRef(lightOpportunities);
-  const isOverlayOpen = !!selectedOppId || !!splitTab;
   if (!isOverlayOpen) frozenDashboardOppsRef.current = lightOpportunities;
   const dashboardOpportunities = isOverlayOpen ? frozenDashboardOppsRef.current : lightOpportunities;
 
@@ -2481,6 +2462,33 @@ function App() {
       setActiveDeepLink(dl ? { ...dl, _nonce: ++deepLinkNonceRef.current } : null);
     });
   }, []);
+
+  const handleCloseSelectedOpportunity = useCallback(() => {
+    setSelectedOppId(null);
+    setActiveDeepLink(null);
+  }, []);
+  const handleDeleteSelectedOpportunity = useCallback(() => {
+    const id = selectedOppIdRef.current;
+    if (id) deleteOpportunity(id);
+  }, [deleteOpportunity]);
+  const handleTrackedAreasChange = useCallback((areas: string[]) => {
+    handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas });
+  }, [handleSaveSettings]);
+  const hideCommercialCqaLink = useCallback(() => {
+    handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: false });
+  }, [handleSaveSettings]);
+  const showCommercialCqaLink = useCallback(() => {
+    handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: true });
+  }, [handleSaveSettings]);
+  const hideCommercialOppLinesLink = useCallback(() => {
+    handleSaveSettings({ ...appSettingsRef.current, commercialOppLinesLinkVisible: false });
+  }, [handleSaveSettings]);
+  const showCommercialOppLinesLink = useCallback(() => {
+    handleSaveSettings({ ...appSettingsRef.current, commercialOppLinesLinkVisible: true });
+  }, [handleSaveSettings]);
+  const handleGlobalSowFormChange = useCallback((form: { sections: any[]; questions: any[] }) => {
+    handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form });
+  }, [handleSaveSettings]);
 
   useEffect(() => {
     const pendingId = pendingOpenOpportunityRef.current;
@@ -2537,6 +2545,28 @@ function App() {
       return { ...prev, userSettings: { ...prev.userSettings, reminders: [...current, newReminder] } };
     });
   }, []);
+
+  // Avoid rebuilding the enormous split-detail React tree for unrelated App
+  // state such as the autosave badge changing from "Saving" to "Saved".
+  const splitTabContent = useMemo(
+    () => splitTab ? renderSplitTabContent(splitTab) : null,
+    [
+      splitTab,
+      db.opportunities,
+      appSettings,
+      stableHolidays,
+      stableTrackedAreas,
+      stableGlobalContacts,
+      stableGlobalLabels,
+      stableHiddenOpportunityDetailSections,
+      stableOpportunityDetailSectionOrder,
+      stableScopeCatalog,
+      applyGlobalContactsUpdate,
+      handleAddReminder,
+      updateOpportunity,
+      deleteOpportunity,
+    ],
+  );
 
   const handleExportManagerReport = useCallback(async (userName?: string) => {
     try {
@@ -2891,7 +2921,7 @@ function App() {
           {/* Main Content Area */}
           <div className={`flex-1 flex min-h-0 overflow-hidden transition-all duration-300`}>
             {/* Dashboard / Primary Content */}
-            <div className={`h-full overflow-hidden transition-all duration-300 ${splitTab ? 'w-1/2 border-r border-gray-100' : 'w-full'}`}>
+            <div className="h-full w-full overflow-hidden">
               <LocalErrorBoundary fallbackLabel="Dashboard">
                 {currentView === 'indicators-dashboard' ? <IndicatorsDashboard
                   opportunities={dashboardOpportunities}
@@ -2925,9 +2955,9 @@ function App() {
 
             {/* Sub-View Overlay Panel (Full Screen) */}
             {splitTab && (
-              <div className="fixed inset-0 bg-white z-[150] animate-in slide-in-from-right duration-300 flex flex-col">
+              <div className="fixed inset-0 bg-white z-[150] animate-in fade-in duration-150 flex flex-col">
                 <div className="flex-1 overflow-hidden">
-                  {renderSplitTabContent(splitTab)}
+                  {splitTabContent}
                 </div>
               </div>
             )}
@@ -2946,15 +2976,15 @@ function App() {
 
           {/* Opportunity Detail Overlay */}
           {selectedOppForDetail && (
-            <div data-opportunity-detail-overlay="true" className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-200" onClick={() => { if (!detailMouseDownInsideRef.current) { setSelectedOppId(null); setActiveDeepLink(null); } detailMouseDownInsideRef.current = false; }}>
-              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-white/10" onMouseDown={() => { detailMouseDownInsideRef.current = true; }} onClick={(e) => e.stopPropagation()}>
+            <div data-opportunity-detail-overlay="true" className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-2 md:p-6 animate-in fade-in duration-150" onClick={() => { if (!detailMouseDownInsideRef.current) handleCloseSelectedOpportunity(); detailMouseDownInsideRef.current = false; }}>
+              <div className="bg-white w-full h-full rounded-2xl shadow-2xl overflow-hidden flex flex-col ring-1 ring-white/10" onMouseDown={() => { detailMouseDownInsideRef.current = true; }} onClick={(e) => e.stopPropagation()}>
                 <LocalErrorBoundary fallbackLabel="Opportunity Detail">
                   <OpportunityDetail
                     opportunity={selectedOppForDetail}
                     opportunities={stableOpportunities}
-                    onBack={() => { setSelectedOppId(null); setActiveDeepLink(null); }}
+                    onBack={handleCloseSelectedOpportunity}
                     onUpdate={updateOpportunity}
-                    onDelete={() => deleteOpportunity(selectedOppForDetail.id)}
+                    onDelete={handleDeleteSelectedOpportunity}
                     onSelectOpp={handleSelectOpp}
                     noteTemplates={appSettings.noteTemplates}
                     taskStandards={appSettings.taskStandards}
@@ -2962,26 +2992,29 @@ function App() {
                     trackedAreas={stableTrackedAreas}
                     globalContacts={stableGlobalContacts}
                     onGlobalContactsChange={applyGlobalContactsUpdate}
-                    onTrackedAreasChange={(areas) => handleSaveSettings({ ...appSettingsRef.current, trackedAreas: areas })}
+                    onTrackedAreasChange={handleTrackedAreasChange}
                     globalLabels={stableGlobalLabels}
                     emailIntegrationEnabled={appSettings.emailIntegrationEnabled || false}
                     sowSectionEnabled={appSettings.sowSectionEnabled || false}
                     stakeholdersSectionEnabled={appSettings.stakeholdersSectionEnabled || false}
                     commercialCqaLinkVisible={appSettings.commercialCqaLinkVisible !== false}
-                    onHideCommercialCqaLink={() => handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: false })}
-                    onShowCommercialCqaLink={() => handleSaveSettings({ ...appSettingsRef.current, commercialCqaLinkVisible: true })}
+                    onHideCommercialCqaLink={hideCommercialCqaLink}
+                    onShowCommercialCqaLink={showCommercialCqaLink}
+                    commercialOppLinesLinkVisible={appSettings.commercialOppLinesLinkVisible !== false}
+                    onHideCommercialOppLinesLink={hideCommercialOppLinesLink}
+                    onShowCommercialOppLinesLink={showCommercialOppLinesLink}
                     remindersEnabled={appSettings.remindersEnabled || false}
                     timerEnabled={appSettings.timerEnabled !== false}
                     onAddReminder={handleAddReminder}
-                    hiddenOpportunityHeaderFields={appSettings.hiddenOpportunityHeaderFields || []}
+                    hiddenOpportunityHeaderFields={stableHiddenOpportunityHeaderFields}
                     hiddenOpportunityDetailSections={stableHiddenOpportunityDetailSections}
                     opportunityDetailSectionOrder={stableOpportunityDetailSectionOrder}
-                    alarms={appSettings.alarms}
+                    alarms={stableAlarms}
                     confirmExpectedDateChanges={appSettings.confirmExpectedDateChanges === true}
                     userName={appSettings.userName || 'User'}
                     emailComposeSettings={appSettings.emailCompose || null}
-                    globalSowForm={appSettings.globalSowForm || { sections: [], questions: [] }}
-                    onGlobalSowFormChange={(form) => handleSaveSettings({ ...appSettingsRef.current, globalSowForm: form })}
+                    globalSowForm={stableGlobalSowForm}
+                    onGlobalSowFormChange={handleGlobalSowFormChange}
                     scopeCatalog={stableScopeCatalog}
                     deepLink={activeDeepLink || undefined}
                     onMinimize={minimizeToDock}

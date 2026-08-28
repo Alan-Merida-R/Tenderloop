@@ -371,14 +371,14 @@
 <div class="editable" contenteditable="true" data-key="objective" data-placeholder="What outcome must this proposal and project achieve?" data-required=""></div>
 </div>
 <div class="field" style="margin-top:13px">
-<label>Scope</label>
+<label>Proposal Description</label>
 <textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
 <div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
 </div></section>
 <div class="field" id="scopeCatalogBlock" style="margin-top:13px">
-<label>Scope <span class="required-mark">*</span></label>
-<div class="multi-choice" data-key="scope_types" data-question-label="Scope" data-required=""></div>
-<div class="logic-hint">Green field, upgrade, migration, CF, parts or services. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
+<label>Type of Proposal <span class="required-mark">*</span></label>
+<div class="multi-choice" data-key="scope_types" data-question-label="Type of Proposal" data-required=""></div>
+<div class="logic-hint">Green field, upgrade, migration, CF, parts, services or trainings. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
 </div>
 <div class="field" id="systemCatalogBlock" style="margin-top:13px">
 <label>System <span class="required-mark">*</span></label>
@@ -1544,9 +1544,9 @@
   // Sub-module lists stay in the document when their parent is unselected — they are hidden,
   // never removed, which is the same "hidden answers are preserved" rule used everywhere else.
   const DEFAULT_SCOPE_CATALOG={
-    scope:[{id:'greenfield',label:'Green field'},{id:'upgrade',label:'Upgrade'},{id:'migration',label:'Migration'},{id:'cf',label:'CF'},{id:'parts',label:'Parts'},{id:'services',label:'Services'}],
-    systems:[{id:'eae',label:'EAE'},{id:'modicon-580',label:'Modicon 580'},{id:'modicon-580-safety',label:'Modicon 580 Safety'},{id:'epe',label:'EPE'},{id:'epp',label:'EPP'},{id:'foxboro',label:'Foxboro'},{id:'triconex',label:'Triconex',children:[{id:'tricon-cx',label:'Tricon CX'},{id:'sis',label:'SIS'},{id:'fg',label:'F&G'},{id:'bms',label:'BMS'},{id:'run-time',label:'Run time'}]},{id:'aveva',label:'AVEVA'},{id:'cyber',label:'Cyber'}],
-    quickNotes:[{id:'new-cabinets',label:'New Cabinets',children:[{id:'integration',label:'Integration'}]},{id:'resales-lt-20',label:'Resales <20%'},{id:'resales-gt-20',label:'Resales >20%'},{id:'no-resales',label:'No resales'}],
+    scope:[{id:'greenfield',label:'Green field'},{id:'upgrade',label:'Upgrade'},{id:'migration',label:'Migration'},{id:'cf',label:'CF'},{id:'parts',label:'Parts'},{id:'services',label:'Services'},{id:'trainings',label:'Trainings'}],
+    systems:[{id:'eae',label:'EAE'},{id:'modicon-580',label:'Modicon 580'},{id:'modicon-580-safety',label:'Modicon 580 Safety'},{id:'epe',label:'EPE'},{id:'epp',label:'EPP'},{id:'foxboro',label:'Foxboro'},{id:'triconex',label:'Triconex',children:[{id:'tricon-cx',label:'Tricon CX'},{id:'sis',label:'SIS'},{id:'spe',label:'SPE'},{id:'fg',label:'SF&G'},{id:'bms',label:'BMS'},{id:'run-time',label:'Run time'}]},{id:'aveva',label:'AVEVA'},{id:'cyber',label:'Cyber'}],
+    quickNotes:[{id:'new-cabinets',label:'New Cabinets',children:[{id:'regional-integration',label:'Regional Integration'},{id:'india-cabinets',label:'India Cabinets'}]},{id:'resales-lt-20',label:'Resales <20%'},{id:'resales-lt-49',label:'Resales <49%'},{id:'resales-gt-50',label:'Resales >50%'}],
     extras:[]
   };
   let scopeCatalog=DEFAULT_SCOPE_CATALOG;
@@ -1742,6 +1742,9 @@
   }
   function migrateLegacyDuplicateFields(data){
     const put=(key,val)=>{if(!filledValue(data[key])&&filledValue(val))data[key]=val;};
+    if(Array.isArray(data.quick_notes))data.quick_notes=[...new Set(data.quick_notes.map(item=>item==='Resales >20%'?'Resales <49%':item).filter(item=>item!=='No resales'))];
+    if(Array.isArray(data.triconex_products))data.triconex_products=[...new Set(data.triconex_products.map(item=>item==='F&G'?'SF&G':item))];
+    if(Array.isArray(data['qnmod_new-cabinets']))data['qnmod_new-cabinets']=data['qnmod_new-cabinets'].filter(item=>item!=='Integration');
     const linkUrl=key=>{const value=data[key];return value&&typeof value==='object'?String(value.url||''):String(value||'');};
     const appendLine=(key,line)=>{if(!line)return;const current=String(data[key]||'').trim();if(!current.toLowerCase().includes(line.toLowerCase()))data[key]=current?`${current}\n${line}`:line;};
     put('link_dso',linkUrl('flow_C008'));

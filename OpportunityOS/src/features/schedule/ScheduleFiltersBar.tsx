@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Opportunity, TASK_STATUS_COLORS, PRIORITY_COLORS } from '../../types';
-import { ScheduleFilters, EMPTY_FILTERS } from './scheduleHelpers';
+import { ScheduleFilters, EMPTY_FILTERS, isOpportunitySchedulable } from './scheduleHelpers';
 
 interface Props {
     opportunities: Opportunity[];
@@ -36,7 +36,7 @@ export const ScheduleFiltersBar: React.FC<Props> = ({ opportunities, filters, on
         filters.oppIds.length + filters.statuses.length + filters.priorities.length + filters.owners.length;
 
     const oppOptions = useMemo(
-        () => [...opportunities].sort((a, b) => (a.alias || a.title).localeCompare(b.alias || b.title)),
+        () => opportunities.filter(isOpportunitySchedulable).sort((a, b) => (a.alias || a.title).localeCompare(b.alias || b.title)),
         [opportunities]
     );
 
