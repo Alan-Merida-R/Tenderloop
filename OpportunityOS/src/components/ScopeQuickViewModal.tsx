@@ -182,7 +182,7 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                     <>
                         <div className="p-6 space-y-5 overflow-y-auto">
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope description</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Proposal Description</label>
                                 <textarea
                                     value={scope}
                                     onChange={(e) => setScope(e.target.value)}
@@ -194,7 +194,7 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Scope</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Type of Proposal</label>
                                 <div className="flex flex-wrap gap-2">
                                     {resolvedCatalog.scope.map(option => (
                                         <label key={option.id} className={chip(scopeTypes.includes(option.label))} style={scopeTypes.includes(option.label) ? { backgroundColor: scopeOptionColor(option, 'scope') } : undefined}>

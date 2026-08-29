@@ -50,6 +50,10 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
     const [revisionTags, setRevisionTags] = useState('');
     const [revisionTaskStandardId, setRevisionTaskStandardId] = useState(taskStandards.length === 1 ? taskStandards[0].id : '');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // A text selection can start inside the modal and finish over the backdrop. Browsers may
+    // then dispatch the click to that backdrop, which used to close the whole subview. Only a
+    // press that also STARTED directly on the backdrop is a deliberate click-away.
+    const backdropPressStartedOutsideRef = useRef(false);
 
     const duplicateOpp = useMemo(() => {
         if (!prefill?.opId) return undefined;
@@ -116,7 +120,16 @@ export const ImportSrEmailModal: React.FC<Props> = ({ isOpen, onClose, currentOp
     const filledCount = prefill ? visibleFields.filter(f => (prefill[f.key] || '').toString().trim()).length : 0;
 
     return (
-        <div className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
+        <div
+            className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+            onPointerDown={e => { backdropPressStartedOutsideRef.current = e.target === e.currentTarget; }}
+            onPointerCancel={() => { backdropPressStartedOutsideRef.current = false; }}
+            onClick={e => {
+                const isDeliberateBackdropClick = e.target === e.currentTarget && backdropPressStartedOutsideRef.current;
+                backdropPressStartedOutsideRef.current = false;
+                if (isDeliberateBackdropClick) handleClose();
+            }}
+        >
             <div className="bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50 shrink-0">

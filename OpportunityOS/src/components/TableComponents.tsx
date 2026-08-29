@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Columns, Check, Filter, ChevronUp, ChevronDown, CalendarDays } from 'lucide-react';
+import { normalizeSearchText } from './OpportunitySearchInput';
 
 interface EditableCellProps {
     value: string | number;
@@ -274,6 +275,8 @@ export interface ColumnFilterProps {
     onChange: (val: string[]) => void;
     numeric?: boolean;
     getOptionLabel?: (option: string) => string;
+    sortDirection?: 'asc' | 'desc' | null;
+    onSortChange?: (direction: 'asc' | 'desc' | null) => void;
 }
 
 const AMOUNT_OPERATORS = [
@@ -285,7 +288,7 @@ const AMOUNT_OPERATORS = [
     { value: 'neq', label: '≠ Different from' },
 ];
 
-export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, onChange, numeric = false, getOptionLabel = option => option }) => {
+export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, onChange, numeric = false, getOptionLabel = option => option, sortDirection = null, onSortChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const ref = useRef<HTMLDivElement>(null);
@@ -303,7 +306,7 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const visibleOptions = options.filter(opt => getOptionLabel(opt || '').toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 50);
+    const visibleOptions = options.filter(opt => normalizeSearchText(getOptionLabel(opt || '')).includes(normalizeSearchText(searchTerm))).slice(0, 50);
     const allVisibleSelected = visibleOptions.length > 0 && visibleOptions.every(opt => selected.includes(opt));
     const toggleAllVisible = () => {
         if (allVisibleSelected) {
@@ -323,13 +326,20 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
         <div className="relative inline-block ml-1" ref={ref}>
             <button
                 onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
-                className={`p-0.5 rounded hover:bg-gray-200 ${selected.length > 0 ? 'text-[#3DCD58]' : 'text-gray-400'}`}
-                title="Filter column"
+                className={`p-0.5 rounded hover:bg-gray-200 ${selected.length > 0 || sortDirection ? 'text-[#3DCD58]' : 'text-gray-400'}`}
+                title="Filter and sort column"
             >
                 <Filter className="w-3 h-3" />
             </button>
             {isOpen && (
                 <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded shadow-xl z-50 p-2 font-normal text-gray-700 cursor-default">
+                    {onSortChange && (
+                        <div className="mb-2 flex flex-col gap-1 border-b border-gray-100 pb-2">
+                            <button type="button" onClick={() => { onSortChange('asc'); setIsOpen(false); }} className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-gray-50 ${sortDirection === 'asc' ? 'font-bold text-[#278a3b]' : ''}`}><ChevronUp className="h-3 w-3" /> Smallest to largest</button>
+                            <button type="button" onClick={() => { onSortChange('desc'); setIsOpen(false); }} className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-gray-50 ${sortDirection === 'desc' ? 'font-bold text-[#278a3b]' : ''}`}><ChevronDown className="h-3 w-3" /> Largest to smallest</button>
+                            {sortDirection && <button type="button" onClick={() => { onSortChange(null); setIsOpen(false); }} className="px-2 py-1 text-left text-[10px] font-semibold text-red-500 hover:text-red-700">Clear sorting</button>}
+                        </div>
+                    )}
                     {numeric ? (
                         <div className="flex flex-col gap-2">
                             <select value={numericOperator} onChange={e => setNumericOperator(e.target.value)} className="w-full text-xs p-1 border border-gray-200 rounded outline-none focus:border-[#3DCD58]">
@@ -349,7 +359,7 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
                                 Apply
                             </button>
                         </div>
-                    ) : <>
+                    ) : options.length > 0 ? <>
                     <input
                         autoFocus
                         placeholder="Search..."
@@ -389,7 +399,7 @@ export const ColumnFilter: React.FC<ColumnFilterProps> = ({ options, selected, o
                             </label>
                         ))}
                     </div>
-                    </>}
+                    </> : null}
                     {selected.length > 0 && (
                         <button
                             onClick={() => { onChange([]); setIsOpen(false); }}

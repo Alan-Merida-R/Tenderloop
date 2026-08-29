@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.0.2 - 2026-08-28
+### Fixed
+- Fixed the Proposals "Scope" filter not matching selected options: it compared a label's internal id against the scope/systems/labels text read from the SOW, so a selection like "Foxboro" never matched anything. It now matches on the same text values everywhere.
+- Fixed duplicate entries in the Scope filter dropdown (e.g. the same label appearing several times) caused by legacy labels sharing the same text under different internal ids.
+
+### Changed
+- The Scope filter is now grouped by section (Type of Proposal, Systems, Notes at a glance, Labels/Extras) with its own search box per section, mirroring the Scope quick view.
+- The Scope filter only lists options present among currently visible proposals, so a hidden process-status column no longer leaks its labels into the filter.
+- Free-text search is now limited to the OP number, alias, overview description, scope/systems/labels, customer and seller, instead of matching against nearly every field on an opportunity — narrowing overly broad search results.
+- Standardized the General view table's header row to a consistent font size across all columns.
+
+### Added
+- Added a Duration filter and a Rank filter/sort (Excel-style, from the column header) to the General view table.
+
 ## [Unreleased]
 ### Added
 - Added optional SharePoint-folder updates, including per-PC Settings, package checksum validation, backup and automatic recovery without blocking normal startup.

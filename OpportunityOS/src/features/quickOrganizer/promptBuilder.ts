@@ -1,6 +1,8 @@
-import { MeetingNote, Opportunity, Reminder, Task } from '../../types';
+import { DEFAULT_FOCUS_POLICY, FocusPolicy, MeetingNote, Opportunity, Reminder, Task } from '../../types';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { getNextTask } from '../../services/taskUtils';
+import { PROCESS_SECTIONS } from '../../services/processSections';
+import { ExecutionModel, forecastTask, renderExecutionModelForPrompt } from '../../services/executionModel';
 
 export interface OrganizerChip {
     id: string;
@@ -40,6 +42,10 @@ export interface BuildPromptOptions {
     recommendationLanguage?: 'en' | 'es';
     /** Existing reminders are included so the AI does not propose the same follow-up again. */
     reminders?: Reminder[];
+    /** Focus/recovery limits the schedule must respect. Omitted = DEFAULT_FOCUS_POLICY. */
+    focusPolicy?: FocusPolicy;
+    /** The user-calibrated execution model. Supplied so proposed dates are computed, not guessed. */
+    executionModel?: ExecutionModel;
 }
 
 const weekdayName = (iso: string): string => {
@@ -160,8 +166,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
             const ea = a.opp.dates?.expected || '9999-99-99';
             const eb = b.opp.dates?.expected || '9999-99-99';
             return ea < eb ? -1 : ea > eb ? 1 : 0;
-        })
-        .slice(0, 8);
+        });
 
     const lines: string[] = [];
 
@@ -170,7 +175,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('SCHEDULE header: Key | Opportunity | Task | Date(YYYY-MM-DD) | Start(HH:mm) | End(HH:mm) | Note');
     lines.push('PROPOSED_DUE_DATES header: Key | Opportunity | Task | DueDate(YYYY-MM-DD) | Rationale');
     lines.push('REMINDERS header: Key | Opportunity | Task | RemindAt(YYYY-MM-DDTHH:mm) | Title');
-    lines.push('MISSING TASKS header: OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD)');
+    lines.push('MISSING TASKS header: OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD) | ProcessSection');
     lines.push('Copy the full supplied Key (oppId::taskId) and exact task title. Never invent or combine tasks.');
     lines.push('');
     lines.push('Act as a rigorous, concise PM and workload assistant. Prevent overload: expose capacity gaps honestly and give only the few actions that materially improve delivery.');
@@ -214,6 +219,26 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
         lines.push('');
     }
 
+    // Breaks are gaps, never rows: a break is not a task and cannot be an execution block, so the
+    // policy is expressed as the empty space the scheduler must leave between blocks.
+    const focus = options.focusPolicy || DEFAULT_FOCUS_POLICY;
+    if (focus.enabled) {
+        lines.push('FOCUS & RECOVERY POLICY (BINDING) — protect sustained output, do not maximize occupancy:');
+        lines.push(`- Maximum uninterrupted block: ${focus.sessionMinutes} minutes. Split longer work into several blocks on the same or different days.`);
+        lines.push(`- Leave at least ${focus.breakMinutes} minutes of empty time between two consecutive blocks on the same day. Never emit a SCHEDULE row for a break; the break IS the gap.`);
+        lines.push(`- After ${focus.longBreakAfterSessions} consecutive blocks in a day, leave at least ${focus.longBreakMinutes} minutes before the next one.`);
+        lines.push(`- Never schedule more than ${focus.maxDailyFocusHours} hours of work in one day, even when the availability window is longer. The unused part of a window is deliberate recovery, not spare capacity.`);
+        lines.push('- If the work does not fit under this policy, defer it and say so in RECOMMENDATIONS. Never shorten or drop the breaks to make it fit.');
+        lines.push('');
+    }
+
+    // The model is the anchor for every date the assistant proposes: measured constants plus the
+    // arithmetic to apply them, so estimates are reproducible instead of optimistic.
+    if (options.executionModel) {
+        renderExecutionModelForPrompt(options.executionModel).forEach(line => lines.push(line));
+        lines.push('');
+    }
+
     const currentReminders = (options.reminders || [])
         .filter(reminder => !reminder.seenAt)
         .filter(reminder => !oppIdFilter.size || oppIdFilter.has(reminder.opportunityId))
@@ -251,8 +276,16 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
                 .join(', ') || 'none';
             const loggedSeconds = (task.timeLogs || []).reduce((total, log) => total + (log.durationSeconds || 0), 0);
             const lastWorkAt = (task.timeLogs || []).map(log => log.start).filter(Boolean).sort().at(-1) || 'none';
+            // Pre-computed with the same arithmetic the assistant is told to apply, so it has the
+            // answer to check itself against rather than a formula it might shortcut.
+            const forecast = options.executionModel
+                ? forecastTask(task, options.executionModel, { todayStr, dailyCapacityHours: focus.enabled ? focus.maxDailyFocusHours : undefined })
+                : null;
+            const forecastCell = forecast
+                ? ` | forecast:${forecast.expectedFinish}${forecast.willMissDueDate ? ' WILL-SLIP' : ''} (${forecast.basis}; confidence ${Math.round(forecast.confidence * 100)}%)`
+                : '';
             lines.push(
-                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | responsibleDue:${task.responsibleDueDate || '-'} | approvalDue:${task.approvalDueDate || '-'} | blocks:${existingBlocks} | loggedHours:${(loggedSeconds / 3600).toFixed(2)} | lastWorked:${lastWorkAt} | description:${compact(task.description, 120) || 'none'} | deliverable:${compact(task.deliverable, 80) || 'none'} | missing:${missing.join(',') || 'none'}`
+                `    Task #${taskIndex + 1}: ${opp.id}::${task.id} | ${task.title} | status:${task.status} | priority:${task.priority || '?'} | owner:${taskAssignee(task)} | due:${task.dueDate || 'none'} | depends:${(task.dependsOnTaskIds || []).join(',') || 'none'} | responsibleDue:${task.responsibleDueDate || '-'} | approvalDue:${task.approvalDueDate || '-'} | blocks:${existingBlocks} | loggedHours:${(loggedSeconds / 3600).toFixed(2)} | lastWorked:${lastWorkAt} | section:${task.processSection || 'none'} | description:${compact(task.description, 120) || 'none'} | deliverable:${compact(task.deliverable, 80) || 'none'} | missing:${missing.join(',') || 'none'}${forecastCell}`
             );
         }
     }
@@ -299,10 +332,10 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     lines.push('- One short bullet per OP: delivery date, risk and assumption.');
     lines.push('');
     lines.push('### MISSING TASKS');
-    lines.push('OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD)');
+    lines.push('OppId | Opportunity | TaskTitleEnglish | ReasonLocalized | SuggestedDueDate(YYYY-MM-DD) | ProcessSection');
     lines.push('');
     lines.push('OPPORTUNITY ASSESSMENT: exactly one row per selected OP. Progress is the AI\'s evidence-based estimate of real operational advancement toward a deliverable proposal: consider completed deliverables, remaining work, dependencies, approvals, missing information, rework and scope readiness. It is NOT the percentage of tasks marked Done and must not be optimistic. 100 means realistically ready to deliver now. Estimate RequiredHours conservatively from all remaining work, statuses, dependencies, scope and existing blocks. AvailableHours is that OP\'s fair share of supplied windows before delivery. If no windows were supplied, use 0 and AT RISK; never invent capacity. Keep the current delivery date only if feasible; otherwise give the earliest credible workday. Why, MainBlocker, NextAction and Summary must be specific and at most 14 words each. Missing data must reduce confidence and progress.');
-    lines.push('MISSING TASKS: maximum 3 rows. Suggest only a genuinely absent execution step. TaskTitleEnglish must be an actionable English task title; ReasonLocalized must use the selected user-facing language. Use the selected opportunity id and a realistic future due date.');
+    lines.push(`MISSING TASKS: maximum 3 rows. Suggest only a genuinely absent execution step. TaskTitleEnglish must be an actionable English task title; ReasonLocalized must use the selected user-facing language. Use the selected opportunity id and a realistic future due date. ProcessSection MUST be copied verbatim from this list so the task can be inserted at the right point of the plan instead of at the end: ${PROCESS_SECTIONS.join(' | ')}.`);
     lines.push('SILENT CHECK: exact headings/order; valid full Keys; one assessment per selected OP; valid dates/times; blocks inside allowed windows with no overlap; max one reminder per task and no duplicates; concise text; no extra text.');
 
     return lines.join('\n');

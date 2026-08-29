@@ -1,4 +1,5 @@
 import { Task } from '../types';
+import { PROCESS_SECTIONS, ProcessSection } from './processSections';
 
 /**
  * Keeps the system-managed assignment subtasks aligned with the selected
@@ -186,4 +187,60 @@ export function compareTasksGlobal(
 
     // Default fallback
     return (a.task.title || '').localeCompare(b.task.title || '');
+}
+
+/**
+ * Places newly created tasks where they belong in the plan instead of appending them to the end.
+ *
+ * A task proposed by the Quick Organizer is almost never the last thing to do — "chase the missing
+ * BOM" belongs next to the costing, not after submission. Position is decided from the process
+ * section first (the canonical PROCESS_SECTIONS order is the workflow order), and from the due date
+ * inside that section. A task with no section falls back to due date alone, and only a task with
+ * neither lands at the end.
+ *
+ * Every `order` is renumbered afterwards so the sequence stays contiguous; relative order of the
+ * existing tasks is preserved.
+ */
+export function insertTasksInPlan(existing: Task[], created: Task[]): Task[] {
+    if (!created.length) return existing;
+
+    const sectionRank = (task: Task): number => {
+        const index = PROCESS_SECTIONS.indexOf(task.processSection as ProcessSection);
+        return index >= 0 ? index : -1;
+    };
+
+    const plan = [...existing].sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999));
+
+    for (const task of created) {
+        const rank = sectionRank(task);
+        let insertAt: number;
+
+        if (rank >= 0) {
+            // Last task of the same section wins; otherwise sit after the last earlier section, so a
+            // task for a section nobody has started yet still lands before the later work.
+            const sameSection = plan.map((item, index) => ({ item, index })).filter(({ item }) => sectionRank(item) === rank);
+            if (sameSection.length) {
+                // Inside the section, respect the due date when both tasks have one.
+                const laterDue = task.dueDate
+                    ? sameSection.find(({ item }) => !!item.dueDate && item.dueDate > task.dueDate)
+                    : undefined;
+                insertAt = laterDue ? laterDue.index : sameSection[sameSection.length - 1].index + 1;
+            } else {
+                const earlier = plan.map((item, index) => ({ item, index })).filter(({ item }) => {
+                    const itemRank = sectionRank(item);
+                    return itemRank >= 0 && itemRank < rank;
+                });
+                insertAt = earlier.length ? earlier[earlier.length - 1].index + 1 : 0;
+            }
+        } else if (task.dueDate) {
+            const laterDue = plan.findIndex(item => !!item.dueDate && item.dueDate > task.dueDate!);
+            insertAt = laterDue >= 0 ? laterDue : plan.length;
+        } else {
+            insertAt = plan.length;
+        }
+
+        plan.splice(insertAt, 0, task);
+    }
+
+    return plan.map((task, index) => ({ ...task, order: index + 1 }));
 }

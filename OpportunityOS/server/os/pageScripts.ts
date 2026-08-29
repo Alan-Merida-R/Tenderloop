@@ -16,8 +16,19 @@ export interface PageField {
     id: string;
     type: string;
     value: string;
-    /** Best-effort selector to target this control from a recipe. */
+    /** Raw identifying attributes; the selector is composed in Node. */
+    target: {
+        tag: string;
+        apiName?: string;
+        name?: string;
+        id?: string;
+        ariaLabel?: string;
+        nth?: number;
+    };
+    /** Filled in by the server from `target` — always empty inside the page. */
     selector: string;
+    /** Salesforce field API name, when the page exposes one. */
+    apiName?: string;
     options?: string[];
 }
 
@@ -26,6 +37,8 @@ export interface PageValue {
     label: string;
     value: string;
     source: string;
+    /** Salesforce field API name, when the page exposes one. */
+    apiName?: string;
 }
 
 export interface PageSnapshot {
@@ -87,16 +100,29 @@ export function collectSnapshot(): PageSnapshot {
         return clean(el.getAttribute('placeholder') || el.getAttribute('name') || '');
     };
 
-    /** Stable-ish selector: prefer name, then id, then a positional fallback. */
-    const selectorFor = (el: any, index: number): string => {
-        const tag = el.tagName.toLowerCase();
-        const name = el.getAttribute('name');
-        if (name) return `${tag}[name="${name}"]`;
-        if (el.id && !/^[0-9]/.test(el.id) && !/:/.test(el.id)) return `#${esc(el.id)}`;
-        const aria = el.getAttribute('aria-label');
-        if (aria) return `${tag}[aria-label="${aria}"]`;
-        return `${tag}:nth-of-type(${index + 1})`;
+    /**
+     * The API name Lightning stamps on every record field, e.g.
+     * "sfdc:RecordField.OPP_SupportRequest__c.Status__c". It is tied to the
+     * field's definition rather than the record, the layout or the visible
+     * label, which makes it the sturdiest anchor available on these pages —
+     * labels get renamed and reordered, API names do not.
+     */
+    const apiNameFor = (el: any): string => {
+        const holder = el.closest ? el.closest('[data-target-selection-name]') : null;
+        return holder ? clean(holder.getAttribute('data-target-selection-name')) : '';
     };
+
+    /** Collect raw identifying attributes only — Node decides which one wins
+     *  (buildSelector in selectorPolicy.ts). Keeping the priority policy out of
+     *  the page means the probe and the recorder cannot drift apart. */
+    const targetPartsFor = (el: any, index: number) => ({
+        tag: el.tagName.toLowerCase(),
+        apiName: apiNameFor(el) || undefined,
+        name: clean(el.getAttribute('name')) || undefined,
+        id: clean(el.id) || undefined,
+        ariaLabel: clean(el.getAttribute('aria-label')) || undefined,
+        nth: index,
+    });
 
     const fields: PageField[] = [];
     const controls = document.querySelectorAll('input, select, textarea, [contenteditable="true"]');
@@ -113,7 +139,9 @@ export function collectSnapshot(): PageSnapshot {
             id: clean(el.id),
             type,
             value: clean(el.value),
-            selector: selectorFor(el, i),
+            target: targetPartsFor(el, i),
+            selector: '',
+            apiName: apiNameFor(el) || undefined,
         };
         if (el.tagName.toLowerCase() === 'select') {
             field.options = Array.from(el.options || []).map((o: any) => clean(o.textContent)).slice(0, 40);
@@ -122,12 +150,29 @@ export function collectSnapshot(): PageSnapshot {
     }
 
     const values: PageValue[] = [];
-    const push = (label: string, value: string, source: string) => {
+    const push = (label: string, value: string, source: string, apiName?: string) => {
         const l = clean(label).replace(/[:*]\s*$/, '');
         const v = clean(value);
         if (!l || !v || l === v) return;
         if (l.length > 80 || v.length > 400) return;
-        values.push({ label: l, value: v, source });
+        values.push({ label: l, value: v, source, apiName: apiName || undefined });
+    };
+
+    /**
+     * Try selectors in priority order, one at a time.
+     *
+     * A single comma-separated querySelector would NOT do this: it returns the
+     * first match in *document order*, so an ancestor like
+     * .slds-form-element__control beats the precise .test-id__field-value nested
+     * inside it — and that ancestor also contains the inline-edit button, whose
+     * "Edit <field>" assistive text then lands in the value.
+     */
+    const firstMatch = (root: any, selectors: string[]): any => {
+        for (let i = 0; i < selectors.length; i++) {
+            const found = root.querySelector(selectors[i]);
+            if (found) return found;
+        }
+        return null;
     };
 
     // Salesforce Lightning read-only fields.
@@ -135,9 +180,16 @@ export function collectSnapshot(): PageSnapshot {
     for (let i = 0; i < sldsGroups.length; i++) {
         const group = sldsGroups[i];
         if (!isVisible(group)) continue;
-        const lbl = group.querySelector('.slds-form-element__label, label');
-        const val = group.querySelector('.slds-form-element__static, output, lightning-formatted-text, .slds-form-element__control');
-        if (lbl && val) push(lbl.textContent, val.textContent, 'slds');
+        const lbl = firstMatch(group, ['.test-id__field-label', '.slds-form-element__label', 'label']);
+        const val = firstMatch(group, [
+            '[data-output-element-id="output-field"]',
+            '.test-id__field-value',
+            '.slds-form-element__static',
+            'output',
+            'lightning-formatted-text',
+            '.slds-form-element__control',
+        ]);
+        if (lbl && val) push(lbl.textContent, val.textContent, 'slds', apiNameFor(group));
     }
 
     // Definition lists.

@@ -57,7 +57,8 @@ export interface TaskTemplate {
   dueDateOffset?: number;
   subtasks?: { id: string; title: string; completed: boolean }[];
   externalAreas?: string[];
-  calendarized?: boolean;
+  /** Keep one subtask per system selected in the Scope. See Task.subtasksPerSystem. */
+  subtasksPerSystem?: boolean;
 }
 
 export interface TaskStandard {
@@ -118,7 +119,7 @@ export type OpportunityHeaderFieldKey =
 export const OPPORTUNITY_HEADER_FIELDS: { key: OpportunityHeaderFieldKey; label: string }[] = [
   { key: 'address', label: 'Address' },
   { key: 'seller', label: 'Seller' },
-  { key: 'nextStep', label: 'Next Step badge' },
+  { key: 'nextStep', label: 'Status badge' },
   { key: 'quoteType', label: 'Quote type badge' },
   { key: 'labels', label: 'Systems / Solutions' },
   { key: 'stakeholdersTable', label: 'Stakeholders quick table' },
@@ -174,6 +175,7 @@ export interface AppSettings {
   sowSectionEnabled?: boolean;
   /** Whether the read-only CQA quick-open link shows in the Commercial tab's Project Financial View. On by default. */
   commercialCqaLinkVisible?: boolean;
+  commercialOppLinesLinkVisible?: boolean;
   /** Ask for a type/reason before changing an opportunity's expected delivery date. Off by default. */
   confirmExpectedDateChanges?: boolean;
   hiddenOpportunityDetailSections?: OpportunityDetailSectionKey[];
@@ -235,8 +237,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     dependsOnTaskIds: t.dependsOnTaskIds || [],
     blockDoneUntilDependenciesDone: t.blockDoneUntilDependenciesDone || false,
     subtasks: t.subtasks || [],
-    externalAreas: t.externalAreas || [],
-    calendarized: t.calendarized || false
+    externalAreas: t.externalAreas || []
   })),
   taskStandards: [],
   noteTemplates: Object.entries(MEETING_TEMPLATES).map(([key, content]) => ({
@@ -259,10 +260,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   emailIntegrationEnabled: false,
   sowSectionEnabled: false,
   commercialCqaLinkVisible: true,
+  commercialOppLinesLinkVisible: true,
   confirmExpectedDateChanges: false,
   remindersEnabled: false,
   stakeholdersSectionEnabled: false,
-  hiddenOpportunityDetailSections: ['emails'],
+  hiddenOpportunityDetailSections: ['emails', 'history'],
   opportunityDetailSectionOrder: OPPORTUNITY_DETAIL_SECTIONS.map(section => section.key),
   processRadialWidgetEnabled: false,
   defaultStartView: 'general-dashboard',
@@ -291,47 +293,35 @@ export const DEFAULT_SETTINGS: AppSettings = {
 const SIMPLE_STANDARD: TaskStandard = {
   id: SIMPLE_STANDARD_ID,
   name: 'Simple Standard',
-  builtInVersion: 5,
+  builtInVersion: 6,
+  // Eight steps mirroring the workflow actually followed: set up, agree the scope, define what the
+  // costing needs, cost it, get the price approved, assemble the approval package, get approvals,
+  // close it in the system. Scope, hours, costing and the approval package carry one subtask per
+  // system selected in the Scope (`subtasksPerSystem`), so an opportunity covering several systems
+  // tracks each one and the step only closes when every system is done.
   tasks: [
-    { id: 'simple-intake', title: 'Prepare the proposal workspace', description: 'Standardize the request, identifiers, links, folder and source information.', processSection: 'Intake & Standardization', status: 'Pending', priority: 'Medium', owner: 'Me', order: 1, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [{ id: 'simple-intake-qlk', title: 'Create or confirm QLK and links', completed: false }, { id: 'simple-intake-folder', title: 'Create or confirm the working folder', completed: false }, { id: 'simple-intake-info', title: 'Download and organize the available information', completed: false }] },
-    { id: 'simple-scope', title: 'Define and confirm the complete scope', description: 'Reach an agreed and usable scope across every involved area. These activities may progress in parallel while information is still pending.', processSection: 'Scope Definition', status: 'Pending', priority: 'High', owner: 'Me', order: 2, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-scope-architecture', title: 'Create or validate the solution architecture', completed: false },
-      { id: 'simple-scope-bom', title: 'Obtain, review and confirm the BOM', completed: false },
-      { id: 'simple-scope-services', title: 'Define service activities and required hours', completed: false },
-      { id: 'simple-scope-third-parties', title: 'Identify third parties, integrations and external dependencies', completed: false },
-      { id: 'simple-scope-responsibilities', title: 'Confirm responsibilities and boundaries between teams', completed: false },
-      { id: 'simple-scope-meetings', title: 'Complete the required internal, cross-team, KOM and customer scope meetings', completed: false },
-      { id: 'simple-scope-signoff', title: 'Record the agreed scope and remaining assumptions or exclusions', completed: false },
+    { id: 'simple-intake', title: 'Set up the opportunity', description: 'Standardize the request, identifiers, links, folder and source information before any technical work starts.', processSection: 'Intake & Standardization', status: 'Pending', priority: 'Medium', owner: 'Me', order: 1, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-intake-edward-1', title: 'Edward step 1 — rename in Settings › Tasks', completed: false },
+      { id: 'simple-intake-edward-2', title: 'Edward step 2 — rename in Settings › Tasks', completed: false },
+      { id: 'simple-intake-edward-3', title: 'Edward step 3 — rename in Settings › Tasks', completed: false },
+      { id: 'simple-intake-qlk', title: 'Create or confirm QLK and links', completed: false },
+      { id: 'simple-intake-folder', title: 'Create or confirm the working folder', completed: false },
+      { id: 'simple-intake-info', title: 'Download and organize the available information', completed: false },
     ] },
-    { id: 'simple-costing', title: 'Complete the cost and commercial baseline', description: 'Build a traceable cost and selling-price baseline. Costing may start with preliminary scope and be refined as BOM, service hours and third-party information become available.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 3, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-costing-third-parties', title: 'Request third-party quotations from Supply Chain', completed: false },
-      { id: 'simple-costing-travel', title: 'Request Travel & Living costs from Delivery', completed: false },
-      { id: 'simple-costing-equipment', title: 'Quote equipment and validate the cost baseline', completed: false },
-      { id: 'simple-costing-bom', title: 'Review and incorporate BOM corrections', completed: false },
-      { id: 'simple-costing-sell-price', title: 'Define and validate the selling price and margin', completed: false },
-      { id: 'simple-costing-discounts', title: 'Review discounts and commercial exceptions', completed: false },
-      { id: 'simple-costing-agreements', title: 'Review applicable CFA, MSA and contractual conditions', completed: false },
-      { id: 'simple-costing-record', title: 'Record assumptions, pending quotations and commercial risks', completed: false },
+    { id: 'simple-scope', title: 'Define and confirm the scope', description: 'Reach an agreed and usable scope for every system in play. One subtask per system selected in the Scope; the step closes when all of them are agreed.', processSection: 'Scope Definition', status: 'Pending', priority: 'High', owner: 'Me', order: 2, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
+    { id: 'simple-hours', title: 'Define hours and costing inputs', description: 'Everything the costing needs before it can start: engineering, service and commissioning hours, BOM and third-party inputs, per system.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 3, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
+    { id: 'simple-costing', title: 'Complete the solution costing', description: 'Build the traceable cost of the solution, system by system. Cost only — the selling price and its approval are the next step.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 4, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
+    { id: 'simple-pa-cost', title: 'PA cost and price approval', description: 'Turn the cost into a selling price and get it approved: fill the PA Cost in Commercial and send the Price Approval to the CSE/seller.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 5, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-pa-cost-fill', title: 'Fill the PA Cost in the Commercial tab', completed: false },
+      { id: 'simple-pa-cost-send', title: 'Send the Price Approval to the CSE / seller', completed: false },
+      { id: 'simple-pa-cost-confirm', title: 'Price confirmed by the seller', completed: false },
     ] },
-    { id: 'simple-proposal', title: 'Build the customer proposal', description: 'Turn the agreed scope and commercial baseline into a clear, customer-focused proposal. A draft may begin while some scope or costing inputs are still being confirmed.', processSection: 'Proposal Development', status: 'Pending', priority: 'High', owner: 'Me', order: 4, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-proposal-document', title: 'Create the proposal document from the approved template', completed: false },
-      { id: 'simple-proposal-customer-value', title: 'Present the scope, solution and value most relevant to the customer', completed: false },
-      { id: 'simple-proposal-commercial', title: 'Include the validated commercial information, assumptions and exclusions', completed: false },
-      { id: 'simple-proposal-supporting-files', title: 'Attach the required technical and commercial supporting documents', completed: false },
-      { id: 'simple-proposal-quality', title: 'Review clarity, consistency, formatting and customer-facing quality', completed: false },
-      { id: 'simple-proposal-cqa', title: 'Create or update the proposal in CQA and upload the required files', completed: false },
-      { id: 'simple-proposal-draft-ready', title: 'Leave the complete draft ready for review and approval', completed: false },
+    { id: 'simple-package', title: 'Prepare the approval package', description: 'Write the proposal draft and assemble everything the approvers need, per system.', processSection: 'Proposal Development', status: 'Pending', priority: 'High', owner: 'Me', order: 6, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
+    { id: 'simple-approval', title: 'Obtain the required approvals', description: 'Secure explicit approval of every element required before submission. Reviews may run in parallel and a rejected item returns to its originating step for correction.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 7, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [] },
+    { id: 'simple-submit', title: 'Close the proposal in the system', description: 'Send or publish the approved proposal, record the delivery and leave the opportunity ready for its next commercial outcome.', processSection: 'Submission & Closure', status: 'Pending', priority: 'Medium', owner: 'Me', order: 8, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-submit-send', title: 'Send or publish the approved proposal', completed: false },
+      { id: 'simple-submit-record', title: 'Record the delivery in bFO / CQA', completed: false },
     ] },
-    { id: 'simple-approval', title: 'Obtain the required approvals', description: 'Secure explicit approval of every element required before submission. Reviews may run in parallel and a rejected item can return to its originating process section for correction.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 5, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-approval-document', title: 'Obtain review and approval of the proposal document', completed: false },
-      { id: 'simple-approval-technical', title: 'Obtain technical and scope approval when required', completed: false },
-      { id: 'simple-approval-price', title: 'Obtain selling-price, margin and discount approval', completed: false },
-      { id: 'simple-approval-commercial', title: 'Obtain approval of commercial terms, exceptions and contractual conditions', completed: false },
-      { id: 'simple-approval-changes', title: 'Resolve requested changes and submit the corrected version for approval', completed: false },
-      { id: 'simple-approval-evidence', title: 'Record approvers, decisions, dates and approved files', completed: false },
-      { id: 'simple-approval-final', title: 'Confirm the final approved version is ready for submission', completed: false },
-    ] },
-    { id: 'simple-submit', title: 'Submit and close the proposal cycle', description: 'Send or publish the approved proposal, record delivery and leave the opportunity ready for its next commercial outcome.', processSection: 'Submission & Closure', status: 'Pending', priority: 'Medium', owner: 'Me', order: 6, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [] },
   ],
 };
 
@@ -372,6 +362,10 @@ interface Props {
 export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: { options: { id: string, label: string }[], selected: string[], onChange: (val: string[]) => void, placeholder: string }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  // Selected ids with no matching option — e.g. a dependency whose task was deleted, or a
+  // legacy id imported from a template. Without this they stay in `selected` forever: the
+  // button counts them but no row renders, so there is nothing to click to remove them.
+  const orphanIds = selected.filter(id => !options.some(opt => opt.id === id));
   // The backdrop below handles clicks away; this covers Escape and keyboard-only dismissal.
   useEffect(() => {
     if (!isOpen) return;
@@ -381,8 +375,8 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
   }, [isOpen]);
   return (
     <div className="relative">
-      <button onClick={() => { setIsOpen(!isOpen); setSearchTerm(''); }} className="w-full text-left text-[10px] bg-white border border-gray-200 rounded p-1.5 flex justify-between items-center text-gray-600 shadow-sm hover:bg-gray-50 min-h-[28px]">
-        <span className="truncate">{selected.length ? `${selected.length} selected` : placeholder}</span>
+      <button onClick={() => { setIsOpen(!isOpen); setSearchTerm(''); }} className={`w-full text-left text-[10px] bg-white border rounded p-1.5 flex justify-between items-center shadow-sm hover:bg-gray-50 min-h-[28px] ${orphanIds.length ? 'border-amber-300 text-amber-700' : 'border-gray-200 text-gray-600'}`}>
+        <span className="truncate">{selected.length ? `${selected.length} selected${orphanIds.length ? ` · ${orphanIds.length} missing` : ''}` : placeholder}</span>
         <ChevronDown className="w-3 h-3" />
       </button>
       {isOpen && (
@@ -402,6 +396,28 @@ export const SimpleMultiSelect = ({ options, selected, onChange, placeholder }: 
                 />
               </div>
             </div>
+            {orphanIds.length > 0 && !searchTerm.trim() && (
+              <div className="mb-1 pb-1 border-b border-amber-100 shrink-0">
+                <div className="flex items-center justify-between px-2 py-1">
+                  <span className="text-[9px] font-bold text-amber-700 uppercase tracking-wide">{orphanIds.length} missing item{orphanIds.length > 1 ? 's' : ''}</span>
+                  <button
+                    type="button"
+                    className="text-[9px] font-bold text-amber-700 underline hover:text-amber-900"
+                    onClick={(e) => { e.stopPropagation(); onChange(selected.filter(id => !orphanIds.includes(id))); }}
+                  >
+                    Remove all
+                  </button>
+                </div>
+                {orphanIds.map(id => (
+                  <div key={id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-amber-50 cursor-pointer rounded shrink-0" onClick={() => onChange(selected.filter(s => s !== id))} title={`No longer exists — click to remove (${id})`}>
+                    <div className="w-3 h-3 border rounded flex items-center justify-center bg-amber-400 border-amber-400">
+                      <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                    </div>
+                    <span className="text-[10px] truncate text-amber-700 italic">Missing item ({id.slice(0, 8)}…)</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 ? <div className="text-[10px] p-2 text-gray-400">No matches found</div> :
               options.filter(opt => opt.label.toLowerCase().includes(searchTerm.toLowerCase())).map(opt => (
                 <div key={opt.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer rounded shrink-0" onClick={() => {
@@ -1628,6 +1644,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
                   />
                   <span>CQA quick-open link (Project Financial View)</span>
+                </label>
+                <label className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50 w-fit mt-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.commercialOppLinesLinkVisible !== false}
+                    onChange={e => setSettings(prev => ({ ...prev, commercialOppLinesLinkVisible: e.target.checked }))}
+                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                  />
+                  <span>Opportunity Lines link (BFO)</span>
                 </label>
               </div>
             </div>

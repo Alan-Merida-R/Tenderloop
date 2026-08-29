@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
 import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS } from '../types';
-import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical } from 'lucide-react';
+import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { collectSowTeamMembers } from '../services/sowTeamMembers';
 import { ResponsibleTeamPicker } from './OpportunityDetail';
@@ -24,7 +24,7 @@ import { ScheduleView } from '../features/schedule/ScheduleView';
 import { getLatestHistoryEntry } from '../services/historyUtils';
 import { readScopeGlance, formatScopeGlance } from '../services/scopeSummary';
 import type { ScopeGlance } from '../services/scopeSummary';
-import { ScopeCatalog, scopeOptionColor, scopeLabelKey } from './scopeCatalog';
+import { ScopeCatalog, scopeOptionColor, scopeLabelKey, SCOPE_CATALOG_GROUPS } from './scopeCatalog';
 
 const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
 const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v1';
@@ -176,7 +176,17 @@ const copyToClipboard = (text: string) => {
     }
 };
 
-const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], extras: [], hasAny: false };
+const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], quickNotes: [], extras: [], hasAny: false };
+
+const getOpportunityActiveDays = (opp: Opportunity): number | null => {
+    const submitted = opp.dates?.requested;
+    const expected = opp.dates?.expected;
+    if (!submitted || !expected) return null;
+    const start = new Date(`${submitted.slice(0, 10)}T00:00:00Z`).getTime();
+    const end = new Date(`${expected.slice(0, 10)}T00:00:00Z`).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+    return Math.max(0, Math.floor((end - start) / 86400000));
+};
 
 const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'opId', label: 'OP' },
@@ -193,6 +203,7 @@ const PROPOSAL_CARD_FIELD_OPTIONS = [
     { key: 'priority', label: 'Priority' },
     { key: 'scope', label: 'Scope' },
     { key: 'expectedDate', label: 'Expected Date' },
+    { key: 'duration', label: 'Duration' },
     { key: 'taskProgress', label: 'Task Progress' },
 ] as const;
 
@@ -201,9 +212,8 @@ type ProposalCardFieldKey = typeof PROPOSAL_CARD_FIELD_OPTIONS[number]['key'];
 const PROPOSAL_CARD_FIELD_STORAGE_KEY = 'tl.proposalCard.visibleFields.v1';
 const PROPOSAL_SAVE_NOTE_DEFAULT_OFF_MIGRATION_KEY = 'tl.proposalCard.saveQuickNote.defaultOff.v1';
 const PROPOSAL_LAST_HISTORY_EVENT_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.lastHistoryEvent.defaultOn.v1';
-// Visible-field lists are persisted, so a field added later starts hidden for everyone who
-// already has a saved list. Same one-shot migration the two flags above use.
 const PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.scope.defaultOn.v1';
+const PROPOSAL_DURATION_DEFAULT_ON_MIGRATION_KEY = 'tl.proposalCard.duration.defaultOn.v2';
 const REQUIRED_PROPOSAL_CARD_FIELDS = new Set<ProposalCardFieldKey>(['alias']);
 const PROPOSAL_CARD_DEFAULT_VISIBLE_FIELDS = PROPOSAL_CARD_FIELD_OPTIONS
     .map(option => option.key)
@@ -321,7 +331,16 @@ const OpportunityCard = React.memo(({
     alarms
 }: any) => {
     const nextTask = useMemo(() => getNextTask(opp.tasks || []), [opp.tasks]);
-    const isMissingInformation = nextTask?.status === 'Missing Info';
+    // An opportunity is "waiting on information" whenever ANY of its tasks is, not only when the
+    // next task happens to be the blocked one — otherwise marking a later task as Missing Info
+    // left the card green and produced no alert at all.
+    const missingInfoTasks = useMemo(() => (opp.tasks || []).filter((t: Task) => t.status === 'Missing Info'), [opp.tasks]);
+    const isMissingInformation = missingInfoTasks.length > 0;
+    /** Blocked tasks other than the next one — surfaced separately so the card still explains why it is red. */
+    const otherMissingInfoTasks = useMemo(
+        () => missingInfoTasks.filter((t: Task) => t.id !== nextTask?.id),
+        [missingInfoTasks, nextTask?.id]
+    );
     const isCardFieldVisible = useCallback((field: ProposalCardFieldKey) => cardFieldVisibility?.[field] !== false, [cardFieldVisibility]);
     const latestHistoryEvent = useMemo(() => getLatestHistoryEntry(opp.history), [opp.history]);
     const latestHistoryContent = latestHistoryEvent?.content || '';
@@ -341,6 +360,7 @@ const OpportunityCard = React.memo(({
     );
     const scopeGlanceText = useMemo(() => formatScopeGlance(scopeGlance), [scopeGlance]);
 
+    const activeDays = getOpportunityActiveDays(opp);
     const showFooter = isCardFieldVisible('expectedDate') || isCardFieldVisible('taskProgress');
 
     return (
@@ -360,7 +380,7 @@ const OpportunityCard = React.memo(({
                         {isCardFieldVisible('alias') && opp.alias && (() => {
                             const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled', alarms);
                             return (
-                                <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-tight ${imp.className}`} style={imp.style}>
+                                <span className={`text-[11px] font-black px-2 py-0.5 rounded uppercase tracking-tight ${imp.className}`} style={imp.style}>
                                     {opp.alias}
                                 </span>
                             );
@@ -376,6 +396,12 @@ const OpportunityCard = React.memo(({
                             <span className="text-[9px] font-bold text-[#3DCD58] bg-[#3DCD58]/10 px-1.5 py-0.5 rounded whitespace-nowrap border border-[#3DCD58]/20">
                                 Rank #{opp.priorityOrder}
                             </span>
+                        )}
+                        {isCardFieldVisible('duration') && activeDays !== null && (
+                            <div className="flex items-center gap-1 text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
+                                <Clock className="w-2.5 h-2.5 text-gray-400" />
+                                <span className="font-bold">{activeDays}d</span>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -406,6 +432,14 @@ const OpportunityCard = React.memo(({
                             {nextTask.status === 'Missing Info' && (
                                 <span className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded">
                                     ⚠ Missing Info{nextTask.responsible ? ` · ${nextTask.responsible}` : ''}
+                                </span>
+                            )}
+                            {otherMissingInfoTasks.length > 0 && (
+                                <span
+                                    className="text-[9px] font-black text-rose-600 bg-rose-100 px-1 rounded"
+                                    title={otherMissingInfoTasks.map((t: Task) => `${t.title}${t.responsible ? ` · ${t.responsible}` : ''}`).join('\n')}
+                                >
+                                    ⚠ Missing Info · {otherMissingInfoTasks.length} other task{otherMissingInfoTasks.length > 1 ? 's' : ''}
                                 </span>
                             )}
                             {nextTask.status === 'Approval' && (
@@ -498,16 +532,18 @@ const OpportunityCard = React.memo(({
                             />
                         </div>
                     ) : <div />}
-                    {isCardFieldVisible('taskProgress') && (
-                        <div className="flex gap-1">
-                            {(opp.tasks || []).length > 0 && (
-                                <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
-                                    <CheckSquare className="w-3 h-3" />
-                                    {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                        {isCardFieldVisible('taskProgress') && (
+                            <div className="flex gap-1">
+                                {(opp.tasks || []).length > 0 && (
+                                    <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
+                                        <CheckSquare className="w-3 h-3" />
+                                        {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>
@@ -589,8 +625,8 @@ const TaskCard = React.memo(({
     const [attachmentCount, setAttachmentCount] = useState(0);
     const [assignOpen, setAssignOpen] = useState(false);
     const subtasks: Subtask[] = item.subtasks || [];
-    const doneSubtasks = subtasks.filter(s => s.completed).length;
-    const totalSubtasks = subtasks.length;
+    const doneSubtasks = subtasks.filter(s => s.completed && !s.outOfScope).length;
+    const totalSubtasks = subtasks.filter(s => !s.outOfScope).length;
     const sowTeamMembers = useMemo(() => collectSowTeamMembers(item.opp.notes), [item.opp.notes]);
 
     useEffect(() => {
@@ -604,7 +640,9 @@ const TaskCard = React.memo(({
     const toggleSubtask = (subtaskId: string) => {
         const updatedSubtasks = subtasks.map(s => s.id === subtaskId ? { ...s, completed: !s.completed } : s);
         onUpdate(item.opp.id, item.id, { subtasks: updatedSubtasks });
-        const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(s => s.completed);
+        // Subtasks whose Scope system was deselected no longer count towards finishing the task.
+        const countable = updatedSubtasks.filter(s => !s.outOfScope);
+        const allDone = countable.length > 0 && countable.every(s => s.completed);
         if (allDone && item.status !== 'Done') onStatusChange(item.opp.id, item.id, 'Done');
         else if (!allDone && item.status === 'Done') onStatusChange(item.opp.id, item.id, 'In Progress');
     };
@@ -640,7 +678,7 @@ const TaskCard = React.memo(({
 
             <div className="flex items-center gap-1 mb-1.5 flex-wrap">
                 {item.order && <span className="bg-gray-100 px-1.5 py-0.5 rounded font-black text-gray-500 text-[9px] border border-gray-200" title="Execution Order">#{item.order}</span>}
-                {item.opp.alias && <span className="bg-[#3DCD58] text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tight shadow-sm border border-[#2db64a]" title={item.opp.title}>{item.opp.alias}</span>}
+                {item.opp.alias && <span className="bg-[#3DCD58] text-white px-1.5 py-0.5 rounded font-black text-[11px] uppercase tracking-tight shadow-sm border border-[#2db64a]" title={item.opp.title}>{item.opp.alias}</span>}
                 {isTimerActive && (
                     <div className="flex items-center gap-1 text-[#3DCD58] animate-pulse">
                         <Clock className="w-2.5 h-2.5" />
@@ -1025,6 +1063,99 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
     );
 };
 
+interface GroupedMultiSelectDropdownProps {
+    groups: { label: string; options: string[] }[];
+    selected: string[];
+    onChange: (val: string[]) => void;
+    label: string;
+    isOpen: boolean;
+    onToggle: () => void;
+}
+
+const GroupedMultiSelectDropdown = ({ groups, selected, onChange, label, isOpen, onToggle }: GroupedMultiSelectDropdownProps) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const deferredSearchTerm = useDeferredValue(searchTerm);
+
+    const visibleGroups = useMemo(() => {
+        if (!deferredSearchTerm) return groups.map(g => ({ ...g, options: g.options.slice(0, 50) }));
+        const lower = deferredSearchTerm.toLowerCase();
+        return groups.map(g => ({
+            ...g,
+            options: g.options.filter(opt => opt.toLowerCase().includes(lower)).slice(0, 50)
+        })).filter(g => g.options.length > 0);
+    }, [groups, deferredSearchTerm]);
+
+    const handleOptionToggle = (opt: string) => {
+        if (selected.includes(opt)) onChange(selected.filter(o => o !== opt));
+        else onChange([...selected, opt]);
+    };
+
+    return (
+        <div className="relative z-50">
+            <button
+                onClick={onToggle}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/20 transition-colors h-9"
+            >
+                <Filter className="w-3.5 h-3.5 text-gray-400" />
+                {label}
+                {selected.length > 0 && (
+                    <span className="flex items-center justify-center w-4 h-4 text-[10px] font-bold text-white bg-[#3DCD58] rounded-full">
+                        {selected.length}
+                    </span>
+                )}
+                {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
+            </button>
+            {isOpen && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={onToggle}></div>
+                    <div className="absolute left-0 z-50 w-64 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden flex flex-col">
+                        <div className="p-2 border-b border-gray-100 bg-gray-50/50">
+                            <input
+                                type="text"
+                                placeholder="Search..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full px-2 py-1 text-xs border-gray-200 rounded outline-none focus:border-[#3DCD58] focus:ring-1 focus:ring-[#3DCD58] transition-all bg-white"
+                                onClick={e => e.stopPropagation()}
+                            />
+                        </div>
+                        <div className="max-h-64 overflow-y-auto py-1">
+                            {visibleGroups.length === 0 ? (
+                                <div className="px-3 py-2 text-xs text-gray-500 italic text-center">No matches found</div>
+                            ) : (
+                                visibleGroups.map(group => (
+                                    <div key={group.label} className="mb-2 last:mb-0">
+                                        <div className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-gray-400 bg-gray-50/80 sticky top-0 backdrop-blur-sm z-10">
+                                            {group.label}
+                                        </div>
+                                        {group.options.map(opt => (
+                                            <div
+                                                key={opt}
+                                                className="flex items-center px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                                                onClick={() => handleOptionToggle(opt)}
+                                            >
+                                                <div className="flex items-center justify-center w-3 h-3 mr-2 border border-gray-300 rounded-sm overflow-hidden shrink-0">
+                                                    {selected.includes(opt) && <div className="w-full h-full bg-[#3DCD58] flex items-center justify-center"><Check className="w-2.5 h-2.5 text-white" /></div>}
+                                                </div>
+                                                <span className="text-xs text-gray-700 truncate" title={opt}>{opt}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        {selected.length > 0 && (
+                            <button onClick={() => { onChange([]); onToggle(); }} className="w-full text-center text-xs text-red-500 hover:text-red-700 py-2 border-t border-gray-100 bg-gray-50 mt-auto">
+                                Clear All
+                            </button>
+                        )}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
 /**
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
@@ -1063,7 +1194,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'status', label: 'Process Status' },
         { key: 'rank', label: 'Rank' },
         { key: 'assigned', label: 'Submitted Date' },
+        { key: 'scope', label: 'Scope' },
+        { key: 'type', label: 'Type' },
+        { key: 'extra', label: 'Extra' },
         { key: 'expected', label: 'Expected Date' },
+        { key: 'duration', label: 'Duration' },
         { key: 'amount', label: 'Amount' },
         { key: 'nextStep', label: 'Next Step' },
         { key: 'waiting', label: 'Waiting On' },
@@ -1104,6 +1239,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     }, [collapsedColumns]);
     
     const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [rankSortDirection, setRankSortDirection] = useState<'asc' | 'desc' | null>(null);
     const [submittedDateFilter, setSubmittedDateFilter] = useState<DateColumnFilterValue>(EMPTY_DATE_COLUMN_FILTER);
     const [expectedDateFilter, setExpectedDateFilter] = useState<DateColumnFilterValue>(EMPTY_DATE_COLUMN_FILTER);
     const [draggedGeneralOppId, setDraggedGeneralOppId] = useState<string | null>(null);
@@ -1122,13 +1258,9 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const statusOptions = DETAILED_STATUS_ORDER;
     const mainStatusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.statusLabel).filter(Boolean))) as string[], [opportunities]);
     const waitingOptions = useMemo(() => Array.from(new Set(opportunities.map(getWaitingOnAreas).filter(Boolean))) as string[], [opportunities]);
-    // Include labels created from Settings and labels already assigned to any opportunity.
-    const availableLabels = useMemo(() => {
-        const labels = new Map<string, OpportunityLabel>();
-        globalLabels.forEach(label => labels.set(label.id, label));
-        opportunities.forEach(opp => (opp.labels || []).forEach(label => labels.set(label.id, label)));
-        return [...labels.values()];
-    }, [globalLabels, opportunities]);
+    const scopeOptions = useMemo(() => Array.from(new Set(opportunities.flatMap(o => readScopeGlance(o.notes, scopeCatalog, o.labels || []).systems))).sort(), [opportunities, scopeCatalog]);
+    const typeOptions = useMemo(() => Array.from(new Set(opportunities.flatMap(o => readScopeGlance(o.notes, scopeCatalog, o.labels || []).scope))).sort(), [opportunities, scopeCatalog]);
+    const extraOptions = useMemo(() => Array.from(new Set(opportunities.flatMap(o => readScopeGlance(o.notes, scopeCatalog, o.labels || []).extras))).sort(), [opportunities, scopeCatalog]);
 
     // KPI Filter State
     const [kpiSoldFilter, setKpiSoldFilter] = useState<'all' | 'sold' | 'not-sold'>('all');
@@ -1243,6 +1375,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (localStorage.getItem(PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY)) return;
         localStorage.setItem(PROPOSAL_SCOPE_DEFAULT_ON_MIGRATION_KEY, '1');
         setProposalCardVisibleFields(prev => orderProposalCardFields([...prev, 'scope']));
+    }, []);
+
+    useEffect(() => {
+        if (localStorage.getItem(PROPOSAL_DURATION_DEFAULT_ON_MIGRATION_KEY)) return;
+        localStorage.setItem(PROPOSAL_DURATION_DEFAULT_ON_MIGRATION_KEY, '1');
+        setProposalCardVisibleFields(prev => orderProposalCardFields([...prev, 'duration']));
     }, []);
 
     useEffect(() => () => {
@@ -1450,7 +1588,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // Use it directly to avoid a second useDeferredValue on the same value.
 
     // --- Filter Logic ---
-    const filteredOpps = useMemo(() => {
+    // Everything except the Scope/Label filter (step 5 below) is applied here first, so the
+    // Scope filter's own dropdown can be built from "what's visible before Scope narrows it"
+    // without excluding the very options someone might want to pick.
+    const preScopeFilteredOpps = useMemo(() => {
         const seen = new Set();
         const booleanMatcher = parseBooleanQuery(deferredFilterText);
         const results: Opportunity[] = [];
@@ -1479,12 +1620,25 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) continue;
             }
 
-            // 5. Labels/Task status Filters
-            if (labelFilters.length > 0 && !(opp.labels || []).some(l => labelFilters.includes(l.id))) continue;
             if (taskOppStatusFilters.length > 0 && !taskOppStatusFilters.includes(opp.statusLabel)) continue;
-            if (detailedStatusFilters.length > 0 && (!opp.detailedStatus || !detailedStatusFilters.includes(opp.detailedStatus))) continue;
+            if (detailedStatusFilters.length > 0) {
+                const effectiveDetailedStatus = opp.detailedStatus || 'Working on it';
+                if (!detailedStatusFilters.includes(effectiveDetailedStatus)) continue;
+            }
             if (columnFilters.customer?.length > 0 && (!opp.customer || !columnFilters.customer.includes(opp.customer))) continue;
             if (columnFilters.seller?.length > 0 && (!opp.seller || !columnFilters.seller.includes(opp.seller))) continue;
+            if (columnFilters.scope?.length > 0) {
+                const systems = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).systems;
+                if (!systems.some(s => columnFilters.scope.includes(s))) continue;
+            }
+            if (columnFilters.type?.length > 0) {
+                const types = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).scope;
+                if (!types.some(t => columnFilters.type.includes(t))) continue;
+            }
+            if (columnFilters.extra?.length > 0) {
+                const extras = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).extras;
+                if (!extras.some(e => columnFilters.extra.includes(e))) continue;
+            }
             if (!matchesDateColumnFilter(opp.dates?.requested, submittedDateFilter)) continue;
             if (!matchesDateColumnFilter(opp.dates?.expected, expectedDateFilter)) continue;
             if (columnFilters.id?.length > 0 && (!opp.id || !columnFilters.id.includes(opp.id))) continue;
@@ -1507,6 +1661,34 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 );
                 if (!matchesAmount) continue;
             }
+            if (columnFilters.rank?.length > 0) {
+                const [operator, rawValue] = columnFilters.rank[0].split(':');
+                const filterValue = Number(rawValue);
+                const rank = opp.priorityOrder ?? Infinity;
+                const matchesRank = Number.isFinite(filterValue) && (
+                    (operator === 'lt' && rank < filterValue) ||
+                    (operator === 'lte' && rank <= filterValue) ||
+                    (operator === 'gt' && rank > filterValue) ||
+                    (operator === 'gte' && rank >= filterValue) ||
+                    (operator === 'eq' && rank === filterValue) ||
+                    (operator === 'neq' && rank !== filterValue)
+                );
+                if (!matchesRank) continue;
+            }
+            if (columnFilters.duration?.length > 0) {
+                const [operator, rawValue] = columnFilters.duration[0].split(':');
+                const filterValue = Number(rawValue);
+                const days = getOpportunityActiveDays(opp) ?? -1;
+                const matchesDuration = Number.isFinite(filterValue) && days >= 0 && (
+                    (operator === 'lt' && days < filterValue) ||
+                    (operator === 'lte' && days <= filterValue) ||
+                    (operator === 'gt' && days > filterValue) ||
+                    (operator === 'gte' && days >= filterValue) ||
+                    (operator === 'eq' && days === filterValue) ||
+                    (operator === 'neq' && days !== filterValue)
+                );
+                if (!matchesDuration) continue;
+            }
             if (columnFilters.waiting?.length > 0 && !columnFilters.waiting.includes(getWaitingOnAreas(opp) || '')) continue;
 
             // 6. Multi-term Search (Ultra Optimized v5000)
@@ -1521,7 +1703,46 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             results.push(opp);
         }
         return results;
-    }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, labelFilters, taskOppStatusFilters, detailedStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter]);
+    }, [opportunities, deferredFilterText, selectedOppChips, statusFilters, mode, dateFilterStart, dateFilterEnd, taskOppStatusFilters, detailedStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter, scopeCatalog]);
+
+    // 5. Scope/Label Filter — applied last, on top of everything else, so its own dropdown
+    // (built from preScopeFilteredOpps below) doesn't hide an option someone has selected.
+    const filteredOpps = useMemo(() => {
+        if (labelFilters.length === 0) return preScopeFilteredOpps;
+        return preScopeFilteredOpps.filter(opp => {
+            const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
+            const allTags = [...glance.scope, ...glance.systems, ...glance.quickNotes, ...glance.extras];
+            return labelFilters.some(tag => allTags.includes(tag));
+        });
+    }, [preScopeFilteredOpps, labelFilters, scopeCatalog]);
+
+    // Scope/Label filter options, grouped by section like the Scope quick view, and limited to
+    // opportunities that are still visible once every other filter (and hidden process-board
+    // columns) has been applied — so a hidden "Completed" column doesn't leak its labels here.
+    const scopeFilterCandidates = useMemo(() => {
+        if (kanbanGroupBy !== 'detailed' || hiddenProposalProcessColumns.length === 0) return preScopeFilteredOpps;
+        return preScopeFilteredOpps.filter(opp => {
+            let key = opp.detailedStatus || 'Review';
+            if (key === 'Waiting' || key === 'No Status') key = 'Review';
+            return !hiddenProposalProcessColumns.includes(key);
+        });
+    }, [preScopeFilteredOpps, kanbanGroupBy, hiddenProposalProcessColumns]);
+
+    const scopeFilterGroups = useMemo(() => {
+        const buckets: Record<'scope' | 'systems' | 'quickNotes' | 'extras', Set<string>> = {
+            scope: new Set(), systems: new Set(), quickNotes: new Set(), extras: new Set(),
+        };
+        scopeFilterCandidates.forEach(opp => {
+            const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
+            glance.scope.forEach(v => buckets.scope.add(v));
+            glance.systems.forEach(v => buckets.systems.add(v));
+            glance.quickNotes.forEach(v => buckets.quickNotes.add(v));
+            glance.extras.forEach(v => buckets.extras.add(v));
+        });
+        return SCOPE_CATALOG_GROUPS
+            .map(group => ({ label: group.title, options: Array.from(buckets[group.key]).sort() }))
+            .filter(group => group.options.length > 0);
+    }, [scopeFilterCandidates, scopeCatalog]);
 
     const filteredOpportunitySummary = useMemo(() => ({
         filtered: filteredOpps.length,
@@ -1534,6 +1755,16 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // General view: keep proposals grouped by process status. Active groups show
     // oldest first; Completed and Canceled show the most recent arrivals first.
     const generalOrderedOpps = useMemo(() => {
+        // An explicit Rank sort from the header overrides the default status-grouped
+        // ordering below and sorts the whole visible table by rank, Excel-style.
+        if (rankSortDirection) {
+            return [...filteredOpps].sort((a, b) => {
+                const aRank = a.priorityOrder ?? Infinity;
+                const bRank = b.priorityOrder ?? Infinity;
+                return rankSortDirection === 'asc' ? aRank - bRank : bRank - aRank;
+            });
+        }
+
         const originalIndex = new Map<string, number>(opportunities.map((opp, index) => [opp.id, index]));
         const statusRank = new Map<DetailedStatus, number>(GENERAL_PROPOSAL_STATUS_ORDER.map((status, index) => [status, index]));
 
@@ -1570,7 +1801,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             const originalIndexDifference = (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
             return newestFirst ? -originalIndexDifference : originalIndexDifference;
         });
-    }, [filteredOpps, opportunities]);
+    }, [filteredOpps, opportunities, rankSortDirection]);
 
 
     // --- Helper: Validate Task Completion ---
@@ -2202,11 +2433,19 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             case 'status':
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">{statusLabel}<ColumnFilter options={statusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} getOptionLabel={translateStatus} /></div></th>;
             case 'rank':
-                return <th key={key} className="w-16 px-2 py-3 text-center">Rank</th>;
+                return <th key={key} className="w-20 px-2 py-3 text-center"><div className="flex items-center justify-center">Rank<ColumnFilter options={[]} selected={columnFilters.rank || []} onChange={v => setColumnFilters(p => ({...p, rank: v}))} numeric sortDirection={rankSortDirection} onSortChange={setRankSortDirection} /></div></th>;
             case 'assigned':
-                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} /></div></th>;
+                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} /></div></th>;
+            case 'scope':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Scope<ColumnFilter options={scopeOptions} selected={columnFilters.scope || []} onChange={v => setColumnFilters(p => ({...p, scope: v}))} /></div></th>;
+            case 'type':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Type<ColumnFilter options={typeOptions} selected={columnFilters.type || []} onChange={v => setColumnFilters(p => ({...p, type: v}))} /></div></th>;
+            case 'extra':
+                return <th key={key} className="px-6 py-3"><div className="flex items-center">Extra<ColumnFilter options={extraOptions} selected={columnFilters.extra || []} onChange={v => setColumnFilters(p => ({...p, extra: v}))} /></div></th>;
             case 'expected':
-                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} /></div></th>;
+                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} /></div></th>;
+            case 'duration':
+                return <th key={key} className="w-[100px] px-2 py-3 text-center whitespace-nowrap"><div className="flex items-center justify-center">Duration<ColumnFilter options={[]} selected={columnFilters.duration || []} onChange={v => setColumnFilters(p => ({...p, duration: v}))} numeric /></div></th>;
             case 'amount':
                 return <th key={key} className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={[]} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} numeric /></div></th>;
             case 'nextStep':
@@ -2228,7 +2467,6 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const amount = getSellPrice(opp);
         const nextTask = getNextTask(opp.tasks || []);
         const waitingTasks = (opp.tasks || []).filter(t => t.status === 'Missing Info' || t.status === 'Approval' || t.status === 'Changes Requested / Rework');
-
         switch (key) {
             case 'id':
                 return <td key={key} className="px-6 py-3 font-mono text-xs text-gray-500 whitespace-nowrap hover:text-[#3DCD58] hover:underline">{opp.id}</td>;
@@ -2256,8 +2494,27 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 return <td key={key} className="px-2 py-3 text-center font-mono text-xs text-gray-600"><EditableCell type="number" value={opp.priorityOrder ?? ''} onChange={(val) => handleRankEdit(opp, val)} displayValue={<span className="inline-flex items-center gap-0.5"><GripVertical className="h-3 w-3 cursor-grab text-gray-300" title="Drag this opportunity above another in the same status group" />{opp.priorityOrder ? `#${opp.priorityOrder}` : <span className="text-gray-300">—</span>}</span>} /></td>;
             case 'assigned':
                 return <td key={key} className="px-1 py-3 text-xs text-gray-600 font-mono"><EditableCell direct type="date" value={opp.dates?.requested || ''} onChange={(val) => handleInlineEdit(opp, 'dates.requested', val)} /></td>;
+            case 'scope':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">{readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).systems.join(', ')}</td>;
+            case 'type':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">{readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).scope.join(', ')}</td>;
+            case 'extra':
+                return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">{readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).extras.join(', ')}</td>;
             case 'expected':
                 return <td key={key} className="px-1 py-3 text-xs text-gray-600 font-mono"><EditableCell direct type="date" value={opp.dates?.expected || ''} onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)} /></td>;
+            case 'duration': {
+                const days = getOpportunityActiveDays(opp);
+                return (
+                    <td key={key} className="px-3 py-3 text-center">
+                        {days !== null ? (
+                            <div className="inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
+                                <Clock className="w-3 h-3 text-gray-400" />
+                                <span className="font-medium">{days}d</span>
+                            </div>
+                        ) : <span className="text-gray-300">—</span>}
+                    </td>
+                );
+            }
             case 'amount':
                 return <td key={key} className="px-6 py-3 text-right font-mono font-medium"><EditableCell type="number" value={amount} onChange={(val) => handleInlineEdit(opp, 'sellPrice', val)} displayValue={`$${amount.toLocaleString()}`} /></td>;
             case 'nextStep':
@@ -2624,14 +2881,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         </div>
                     )}
 
-                    <MultiSelectDropdown
-                        label="Labels"
-                        options={availableLabels.map(l => l.text)}
-                        selected={labelFilters.map(id => availableLabels.find(l => l.id === id)?.text || id)}
-                        onChange={(texts) => {
-                            const ids = texts.map(t => availableLabels.find(l => l.text === t)?.id).filter(Boolean) as string[];
-                            setLabelFilters(ids);
-                        }}
+                    <GroupedMultiSelectDropdown
+                        label="Scope"
+                        groups={scopeFilterGroups}
+                        selected={labelFilters}
+                        onChange={setLabelFilters}
                         isOpen={openDropdown === 'labels'}
                         onToggle={() => toggleDropdown('labels')}
                     />
@@ -3570,17 +3824,43 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                             Dependencies {selectedTask.task.blockDoneUntilDependenciesDone && "(Blocking)"}
                                         </label>
                                     </div>
-                                    <div className="flex flex-col gap-1">
-                                        {(selectedTask.task.dependsOnTaskIds || []).map((depId: string) => {
-                                            const depTask = opportunities.find(o => o.id === selectedTask.oppId)?.tasks.find(t => t.id === depId);
-                                            return depTask ? (
-                                                <div key={depId} className="flex items-center gap-2 text-xs">
-                                                    <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
-                                                    <span className={depTask.status === 'Done' ? 'text-gray-500 line-through' : 'text-gray-800'}>{depTask.title}</span>
-                                                </div>
-                                            ) : null;
-                                        })}
-                                    </div>
+                                    {(() => {
+                                        const depIds = selectedTask.task.dependsOnTaskIds || [];
+                                        const oppTasks = opportunities.find(o => o.id === selectedTask.oppId)?.tasks || [];
+                                        // Dependencies whose task no longer exists used to render as nothing, leaving
+                                        // a count the user could neither read nor clear.
+                                        const missingIds = depIds.filter((depId: string) => !oppTasks.some(t => t.id === depId));
+                                        return (
+                                            <div className="flex flex-col gap-1">
+                                                {depIds.map((depId: string) => {
+                                                    const depTask = oppTasks.find(t => t.id === depId);
+                                                    if (!depTask) {
+                                                        return (
+                                                            <div key={depId} className="flex items-center gap-2 text-xs" title={depId}>
+                                                                <div className="w-2 h-2 rounded-full bg-amber-400" />
+                                                                <span className="text-amber-700 italic">Missing task ({depId.slice(0, 8)}…)</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div key={depId} className="flex items-center gap-2 text-xs">
+                                                            <div className={`w-2 h-2 rounded-full ${depTask.status === 'Done' ? 'bg-green-500' : 'bg-gray-300'}`} />
+                                                            <span className={depTask.status === 'Done' ? 'text-gray-500 line-through' : 'text-gray-800'}>{depTask.title}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {missingIds.length > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateSelectedTask('dependsOnTaskIds', depIds.filter((depId: string) => !missingIds.includes(depId)))}
+                                                        className="mt-2 w-full rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-black uppercase text-amber-700 hover:bg-amber-100"
+                                                    >
+                                                        Remove {missingIds.length} missing dependenc{missingIds.length > 1 ? 'ies' : 'y'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             )}
 

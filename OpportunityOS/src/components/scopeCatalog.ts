@@ -57,8 +57,8 @@ export const scopeOptionColor = (option: ScopeCatalogOption | undefined, role: S
     (option?.color || '').trim() || SCOPE_GROUP_COLORS[role];
 
 export const SCOPE_CATALOG_GROUPS: Array<{ key: ScopeCatalogGroup; title: string; hint: string }> = [
-    { key: 'scope', title: 'Scope', hint: 'What kind of work the opportunity is: green field, upgrade, migration, CF, parts or services.' },
-    { key: 'systems', title: 'Systems', hint: 'Which platform is in scope. A system can hold sub-modules (Triconex → Tricon CX, SIS, F&G, BMS, Run time).' },
+    { key: 'scope', title: 'Type of Proposal', hint: 'What kind of proposal this is: green field, upgrade, migration, CF, parts, services or trainings.' },
+    { key: 'systems', title: 'Systems', hint: 'Which platform is involved. A system can hold sub-modules (Triconex → Tricon CX, SIS, SPE, SF&G, BMS, Run time).' },
     { key: 'quickNotes', title: 'Notes at a glance', hint: 'Short commercial flags shown next to the scope: new cabinets, resale bands, and so on.' },
     { key: 'extras', title: 'Labels / Extras', hint: 'Historical labels that do not match another Scope option. Matching names are shown only once.' },
 ];
@@ -71,6 +71,7 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'cf', label: 'CF' },
         { id: 'parts', label: 'Parts' },
         { id: 'services', label: 'Services' },
+        { id: 'trainings', label: 'Trainings' },
     ],
     systems: [
         { id: 'eae', label: 'EAE' },
@@ -83,7 +84,8 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
             id: 'triconex', label: 'Triconex', children: [
                 { id: 'tricon-cx', label: 'Tricon CX' },
                 { id: 'sis', label: 'SIS' },
-                { id: 'fg', label: 'F&G' },
+                { id: 'spe', label: 'SPE' },
+                { id: 'fg', label: 'SF&G' },
                 { id: 'bms', label: 'BMS' },
                 { id: 'run-time', label: 'Run time' },
             ]
@@ -92,10 +94,13 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'cyber', label: 'Cyber' },
     ],
     quickNotes: [
-        { id: 'new-cabinets', label: 'New Cabinets', children: [{ id: 'integration', label: 'Integration' }] },
+        { id: 'new-cabinets', label: 'New Cabinets', children: [
+            { id: 'regional-integration', label: 'Regional Integration' },
+            { id: 'india-cabinets', label: 'India Cabinets' },
+        ] },
         { id: 'resales-lt-20', label: 'Resales <20%' },
-        { id: 'resales-gt-20', label: 'Resales >20%' },
-        { id: 'no-resales', label: 'No resales' },
+        { id: 'resales-lt-49', label: 'Resales <49%' },
+        { id: 'resales-gt-50', label: 'Resales >50%' },
     ],
     extras: [],
 };
@@ -154,5 +159,40 @@ export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
         if (!list) return DEFAULT_SCOPE_CATALOG[name];
         return list.map((option: any, index: number) => normalizeOption(option, index, 0)).filter(Boolean) as ScopeCatalogOption[];
     };
-    return { scope: group('scope'), systems: group('systems'), quickNotes: group('quickNotes'), extras: group('extras') };
+    const scope = group('scope');
+    if (!scope.some(option => option.id === 'trainings' || scopeLabelKey(option.label) === 'trainings')) {
+        scope.push({ id: 'trainings', label: 'Trainings' });
+    }
+
+    const systems = group('systems').map(option => {
+        if (option.id !== 'triconex' && !/^triconex$/i.test(option.label)) return option;
+        const children = (option.children || []).map(child =>
+            child.id === 'fg' || /^f&g$/i.test(child.label) ? { ...child, id: 'fg', label: 'SF&G' } : child
+        );
+        if (!children.some(child => child.id === 'spe' || /^spe$/i.test(child.label))) {
+            children.splice(Math.min(2, children.length), 0, { id: 'spe', label: 'SPE' });
+        }
+        return { ...option, children };
+    });
+
+    const quickNotes = group('quickNotes').flatMap(option => {
+        if (option.id === 'no-resales' || /^no resales$/i.test(option.label)) return [];
+        if (option.id === 'resales-gt-20' || /^resales\s*>\s*20%$/i.test(option.label)) {
+            return [{ ...option, id: 'resales-lt-49', label: 'Resales <49%' }];
+        }
+        if (option.id !== 'new-cabinets' && !/^new cabinets$/i.test(option.label)) return [option];
+        const children = (option.children || []).filter(child => child.id !== 'integration' && !/^integration$/i.test(child.label));
+        if (!children.some(child => child.id === 'regional-integration' || /^regional integration$/i.test(child.label))) {
+            children.push({ id: 'regional-integration', label: 'Regional Integration' });
+        }
+        if (!children.some(child => child.id === 'india-cabinets' || /^india cabinets$/i.test(child.label))) {
+            children.push({ id: 'india-cabinets', label: 'India Cabinets' });
+        }
+        return [{ ...option, children }];
+    });
+    if (!quickNotes.some(option => option.id === 'resales-gt-50' || /^resales\s*>\s*50%$/i.test(option.label))) {
+        quickNotes.push({ id: 'resales-gt-50', label: 'Resales >50%' });
+    }
+
+    return { scope, systems, quickNotes, extras: group('extras') };
 };

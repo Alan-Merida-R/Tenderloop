@@ -1,5 +1,6 @@
 import { Opportunity, Task } from '../../types';
 import { timeToMinutes } from '../schedule/executionBlockUtils';
+import { PROCESS_SECTIONS, ProcessSection } from '../../services/processSections';
 
 export interface ParsedScheduleRow {
     id: string; // local row id, for React keys / edits
@@ -51,6 +52,8 @@ export interface ParsedMissingTaskSuggestion {
     titleEnglish: string;
     reason: string;
     dueDate: string;
+    /** Process section the task belongs to, used to place it in the plan instead of appending it. */
+    processSection?: ProcessSection;
 }
 
 export interface ParseError {
@@ -247,7 +250,9 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
             const cells = splitCells(line);
             if (/^oppid$/i.test(cells[0] || '') || /^[-:\s]+$/.test(cells[0] || '')) continue;
             if (cells.length >= 5) {
-                const [oppId, oppLabel, titleEnglish, reason, rawDueDate] = cells;
+                const [oppId, oppLabel, titleEnglish, reason, rawDueDate, rawSection] = cells;
+                // Only a section the app actually knows is honoured; anything else leaves the task unplaced.
+                const processSection = PROCESS_SECTIONS.find(section => section.toLowerCase() === (rawSection || '').trim().toLowerCase());
                 const opp = opportunities.find(item => item.id === oppId.trim());
                 const dueDate = normalizeDate(rawDueDate);
                 if (opp && titleEnglish.trim()) {
@@ -255,6 +260,7 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
                         id: nextId(), oppId: opp.id, oppLabel: opp.alias || opp.title || oppLabel,
                         titleEnglish: titleEnglish.trim(), reason: reason.trim(),
                         dueDate: isDateValid(dueDate) ? dueDate : '',
+                        processSection,
                     });
                 }
             }

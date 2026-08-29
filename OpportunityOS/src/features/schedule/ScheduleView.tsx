@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, LayoutGrid, Filter, Bell, BellOff } from 'lucide-react';
+import { CalendarDays, LayoutGrid, Filter, Bell, BellOff, Palette } from 'lucide-react';
 import { Opportunity, Task, ExecutionBlock } from '../../types';
 import { ScheduleWeekGrid } from './ScheduleWeekGrid';
 import { ScheduleMonthView } from './ScheduleMonthView';
 import { SchedulePanel } from './SchedulePanel';
 import { ScheduleFiltersBar } from './ScheduleFiltersBar';
-import { getOpportunityColor, isTaskActive, isOpportunitySchedulable, ScheduleFilters, EMPTY_FILTERS, taskMatchesFilters } from './scheduleHelpers';
+import { getOpportunityPaletteColor, isTaskActive, isOpportunitySchedulable, ScheduleFilters, EMPTY_FILTERS, taskMatchesFilters } from './scheduleHelpers';
 import {
     addBlockToTask,
     removeBlockFromTask,
@@ -55,6 +55,7 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
     const [filters, setFilters] = useState<ScheduleFilters>(EMPTY_FILTERS);
     const [selected, setSelected] = useState<{ oppId: string; taskId: string } | null>(null);
     const [showFilters, setShowFilters] = useState(false);
+    const [showColorLegend, setShowColorLegend] = useState(false);
 
     // Notification permission state, so we can show an "Enable notifications" button.
     // requestPermission must run from a user gesture (a click) to be reliable.
@@ -104,9 +105,15 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
     /** Stable color map keyed by oppId — avoids recomputing on every item. */
     const colorByOpp = useMemo(() => {
         const m = new Map<string, string>();
-        for (const opp of opportunities) m.set(opp.id, getOpportunityColor(opp));
+        [...opportunities]
+            .filter(isOpportunitySchedulable)
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .forEach((opp, index) => m.set(opp.id, getOpportunityPaletteColor(index)));
         return m;
     }, [opportunities]);
+    const colorLegend = useMemo(() => opportunities
+        .filter(isOpportunitySchedulable)
+        .sort((a, b) => (a.alias || a.title).localeCompare(b.alias || b.title)), [opportunities]);
 
     const items: ScheduledItem[] = useMemo(() => {
         const out: ScheduledItem[] = [];
@@ -227,6 +234,13 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
                                 </span>
                             )}
                         </button>
+                        <button
+                            onClick={() => setShowColorLegend(value => !value)}
+                            className={`flex items-center gap-1 px-2 py-1 text-[11px] font-bold uppercase tracking-widest rounded border ${showColorLegend ? 'bg-slate-800 text-white border-slate-800' : 'text-gray-500 hover:text-gray-800 border-gray-200'}`}
+                            title="Opportunity color legend"
+                        >
+                            <Palette className="w-3 h-3" /> OP Colors
+                        </button>
                         <div className="flex bg-white rounded-lg p-1 border border-gray-200 shadow-sm">
                             <button
                                 onClick={() => setTab('week')}
@@ -250,6 +264,18 @@ export const ScheduleView: React.FC<Props> = ({ opportunities, onSelectTask, onO
                         filters={filters}
                         onChange={setFilters}
                     />
+                )}
+
+                {showColorLegend && (
+                    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-gray-100 bg-slate-50 px-4 py-2">
+                        {colorLegend.map(opp => (
+                            <div key={opp.id} className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600" title={`${opp.id} · ${opp.title}`}>
+                                <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: colorByOpp.get(opp.id) }} />
+                                <span>{opp.alias || opp.id}</span>
+                            </div>
+                        ))}
+                        {colorLegend.length === 0 && <span className="text-[10px] text-gray-400">No active opportunities</span>}
+                    </div>
                 )}
 
                 <div className="flex-1 overflow-hidden">

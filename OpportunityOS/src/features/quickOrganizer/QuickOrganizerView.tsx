@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Bot, Check, ChevronDown, ChevronUp, Copy, History, Moon, Sparkles, Sun, Trash2, X } from 'lucide-react';
-import { Opportunity, QuickOrganizerPreferences, QuickOrganizerRun, Reminder, Task } from '../../types';
+import { DEFAULT_FOCUS_POLICY, FocusPolicy, Opportunity, QuickOrganizerPreferences, QuickOrganizerRun, Reminder, Task } from '../../types';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { createBlock } from '../schedule/executionBlockUtils';
 import { buildOrganizerPrompt, ORGANIZER_CHIPS, TimeRange } from './promptBuilder';
+import { insertTasksInPlan } from '../../services/taskUtils';
+import { buildExecutionModel, forecastTask } from '../../services/executionModel';
 import { ParsedDueDateRow, ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
 import { QuickOrganizerReview } from './QuickOrganizerReview';
 import { QuickOrganizerAvailabilityPicker } from './QuickOrganizerAvailabilityPicker';
@@ -54,6 +56,20 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const [phase, setPhase] = useState<'main' | 'review'>('main');
     const [extraInstructions, setExtraInstructions] = useState('');
     const [activeChipIds, setActiveChipIds] = useState<string[]>([]);
+    const [focusPolicy, setFocusPolicy] = useState<FocusPolicy>(organizerPreferences.focusPolicy || DEFAULT_FOCUS_POLICY);
+    /** Persisted with the database so the policy travels with the user, not the browser. */
+    /**
+     * The execution model is a pure function of the opportunities, so it is derived rather than
+     * stored; the copy kept in preferences is only a snapshot so the calibration travels with the
+     * database. Nothing leaves the machine.
+     */
+    const executionModel = useMemo(() => buildExecutionModel(opportunities), [opportunities]);
+
+    const updateFocusPolicy = (patch: Partial<FocusPolicy>) => {
+        const next = { ...focusPolicy, ...patch };
+        setFocusPolicy(next);
+        onOrganizerPreferencesChange({ ...organizerPreferences, focusPolicy: next, executionModel });
+    };
     const [recommendationLanguage, setRecommendationLanguage] = useState<'en' | 'es'>(organizerPreferences.displayLanguage || 'es');
     const [organizerTheme, setOrganizerTheme] = useState<'light' | 'dark'>(organizerPreferences.theme || 'light');
     const [availabilityMode, setAvailabilityMode] = useState<'classic' | 'calendar'>('classic');
@@ -68,7 +84,22 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         [opportunities]
     );
     // Keep the prompt intentionally small: an empty selection excludes all opportunities.
-    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities.filter(isOpportunitySchedulable).filter(opp => (opp.tasks || []).some(isTaskActive)).map(opp => opp.id).slice(0, 8));
+    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities.filter(isOpportunitySchedulable).filter(opp => (opp.tasks || []).some(isTaskActive)).map(opp => opp.id));
+
+    /** Tasks whose current due date is earlier than what the model says is achievable. */
+    const atRiskTasks = useMemo(() => {
+        const selected = new Set(selectedOppIds);
+        const rows: { oppLabel: string; task: Task; forecast: ReturnType<typeof forecastTask> }[] = [];
+        for (const opp of opportunities) {
+            if (selected.size && !selected.has(opp.id)) continue;
+            for (const task of (opp.tasks || []).filter(isTaskActive)) {
+                if (!task.dueDate) continue;
+                const forecast = forecastTask(task, executionModel, { dailyCapacityHours: focusPolicy.enabled ? focusPolicy.maxDailyFocusHours : undefined });
+                if (forecast.willMissDueDate) rows.push({ oppLabel: opp.alias || opp.title, task, forecast });
+            }
+        }
+        return rows.sort((a, b) => a.task.dueDate.localeCompare(b.task.dueDate));
+    }, [opportunities, selectedOppIds, executionModel, focusPolicy]);
     const toggleOpp = (id: string) => setSelectedOppIds(prev => prev.includes(id) ? prev.filter(o => o !== id) : prev.length < 8 ? [...prev, id] : prev);
     const moveOpp = (id: string, direction: -1 | 1) => setSelectedOppIds(prev => { const index = prev.indexOf(id); const target = index + direction; if (index < 0 || target < 0 || target >= prev.length) return prev; const next = [...prev]; [next[index], next[target]] = [next[target], next[index]]; return next; });
     // Keyed by ISO date; presence of a key = that date is selected. Each date starts with one
@@ -131,8 +162,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     }, [opportunities]);
 
     const generatedPrompt = useMemo(
-        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage, reminders }),
-        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage, reminders]
+        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel }),
+        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel]
     );
 
     // Keep the editable prompt in sync with instructions/chips until the user
@@ -295,17 +326,20 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 const blocks = rows ? rows.map(r => createBlock(r.date, r.startTime, r.endTime)) : t.executionBlocks;
                 return { ...t, executionBlocks: blocks, ...(proposedDueDate ? { dueDate: proposedDueDate } : {}) };
             });
-            let nextOrder = Math.max(0, ...updatedTasks.map(task => task.order || 0));
             const existingTitles = new Set(updatedTasks.map(task => task.title.trim().toLowerCase()));
             const createdTasks: Task[] = queuedTaskSuggestions
                 .filter(item => item.oppId === oppId && !existingTitles.has(item.titleEnglish.trim().toLowerCase()))
                 .map(item => ({
                     id: crypto.randomUUID(), title: item.titleEnglish, description: '', status: 'Pending',
                     priority: 'Medium', owner: 'Me', externalAreas: [], responsible: '', dueDate: item.dueDate,
-                    stageContext: opp.stage, subtasks: [], linkedNoteIds: [], order: ++nextOrder,
+                    processSection: item.processSection,
+                    // `order` is assigned by insertTasksInPlan, which puts the task at its place in
+                    // the workflow instead of at the end of the list.
+                    stageContext: opp.stage, subtasks: [], linkedNoteIds: [], order: null,
                     dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false,
                 }));
-            onOppUpdate({ ...opp, tasks: [...updatedTasks, ...createdTasks], lastUpdated: new Date().toISOString() }, oppId, true);
+            const plannedTasks = insertTasksInPlan(updatedTasks, createdTasks);
+            onOppUpdate({ ...opp, tasks: plannedTasks, lastUpdated: new Date().toISOString() }, oppId, true);
         }
 
         const existingTaskReminders = new Set(reminders
@@ -395,10 +429,10 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                         <h2 className="text-xs font-black uppercase tracking-widest text-gray-400">{recommendationLanguage === 'es' ? '1. Selecciona y prioriza oportunidades' : '1. Select and prioritize opportunities'}</h2>
-                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === Math.min(8, eligibleOpps.length) ? [] : eligibleOpps.slice(0, 8).map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === Math.min(8, eligibleOpps.length) ? (recommendationLanguage === 'es' ? 'Excluir todas' : 'Exclude all') : (recommendationLanguage === 'es' ? 'Incluir primeras 8' : 'Include first 8')}</button>
+                        <button onClick={() => setSelectedOppIds(selectedOppIds.length === eligibleOpps.length ? [] : eligibleOpps.map(opp => opp.id))} className="text-[11px] font-bold text-gray-400 hover:text-gray-200">{selectedOppIds.length === eligibleOpps.length ? (recommendationLanguage === 'es' ? 'Excluir todas' : 'Exclude all') : (recommendationLanguage === 'es' ? 'Incluir todas' : 'Include all')}</button>
                     </div>
                     <p className="text-[11px] text-gray-500">
-                        {recommendationLanguage === 'es' ? `Selecciona hasta 8 oportunidades y usa las flechas para definir su prioridad. (${selectedOppIds.length}/8 seleccionadas)` : `Select up to 8 opportunities so the prompt stays reliable in smaller AI models. Use the arrows to set priority. (${selectedOppIds.length}/8 selected)`}
+                        {recommendationLanguage === 'es' ? `Selecciona las oportunidades y usa las flechas para definir su prioridad. (${selectedOppIds.length}/${eligibleOpps.length} seleccionadas)` : `Select the opportunities to analyze and use the arrows to set priority. Fewer opportunities keep the prompt reliable in smaller AI models. (${selectedOppIds.length}/${eligibleOpps.length} selected)`}
                     </p>
                     {eligibleOpps.length === 0 ? (
                         <p className="text-xs text-gray-500 py-2">{recommendationLanguage === 'es' ? 'No hay oportunidades con tareas abiertas.' : 'No opportunities with open tasks.'}</p>
@@ -538,6 +572,105 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                 {chip.label}
                             </button>
                         ))}
+                    </div>
+
+                    <div className={`rounded-xl border p-3 ${executionModel.confidence < 0.5 ? 'border-amber-700 bg-amber-950/40' : 'border-gray-800 bg-gray-900/60'}`}>
+                        <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-[11px] font-black uppercase tracking-widest text-gray-300">
+                                {recommendationLanguage === 'es' ? 'Modelo de ejecución' : 'Execution model'}
+                            </h3>
+                            <span className={`text-[10px] font-black ${executionModel.confidence < 0.5 ? 'text-amber-300' : 'text-[#3DCD58]'}`}>
+                                {Math.round(executionModel.confidence * 100)}% · {executionModel.totalSamples} {recommendationLanguage === 'es' ? 'tareas cerradas' : 'closed tasks'}
+                            </span>
+                        </div>
+                        <p className="mt-1 text-[10px] text-gray-500">
+                            {recommendationLanguage === 'es'
+                                ? 'Calculado con tus propios datos, sin IA ni servicios externos. Se envía en el prompt junto con la fórmula para estimar fechas.'
+                                : 'Computed from your own data — no AI, no external service. It is sent in the prompt together with the formula used to estimate dates.'}
+                        </p>
+
+                        {executionModel.confidence < 0.5 && (
+                            <div className="mt-2 rounded-lg border border-amber-700/60 bg-amber-950/40 p-2">
+                                <p className="text-[10px] font-bold text-amber-200">
+                                    {recommendationLanguage === 'es'
+                                        ? 'Pocos datos: actualiza tus expedientes para que las fechas sean confiables.'
+                                        : 'Thin data: update your expedientes so the dates become reliable.'}
+                                </p>
+                                <ul className="mt-1 space-y-0.5">
+                                    {executionModel.gaps.slice(0, 4).map(gap => (
+                                        <li key={gap} className="text-[10px] text-amber-200/80">• {gap}</li>
+                                    ))}
+                                </ul>
+                                <p className="mt-1 text-[10px] text-amber-200/60">
+                                    {recommendationLanguage === 'es'
+                                        ? 'Aun así se genera el plan: el prompt le pide apoyarse en tus notas e historial y marcar cada supuesto.'
+                                        : 'The plan is still generated: the prompt asks it to lean on your notes and history and to flag every assumption.'}
+                                </p>
+                            </div>
+                        )}
+
+                        {atRiskTasks.length > 0 && (
+                            <div className="mt-2 rounded-lg border border-rose-800/60 bg-rose-950/30 p-2">
+                                <p className="text-[10px] font-bold text-rose-200">
+                                    {recommendationLanguage === 'es'
+                                        ? `${atRiskTasks.length} tarea(s) no llegan a su fecha según el modelo:`
+                                        : `${atRiskTasks.length} task(s) will not meet their due date according to the model:`}
+                                </p>
+                                <ul className="mt-1 space-y-0.5">
+                                    {atRiskTasks.slice(0, 6).map(item => (
+                                        <li key={item.task.id} className="text-[10px] text-rose-200/85" title={item.forecast.basis}>
+                                            • {item.oppLabel} — {item.task.title}: {item.task.dueDate} → <span className="font-bold">{item.forecast.suggestedDueDate}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                                {atRiskTasks.length > 6 && (
+                                    <p className="mt-1 text-[10px] text-rose-200/60">
+                                        {recommendationLanguage === 'es' ? `y ${atRiskTasks.length - 6} más…` : `and ${atRiskTasks.length - 6} more…`}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
+                        <label className="flex items-center gap-2 text-[11px] font-bold text-gray-300">
+                            <input
+                                type="checkbox"
+                                checked={focusPolicy.enabled}
+                                onChange={(e) => updateFocusPolicy({ enabled: e.target.checked })}
+                                className="rounded border-gray-600 bg-gray-800 text-[#3DCD58] focus:ring-[#3DCD58]"
+                            />
+                            {recommendationLanguage === 'es' ? 'Concentración y descansos automáticos' : 'Focus sessions and automatic breaks'}
+                        </label>
+                        <p className="mt-1 text-[10px] text-gray-500">
+                            {recommendationLanguage === 'es'
+                                ? 'Los descansos son huecos entre bloques, no tareas. El tope diario se respeta aunque tengas más disponibilidad.'
+                                : 'Breaks are gaps between blocks, never tasks. The daily cap holds even when more availability is free.'}
+                        </p>
+                        {focusPolicy.enabled && (
+                            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black uppercase text-gray-500">{recommendationLanguage === 'es' ? 'Bloque máx (min)' : 'Max block (min)'}</span>
+                                    <input type="number" min={15} max={240} step={5} value={focusPolicy.sessionMinutes} onChange={(e) => updateFocusPolicy({ sessionMinutes: Math.max(15, Number(e.target.value) || 0) })} className={inputCls} />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black uppercase text-gray-500">{recommendationLanguage === 'es' ? 'Descanso (min)' : 'Break (min)'}</span>
+                                    <input type="number" min={0} max={120} step={5} value={focusPolicy.breakMinutes} onChange={(e) => updateFocusPolicy({ breakMinutes: Math.max(0, Number(e.target.value) || 0) })} className={inputCls} />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black uppercase text-gray-500">{recommendationLanguage === 'es' ? 'Bloques p/ pausa larga' : 'Blocks per long break'}</span>
+                                    <input type="number" min={1} max={10} value={focusPolicy.longBreakAfterSessions} onChange={(e) => updateFocusPolicy({ longBreakAfterSessions: Math.max(1, Number(e.target.value) || 1) })} className={inputCls} />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black uppercase text-gray-500">{recommendationLanguage === 'es' ? 'Pausa larga (min)' : 'Long break (min)'}</span>
+                                    <input type="number" min={0} max={180} step={5} value={focusPolicy.longBreakMinutes} onChange={(e) => updateFocusPolicy({ longBreakMinutes: Math.max(0, Number(e.target.value) || 0) })} className={inputCls} />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                    <span className="text-[9px] font-black uppercase text-gray-500">{recommendationLanguage === 'es' ? 'Máx horas/día' : 'Max hours/day'}</span>
+                                    <input type="number" min={1} max={12} step={0.5} value={focusPolicy.maxDailyFocusHours} onChange={(e) => updateFocusPolicy({ maxDailyFocusHours: Math.max(1, Number(e.target.value) || 1) })} className={inputCls} />
+                                </label>
+                            </div>
+                        )}
                     </div>
                 </section>
 

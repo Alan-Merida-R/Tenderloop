@@ -34,7 +34,9 @@ export const LinkedDocsList: React.FC<Props> = ({ opportunityId, revision, taskI
           ? await listLinkedForNote(opportunityId, noteId)
           : [];
       setLinks(data);
-      if (taskId) onCountChange?.(taskId, data.length);
+      // Reported for notes as well, so the note editor can show a count on its
+      // collapsed "Linked items" bar without mounting a second loader.
+      if (taskId || noteId) onCountChange?.((taskId || noteId)!, data.length);
     } catch (err) {
       console.error("Failed to load linked docs", err);
     } finally {
