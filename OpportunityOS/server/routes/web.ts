@@ -8,13 +8,33 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { isWebUrlAllowed, WEB_ALLOWED_HOSTS } from '../config';
-import { openLoginWindow, probeUrl, redactProbe, sessionStatus, closeSession } from '../os/webAutomation';
+import {
+    openLoginWindow, probeUrl, redactProbe, sessionStatus, closeSession,
+    startRecording, stopRecording, getRecordedSteps, recordingStatus,
+} from '../os/webAutomation';
+import { RECIPE_FIELDS } from '../os/bfoFieldMap';
 
 export const webRouter = Router();
 
+/**
+ * Read a string parameter from either the JSON body or the query string.
+ *
+ * The query-string fallback exists for the Windows .bat launchers: quoting JSON
+ * inside cmd is a minefield (a pasted value can carry a stray carriage return
+ * straight into the middle of a JSON string and break the parse), while a query
+ * parameter needs no escaping at all. Trimmed, because that stray  is exactly
+ * what tends to ride along.
+ */
+const param = (req: Request, name: string): string => {
+    const fromBody = (req.body as Record<string, unknown> | undefined)?.[name];
+    if (typeof fromBody === 'string') return fromBody.trim();
+    const fromQuery = req.query?.[name];
+    return typeof fromQuery === 'string' ? fromQuery.trim() : '';
+};
+
 /** Validate the caller-supplied URL, or write the 4xx and return null. */
 const requireAllowedUrl = (req: Request, res: Response): string | null => {
-    const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+    const url = param(req, 'url');
     if (!url) {
         res.status(400).json({ error: 'Missing "url".' });
         return null;
@@ -82,4 +102,52 @@ webRouter.post('/probe', async (req: Request, res: Response) => {
 webRouter.post('/close', async (_req: Request, res: Response) => {
     await closeSession();
     return res.json({ ok: true });
+});
+
+// --- Recorder ------------------------------------------------------------
+//
+// Teach a recipe once by browsing bFO normally. The window is deliberately
+// visible: PingID needs a human, and the user is the one driving.
+
+/** Panel copy, in Spanish because the person reading it is the user. */
+const RECORDER_STRINGS = {
+    title: 'Grabando',
+    navigate: 'Navegar',
+    capture: 'Senalar campo',
+    finish: 'Listo',
+    pickPrompt: 'Que dato es este?',
+    cancel: 'Cancelar',
+    steps: '{n} pasos grabados',
+};
+
+webRouter.post('/record/start', async (req: Request, res: Response) => {
+    const url = requireAllowedUrl(req, res);
+    if (!url) return;
+    try {
+        const result = await startRecording(url, {
+            fields: RECIPE_FIELDS.map(f => ({ key: f.key, label: f.label })),
+            strings: RECORDER_STRINGS,
+        });
+        return res.json({
+            ok: true,
+            ...result,
+            message: 'Se abrio bFO. Pasa PingID, navega como siempre, y usa "Senalar campo" para marcar cada dato.',
+        });
+    } catch (err: any) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+webRouter.get('/record/steps', (_req: Request, res: Response) => {
+    res.json({ ok: true, status: recordingStatus(), steps: getRecordedSteps() });
+});
+
+webRouter.post('/record/stop', async (req: Request, res: Response) => {
+    const name = param(req, 'name') || 'recipe';
+    try {
+        const result = await stopRecording(name);
+        return res.json({ ok: true, ...result });
+    } catch (err: any) {
+        return res.status(400).json({ error: err.message });
+    }
 });

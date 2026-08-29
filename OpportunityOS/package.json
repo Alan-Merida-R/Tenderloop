@@ -10,6 +10,7 @@
     "server": "tsx server/index.ts",
     "check:server": "tsc -p server --noEmit",
     "check:folder": "tsx scripts/verify-folder-persistence.ts",
+    "check:bfo": "tsx scripts/verify-bfo-selectors.ts",
     "check:scope": "tsx scripts/verify-scope-summary.ts",
     "icon:build": "node scripts/generate-icon.mjs"
   },

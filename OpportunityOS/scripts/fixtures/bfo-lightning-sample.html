@@ -1,0 +1,40 @@
+<html><body>
+<!-- Status field: exact structure from the real SR page -->
+<record_flexipage-record-field class="slds-grid slds-col" role="listitem">
+ <div class="slds-grid slds-size_1-of-1 label-stacked" data-target-selection-name="sfdc:RecordField.OPP_SupportRequest__c.Status__c">
+  <div class="slds-form-element slds-hint-parent test-id__output-root slds-form-element_readonly">
+   <div class="test-id__field-label-container slds-form-element__label"><span class="test-id__field-label">Status</span></div>
+   <div class="slds-form-element__control">
+    <span class="test-id__field-value slds-form-element__static slds-grow">
+     <lightning-formatted-text data-output-element-id="output-field">Completed</lightning-formatted-text>
+    </span>
+    <button class="test-id__inline-edit-trigger slds-button slds-button_icon" title="Edit Status">
+      <span class="slds-assistive-text">Edit Status</span></button>
+   </div>
+  </div>
+ </div>
+</record_flexipage-record-field>
+
+<!-- Requested Completion Date: API name deliberately does NOT match the label -->
+<div class="slds-grid slds-size_1-of-1 label-stacked" data-target-selection-name="sfdc:RecordField.OPP_SupportRequest__c.SupportRequestedBy__c">
+ <div class="slds-form-element test-id__output-root slds-form-element_readonly">
+  <div class="test-id__field-label-container slds-form-element__label"><span class="test-id__field-label">Requested Completion Date</span></div>
+  <div class="slds-form-element__control">
+   <span class="test-id__field-value slds-form-element__static"><lightning-formatted-text data-output-element-id="output-field">8/27/2026</lightning-formatted-text></span>
+   <button class="test-id__inline-edit-trigger" title="Edit Requested Completion Date"><span class="slds-assistive-text">Edit Requested Completion Date</span></button>
+  </div>
+ </div>
+</div>
+
+<!-- Comments textarea: note the regenerated id and the maxlength -->
+<lightning-textarea class="slds-form-element slds-form-element_stacked">
+ <label class="slds-form-element__label" for="input-9377">Comments</label>
+ <div class="slds-form-element__control textarea-container slds-grow">
+  <textarea id="input-9377" maxlength="32000" class="slds-textarea">Buen dia Pau.</textarea>
+ </div>
+</lightning-textarea>
+
+<!-- Forecast Category: read-only, NO inline-edit button, and (as pasted from the
+     real DOM) no data-target-selection-name wrapper. Pasted verbatim. -->
+<div class="slds-form-element slds-hint-parent test-id__output-root slds-form-element_edit slds-form-element_readonly is-stacked is-stacked-not-editing"><div class="test-id__field-label-container slds-form-element__label no-utility-icon"><span class="test-id__field-label">Forecast Category</span></div><div class="slds-form-element__control"><span class="test-id__field-value slds-form-element__static slds-grow word-break-ie11"><slot name="outputField"><sfa-output-forecast-category data-output-element-id="output-field" slot="outputField"><lightning-formatted-text>Pipeline</lightning-formatted-text></sfa-output-forecast-category></slot><slot></slot></span></div></div>
+</body></html>
