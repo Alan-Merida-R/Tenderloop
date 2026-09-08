@@ -1141,7 +1141,9 @@
     {"id":"G012","key":"flow_C002","section":"Bid Strategy & Inputs","subsection":"Commercial Strategy","label":"Desired payment milestones when they differ from standard or MSA","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Same field as Payment milestones (C002) — reused key so both are the same stored answer, never two out-of-sync copies","output":"Commercial summary"},
     {"id":"G009","key":"flow_G009","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Bid status: is the scope 100% defined or still in process? What are the next steps (site visit, KOM, customer meeting...)?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Track readiness","output":"Planning"},
     {"id":"G013","key":"flow_G013","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Current or recent project activity with this customer","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Account context","output":"Strategy"},
-    {"id":"G014","key":"flow_G014","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Input files attached to the SR or email (BOM, system architecture, current FERRET file for upgrades...)","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Track the input package","output":"Engineering assumptions"}
+    {"id":"G014","key":"flow_G014","section":"Bid Strategy & Inputs","subsection":"Status & Inputs","label":"Input files attached to the SR or email (BOM, system architecture, current FERRET file for upgrades...)","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender","purpose":"Track the input package","output":"Engineering assumptions"},
+    {"id":"G015","key":"flow_G015","section":"Bid Strategy & Inputs","subsection":"Bid Basis","label":"What operational function must the system perform for the customer?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/TSC","purpose":"Define the required system function without repeating the supply scope","output":"Executive summary, technical solution"},
+    {"id":"G016","key":"flow_G016","section":"Bid Strategy & Inputs","subsection":"Bid Basis","label":"How will the proposed supply solve the customer's requirement or improve their operation?","type":"long_text","options":[],"required":false,"shownWhenText":"Always","logic":null,"repeatableContext":null,"owner":"Tender/TSC","purpose":"Capture customer value and expected outcome","output":"Executive summary, value proposition"}
   ];
   /* FLOW_EXTRAS_END */
   FLOW_DATA.steps = [...FLOW_DATA.steps, ...EXTRA_FLOW_STEPS];
@@ -1981,7 +1983,20 @@
   window.addEventListener('pagehide',persistNow);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persistNow();});
 
-  const beforePrintState=new Map();window.addEventListener('beforeprint',()=>{$$('details').forEach(d=>{beforePrintState.set(d,d.open);d.open=true;});});window.addEventListener('afterprint',()=>{beforePrintState.forEach((v,d)=>d.open=v);beforePrintState.clear();});
+  const beforePrintState=new Map();let beforePrintGuidedMode=true;
+  window.addEventListener('beforeprint',()=>{
+    beforePrintGuidedMode=guidedMode;
+    guidedMode=true;
+    updateGuidedButton();
+    updateConditionalVisibility();
+    $$('details').forEach(d=>{beforePrintState.set(d,d.open);d.open=true;});
+  });
+  window.addEventListener('afterprint',()=>{
+    beforePrintState.forEach((v,d)=>d.open=v);beforePrintState.clear();
+    guidedMode=beforePrintGuidedMode;
+    updateGuidedButton();
+    updateConditionalVisibility();
+  });
 
   renderFlow(); prepareBuilderSections(); rebuildCustomForm(null,false); renderScopeCatalogs(); decorateStaticFlags(); applyDesignerMode(); updateGuidedButton();
 
