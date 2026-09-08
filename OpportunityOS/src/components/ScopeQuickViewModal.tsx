@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Crosshair, Plus } from 'lucide-react';
 import { MeetingNote, OpportunityLabel } from '../types';
-import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, scopeModuleKey, scopeOptionColor, scopeLabelKey, catalogContainsLabel } from './scopeCatalog';
+import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, scopeModuleKey, scopeOptionColor, scopeLabelKey, catalogContainsLabel, SCOPE_EXTRA_REFERENCE_IDS } from './scopeCatalog';
 // The same readers the proposal cards use, so the card and this modal can never disagree
 // about which options are selected. See services/scopeSummary.ts.
 import { parseSowFields, asLabels, selectedFromFields, scopeFromLegacy, systemsFromLegacy, modulesFromFields } from '../services/scopeSummary';
@@ -18,12 +18,21 @@ const toLegacyOppType = (label: string): string => {
     return LEGACY_OPP_TYPES.find(option => option.toLowerCase() === clean) || '';
 };
 
-/** platform_* still drives the SOW's 4A/4B/4C platform sections, so it follows the System answer. */
-const platformMirror = (systems: string[]): Record<string, boolean> => {
-    const known: Array<[string, RegExp]> = [['platform_modicon', /modicon/i], ['platform_triconex', /tricon/i], ['platform_foxboro', /foxboro/i]];
-    const mirror: Record<string, boolean> = {};
-    known.forEach(([key, test]) => { mirror[key] = systems.some(name => test.test(name)); });
-    mirror.platform_other = systems.some(name => !known.some(([, test]) => test.test(name)));
+/**
+ * platform_* still drives the SOW's 4A/4B/4C platform sections, so it follows the System answer.
+ * Triconex/Safety is matched by catalog id, not by a "tricon" regex on the label — the Safety
+ * rename means the label no longer contains "tricon", so a label-only match would silently stop
+ * opening the 4B section the moment a system used the Safety option.
+ */
+const platformMirror = (systems: string[], catalog: ScopeCatalog): Record<string, boolean> => {
+    const isTriconex = (label: string) => catalog.systems.find(option => option.label === label)?.id === 'triconex';
+    const isKnown = (label: string) => isTriconex(label) || /modicon|foxboro/i.test(label);
+    const mirror: Record<string, boolean> = {
+        platform_modicon: systems.some(name => /modicon/i.test(name)),
+        platform_triconex: systems.some(isTriconex),
+        platform_foxboro: systems.some(name => /foxboro/i.test(name)),
+    };
+    mirror.platform_other = systems.some(name => !isKnown(name));
     return mirror;
 };
 
@@ -58,6 +67,13 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
         const direct = selectedFromFields(fields, 'sow_systems', resolvedCatalog.systems);
         return direct.length ? direct : systemsFromLegacy(fields, resolvedCatalog.systems);
     }, [fields, resolvedCatalog]);
+    const applicationsFromSow = useMemo(() => {
+        const applicationOptions = resolvedCatalog.applications || [];
+        const direct = selectedFromFields(fields, 'safety_applications', applicationOptions);
+        if (direct.length) return direct;
+        // Before applications had their own section they were stored among Safety products.
+        return selectedFromFields(fields, 'triconex_products', applicationOptions);
+    }, [fields, resolvedCatalog]);
     const quickNotesFromSow = useMemo(() => selectedFromFields(fields, 'quick_notes', resolvedCatalog.quickNotes), [fields, resolvedCatalog]);
     const extrasFromSow = useMemo(() => {
         const direct = selectedFromFields(fields, 'scope_extras', resolvedCatalog.extras);
@@ -67,17 +83,32 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
     // One flat map of sub-module answers, keyed exactly like the SOW stores them
     // (Triconex keeps `triconex_products` so pre-catalog answers survive).
     const modulesFromSow = useMemo(() => modulesFromFields(fields, resolvedCatalog), [fields, resolvedCatalog]);
+    // "Similar/Copy" and "Split" ask for a reference (an internal expediente or a link) once
+    // ticked. Stored per option id so a future rename never loses the reference.
+    const extraReferenceKey = (id: string) => `extra_ref_${id}`;
+    const extraReferencesFromSow = useMemo(() => {
+        const refs: Record<string, string> = {};
+        SCOPE_EXTRA_REFERENCE_IDS.forEach(id => {
+            const value = fields[extraReferenceKey(id)];
+            if (typeof value === 'string' && value) refs[id] = value;
+        });
+        return refs;
+    }, [fields]);
 
     const [scopeTypes, setScopeTypes] = useState<string[]>(scopeTypesFromSow);
     const [systems, setSystems] = useState<string[]>(systemsFromSow);
+    const [applications, setApplications] = useState<string[]>(applicationsFromSow);
     const [quickNotes, setQuickNotes] = useState<string[]>(quickNotesFromSow);
     const [extras, setExtras] = useState<string[]>(extrasFromSow);
     const [modules, setModules] = useState<Record<string, string[]>>(modulesFromSow);
+    const [extraReferences, setExtraReferences] = useState<Record<string, string>>(extraReferencesFromSow);
     useEffect(() => { setScope(scopeFromSow); }, [scopeFromSow]);
     useEffect(() => { setScopeTypes(scopeTypesFromSow); }, [scopeTypesFromSow]);
     useEffect(() => { setSystems(systemsFromSow); }, [systemsFromSow]);
+    useEffect(() => { setApplications(applicationsFromSow); }, [applicationsFromSow]);
     useEffect(() => { setQuickNotes(quickNotesFromSow); }, [quickNotesFromSow]);
     useEffect(() => { setExtras(extrasFromSow); }, [extrasFromSow]);
+    useEffect(() => { setExtraReferences(extraReferencesFromSow); }, [extraReferencesFromSow]);
     useEffect(() => { setModules(modulesFromSow); }, [modulesFromSow]);
 
     const toggle = (list: string[], value: string) => list.includes(value) ? list.filter(item => item !== value) : [...list, value];
@@ -98,12 +129,14 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
             included_scope: scope,
             scope_types: scopeTypes,
             sow_systems: systems,
+            safety_applications: applications,
             quick_notes: quickNotes,
             scope_extras: extras,
             // Sub-modules are written even when their parent is unselected, matching the SOW's
             // "hidden answers are preserved" rule — re-checking the parent brings them back.
             ...modules,
-            ...platformMirror(systems),
+            ...Object.fromEntries(SCOPE_EXTRA_REFERENCE_IDS.map(id => [extraReferenceKey(id), extraReferences[id] || ''])),
+            ...platformMirror(systems, resolvedCatalog),
             // Legacy mirrors: the SOW's built-in dependency rules still read these.
             flow_B008: legacyList,
             opp_type: legacyList.length === 1 ? legacyList[0].replace('Services Only', 'Services only') : (legacyList.length ? 'Mixed' : ''),
@@ -134,7 +167,7 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                 const chosen = modules[key] || [];
                 return (
                     <div key={key} className="border-l-2 border-emerald-200 pl-3 ml-1">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{option.label} sub-modules</p>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{group === 'systems' && option.id === 'triconex' ? 'Extra Scope' : `${option.label} sub-modules`}</p>
                         <div className="flex flex-wrap gap-2">
                             {option.children!.map(child => (
                                 <label key={child.id} className={chip(chosen.includes(child.label))} style={chosen.includes(child.label) ? { backgroundColor: scopeOptionColor(child, 'submodule') } : undefined}>
@@ -216,8 +249,22 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                                 {renderGroup('systems', systems, setSystems)}
                             </div>
 
+                            {systems.some(label => resolvedCatalog.systems.find(option => option.label === label)?.id === 'triconex') && (
+                                <div className="border-l-2 border-teal-200 pl-3 ml-1">
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Application</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(resolvedCatalog.applications || []).map(option => (
+                                            <label key={option.id} className={chip(applications.includes(option.label))} style={applications.includes(option.label) ? { backgroundColor: scopeOptionColor(option, 'applications') } : undefined}>
+                                                <input type="checkbox" checked={applications.includes(option.label)} onChange={() => setApplications(toggle(applications, option.label))} disabled={disabled} className="rounded border-gray-300 text-teal-700 focus:ring-teal-600" />
+                                                {option.label}
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Notes at a glance</label>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Extra Scope</label>
                                 {renderGroup('quickNotes', quickNotes, setQuickNotes)}
                             </div>
 
@@ -225,9 +272,28 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Labels / Extras</label>
                                 <div className="flex flex-wrap gap-2">{resolvedCatalog.extras.map(option => <label key={option.id} className={chip(extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label)))} style={extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label)) ? { backgroundColor: scopeOptionColor(option, 'extra') } : undefined}><input type="checkbox" checked={extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label))} onChange={() => setExtras(toggle(extras, option.label))} disabled={disabled} className="rounded border-gray-300 text-slate-600 focus:ring-slate-500" />{option.label}</label>)}</div>
                                 <p className="text-[11px] text-gray-400 mt-1 italic">Only historical labels that do not match another Scope option appear here.</p>
+                                {(SCOPE_EXTRA_REFERENCE_IDS as readonly string[]).filter(id => {
+                                    const option = resolvedCatalog.extras.find(o => o.id === id);
+                                    return option && extras.some(value => scopeLabelKey(value) === scopeLabelKey(option.label));
+                                }).map(id => {
+                                    const option = resolvedCatalog.extras.find(o => o.id === id)!;
+                                    return (
+                                        <div key={id} className="mt-2">
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{option.label} reference (expediente or link)</label>
+                                            <input
+                                                type="text"
+                                                value={extraReferences[id] || ''}
+                                                onChange={(e) => setExtraReferences(prev => ({ ...prev, [id]: e.target.value }))}
+                                                disabled={disabled}
+                                                placeholder="e.g. OPP-1234 or https://..."
+                                                className="w-full text-xs p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent disabled:bg-gray-50"
+                                            />
+                                        </div>
+                                    );
+                                })}
                             </div>}
 
-                            <p className="text-[11px] text-gray-400 italic">These three lists are the same ones the SOW asks in Base Data. Add or remove options in Settings &rarr; Labels &amp; Scope.</p>
+                            <p className="text-[11px] text-gray-400 italic">These lists are shared with the SOW Base Data section. Add or remove options in Settings &rarr; Labels &amp; Scope.</p>
                         </div>
 
                         <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 shrink-0">

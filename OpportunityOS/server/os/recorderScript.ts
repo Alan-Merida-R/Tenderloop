@@ -26,6 +26,11 @@ export interface RecorderConfig {
         pickPrompt: string;
         cancel: string;
         steps: string;
+        help: string;
+        recipeName: string;
+        saving: string;
+        saved: string;
+        saveError: string;
     };
 }
 
@@ -44,14 +49,16 @@ export function installRecorder(config: RecorderConfig): void {
     window.__oosRecorderInstalled = true;
 
     var HOST_ID = 'oos-recorder-host';
+    var PAGE_STYLE_ID = 'oos-recorder-page-style';
     var mode = 'navigate';   // 'navigate' | 'capture'
     var pending: any = null; // element awaiting a field tag
     var stepCount = 0;
 
     var send = function (payload: any) {
         try {
-            if (window.__oosRecord) window.__oosRecord(payload);
-        } catch (e) { /* binding not ready yet: the step is simply not recorded */ }
+            if (window.__oosRecord) return window.__oosRecord(payload);
+            return Promise.resolve({ ok: false });
+        } catch (e) { return Promise.resolve({ ok: false }); }
     };
 
     var clean = function (s: any) {
@@ -93,6 +100,16 @@ export function installRecorder(config: RecorderConfig): void {
      * `document.documentElement` is still null at this point.
      */
     var install = function () {
+        // Salesforce changes the comments textarea height as edit mode mounts and
+        // rerenders. During recording, keep it usable and let the user resize it
+        // only vertically, without the horizontal layout jumps from native resize.
+        if (!document.getElementById(PAGE_STYLE_ID)) {
+            var pageStyle = document.createElement('style');
+            pageStyle.id = PAGE_STYLE_ID;
+            pageStyle.textContent = '.slds-form-element textarea{box-sizing:border-box!important;min-height:96px!important;resize:vertical!important}';
+            (document.head || document.documentElement).appendChild(pageStyle);
+        }
+
         // --- Panel --------------------------------------------------------
         // A shadow root keeps Lightning's very assertive CSS from restyling the
         // panel, and keeps the panel's own styles from leaking onto the page.
@@ -110,11 +127,16 @@ export function installRecorder(config: RecorderConfig): void {
             + 'button.on{background:#3DCD58;color:#062}'
             + 'button.fin{background:#fff;color:#111;font-weight:700}'
             + '.s{opacity:.7;font-size:11px;margin-top:6px}'
+            + '.h{font-size:11px;line-height:1.35;margin:0 0 8px;color:#ddd}'
+            + 'input{box-sizing:border-box;width:100%;height:30px;margin:0 0 7px;padding:5px 7px;'
+            + 'border:1px solid #555;border-radius:6px;background:#222;color:#fff;font:12px system-ui,sans-serif;resize:none}'
             + '.f{display:block;width:100%;text-align:left;margin:2px 0;background:#222}';
 
         root.innerHTML = '<style>' + css + '</style>'
             + '<div class="p">'
             + '<div class="t"></div>'
+            + '<div class="h" id="help"></div>'
+            + '<input id="recipe" type="text" maxlength="60">'
             + '<div id="modes">'
             + '<button id="nav" class="on"></button>'
             + '<button id="cap"></button>'
@@ -130,6 +152,8 @@ export function installRecorder(config: RecorderConfig): void {
         $('nav').textContent = config.strings.navigate;
         $('cap').textContent = config.strings.capture;
         $('fin').textContent = config.strings.finish;
+        $('help').textContent = config.strings.help;
+        $('recipe').placeholder = config.strings.recipeName;
 
         var statusEl = $('status');
         var pickerEl = $('picker');
@@ -151,7 +175,22 @@ export function installRecorder(config: RecorderConfig): void {
 
         $('nav').onclick = function () { setMode('navigate'); };
         $('cap').onclick = function () { setMode('capture'); };
-        $('fin').onclick = function () { send({ kind: 'finish' }); };
+        $('fin').onclick = async function () {
+            var finish = $('fin');
+            finish.disabled = true;
+            statusEl.textContent = config.strings.saving;
+            try {
+                var result = await send({ kind: 'finish', name: clean($('recipe').value) || 'receta-bfo' });
+                if (!result || result.ok !== true) throw new Error('save failed');
+                mode = 'finished';
+                $('nav').disabled = true;
+                $('cap').disabled = true;
+                statusEl.textContent = config.strings.saved.replace('{n}', String(result.steps));
+            } catch (e) {
+                finish.disabled = false;
+                statusEl.textContent = config.strings.saveError;
+            }
+        };
 
         /** Offer the app fields once an element has been pointed at. */
         var openPicker = function (el: any) {

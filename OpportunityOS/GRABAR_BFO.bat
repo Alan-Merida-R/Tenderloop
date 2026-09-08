@@ -12,7 +12,10 @@ curl.exe -f -s -o nul --max-time 3 -H "Origin: http://localhost:3000" http://127
 if errorlevel 1 goto :sinapp
 
 rem --- Confirmar que ese backend ya trae la grabadora ---
-curl.exe -s --max-time 5 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/api/health | findstr /C:"web-automation" >nul
+rem Se busca "web-recorder", no "web-automation": builds anteriores ya
+rem reportaban web-automation sin tener las rutas de grabacion, y el .bat
+rem los daba por buenos hasta que la grabacion fallaba con "Not found".
+curl.exe -s --max-time 5 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/api/health | findstr /C:"web-recorder" >nul
 if errorlevel 1 goto :vieja
 
 echo   Conectado a OpportunityOS.
@@ -37,10 +40,13 @@ echo   ------------------------------------------------------------
 echo    AHORA, EN LA VENTANA DE CHROME QUE SE ABRIO:
 echo.
 echo    1. Pasa PingID como siempre.
-echo    2. Navega normal hasta donde este el dato que quieres.
+echo    2. En NAVEGAR, entra a Edicion y usa bFO normalmente.
 echo    3. Dale al boton "Senalar campo" del panel negro de arriba
-echo       a la derecha, y luego clic al dato. Elige que dato es.
+echo       a la derecha, y luego clic al control completo de la lista,
+echo       fecha o comentario. Elige que dato es.
 echo    4. Repite para cada dato que quieras guardar.
+echo    5. Escribe un nombre en el panel y pulsa "Listo". Ese boton
+echo       guarda la receta inmediatamente.
 echo.
 echo    Cuando termines, REGRESA AQUI y presiona una tecla.
 echo   ------------------------------------------------------------
@@ -49,9 +55,14 @@ pause
 
 echo.
 echo   Pasos grabados:
-curl.exe -s --max-time 10 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/api/web/record/steps
+set "RECSTATUS=%TEMP%\opportunityos-bfo-recorder-status.json"
+curl.exe -s --max-time 10 -H "Origin: http://localhost:3000" http://127.0.0.1:3099/api/web/record/steps -o "%RECSTATUS%"
+type "%RECSTATUS%"
 echo.
 echo.
+
+findstr /C:"\"finished\":true" "%RECSTATUS%" >nul
+if not errorlevel 1 goto :guardada
 
 set "RECETA="
 set /p "RECETA=Nombre para esta receta, por ejemplo direccion-cliente: "
@@ -62,6 +73,8 @@ echo   Guardando...
 curl.exe -s --max-time 20 -X POST -H "Origin: http://localhost:3000" "http://127.0.0.1:3099/api/web/record/stop?name=%RECETA%"
 echo.
 echo.
+
+:guardada
 echo   Listo. La receta quedo guardada en la carpeta:
 echo     %APPDATA%\OpportunityOS\web-recipes
 echo.

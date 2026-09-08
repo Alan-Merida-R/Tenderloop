@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS } from '../types';
-import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical } from 'lucide-react';
+import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, taskStatusLabel, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS } from '../types';
+import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical, TriangleAlert, Siren } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { collectSowTeamMembers } from '../services/sowTeamMembers';
 import { ResponsibleTeamPicker } from './OpportunityDetail';
@@ -46,13 +46,34 @@ const getGeneralProposalStatus = (opp: Opportunity): DetailedStatus => {
     return opp.detailedStatus || 'Working on it';
 };
 
-type DateFilterMode = 'any' | 'day' | 'month' | 'year';
+type DateFilterMode = 'any' | 'day' | 'range' | 'month' | 'year';
 type DateColumnFilterValue = { mode: DateFilterMode; values: string[] };
 const EMPTY_DATE_COLUMN_FILTER: DateColumnFilterValue = { mode: 'any', values: [] };
+
+const normalizeDateColumnFilter = (value: unknown): DateColumnFilterValue => {
+    if (!value || typeof value !== 'object') return EMPTY_DATE_COLUMN_FILTER;
+    const candidate = value as Partial<DateColumnFilterValue>;
+    const mode: DateFilterMode = ['any', 'day', 'range', 'month', 'year'].includes(candidate.mode || '')
+        ? candidate.mode as DateFilterMode
+        : 'any';
+    return { mode, values: Array.isArray(candidate.values) ? candidate.values.filter(item => typeof item === 'string') : [] };
+};
+
+const normalizeSavedColumnFilters = (value: unknown): Record<string, string[]> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+        .filter(([, items]) => Array.isArray(items))
+        .map(([key, items]) => [key, (items as unknown[]).filter(item => typeof item === 'string')]));
+};
 
 const matchesDateColumnFilter = (date: string | undefined, filter: DateColumnFilterValue) => {
     if (filter.mode === 'any' || filter.values.length === 0) return true;
     if (!date) return false;
+    if (filter.mode === 'range') {
+        const [from = '', to = ''] = filter.values;
+        const day = date.slice(0, 10);
+        return (!from || day >= from) && (!to || day <= to);
+    }
     return filter.values.some(value => {
         if (filter.mode === 'day') return date === value;
         if (filter.mode === 'month') return date.slice(0, 7) === value;
@@ -60,11 +81,29 @@ const matchesDateColumnFilter = (date: string | undefined, filter: DateColumnFil
     });
 };
 
-const DateColumnFilter: React.FC<{ filter: DateColumnFilterValue; onChange: (next: DateColumnFilterValue) => void; label: string }> = ({ filter, onChange, label }) => {
+const DateColumnFilter: React.FC<{ filter: DateColumnFilterValue; onChange: (next: DateColumnFilterValue) => void; label: string; availableDates?: string[] }> = ({ filter, onChange, label, availableDates = [] }) => {
     const [open, setOpen] = useState(false);
     const [draftValue, setDraftValue] = useState('');
-    const hasFilter = filter.mode !== 'any' && filter.values.length > 0;
+    const hasFilter = filter.mode !== 'any' && filter.values.some(Boolean);
     const inputType = filter.mode === 'month' ? 'month' : filter.mode === 'year' ? 'number' : 'date';
+    const availablePeriods = useMemo(() => {
+        const mode = filter.mode === 'any' || filter.mode === 'range' ? 'day' : filter.mode;
+        const periods = availableDates
+            .filter(date => /^\d{4}-\d{2}-\d{2}/.test(date))
+            .map(date => mode === 'day' ? date.slice(0, 10) : mode === 'month' ? date.slice(0, 7) : date.slice(0, 4));
+        return Array.from(new Set(periods)).sort((a, b) => b.localeCompare(a));
+    }, [availableDates, filter.mode]);
+    const togglePeriod = (period: string) => {
+        if (filter.mode === 'range') {
+            const [from = '', to = ''] = filter.values;
+            if (!from || to) onChange({ mode: 'range', values: [period, ''] });
+            else onChange({ mode: 'range', values: period < from ? [period, from] : [from, period] });
+            return;
+        }
+        const mode: DateFilterMode = filter.mode === 'any' ? 'day' : filter.mode;
+        const current = filter.mode === mode ? filter.values : [];
+        onChange({ mode, values: current.includes(period) ? current.filter(value => value !== period) : [...current, period] });
+    };
     const addPeriod = () => {
         if (!draftValue || filter.mode === 'any') return;
         if (!filter.values.includes(draftValue)) onChange({ ...filter, values: [...filter.values, draftValue] });
@@ -77,9 +116,19 @@ const DateColumnFilter: React.FC<{ filter: DateColumnFilterValue; onChange: (nex
             <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-lg border border-gray-200 bg-white p-3 shadow-xl" onClick={event => event.stopPropagation()}>
                 <label className="mb-1 block text-[10px] font-black uppercase tracking-wider text-gray-500">{label}</label>
                 <select value={filter.mode} onChange={event => { onChange({ mode: event.target.value as DateFilterMode, values: [] }); setDraftValue(''); }} className="mb-2 w-full rounded border-gray-200 py-1 text-xs">
-                    <option value="any">Any date</option><option value="day">Specific day(s)</option><option value="month">Month(s)</option><option value="year">Year(s)</option>
+                    <option value="any">Any date</option><option value="day">Specific day(s)</option><option value="range">Date range</option><option value="month">Month(s)</option><option value="year">Year(s)</option>
                 </select>
-                {filter.mode !== 'any' && <div className="flex gap-1"><input type={inputType} min={filter.mode === 'year' ? '2000' : undefined} max={filter.mode === 'year' ? '2100' : undefined} placeholder={filter.mode === 'year' ? '2026' : undefined} value={draftValue} onChange={event => setDraftValue(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addPeriod(); } }} className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1.5 text-xs focus:border-[#3DCD58] focus:ring-[#3DCD58]" /><button type="button" onClick={addPeriod} className="rounded bg-[#3DCD58] px-2 text-[10px] font-bold text-white hover:bg-[#2db64a]">Add</button></div>}
+                {filter.mode === 'range' ? <div className="grid grid-cols-2 gap-1"><label className="text-[9px] font-bold text-gray-400">From<input type="date" value={filter.values[0] || ''} onChange={event => onChange({ mode: 'range', values: [event.target.value, filter.values[1] || ''] })} className="mt-1 w-full rounded border-gray-200 px-1 py-1 text-[10px]" /></label><label className="text-[9px] font-bold text-gray-400">To<input type="date" value={filter.values[1] || ''} onChange={event => onChange({ mode: 'range', values: [filter.values[0] || '', event.target.value] })} className="mt-1 w-full rounded border-gray-200 px-1 py-1 text-[10px]" /></label></div> : filter.mode !== 'any' && <div className="flex gap-1"><input type={inputType} min={filter.mode === 'year' ? '2000' : undefined} max={filter.mode === 'year' ? '2100' : undefined} placeholder={filter.mode === 'year' ? '2026' : undefined} value={draftValue} onChange={event => setDraftValue(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addPeriod(); } }} className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1.5 text-xs focus:border-[#3DCD58] focus:ring-[#3DCD58]" /><button type="button" onClick={addPeriod} className="rounded bg-[#3DCD58] px-2 text-[10px] font-bold text-white hover:bg-[#2db64a]">Add</button></div>}
+                <div className="mt-2 border-t border-gray-100 pt-2">
+                    <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-gray-400">Available dates ({availablePeriods.length})</div>
+                    <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                        {availablePeriods.map(period => {
+                            const selected = filter.mode !== 'any' && filter.values.includes(period);
+                            return <button key={period} type="button" onClick={() => togglePeriod(period)} className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-xs ${selected ? 'bg-emerald-50 font-bold text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}><span>{period}</span>{selected && <Check className="h-3 w-3" />}</button>;
+                        })}
+                        {availablePeriods.length === 0 && <div className="px-2 py-2 text-center text-[10px] text-gray-400">No dates available</div>}
+                    </div>
+                </div>
                 {filter.values.length > 0 && <div className="mt-2 flex max-h-24 flex-wrap gap-1 overflow-y-auto">{filter.values.map(value => <button key={value} type="button" onClick={() => onChange({ ...filter, values: filter.values.filter(item => item !== value) })} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 hover:bg-red-50 hover:text-red-600" title="Remove period">{value} ×</button>)}</div>}
                 {hasFilter && <button type="button" onClick={() => { onChange(EMPTY_DATE_COLUMN_FILTER); setOpen(false); }} className="mt-2 text-[10px] font-bold text-red-500 hover:text-red-700">Clear filter</button>}
             </div>
@@ -176,16 +225,35 @@ const copyToClipboard = (text: string) => {
     }
 };
 
-const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], quickNotes: [], extras: [], hasAny: false };
+const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], applications: [], quickNotes: [], extras: [], hasAny: false };
 
 const getOpportunityActiveDays = (opp: Opportunity): number | null => {
     const submitted = opp.dates?.requested;
-    const expected = opp.dates?.expected;
-    if (!submitted || !expected) return null;
+    if (!submitted) return null;
+    const isCanceled = opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Canceled';
+    const isCompleted = ['Submitted', 'Won', 'Lost'].includes(opp.statusLabel) || opp.detailedStatus === 'Completed';
+    const endDate = isCanceled
+        ? opp.kpis?.timeline?.cancelledAt
+        : isCompleted
+            ? opp.kpis?.timeline?.deliveredAt
+            : new Date().toISOString().slice(0, 10);
+    if (!endDate) return null;
     const start = new Date(`${submitted.slice(0, 10)}T00:00:00Z`).getTime();
-    const end = new Date(`${expected.slice(0, 10)}T00:00:00Z`).getTime();
+    const end = new Date(`${endDate.slice(0, 10)}T00:00:00Z`).getTime();
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
     return Math.max(0, Math.floor((end - start) / 86400000));
+};
+
+const getProposalAgeIndicator = (days: number | null, alarms?: import('../types').AlarmConfig[], isSold = false) => {
+    if (isSold) return { style: { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#22c55e' }, className: '', level: 'sold' as const };
+    if (days === null) return { style: undefined, className: 'bg-gray-100 text-gray-500 border-gray-200', level: 'normal' as const };
+    const warning = alarms?.find(alarm => alarm.id === 'proposal-age-warning');
+    const critical = alarms?.find(alarm => alarm.id === 'proposal-age-critical');
+    const warningDays = Math.max(0, warning?.daysThreshold ?? 20);
+    const criticalDays = Math.max(warningDays, critical?.daysThreshold ?? 30);
+    if (days > criticalDays) return { style: { backgroundColor: critical?.backgroundColor || '#fee2e2', color: critical?.textColor || '#b91c1c', borderColor: critical?.textColor || '#b91c1c' }, className: '', level: 'critical' as const };
+    if (days >= warningDays) return { style: { backgroundColor: warning?.backgroundColor || '#fef3c7', color: warning?.textColor || '#92400e', borderColor: warning?.textColor || '#92400e' }, className: '', level: 'warning' as const };
+    return { style: undefined, className: 'bg-gray-100 text-gray-500 border-gray-200', level: 'normal' as const };
 };
 
 const PROPOSAL_CARD_FIELD_OPTIONS = [
@@ -361,6 +429,7 @@ const OpportunityCard = React.memo(({
     const scopeGlanceText = useMemo(() => formatScopeGlance(scopeGlance), [scopeGlance]);
 
     const activeDays = getOpportunityActiveDays(opp);
+    const ageIndicator = getProposalAgeIndicator(activeDays, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true);
     const showFooter = isCardFieldVisible('expectedDate') || isCardFieldVisible('taskProgress');
 
     return (
@@ -378,7 +447,7 @@ const OpportunityCard = React.memo(({
                             <span className="text-[9px] font-mono text-gray-500 bg-gray-50 px-1 rounded truncate py-0.5">OP: {opp.id}</span>
                         )}
                         {isCardFieldVisible('alias') && opp.alias && (() => {
-                            const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled', alarms);
+                            const imp = getImportanceColor(opp.priorityOrder, opp.dates?.expected, opp.statusLabel === 'Won' || opp.statusLabel === 'Lost' || opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Completed' || opp.detailedStatus === 'Canceled', alarms, true);
                             return (
                                 <span className={`text-[11px] font-black px-2 py-0.5 rounded uppercase tracking-tight ${imp.className}`} style={imp.style}>
                                     {opp.alias}
@@ -397,10 +466,14 @@ const OpportunityCard = React.memo(({
                                 Rank #{opp.priorityOrder}
                             </span>
                         )}
-                        {isCardFieldVisible('duration') && activeDays !== null && (
+                        {isCardFieldVisible('duration') && activeDays !== null && <div className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${activeDays} days`}>
+                            {ageIndicator.level === 'critical' ? <Siren className="h-3 w-3" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3 w-3" /> : ageIndicator.level === 'sold' ? <Check className="h-3 w-3" /> : <Clock className="h-2.5 w-2.5" />}
+                            <span className="font-bold">{activeDays} {activeDays === 1 ? 'day' : 'days'}</span>
+                        </div>}
+                        {false && isCardFieldVisible('duration') && activeDays !== null && (
                             <div className="flex items-center gap-1 text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
-                                <Clock className="w-2.5 h-2.5 text-gray-400" />
-                                <span className="font-bold">{activeDays}d</span>
+                                {ageIndicator.level === 'critical' ? <Siren className="h-3 w-3" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3 w-3" /> : <Clock className="h-2.5 w-2.5" />}
+                                <span className="font-bold">{activeDays} {activeDays === 1 ? 'day' : 'days'}</span>
                             </div>
                         )}
                     </div>
@@ -559,15 +632,33 @@ const OpportunityCard = React.memo(({
 });
 
 
-const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false, alarms?: import('../types').AlarmConfig[]): { className: string, style?: React.CSSProperties } => {
+const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: boolean = false, alarms?: import('../types').AlarmConfig[], useAliasGradient = false): { className: string, style?: React.CSSProperties } => {
     if (isCompleted) return { className: "bg-gray-100 text-gray-400 line-through" };
     if (!dateStr) return { className: "bg-white/90 text-gray-700 border border-gray-200 shadow-sm" };
     const daysLeft = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+    const gradientPreference = alarms?.find(alarm => alarm.id === 'alias-delivery-gradient');
+    if (useAliasGradient && (gradientPreference?.daysThreshold ?? 1) !== 0) {
+        const base = gradientPreference?.backgroundColor || '#2563eb';
+        const parseHex = (hex: string) => {
+            const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '2563eb';
+            return [0, 2, 4].map(index => Number.parseInt(normalized.slice(index, index + 2), 16));
+        };
+        const mix = (from: number[], to: number[], ratio: number) => `#${from.map((channel, index) => Math.round(channel + (to[index] - channel) * ratio).toString(16).padStart(2, '0')).join('')}`;
+        const rgb = parseHex(base);
+        if (daysLeft < 0) {
+            const darkness = Math.min(0.72, 0.45 + Math.abs(daysLeft) * 0.025);
+            return { className: 'border shadow-sm', style: { backgroundColor: mix(rgb, [0, 0, 0], darkness), borderColor: mix(rgb, [0, 0, 0], 0.75), color: '#ffffff' } };
+        }
+        const whiteRatio = daysLeft >= 30 ? 0.76 : 0.12 + (daysLeft / 30) * 0.64;
+        const backgroundColor = mix(rgb, [255, 255, 255], whiteRatio);
+        const luminance = (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255;
+        return { className: 'border shadow-sm', style: { backgroundColor, borderColor: mix(rgb, [255, 255, 255], Math.max(0, whiteRatio - 0.18)), color: daysLeft <= 2 && luminance < 0.48 ? '#ffffff' : mix(rgb, [0, 0, 0], 0.45) } };
+    }
     
     if (alarms && alarms.length > 0) {
         // Find the first alarm where daysLeft <= alarm.daysThreshold
         // Assuming alarms are sorted by daysThreshold
-        const sortedAlarms = [...alarms].sort((a, b) => a.daysThreshold - b.daysThreshold);
+        const sortedAlarms = alarms.filter(alarm => !alarm.id.startsWith('proposal-age-') && alarm.id !== 'alias-delivery-gradient').sort((a, b) => a.daysThreshold - b.daysThreshold);
         for (const alarm of sortedAlarms) {
             if (daysLeft <= alarm.daysThreshold) {
                 if (alarm.backgroundColor) {
@@ -599,7 +690,7 @@ const translateStatus = (status: string) => {
         'No Status': 'Review',
         'Waiting': 'Info Needed'
     };
-    return mapping[status] || status;
+    return mapping[status] || taskStatusLabel(status);
 };
 
 const TaskCard = React.memo(({
@@ -941,7 +1032,7 @@ const TaskRow = React.memo(({
                     onChange={(e) => onStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
                     className={`text-[10px] px-2 py-1 rounded border-none cursor-pointer font-bold uppercase w-28 ${TASK_STATUS_COLORS[item.status as TaskStatus]}`}
                 >
-                    {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+                    {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}
                 </select>
             </div>
         </div>
@@ -1161,6 +1252,15 @@ const GroupedMultiSelectDropdown = ({ groups, selected, onChange, label, isOpen,
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
 const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0, scopeCatalog }) => {
+    opportunities = Array.isArray(opportunities) ? opportunities : [];
+    globalLabels = Array.isArray(globalLabels) ? globalLabels : [];
+    alarms = Array.isArray(alarms) ? alarms : [];
+    hiddenProposalProcessColumns = Array.isArray(hiddenProposalProcessColumns) ? hiddenProposalProcessColumns : [];
+    processBoardColors = processBoardColors && typeof processBoardColors === 'object' ? processBoardColors : {};
+    useEffect(() => {
+        // A successful mount confirms that any one-shot iterable-error recovery finished.
+        sessionStorage.removeItem('tl.dashboard.iterableRecovery.v1');
+    }, []);
     const { startTimer, pauseTimer, getTimerState } = useTimerActions();
     // Note: Dashboard now avoids subscribing to ticking timerState to prevent whole-app 1s re-renders.
     const [proposalsViewMode, setProposalsViewMode] = useState<'board' | 'table' | 'calendar'>('board');
@@ -1229,7 +1329,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     const [collapsedColumns, setCollapsedColumns] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem('tenderloop_collapsed_proposal_columns');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) return parsed.filter(item => typeof item === 'string');
+            }
         } catch(e) {}
         return [];
     });
@@ -1249,11 +1352,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // it remounts empty. See handleArchiveQuickNote.
     const [quickNoteResetTokens, setQuickNoteResetTokens] = useState<Record<string, number>>({});
     const [historySaveNotice, setHistorySaveNotice] = useState<string | null>(null);
+    const dashboardFiltersHydratedRef = useRef(false);
     const historySaveNoticeTimeoutRef = useRef<number | null>(null);
     const customerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.customer).filter(Boolean))) as string[], [opportunities]);
     const sellerOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.seller).filter(Boolean))) as string[], [opportunities]);
     const idOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.id).filter(Boolean))) as string[], [opportunities]);
     const titleOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.title).filter(Boolean))) as string[], [opportunities]);
+    const submittedDateOptions = useMemo(() => opportunities.map(o => o.dates?.requested).filter((date): date is string => Boolean(date)).sort(), [opportunities]);
+    const expectedDateOptions = useMemo(() => opportunities.map(o => o.dates?.expected).filter((date): date is string => Boolean(date)).sort(), [opportunities]);
     // The Process Status column displays detailedStatus, not the main opportunity status.
     const statusOptions = DETAILED_STATUS_ORDER;
     const mainStatusOptions = useMemo(() => Array.from(new Set(opportunities.map(o => o.statusLabel).filter(Boolean))) as string[], [opportunities]);
@@ -1334,6 +1440,43 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         return () => document.removeEventListener('keydown', closeOnEscape);
     }, [openDropdown]);
     useEffect(() => { setOpenDropdown(null); }, [mode]);
+
+    // Restore the complete dashboard filter state after a reload. Dropdowns are
+    // intentionally never restored open, so the Scope menu cannot leak onto the DB picker.
+    useEffect(() => {
+        dashboardFiltersHydratedRef.current = false;
+        try {
+            const saved = localStorage.getItem(`tl.dashboardFilters.${mode}.v1`);
+            if (saved) {
+                const value = JSON.parse(saved);
+                setFilterText(value.filterText || '');
+                setTaskSearchText(value.taskSearchText || '');
+                setSelectedOppChips(Array.isArray(value.selectedOppChips) ? value.selectedOppChips : []);
+                setStatusFilters(Array.isArray(value.statusFilters) ? value.statusFilters : []);
+                setDetailedStatusFilters(Array.isArray(value.detailedStatusFilters) ? value.detailedStatusFilters : []);
+                setLabelFilters(Array.isArray(value.labelFilters) ? value.labelFilters : []);
+                setDateFilterStart(value.dateFilterStart || '');
+                setDateFilterEnd(value.dateFilterEnd || '');
+                setTaskOppStatusFilters(Array.isArray(value.taskOppStatusFilters) ? value.taskOppStatusFilters : []);
+                setColumnFilters(normalizeSavedColumnFilters(value.columnFilters));
+                setSubmittedDateFilter(normalizeDateColumnFilter(value.submittedDateFilter));
+                setExpectedDateFilter(normalizeDateColumnFilter(value.expectedDateFilter));
+                setRankSortDirection(value.rankSortDirection === 'asc' || value.rankSortDirection === 'desc' ? value.rankSortDirection : null);
+            }
+        } catch { /* Invalid browser state must not block the dashboard. */ }
+        setOpenDropdown(null);
+        const timer = window.setTimeout(() => { dashboardFiltersHydratedRef.current = true; }, 0);
+        return () => window.clearTimeout(timer);
+    }, [mode]);
+
+    useEffect(() => {
+        if (!dashboardFiltersHydratedRef.current) return;
+        localStorage.setItem(`tl.dashboardFilters.${mode}.v1`, JSON.stringify({
+            filterText, taskSearchText, selectedOppChips, statusFilters, detailedStatusFilters,
+            labelFilters, dateFilterStart, dateFilterEnd, taskOppStatusFilters, columnFilters,
+            submittedDateFilter, expectedDateFilter, rankSortDirection,
+        }));
+    }, [mode, filterText, taskSearchText, selectedOppChips, statusFilters, detailedStatusFilters, labelFilters, dateFilterStart, dateFilterEnd, taskOppStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter, rankSortDirection]);
 
     // "Edit Cards" is a plain inline dropdown, so nothing dismisses it on its own: close it when
     // the user clicks away, presses Escape, or leaves the proposals view (otherwise it would still
@@ -1462,7 +1605,10 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // Editable column order for Process Kanban — persisted in localStorage
     const PROCESS_COLS_DEFAULT = ['Working on it', 'Review', 'Info Needed', 'Paused', 'Approval', 'Meeting', 'Completed', 'Canceled'];
     const [processColumnOrder, setProcessColumnOrder] = useState<string[]>(() => {
-        try { return JSON.parse(localStorage.getItem('tl.processColOrder') || 'null') || PROCESS_COLS_DEFAULT; } catch { return PROCESS_COLS_DEFAULT; }
+        try {
+            const parsed = JSON.parse(localStorage.getItem('tl.processColOrder') || 'null');
+            return Array.isArray(parsed) ? normalizeColumnKeys(parsed, PROCESS_COLS_DEFAULT) : PROCESS_COLS_DEFAULT;
+        } catch { return PROCESS_COLS_DEFAULT; }
     });
     const [draggingCol, setDraggingCol] = useState<string | null>(null);
     useEffect(() => { localStorage.setItem('tl.processColOrder', JSON.stringify(processColumnOrder)); }, [processColumnOrder]);
@@ -1563,6 +1709,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setColumnFilters({});
         setSubmittedDateFilter(EMPTY_DATE_COLUMN_FILTER);
         setExpectedDateFilter(EMPTY_DATE_COLUMN_FILTER);
+        setRankSortDirection(null);
         setKpiSoldFilter('all');
         setOpenDropdown(null);
         setShowNextSteps(false);
@@ -1613,9 +1760,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
             // 4. Date Filter
             if ((dateFilterStart || dateFilterEnd) && mode !== 'tasks') {
-                const dateToCheck = (mode === 'general' && opp.kpis?.timeline?.deliveredAt)
-                    ? opp.kpis.timeline.deliveredAt
-                    : opp.dates?.expected;
+                const dateToCheck = (opp.statusLabel === 'Canceled' || opp.detailedStatus === 'Canceled')
+                    ? (opp.kpis?.timeline?.cancelledAt || opp.dates?.expected)
+                    : (['Submitted', 'Won', 'Lost'].includes(opp.statusLabel) || opp.detailedStatus === 'Completed')
+                        ? (opp.kpis?.timeline?.deliveredAt || opp.dates?.expected)
+                        : opp.dates?.expected;
                 if (dateFilterStart && (!dateToCheck || dateToCheck < dateFilterStart)) continue;
                 if (dateFilterEnd && (!dateToCheck || dateToCheck > dateFilterEnd)) continue;
             }
@@ -1711,7 +1860,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (labelFilters.length === 0) return preScopeFilteredOpps;
         return preScopeFilteredOpps.filter(opp => {
             const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
-            const allTags = [...glance.scope, ...glance.systems, ...glance.quickNotes, ...glance.extras];
+            const allTags = [...glance.scope, ...glance.systems, ...(glance.applications || []), ...glance.quickNotes, ...glance.extras];
             return labelFilters.some(tag => allTags.includes(tag));
         });
     }, [preScopeFilteredOpps, labelFilters, scopeCatalog]);
@@ -1729,13 +1878,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     }, [preScopeFilteredOpps, kanbanGroupBy, hiddenProposalProcessColumns]);
 
     const scopeFilterGroups = useMemo(() => {
-        const buckets: Record<'scope' | 'systems' | 'quickNotes' | 'extras', Set<string>> = {
-            scope: new Set(), systems: new Set(), quickNotes: new Set(), extras: new Set(),
+        const buckets: Record<'scope' | 'systems' | 'applications' | 'quickNotes' | 'extras', Set<string>> = {
+            scope: new Set(), systems: new Set(), applications: new Set(), quickNotes: new Set(), extras: new Set(),
         };
         scopeFilterCandidates.forEach(opp => {
             const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
             glance.scope.forEach(v => buckets.scope.add(v));
             glance.systems.forEach(v => buckets.systems.add(v));
+            (glance.applications || []).forEach(v => buckets.applications.add(v));
             glance.quickNotes.forEach(v => buckets.quickNotes.add(v));
             glance.extras.forEach(v => buckets.extras.add(v));
         });
@@ -2157,21 +2307,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         if (!Number.isFinite(desiredRank) || desiredRank < 1) return;
         if (opp.priorityOrder === desiredRank) return;
 
-        // Reserve the selected rank, then move any collisions to the next
-        // available value. This also repairs older duplicate ranks.
-        const usedRanks = new Set<number>([desiredRank]);
-        const rankedOthers = opportunities
-            .filter(item => item.id !== opp.id && Number.isFinite(Number(item.priorityOrder)) && Number(item.priorityOrder) > 0)
-            .sort((a, b) => Number(a.priorityOrder) - Number(b.priorityOrder));
-        rankedOthers.forEach(item => {
-            const originalRank = Number(item.priorityOrder);
-            let nextRank = originalRank;
-            while (usedRanks.has(nextRank)) nextRank += 1;
-            usedRanks.add(nextRank);
-            if (nextRank !== originalRank) onOppUpdate({ ...item, priorityOrder: nextRank });
-        });
         onOppUpdate({ ...opp, priorityOrder: desiredRank });
-    }, [onOppUpdate, opportunities]);
+    }, [onOppUpdate]);
 
     const handleGeneralRankDrop = useCallback((draggedId: string, targetId: string) => {
         if (draggedId === targetId) return;
@@ -2435,7 +2572,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             case 'rank':
                 return <th key={key} className="w-20 px-2 py-3 text-center"><div className="flex items-center justify-center">Rank<ColumnFilter options={[]} selected={columnFilters.rank || []} onChange={v => setColumnFilters(p => ({...p, rank: v}))} numeric sortDirection={rankSortDirection} onSortChange={setRankSortDirection} /></div></th>;
             case 'assigned':
-                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} /></div></th>;
+                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} availableDates={submittedDateOptions} /></div></th>;
             case 'scope':
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">Scope<ColumnFilter options={scopeOptions} selected={columnFilters.scope || []} onChange={v => setColumnFilters(p => ({...p, scope: v}))} /></div></th>;
             case 'type':
@@ -2443,7 +2580,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             case 'extra':
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">Extra<ColumnFilter options={extraOptions} selected={columnFilters.extra || []} onChange={v => setColumnFilters(p => ({...p, extra: v}))} /></div></th>;
             case 'expected':
-                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} /></div></th>;
+                return <th key={key} className="w-[100px] px-1 py-3"><div className="flex items-center"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} availableDates={expectedDateOptions} /></div></th>;
             case 'duration':
                 return <th key={key} className="w-[100px] px-2 py-3 text-center whitespace-nowrap"><div className="flex items-center justify-center">Duration<ColumnFilter options={[]} selected={columnFilters.duration || []} onChange={v => setColumnFilters(p => ({...p, duration: v}))} numeric /></div></th>;
             case 'amount':
@@ -2504,9 +2641,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 return <td key={key} className="px-1 py-3 text-xs text-gray-600 font-mono"><EditableCell direct type="date" value={opp.dates?.expected || ''} onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)} /></td>;
             case 'duration': {
                 const days = getOpportunityActiveDays(opp);
+                const ageIndicator = getProposalAgeIndicator(days, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true);
                 return (
                     <td key={key} className="px-3 py-3 text-center">
-                        {days !== null ? (
+                        {days !== null ? <div className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${days} days`}>
+                            {ageIndicator.level === 'critical' ? <Siren className="h-3.5 w-3.5" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3.5 w-3.5" /> : ageIndicator.level === 'sold' ? <Check className="h-3.5 w-3.5" /> : <Clock className="h-3 w-3" />}
+                            <span className="font-medium">{days} {days === 1 ? 'day' : 'days'}</span>
+                        </div> : <span className="text-gray-300">â€”</span>}
+                        {false && days !== null ? (
                             <div className="inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
                                 <Clock className="w-3 h-3 text-gray-400" />
                                 <span className="font-medium">{days}d</span>
@@ -3228,8 +3370,8 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 {visibleColumns.includes('customer') && <th className="px-6 py-3"><div className="flex items-center">Customer<ColumnFilter options={customerOptions} selected={columnFilters.customer || []} onChange={v => setColumnFilters(p => ({...p, customer: v}))} /></div></th>}
                                                 {visibleColumns.includes('seller') && <th className="px-6 py-3"><div className="flex items-center">Seller<ColumnFilter options={sellerOptions} selected={columnFilters.seller || []} onChange={v => setColumnFilters(p => ({...p, seller: v}))} /></div></th>}
                                                 {visibleColumns.includes('status') && <th className="px-6 py-3"><div className="flex items-center">Status<ColumnFilter options={mainStatusOptions} selected={columnFilters.status || []} onChange={v => setColumnFilters(p => ({...p, status: v}))} getOptionLabel={translateStatus} /></div></th>}
-{visibleColumns.includes('assigned') && <th className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} /></div></th>}
-{visibleColumns.includes('expected') && <th className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} /></div></th>}
+{visibleColumns.includes('assigned') && <th className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Submitted<br />Date</span><DateColumnFilter label="Submitted date" filter={submittedDateFilter} onChange={setSubmittedDateFilter} availableDates={submittedDateOptions} /></div></th>}
+{visibleColumns.includes('expected') && <th className="w-[100px] px-1 py-3"><div className="flex items-center text-[10px] leading-tight"><span>Expected<br />Date</span><DateColumnFilter label="Expected date" filter={expectedDateFilter} onChange={setExpectedDateFilter} availableDates={expectedDateOptions} /></div></th>}
                                                 {visibleColumns.includes('amount') && <th className="px-6 py-3 text-right"><div className="flex items-center justify-end">Amount<ColumnFilter options={[]} selected={columnFilters.amount || []} onChange={v => setColumnFilters(p => ({...p, amount: v}))} numeric /></div></th>}
                                                 {visibleColumns.includes('waiting') && <th className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>}
                                             </tr>
@@ -3332,7 +3474,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     >
                                         <div className="flex items-center gap-2">
                                             {o.alias && (() => {
-                                                const imp = getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled' || o.detailedStatus === 'Completed' || o.detailedStatus === 'Canceled', alarms);
+                                                const imp = getImportanceColor(o.priorityOrder, o.dates.expected, o.statusLabel === 'Won' || o.statusLabel === 'Lost' || o.statusLabel === 'Canceled' || o.detailedStatus === 'Completed' || o.detailedStatus === 'Canceled', alarms, true);
                                                 return (
                                                     <span className={`${imp.className} px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight shrink-0 shadow-sm`} style={imp.style}>
                                                         {o.alias}
@@ -3535,7 +3677,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                     </div>
                                                                     <p className="text-xs font-bold text-gray-800 leading-snug">{t.title}</p>
                                                                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
-                                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{t.status}</span>
+                                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{taskStatusLabel(t.status)}</span>
                                                                         <button
                                                                             onClick={(e) => { e.stopPropagation(); startTimer(t.id, t.opp.id, t.title); }}
                                                                             className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-[#3DCD58] transition-colors"
@@ -3584,7 +3726,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                                     </div>
                                                                     <p className="text-xs font-bold text-gray-800 leading-snug">{t.title}</p>
                                                                     <div className="flex items-center justify-between mt-1 pt-2 border-t border-gray-50">
-                                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{t.status}</span>
+                                                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${TASK_STATUS_COLORS[t.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}>{taskStatusLabel(t.status)}</span>
                                                                         <div className="flex items-center gap-1">
                                                                             <button
                                                                                 onClick={(e) => {
@@ -3757,7 +3899,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <div>
                                     <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</label>
                                     <select className="w-full border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white transition-colors" value={selectedTask.task.status} onChange={(e) => updateSelectedTask('status', e.target.value)}>
-                                        {TASK_STATUS_ORDER.map(s => <option key={s}>{s}</option>)}
+                                        {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -4345,7 +4487,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-purple-300 outline-none"
                             >
                                 <option value="">— No change —</option>
-                                {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
+                                {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}
                             </select>
                         </div>
                         <div>

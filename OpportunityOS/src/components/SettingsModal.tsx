@@ -8,7 +8,7 @@ import { playSound } from '../services/soundService';
 import { sanitizeHtml } from '../services/sanitizeHtml';
 import { SOW_TEMPLATE_HTML } from '../services/sowTemplate';
 import { GENERAL_QUICK_LINK_ICON_OPTIONS } from './StickyNotesWidget';
-import { ScopeCatalog, ScopeCatalogGroup, ScopeCatalogOption, DEFAULT_SCOPE_CATALOG, SCOPE_CATALOG_GROUPS, normalizeScopeCatalog } from './scopeCatalog';
+import { ScopeCatalog, ScopeCatalogGroup, ScopeCatalogOption, DEFAULT_SCOPE_CATALOG, SCOPE_CATALOG_GROUPS, SCOPE_CATALOG_MIGRATION_VERSION, normalizeScopeCatalog } from './scopeCatalog';
 import {
   mergeEmailComposeSettings, resolveTemplates, variablesForKind,
   DEFAULT_EMAIL_TEMPLATES, DEFAULT_SUBJECT_FORMAT, DEFAULT_FULLNAME_FORMAT,
@@ -214,6 +214,8 @@ export interface AppSettings {
   globalSowForm?: { sections: any[]; questions: any[]; flowOverrides?: Record<string, any> };
   /** Scope / System / Notes-at-a-glance option lists asked in the SOW and the Scope quick view. */
   scopeCatalog?: ScopeCatalog;
+  /** Tracks which one-time scope catalog data fixes (see scopeCatalog.ts) have already run. */
+  scopeCatalogMigrationVersion?: number;
 }
 export const DEFAULT_STAKEHOLDER_ROLES = ['CSE', 'Tender Engineer', 'TSC', 'Delivery', 'Field Services', 'FoxMass', 'Supply Chain', 'Other'];
 export const DEFAULT_TRACKED_AREAS = [
@@ -280,7 +282,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   globalContacts: [],
   globalSowForm: { sections: [], questions: [] },
   scopeCatalog: DEFAULT_SCOPE_CATALOG,
+  scopeCatalogMigrationVersion: SCOPE_CATALOG_MIGRATION_VERSION,
   alarms: [
+    { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#2563eb', textColor: '#ffffff' },
+    { id: 'proposal-age-warning', daysThreshold: 20, color: '', backgroundColor: '#fef3c7', textColor: '#92400e' },
+    { id: 'proposal-age-critical', daysThreshold: 30, color: '', backgroundColor: '#fee2e2', textColor: '#b91c1c' },
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
     { id: 'a2', daysThreshold: -6, color: 'bg-purple-600 text-white shadow-md shadow-purple-200' },
     { id: 'a3', daysThreshold: -1, color: 'bg-red-500 text-white shadow-sm' },
@@ -293,34 +299,50 @@ export const DEFAULT_SETTINGS: AppSettings = {
 const SIMPLE_STANDARD: TaskStandard = {
   id: SIMPLE_STANDARD_ID,
   name: 'Simple Standard',
-  builtInVersion: 6,
-  // Eight steps mirroring the workflow actually followed: set up, agree the scope, define what the
-  // costing needs, cost it, get the price approved, assemble the approval package, get approvals,
-  // close it in the system. Scope, hours, costing and the approval package carry one subtask per
-  // system selected in the Scope (`subtasksPerSystem`), so an opportunity covering several systems
-  // tracks each one and the step only closes when every system is done.
+  builtInVersion: 7,
+  // Official eight-task workflow captured from the approved opportunity export.
+  // Keep these stable ids so future built-in upgrades can replace this standard safely.
   tasks: [
     { id: 'simple-intake', title: 'Set up the opportunity', description: 'Standardize the request, identifiers, links, folder and source information before any technical work starts.', processSection: 'Intake & Standardization', status: 'Pending', priority: 'Medium', owner: 'Me', order: 1, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-intake-edward-1', title: 'Edward step 1 — rename in Settings › Tasks', completed: false },
-      { id: 'simple-intake-edward-2', title: 'Edward step 2 — rename in Settings › Tasks', completed: false },
-      { id: 'simple-intake-edward-3', title: 'Edward step 3 — rename in Settings › Tasks', completed: false },
-      { id: 'simple-intake-qlk', title: 'Create or confirm QLK and links', completed: false },
-      { id: 'simple-intake-folder', title: 'Create or confirm the working folder', completed: false },
+      { id: 'simple-intake-qlk', title: 'Create Quotelink number and link to SR', completed: false },
+      { id: 'simple-intake-folder', title: 'Set up project folder', completed: false },
       { id: 'simple-intake-info', title: 'Download and organize the available information', completed: false },
+      { id: 'simple-intake-email', title: 'Email structure setup', completed: false },
     ] },
-    { id: 'simple-scope', title: 'Define and confirm the scope', description: 'Reach an agreed and usable scope for every system in play. One subtask per system selected in the Scope; the step closes when all of them are agreed.', processSection: 'Scope Definition', status: 'Pending', priority: 'High', owner: 'Me', order: 2, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
-    { id: 'simple-hours', title: 'Define hours and costing inputs', description: 'Everything the costing needs before it can start: engineering, service and commissioning hours, BOM and third-party inputs, per system.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 3, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
-    { id: 'simple-costing', title: 'Complete the solution costing', description: 'Build the traceable cost of the solution, system by system. Cost only — the selling price and its approval are the next step.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 4, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
-    { id: 'simple-pa-cost', title: 'PA cost and price approval', description: 'Turn the cost into a selling price and get it approved: fill the PA Cost in Commercial and send the Price Approval to the CSE/seller.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 5, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-pa-cost-fill', title: 'Fill the PA Cost in the Commercial tab', completed: false },
-      { id: 'simple-pa-cost-send', title: 'Send the Price Approval to the CSE / seller', completed: false },
-      { id: 'simple-pa-cost-confirm', title: 'Price confirmed by the seller', completed: false },
+    { id: 'simple-scope', title: 'Define and confirm the scope', description: 'Reach an agreed and usable scope for every system in play. One subtask per system selected in the Scope; the step closes when all of them are agreed.', processSection: 'Scope Definition', status: 'Pending', priority: 'High', owner: 'Me', order: 2, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-scope-tsc', title: 'Assign a TSC', completed: false },
+      { id: 'simple-scope-kom', title: 'KOM', completed: false },
     ] },
-    { id: 'simple-package', title: 'Prepare the approval package', description: 'Write the proposal draft and assemble everything the approvers need, per system.', processSection: 'Proposal Development', status: 'Pending', priority: 'High', owner: 'Me', order: 6, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasksPerSystem: true, subtasks: [] },
-    { id: 'simple-approval', title: 'Obtain the required approvals', description: 'Secure explicit approval of every element required before submission. Reviews may run in parallel and a rejected item returns to its originating step for correction.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 7, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [] },
-    { id: 'simple-submit', title: 'Close the proposal in the system', description: 'Send or publish the approved proposal, record the delivery and leave the opportunity ready for its next commercial outcome.', processSection: 'Submission & Closure', status: 'Pending', priority: 'Medium', owner: 'Me', order: 8, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
-      { id: 'simple-submit-send', title: 'Send or publish the approved proposal', completed: false },
-      { id: 'simple-submit-record', title: 'Record the delivery in bFO / CQA', completed: false },
+    { id: 'simple-solution', title: 'Prepare solution (BOM, Resales, GEET)', description: 'Everything the costing needs before it can start: PACost, Basket.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 3, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-solution-bom', title: 'BOM', completed: false },
+      { id: 'simple-solution-geet', title: 'GEET', completed: false },
+      { id: 'simple-solution-resales', title: 'RESALES', completed: false },
+    ] },
+    { id: 'simple-cqa-price', title: 'Prepare CQA and Winning price', description: 'Prepare costing and CQA. Review price and margin; determine the winning price with CSE.', processSection: 'Costing & Commercial', status: 'Pending', priority: 'High', owner: 'Me', order: 4, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-cqa-price-pacost', title: 'PACost / Basket', completed: false },
+      { id: 'simple-cqa-price-fill', title: 'Fill up the CQA', completed: false },
+      { id: 'simple-cqa-price-approval', title: 'Price approval by the CSE', completed: false },
+    ] },
+    { id: 'simple-draft', title: 'Prepare DRAFT document', description: 'Write the proposal draft and assemble everything the approvers need, per system. Prepare the proposal document; review/approve the proposal draft with the stakeholders, to be submitted to the CSE.', processSection: 'Proposal Development', status: 'Pending', priority: 'High', owner: 'Me', order: 5, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [] },
+    { id: 'simple-approval', title: 'Approval process', description: 'Request NALT/ELT according to COA and set up the required Pre-NALT, CQA, NALT or ELT meetings.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 6, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-approval-coa', title: 'Confirm the approval path according to COA', completed: false },
+      { id: 'simple-approval-update-cqa', title: 'Update the CQA', completed: false },
+      { id: 'simple-approval-pre-nalt', title: 'Pre-NALT approval (when required by COA)', completed: false },
+      { id: 'simple-approval-cqa-meeting', title: 'CQA approval meeting (when required by COA)', completed: false },
+      { id: 'simple-approval-nalt', title: 'NALT approval (when required by COA)', completed: false },
+      { id: 'simple-approval-elt', title: 'ELT approval (when required by COA)', completed: false },
+      { id: 'simple-approval-route-cqa', title: 'Route the CQA', completed: false },
+    ] },
+    { id: 'simple-submit', title: 'Submit Final Proposal to CSE', description: 'After all CQA approvals required by COA are complete and the draft has been checked, the proposal is ready to be delivered. Secure explicit approval of every required element before submission.', processSection: 'Reviews & Approvals', status: 'Pending', priority: 'High', owner: 'Me', order: 7, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-submit-review', title: 'Review draft with the stakeholders', completed: false },
+      { id: 'simple-submit-approval', title: 'Approval draft', completed: false },
+      { id: 'simple-submit-toc', title: 'Update date and table of contents', completed: false },
+      { id: 'simple-submit-pdf', title: 'Convert to PDF and send to Sales', completed: false },
+    ] },
+    { id: 'simple-close', title: 'Close the proposal in the system', description: 'Send or publish the approved proposal, record the delivery and leave the opportunity ready for its next commercial outcome. Update bFO (Opportunity Lines updated and SR completed).', processSection: 'Submission & Closure', status: 'Pending', priority: 'Medium', owner: 'Me', order: 8, dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false, subtasks: [
+      { id: 'simple-close-emails', title: 'Update the emails in the folder', completed: false },
+      { id: 'simple-close-amount', title: 'Update the amount and the quote link', completed: false },
+      { id: 'simple-close-sr', title: 'Close the SR', completed: false },
     ] },
   ],
 };
@@ -603,6 +625,23 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
     if (path.length === 1) { updateScopeCatalogGroup(group, scopeCatalog[group].filter((_, index) => index !== path[0])); return; }
     updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => index === path[0]
       ? { ...option, children: (option.children || []).filter((_, childIndex) => childIndex !== path[1]) }
+      : option));
+  };
+  // Reorders how the option appears everywhere it's listed (Scope button, SOW Base Data card).
+  const swapItems = <T,>(list: T[], from: number, to: number): T[] => {
+    if (to < 0 || to >= list.length) return list;
+    const next = [...list];
+    [next[from], next[to]] = [next[to], next[from]];
+    return next;
+  };
+  const moveScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number], direction: 'up' | 'down') => {
+    const delta = direction === 'up' ? -1 : 1;
+    if (path.length === 1) {
+      updateScopeCatalogGroup(group, swapItems(scopeCatalog[group], path[0], path[0] + delta));
+      return;
+    }
+    updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => index === path[0]
+      ? { ...option, children: swapItems(option.children || [], path[1], path[1] + delta) }
       : option));
   };
 
@@ -2119,7 +2158,15 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                     {scopeCatalog[group.key].map((option, index) => (
                       <div key={option.id} className="border border-gray-100 rounded-lg p-2 space-y-2 hover:bg-gray-50/60">
                         <div className="flex items-center gap-2">
-                          <input type="color" value={option.color || (group.key === 'scope' ? '#2db64a' : group.key === 'systems' ? '#2563eb' : '#64748b')} onChange={e => recolorScopeOption(group.key, [index], e.target.value)} className="w-8 h-8 rounded cursor-pointer border-none p-0 bg-transparent" title={`Color for ${option.label}`} />
+                          <div className="flex flex-col -space-y-1">
+                            <button onClick={() => moveScopeOption(group.key, [index], 'up')} disabled={index === 0} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move up">
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => moveScopeOption(group.key, [index], 'down')} disabled={index === scopeCatalog[group.key].length - 1} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move down">
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <input type="color" value={option.color || (group.key === 'scope' ? '#2db64a' : group.key === 'systems' ? '#2563eb' : group.key === 'applications' ? '#0f766e' : '#64748b')} onChange={e => recolorScopeOption(group.key, [index], e.target.value)} className="w-8 h-8 rounded cursor-pointer border-none p-0 bg-transparent" title={`Color for ${option.label}`} />
                           <input
                             type="text"
                             value={option.label}
@@ -2142,6 +2189,14 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           <div className="pl-4 border-l-2 border-emerald-100 space-y-1.5">
                             {option.children.map((child, childIndex) => (
                               <div key={child.id} className="flex items-center gap-2">
+                                <div className="flex flex-col -space-y-1">
+                                  <button onClick={() => moveScopeOption(group.key, [index, childIndex], 'up')} disabled={childIndex === 0} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move up">
+                                    <ChevronUp className="w-3 h-3" />
+                                  </button>
+                                  <button onClick={() => moveScopeOption(group.key, [index, childIndex], 'down')} disabled={childIndex === (option.children?.length || 0) - 1} className="p-0.5 text-gray-300 hover:text-gray-600 disabled:opacity-20 disabled:hover:text-gray-300" title="Move down">
+                                    <ChevronDown className="w-3 h-3" />
+                                  </button>
+                                </div>
                                 <input type="color" value={child.color || '#60a5fa'} onChange={e => recolorScopeOption(group.key, [index, childIndex], e.target.value)} className="w-7 h-7 rounded cursor-pointer border-none p-0 bg-transparent" title={`Color for ${child.label}`} />
                                 <input
                                   type="text"
@@ -2209,6 +2264,49 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
           {activeTab === 'alarms' && (
             <div className="space-y-4">
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                {(() => {
+                  const alarms = settings.alarms || DEFAULT_SETTINGS.alarms || [];
+                  const preference = alarms.find(alarm => alarm.id === 'alias-delivery-gradient') || { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#2563eb', textColor: '#ffffff' };
+                  const updatePreference = (changes: Partial<typeof preference>) => {
+                    const exists = alarms.some(alarm => alarm.id === preference.id);
+                    setSettings({ ...settings, alarms: exists ? alarms.map(alarm => alarm.id === preference.id ? { ...alarm, ...changes } : alarm) : [...alarms, { ...preference, ...changes }] });
+                  };
+                  const gradientMode = preference.daysThreshold !== 0;
+                  return <div className="mb-6 border-b border-gray-100 pb-6">
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Alias Delivery Alert</h3>
+                    <p className="mt-1 text-xs text-gray-500">Choose how the alias communicates time remaining until Expected Date.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => updatePreference({ daysThreshold: 1 })} className={`rounded-lg border px-3 py-2 text-xs font-bold ${gradientMode ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500'}`}>Gradient · Default</button>
+                      <button type="button" onClick={() => updatePreference({ daysThreshold: 0 })} className={`rounded-lg border px-3 py-2 text-xs font-bold ${!gradientMode ? 'border-[#3DCD58] bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-500'}`}>Thresholds · Previous</button>
+                    </div>
+                    {gradientMode && <label className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600">Preferred base color<input type="color" value={preference.backgroundColor || '#2563eb'} onChange={event => updatePreference({ backgroundColor: event.target.value })} className="h-8 w-12 cursor-pointer rounded border-0" /></label>}
+                  </div>;
+                })()}
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Proposal Age Indicator</h3>
+                <p className="mt-1 text-xs text-gray-500">Configure the elapsed-day warning shown on proposal cards and the General view. Warning applies at or above its threshold; Critical applies above its threshold.</p>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {([
+                    { id: 'proposal-age-warning', label: 'Warning', defaults: { daysThreshold: 20, backgroundColor: '#fef3c7', textColor: '#92400e' } },
+                    { id: 'proposal-age-critical', label: 'Critical', defaults: { daysThreshold: 30, backgroundColor: '#fee2e2', textColor: '#b91c1c' } },
+                  ] as const).map(item => {
+                    const current = settings.alarms?.find(alarm => alarm.id === item.id) || { id: item.id, color: '', ...item.defaults };
+                    const update = (changes: Partial<typeof current>) => {
+                      const alarms = settings.alarms || DEFAULT_SETTINGS.alarms || [];
+                      const exists = alarms.some(alarm => alarm.id === item.id);
+                      setSettings({ ...settings, alarms: exists ? alarms.map(alarm => alarm.id === item.id ? { ...alarm, ...changes } : alarm) : [...alarms, { ...current, ...changes }] });
+                    };
+                    return <div key={item.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="mb-2 text-xs font-black uppercase text-gray-600">{item.label}</div>
+                      <div className="grid grid-cols-[1fr_auto_auto] items-end gap-3">
+                        <label className="text-[9px] font-bold uppercase text-gray-400">Elapsed days<input type="number" min="0" value={current.daysThreshold} onChange={event => update({ daysThreshold: Math.max(0, Number(event.target.value) || 0) })} className="mt-1 w-full rounded border-gray-200 p-1.5 text-sm font-bold" /></label>
+                        <label className="text-center text-[9px] font-bold uppercase text-gray-400">Background<input type="color" value={current.backgroundColor || item.defaults.backgroundColor} onChange={event => update({ backgroundColor: event.target.value })} className="mt-1 block h-8 w-10 cursor-pointer rounded border-0" /></label>
+                        <label className="text-center text-[9px] font-bold uppercase text-gray-400">Text<input type="color" value={current.textColor || item.defaults.textColor} onChange={event => update({ textColor: event.target.value })} className="mt-1 block h-8 w-10 cursor-pointer rounded border-0" /></label>
+                      </div>
+                    </div>;
+                  })}
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Expected Date Alarms</h3>
@@ -2219,7 +2317,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 <div className="space-y-3">
                   {(() => {
                     const activeAlarms = settings.alarms && settings.alarms.length > 0 ? settings.alarms : DEFAULT_SETTINGS.alarms;
-                    return ([...activeAlarms].sort((a, b) => a.daysThreshold - b.daysThreshold)).map((alarm) => (
+                    return ([...activeAlarms].filter(alarm => !alarm.id.startsWith('proposal-age-') && alarm.id !== 'alias-delivery-gradient').sort((a, b) => a.daysThreshold - b.daysThreshold)).map((alarm) => (
                     <div key={alarm.id} className="flex items-center gap-3 p-2 border border-gray-100 rounded-lg hover:bg-gray-50">
                       <div className="flex flex-col w-32">
                         <label className="text-[9px] font-bold text-gray-400 uppercase">Days Left</label>

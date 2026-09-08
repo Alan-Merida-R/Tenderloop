@@ -25,6 +25,8 @@ export interface ScopeCatalogOption {
 export interface ScopeCatalog {
     scope: ScopeCatalogOption[];
     systems: ScopeCatalogOption[];
+    /** Applications shown only when the Safety system is selected. */
+    applications: ScopeCatalogOption[];
     quickNotes: ScopeCatalogOption[];
     /** Historical labels that do not match Scope, System, sub-system or note options. */
     extras: ScopeCatalogOption[];
@@ -45,6 +47,7 @@ export const SCOPE_GROUP_COLORS = {
     systems: '#2563eb',
     /** Sub-modules sit visually under their parent system, so they read lighter. */
     submodule: '#60a5fa',
+    applications: '#0f766e',
     quickNotes: '#64748b',
     /** Labels that matched no catalog option — the "extra" group. */
     extra: '#94a3b8',
@@ -57,9 +60,10 @@ export const scopeOptionColor = (option: ScopeCatalogOption | undefined, role: S
     (option?.color || '').trim() || SCOPE_GROUP_COLORS[role];
 
 export const SCOPE_CATALOG_GROUPS: Array<{ key: ScopeCatalogGroup; title: string; hint: string }> = [
-    { key: 'scope', title: 'Type of Proposal', hint: 'What kind of proposal this is: green field, upgrade, migration, CF, parts, services or trainings.' },
-    { key: 'systems', title: 'Systems', hint: 'Which platform is involved. A system can hold sub-modules (Triconex → Tricon CX, SIS, SPE, SF&G, BMS, Run time).' },
-    { key: 'quickNotes', title: 'Notes at a glance', hint: 'Short commercial flags shown next to the scope: new cabinets, resale bands, and so on.' },
+    { key: 'scope', title: 'Type of Proposal', hint: 'What kind of proposal this is: green field, upgrade, migration, CF, parts, services or training.' },
+    { key: 'systems', title: 'Systems', hint: 'Which platform is involved. Safety and Foxboro open their own sub-system lists.' },
+    { key: 'applications', title: 'Safety Applications', hint: 'Application choices shown below Systems whenever Safety is selected.' },
+    { key: 'quickNotes', title: 'Extra Scope', hint: 'Short commercial scope flags: new cabinets, resale bands, and so on.' },
     { key: 'extras', title: 'Labels / Extras', hint: 'Historical labels that do not match another Scope option. Matching names are shown only once.' },
 ];
 
@@ -71,27 +75,41 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'cf', label: 'CF' },
         { id: 'parts', label: 'Parts' },
         { id: 'services', label: 'Services' },
-        { id: 'trainings', label: 'Trainings' },
+        { id: 'trainings', label: 'Training' },
     ],
     systems: [
         { id: 'eae', label: 'EAE' },
         { id: 'modicon-580', label: 'Modicon 580' },
-        { id: 'modicon-580-safety', label: 'Modicon 580 Safety' },
         { id: 'epe', label: 'EPE' },
         { id: 'epp', label: 'EPP' },
-        { id: 'foxboro', label: 'Foxboro' },
         {
-            id: 'triconex', label: 'Triconex', children: [
+            id: 'foxboro', label: 'Foxboro', children: [
+                { id: 'foxboro-cps', label: 'CPs' },
+                { id: 'foxboro-ios', label: 'I/Os' },
+                { id: 'foxboro-servers-workstations', label: 'Servers / Workstations' },
+                { id: 'foxboro-network', label: 'Network' },
+            ]
+        },
+        {
+            // id stays 'triconex' on purpose: it is the historic key scopeModuleKey() matches on
+            // (by id, not label) so renaming the label to "Safety" never orphans stored answers.
+            id: 'triconex', label: 'Safety', children: [
                 { id: 'tricon-cx', label: 'Tricon CX' },
-                { id: 'sis', label: 'SIS' },
-                { id: 'spe', label: 'SPE' },
-                { id: 'fg', label: 'SF&G' },
-                { id: 'bms', label: 'BMS' },
-                { id: 'run-time', label: 'Run time' },
+                { id: 'tricon', label: 'Tricon' },
+                { id: 'trident', label: 'Trident' },
+                { id: 'tri-gp', label: 'TriGP' },
+                { id: 'm580-s', label: 'M580 S' },
             ]
         },
         { id: 'aveva', label: 'AVEVA' },
         { id: 'cyber', label: 'Cyber' },
+    ],
+    applications: [
+        { id: 'sis', label: 'SIS' },
+        { id: 'bms', label: 'BMS' },
+        { id: 'tmc', label: 'TMC' },
+        { id: 'fg', label: 'SF&G' },
+        { id: 'esd', label: 'ESD' },
     ],
     quickNotes: [
         { id: 'new-cabinets', label: 'New Cabinets', children: [
@@ -102,8 +120,14 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'resales-lt-49', label: 'Resales <49%' },
         { id: 'resales-gt-50', label: 'Resales >50%' },
     ],
-    extras: [],
+    extras: [
+        { id: 'similar-copy', label: 'Similar/Copy' },
+        { id: 'split', label: 'Split' },
+    ],
 };
+
+/** Extras that carry a free-text reference (an internal file/expediente or a link) when ticked. */
+export const SCOPE_EXTRA_REFERENCE_IDS = ['similar-copy', 'split'] as const;
 
 /** Accent/case/spacing-insensitive identity used to prevent a legacy label duplicating Scope. */
 export const scopeLabelKey = (value: string): string => String(value || '').toLowerCase().normalize('NFD')
@@ -111,8 +135,15 @@ export const scopeLabelKey = (value: string): string => String(value || '').toLo
 
 export const catalogContainsLabel = (catalog: ScopeCatalog, label: string): boolean => {
     const key = scopeLabelKey(label);
-    return (['scope', 'systems', 'quickNotes'] as const).some(group => catalog[group].some(option =>
-        scopeLabelKey(option.label) === key || (option.children || []).some(child => scopeLabelKey(child.label) === key)));
+    const matches = (option: ScopeCatalogOption): boolean => {
+        if (scopeLabelKey(option.label) === key) return true;
+        if (option.id === 'triconex' && key === 'triconex') return true;
+        if (option.id === 'm580-s' && ['modicon580safety', 'm580safety'].includes(key)) return true;
+        if (option.id === 'tri-gp' && key === 'trigp') return true;
+        return false;
+    };
+    return (['scope', 'systems', 'applications', 'quickNotes'] as const).some(group => catalog[group].some(option =>
+        matches(option) || (option.children || []).some(matches)));
 };
 
 /** Same rules as `slugify()` inside sowTemplate.html — both derive the identical sub-module key. */
@@ -121,11 +152,14 @@ export const scopeSlugify = (value: string): string =>
         .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'section';
 
 /**
- * Answer key for one option's sub-module list. Triconex keeps `triconex_products`, the key the
- * SOW used before catalogs existed, so those answers are never orphaned.
+ * Answer key for one option's sub-module list. Triconex/Safety keeps `triconex_products`, the
+ * key the SOW used before catalogs existed, so those answers are never orphaned. Matched by
+ * `id` (stable) rather than by label: the label is user-editable (e.g. "Triconex" -> "Safety"
+ * per the Safety rename), and matching on label used to silently re-key — and orphan — every
+ * answer the moment someone renamed the option from Settings.
  */
 export const scopeModuleKey = (group: ScopeCatalogGroup, option: ScopeCatalogOption): string => {
-    if (group === 'systems' && /^triconex$/i.test(option.label.trim())) return 'triconex_products';
+    if (group === 'systems' && option.id === 'triconex') return 'triconex_products';
     return `${group === 'systems' ? 'sysmod' : 'qnmod'}_${scopeSlugify(option.id || option.label)}`;
 };
 
@@ -151,6 +185,14 @@ const normalizeOption = (raw: any, index: number, depth: number): ScopeCatalogOp
 /**
  * Accepts whatever is stored in settings (possibly written by an older build, possibly partial)
  * and returns a catalog every consumer can render, or null when there is nothing usable.
+ *
+ * This is purely structural (shape/id/color validation) — it must NOT inject or rewrite specific
+ * options, because it runs on every read (including every keystroke while editing the catalog in
+ * Settings). An older version of this function also injected a handful of options (SPE, Regional
+ * Integration...) unconditionally; since it ran on every read, a user who deliberately *removed*
+ * one of those options would see it silently reappear the next render — that one-way fight was
+ * the "errors editing scope from Settings" bug. One-time data fixes belong in
+ * `migrateLegacyScopeCatalog` below, run once via `ensureScopeCatalogMigrated`.
  */
 export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
     if (!raw || typeof raw !== 'object') return null;
@@ -159,23 +201,77 @@ export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
         if (!list) return DEFAULT_SCOPE_CATALOG[name];
         return list.map((option: any, index: number) => normalizeOption(option, index, 0)).filter(Boolean) as ScopeCatalogOption[];
     };
-    const scope = group('scope');
-    if (!scope.some(option => option.id === 'trainings' || scopeLabelKey(option.label) === 'trainings')) {
-        scope.push({ id: 'trainings', label: 'Trainings' });
+    return { scope: group('scope'), systems: group('systems'), applications: group('applications'), quickNotes: group('quickNotes'), extras: group('extras') };
+};
+
+/**
+ * Bump this whenever `migrateLegacyScopeCatalog` gains a new one-time fix, so it runs again for
+ * everyone still below the new version. Never decrease it.
+ */
+export const SCOPE_CATALOG_MIGRATION_VERSION = 7;
+
+/**
+ * One-time data fixes for catalogs saved by older builds: options that used to be missing,
+ * misspelled or misnamed. Unlike `normalizeScopeCatalog`, this is allowed to add/rename options
+ * because it only runs once per install (gated by `SCOPE_CATALOG_MIGRATION_VERSION`), so it never
+ * fights a deliberate later edit.
+ */
+export const migrateLegacyScopeCatalog = (catalog: ScopeCatalog): ScopeCatalog => {
+    const scope = [...catalog.scope];
+    const trainingIndex = scope.findIndex(option => option.id === 'trainings' || ['training', 'trainings'].includes(scopeLabelKey(option.label)));
+    if (trainingIndex < 0) scope.push({ id: 'trainings', label: 'Training' });
+    else scope[trainingIndex] = { ...scope[trainingIndex], id: 'trainings', label: 'Training' };
+
+    let safetyFound = false;
+    const systems = catalog.systems
+      .filter(option => option.id !== 'modicon-580-safety' && scopeLabelKey(option.label) !== 'modicon580safety')
+      .map(option => {
+        const isSafety = option.id === 'triconex' || /^(triconex|safety)$/i.test(option.label.trim());
+        if (!isSafety) return option;
+        // Some edited legacy catalogs contain both an old Triconex row and a newer Safety row.
+        // Consolidate them into the first matching row instead of rendering two systems.
+        if (safetyFound) return null;
+        safetyFound = true;
+        // Safety rename (was "Triconex"): scopeModuleKey() matches by id, so the label change
+        // below never orphans stored answers.
+        const label = 'Safety';
+        // This is an intentionally exact built-in list. Older catalogs mixed Safety
+        // applications (SIS/BMS/TMC/SF&G/ESD), SPE and Run time into this group, sometimes
+        // under user-generated ids. Match by id OR label to preserve colours, but never carry
+        // an obsolete sixth option into Triconex Technology.
+        const previousChildren = option.children || [];
+        const technologyDefaults: ScopeCatalogOption[] = [
+            { id: 'tricon-cx', label: 'Tricon CX' },
+            { id: 'tricon', label: 'Tricon' },
+            { id: 'trident', label: 'Trident' },
+            { id: 'tri-gp', label: 'TriGP' },
+            { id: 'm580-s', label: 'M580 S' },
+        ];
+        const children = technologyDefaults.map(expected => {
+            const previous = previousChildren.find(child => child.id === expected.id || scopeLabelKey(child.label) === scopeLabelKey(expected.label));
+            return previous?.color ? { ...expected, color: previous.color } : expected;
+        });
+        return { ...option, id: 'triconex', label, children };
+      })
+      .filter(Boolean) as ScopeCatalogOption[];
+    if (!safetyFound) {
+        const defaultSafety = DEFAULT_SCOPE_CATALOG.systems.find(option => option.id === 'triconex');
+        if (defaultSafety) systems.push(defaultSafety);
     }
 
-    const systems = group('systems').map(option => {
-        if (option.id !== 'triconex' && !/^triconex$/i.test(option.label)) return option;
-        const children = (option.children || []).map(child =>
-            child.id === 'fg' || /^f&g$/i.test(child.label) ? { ...child, id: 'fg', label: 'SF&G' } : child
-        );
-        if (!children.some(child => child.id === 'spe' || /^spe$/i.test(child.label))) {
-            children.splice(Math.min(2, children.length), 0, { id: 'spe', label: 'SPE' });
-        }
-        return { ...option, children };
+    const foxboroSubsystems: ScopeCatalogOption[] = [
+        { id: 'foxboro-cps', label: 'CPs' },
+        { id: 'foxboro-ios', label: 'I/Os' },
+        { id: 'foxboro-servers-workstations', label: 'Servers / Workstations' },
+        { id: 'foxboro-network', label: 'Network' },
+    ];
+    const systemsWithFoxboro = systems.map(option => {
+        if (option.id !== 'foxboro' && !/^foxboro$/i.test(option.label)) return option;
+        if (option.children?.length) return option;
+        return { ...option, children: foxboroSubsystems };
     });
 
-    const quickNotes = group('quickNotes').flatMap(option => {
+    const quickNotes = catalog.quickNotes.flatMap(option => {
         if (option.id === 'no-resales' || /^no resales$/i.test(option.label)) return [];
         if (option.id === 'resales-gt-20' || /^resales\s*>\s*20%$/i.test(option.label)) {
             return [{ ...option, id: 'resales-lt-49', label: 'Resales <49%' }];
@@ -194,5 +290,29 @@ export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
         quickNotes.push({ id: 'resales-gt-50', label: 'Resales >50%' });
     }
 
-    return { scope, systems, quickNotes, extras: group('extras') };
+    const extras = [...catalog.extras];
+    if (!extras.some(option => option.id === 'similar-copy' || scopeLabelKey(option.label) === 'similarcopy')) {
+        extras.push({ id: 'similar-copy', label: 'Similar/Copy' });
+    }
+    if (!extras.some(option => option.id === 'split' || scopeLabelKey(option.label) === 'split')) {
+        extras.push({ id: 'split', label: 'Split' });
+    }
+
+    const applications = DEFAULT_SCOPE_CATALOG.applications.map(defaultOption =>
+        (catalog.applications || []).find(option => option.id === defaultOption.id || scopeLabelKey(option.label) === scopeLabelKey(defaultOption.label)) || defaultOption
+    );
+
+    return { scope, systems: systemsWithFoxboro, applications, quickNotes, extras };
+};
+
+/**
+ * Runs `migrateLegacyScopeCatalog` exactly once per install (tracked by
+ * `scopeCatalogMigrationVersion` alongside the catalog in settings). Call this only at the
+ * settings-load boundary — every other read should go through the cheap, non-mutating
+ * `normalizeScopeCatalog`.
+ */
+export const ensureScopeCatalogMigrated = <T extends { scopeCatalog?: any; scopeCatalogMigrationVersion?: number }>(settings: T): T => {
+    if ((settings.scopeCatalogMigrationVersion || 0) >= SCOPE_CATALOG_MIGRATION_VERSION) return settings;
+    const sanitized = normalizeScopeCatalog(settings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
+    return { ...settings, scopeCatalog: migrateLegacyScopeCatalog(sanitized), scopeCatalogMigrationVersion: SCOPE_CATALOG_MIGRATION_VERSION };
 };

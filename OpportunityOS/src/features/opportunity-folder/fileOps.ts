@@ -57,16 +57,17 @@ export const uploadFiles = async (
 };
 
 // Robust Copy Logic
-export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle) => {
+export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle, destName?: string) => {
+  const name = destName || entry.name;
   if (entry.kind === 'file') {
     const file = await (entry.handle as FileSystemFileHandle).getFile();
-    const newFile = await destDir.getFileHandle(entry.name, { create: true });
+    const newFile = await destDir.getFileHandle(name, { create: true });
     // @ts-ignore
     const writable = await newFile.createWritable();
     await writable.write(file);
     await writable.close();
   } else {
-    const newDir = await destDir.getDirectoryHandle(entry.name, { create: true });
+    const newDir = await destDir.getDirectoryHandle(name, { create: true });
     // @ts-ignore
     for await (const child of (entry.handle as FileSystemDirectoryHandle).values()) {
       await copyEntryToDir({
@@ -77,6 +78,37 @@ export const copyEntryToDir = async (entry: FileItem, destDir: FileSystemDirecto
       }, newDir);
     }
   }
+};
+
+// Windows-style dedupe for a paste that lands on an existing name: "file.docx" -> "file - copy.docx"
+// -> "file - copy (2).docx"... Without this, copyEntryToDir's create:true silently overwrites whatever
+// was already there under that name.
+export const getAvailableEntryName = async (
+  destDir: FileSystemDirectoryHandle,
+  name: string,
+  kind: 'file' | 'directory'
+): Promise<string> => {
+  const dotIndex = kind === 'file' ? name.lastIndexOf('.') : -1;
+  const hasExt = dotIndex > 0;
+  const base = hasExt ? name.slice(0, dotIndex) : name;
+  const ext = hasExt ? name.slice(dotIndex) : '';
+  const exists = async (candidateName: string) => {
+    try {
+      if (kind === 'file') await destDir.getFileHandle(candidateName);
+      else await destDir.getDirectoryHandle(candidateName);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!(await exists(name))) return name;
+  let attempt = 1;
+  let candidate = `${base} - copy${ext}`;
+  while (await exists(candidate)) {
+    attempt++;
+    candidate = `${base} - copy (${attempt})${ext}`;
+  }
+  return candidate;
 };
 
 export const copyFileAs = async (

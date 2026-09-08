@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
 import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -186,6 +186,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   // UI State
   const [isLoading, setIsLoading] = useState(false);
   const [isResolvingRoot, setIsResolvingRoot] = useState(true);
+  // A failed directory listing used to fail silently (console.error only) — the folder just looked
+  // empty or stuck, with no indication of what went wrong or how to fix it. See [F1].
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isApiSupported, setIsApiSupported] = useState(true);
   const [pendingPermHandle, setPendingPermHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [rootPathInput, setRootPathInput] = useState('');
@@ -273,6 +276,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [historyDraft, setHistoryDraft] = useState<{ changes: string; reason: string }>({ changes: '', reason: '' });
   const [isCreatingRevision, setIsCreatingRevision] = useState(false);
+  // [F4] Last-modified badge: the most recently touched file in the current folder,
+  // plus its latest logged revision comment, so the user doesn't have to hunt for it.
+  const [lastModifiedBadge, setLastModifiedBadge] = useState<{ item: FileItem; comment: string | null } | null>(null);
 
   useEffect(() => {
     if (!('showDirectoryPicker' in window)) setIsApiSupported(false);
@@ -313,6 +319,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const loadCurrentDirectory = useCallback(async () => {
     if (!currentHandle && !(pathMode && rootPathDisplay)) return;
     setIsLoading(true);
+    setLoadError(null);
     try {
       let contents: FileItem[];
       if (currentHandle) {
@@ -361,6 +368,12 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       setSelectedItem(prev => prev && contents.some(i => i.name === prev.name) ? prev : null);
     } catch (e: any) {
       console.error(e);
+      const name = e?.name;
+      setLoadError(
+        name === 'NotAllowedError' ? 'Write/read permission was lost for this folder. Grant access again and retry.'
+        : name === 'NotFoundError' ? 'This folder could not be found — it may have been moved, renamed or deleted.'
+        : `Could not load this folder: ${e?.message || 'unknown error'}.`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -513,6 +526,27 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       loadCurrentDirectory();
     }
   }, [loadCurrentDirectory, searchQuery]);
+
+  // [F4] Recompute the "last modified" badge whenever the current folder's listing changes.
+  useEffect(() => {
+    let cancelled = false;
+    const files = items.filter(i => i.kind === 'file' && i.lastModified);
+    if (files.length === 0) { setLastModifiedBadge(null); return; }
+    const newest = files.reduce((a, b) => (b.lastModified! > a.lastModified! ? b : a));
+    (async () => {
+      let comment: string | null = null;
+      try {
+        const key = newest.relativePath.join('/');
+        const history = await getAllFileRevisionHistory(opportunityId);
+        const forFile = history
+          .filter(h => h.newFileKey === key || h.sourceFileKey === key)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        comment = forFile[0]?.reason || forFile[0]?.changes || null;
+      } catch { /* badge is best-effort, never blocks the folder view */ }
+      if (!cancelled) setLastModifiedBadge({ item: newest, comment });
+    })();
+    return () => { cancelled = true; };
+  }, [items, opportunityId]);
 
   /**
    * Re-list the folder whenever the user comes back to the app.
@@ -1098,6 +1132,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setShowRevisionHistory(true);
   };
 
+  // [F4] Opens the existing revision-history picker scoped to one file, used by the
+  // last-modified badge so the user can jump straight to choosing among its revisions.
+  const openRevisionHistoryForItem = async (item: FileItem) => {
+    const familyId = await ensureRevisionFamilyId(item);
+    setRevisionHistoryFamilyId(familyId);
+    setRevisionHistoryTitle(item.name);
+    setRevisionHistory(await getFileRevisionHistory(opportunityId, familyId));
+    setShowRevisionHistory(true);
+  };
+
   const handleOpenAllRevisionHistory = async () => {
     setRevisionHistoryFamilyId(null);
     setRevisionHistoryTitle('All tracked files, including missing or deleted files');
@@ -1489,8 +1533,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 // @ts-ignore
                 await item.handle.requestPermission({ mode: 'read' });
               }
-              await copyEntryToDir(item, currentHandle);
-              await copyRevisionMetadataToPath(item, [...path, item.name]);
+              // Pasting a duplicate name would otherwise silently overwrite what's already there.
+              const destName = await getAvailableEntryName(currentHandle, item.name, item.kind);
+              await copyEntryToDir(item, currentHandle, destName);
+              await copyRevisionMetadataToPath(item, [...path, destName]);
             }
           }
           setClipboard(null);
@@ -1503,6 +1549,27 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       }
     });
   };
+
+  // Ctrl/Cmd+C / X / V over the file list, matching Windows Explorer. Skipped while an editable
+  // field (alias input, search box, rename prompt, etc.) has focus so normal text copy/paste survives.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'c' && key !== 'x' && key !== 'v') return;
+      const target = e.target as HTMLElement | null;
+      const isEditable = !!target && (
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      );
+      if (isEditable) return;
+      const sel = selectedItems();
+      if (key === 'c' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'copy', items: sel }); }
+      else if (key === 'x' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'move', items: sel }); }
+      else if (key === 'v' && clipboard) { e.preventDefault(); handlePaste(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selectedKeys, displayedItems, clipboard, handlePaste]);
 
   const handleDelete = (item: FileItem) => {
     setConfirmation({
@@ -1743,7 +1810,11 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               <td className="px-4 py-2">
                 <div className="flex items-center gap-3">
                   <div className="shrink-0">{getFileIcon(item.extension, item.kind === 'directory')}</div>
-                  <span className={`text-sm font-medium whitespace-normal break-words py-1 ${item.kind === 'directory' ? 'font-bold' : ''}`}>{item.name}</span>
+                  <span
+                    className={`text-sm font-medium whitespace-normal break-words py-1 ${item.kind === 'directory' ? 'font-bold' : ''}`}
+                    onDoubleClick={(e) => { e.stopPropagation(); handleRename(item); }}
+                    title="Double-click to rename"
+                  >{item.name}</span>
                 </div>
               </td>
               <td className="px-4 py-2">
@@ -2353,6 +2424,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {lastModifiedBadge && !searchQuery && (
+              <button
+                onClick={() => openRevisionHistoryForItem(lastModifiedBadge.item)}
+                title={lastModifiedBadge.comment ? `Latest note: ${lastModifiedBadge.comment}` : 'View revisions for this file'}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] font-bold text-amber-800 hover:bg-amber-100 transition-colors max-w-[220px]"
+              >
+                <History className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Last modified: {lastModifiedBadge.item.name}</span>
+              </button>
+            )}
             {clipboard && (
               <button onClick={handlePaste} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-100 mr-2 animate-pulse">
                 <ClipboardPaste className="w-3.5 h-3.5" /> Paste {clipboard.op === 'move' ? 'Cut' : 'Copied'} ({clipboard.items.length})
@@ -2391,6 +2472,14 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto pb-48">
+          {loadError && (
+            <div className="m-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              <span>{loadError}</span>
+              <button onClick={loadCurrentDirectory} className="shrink-0 flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 font-bold text-red-700 hover:bg-red-100">
+                <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} /> Retry
+              </button>
+            </div>
+          )}
           {isSearching && searchResults.length === 0 && (
             <div className="p-8 text-center text-gray-400 text-sm">Searching...</div>
           )}

@@ -10,7 +10,7 @@ import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards, visibleTaskStandards } from './components/SettingsModal';
-import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel, ScopeCatalog } from './components/scopeCatalog';
+import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel, ScopeCatalog, ensureScopeCatalogMigrated, SCOPE_CATALOG_MIGRATION_VERSION } from './components/scopeCatalog';
 import { readScopeGlance } from './services/scopeSummary';
 import { FolderOpen, Save, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, Settings as SettingsIcon, History, ChevronDown, Trash2, Activity, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
@@ -250,7 +250,7 @@ const markTenderingWorkedDay = (opp: Opportunity, date: string): Opportunity => 
 
 
 // --- Local Error Boundary (fail-open: shows error instead of blank screen) ---
-interface EBProps { children: React.ReactNode; fallbackLabel?: string; }
+interface EBProps { children: React.ReactNode; fallbackLabel?: string; key?: React.Key; }
 interface EBState { error: Error | null; }
 class LocalErrorBoundary extends React.Component {
   declare props: EBProps;
@@ -264,6 +264,21 @@ class LocalErrorBoundary extends React.Component {
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[LocalErrorBoundary]', (this.props as EBProps).fallbackLabel || '', error, info);
+    const isDashboard = (this.props as EBProps).fallbackLabel === 'Dashboard';
+    const isIterableFailure = /not iterable|Symbol\(Symbol\.iterator\)/i.test(error.message || '');
+    const recoveryKey = 'tl.dashboard.iterableRecovery.v1';
+    if (isDashboard && isIterableFailure && sessionStorage.getItem(recoveryKey) !== 'done') {
+      sessionStorage.setItem(recoveryKey, 'done');
+      // Keep a diagnostic backup, then remove only Dashboard filter state. The
+      // database connection and every opportunity remain untouched.
+      ['general', 'proposals', 'tasks'].forEach(mode => {
+        const key = `tl.dashboardFilters.${mode}.v1`;
+        const saved = localStorage.getItem(key);
+        if (saved) localStorage.setItem(`${key}.recoveryBackup`, saved);
+        localStorage.removeItem(key);
+      });
+      (this as any).setState({ error: null });
+    }
   }
   render() {
     const { error } = this.state as EBState;
@@ -280,7 +295,11 @@ class LocalErrorBoundary extends React.Component {
           </p>
           <button
             className="mt-2 px-4 py-2 bg-[#3DCD58] text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors"
-            onClick={() => (this as any).setState({ error: null })}
+            onClick={() => {
+              sessionStorage.removeItem('tl.dashboard.iterableRecovery.v1');
+              ['general', 'proposals', 'tasks'].forEach(mode => localStorage.removeItem(`tl.dashboardFilters.${mode}.v1`));
+              (this as any).setState({ error: null });
+            }}
           >
             Try again
           </button>
@@ -313,6 +332,9 @@ function App() {
   const [startupHint, setStartupHint] = useState<string | null>(null);
   const [pendingHandle, setPendingHandle] = useState<FileSystemFileHandle | null>(null);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
+  // Prevent the database picker from flashing while the last database is still
+  // being recovered after an involuntary reload.
+  const [isStartupChecking, setIsStartupChecking] = useState(true);
   const [fallbackFileName, setFallbackFileName] = useState<string | null>(null);
   const [storageMode, setStorageMode] = useState<StorageMode>(null);
   const [backendAvailable, setBackendAvailable] = useState(false);
@@ -397,8 +419,8 @@ function App() {
   // is consumed by the next autosave effect tick.
   const immediateFlushRef = useRef(false);
   const backendRevisionRef = useRef(0);
-  // PERF FIX: Debounce refs for sessionStorage writes.
-  // sessionStorage.setItem is synchronous and runs on the main thread.
+  // PERF FIX: Debounce refs for persistent navigation-state writes.
+  // localStorage.setItem is synchronous and runs on the main thread.
   // On low-RAM machines it can spike for 5-15ms per call.
   // Rapid state changes (e.g. typing + navigation) queued multiple writes per second.
   // 300ms debounce batches bursts of changes into a single write.
@@ -408,6 +430,17 @@ function App() {
   useEffect(() => () => {
     if (recoveryBackupTimerRef.current) clearTimeout(recoveryBackupTimerRef.current);
   }, []);
+
+  // Apply new built-in Scope migrations to an already-open app as well as on startup.
+  // This matters during local Vite updates: React preserves component state across HMR, so a
+  // mount-only migration would leave legacy users looking at the previous catalog until a full
+  // process restart. Persist the migrated result so the correction survives every later launch.
+  useEffect(() => {
+    if ((appSettings.scopeCatalogMigrationVersion || 0) >= SCOPE_CATALOG_MIGRATION_VERSION) return;
+    const migrated = ensureScopeCatalogMigrated(appSettings);
+    setAppSettings(migrated);
+    localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(migrated));
+  }, [appSettings, SCOPE_CATALOG_MIGRATION_VERSION]);
 
   // Redirect legacy tracking view
   useEffect(() => {
@@ -429,20 +462,21 @@ function App() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('TenderLoop_Settings_V1');
-      const mergedSettings = normalizeTaskStandards(saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS);
+      const mergedSettings = ensureScopeCatalogMigrated(normalizeTaskStandards(saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS));
       if (saved) {
         setAppSettings(mergedSettings);
+        localStorage.setItem('TenderLoop_Settings_V1', JSON.stringify(mergedSettings));
       }
       // NEW: Restore minimized records
       // Restore Session State (Tab Independent)
-      const savedTabs = sessionStorage.getItem('TenderLoop_FloatingTabs_V1');
+      const savedTabs = localStorage.getItem('TenderLoop_FloatingTabs_V1') || sessionStorage.getItem('TenderLoop_FloatingTabs_V1');
       if (savedTabs) {
         try { setFloatingTabs(JSON.parse(savedTabs)); } catch (e) { }
       }
 
       // Restore Navigation State. If there's no in-session nav to restore, open
       // on the user's configured startup view instead of the hardcoded default.
-      const savedNav = sessionStorage.getItem('TenderLoop_Navigation_V1');
+      const savedNav = localStorage.getItem('TenderLoop_Navigation_V1') || sessionStorage.getItem('TenderLoop_Navigation_V1');
       let restoredView = false;
       if (savedNav) {
         try {
@@ -682,13 +716,13 @@ function App() {
     setAppSettings(prev => ({ ...prev, generalQuickLinks: databaseLinks }));
   }, [isDbLoaded, db.userSettings?.generalQuickLinks, db.userSettings?.generalQuickLinksMigrated]);
 
-  // PERF FIX: Debounced sessionStorage writes (was synchronous on every render).
-  // sessionStorage.setItem blocks the main thread. On low-RAM machines this
+  // PERF FIX: Debounced persistent-state writes (was synchronous on every render).
+  // localStorage.setItem blocks the main thread. On low-RAM machines this
   // contributes visible jank when the user types or changes tabs frequently.
   useEffect(() => {
     if (sessionTabsTimerRef.current) clearTimeout(sessionTabsTimerRef.current);
     sessionTabsTimerRef.current = window.setTimeout(() => {
-      sessionStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
+      localStorage.setItem('TenderLoop_FloatingTabs_V1', JSON.stringify(floatingTabs));
     }, 300);
     return () => { if (sessionTabsTimerRef.current) clearTimeout(sessionTabsTimerRef.current); };
   }, [floatingTabs]);
@@ -697,7 +731,7 @@ function App() {
     if (sessionNavTimerRef.current) clearTimeout(sessionNavTimerRef.current);
     sessionNavTimerRef.current = window.setTimeout(() => {
       const navState = { currentView, selectedOppId, activeDeepLink };
-      sessionStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
+      localStorage.setItem('TenderLoop_Navigation_V1', JSON.stringify(navState));
     }, 300);
     return () => { if (sessionNavTimerRef.current) clearTimeout(sessionNavTimerRef.current); };
   }, [currentView, selectedOppId, activeDeepLink]);
@@ -783,7 +817,7 @@ function App() {
         setStartupHint("Open or create a database file to get started.");
       }
     };
-    init();
+    void init().finally(() => setIsStartupChecking(false));
   }, []);
 
   // Tab Synchronization State
@@ -1603,8 +1637,8 @@ function App() {
           return o;
         }
       });
-      // Keep one global, gap-free rank for active proposals. Closed proposals do
-      // not participate; legacy duplicate ranks are repaired deterministically.
+      // Keep ranks unique without collapsing deliberate gaps. Users may assign
+      // any positive rank (for example 2 even when 1 is currently unused).
       const active = migratedOpps
         .filter(o => !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel) && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled')
         .sort((a, b) => {
@@ -1615,7 +1649,16 @@ function App() {
           const bDate = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
           return aDate.localeCompare(bDate) || a.id.localeCompare(b.id);
         });
-      const rankById = new Map(active.map((opp, index) => [opp.id, index + 1]));
+      const usedRanks = new Set<number>();
+      let nextFreeRank = 1;
+      const rankById = new Map(active.map(opp => {
+        const requested = Number(opp.priorityOrder);
+        let rank = Number.isInteger(requested) && requested > 0 ? requested : nextFreeRank;
+        while (usedRanks.has(rank)) rank += 1;
+        usedRanks.add(rank);
+        while (usedRanks.has(nextFreeRank)) nextFreeRank += 1;
+        return [opp.id, rank];
+      }));
       const normalizedRanks = migratedOpps.map(opp => ({ ...opp, priorityOrder: rankById.get(opp.id) || null }));
       return { ...data, opportunities: normalizedRanks };
     } catch (err: any) {
@@ -2006,34 +2049,26 @@ function App() {
   }, []);
 
   const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, _statusChanged: boolean = false) => {
-    // Rank is global and independent from status: by default it reflects arrival
-    // order, while a manual edit inserts the opportunity at the requested place.
+    // Rank is global and independent from status. Manual values are preserved,
+    // including gaps; only collisions are shifted upward.
     const isRankedActive = (opp: Opportunity) =>
       !['Submitted', 'Won', 'Lost', 'Canceled'].includes(opp.statusLabel)
       && opp.detailedStatus !== 'Completed' && opp.detailedStatus !== 'Canceled';
     const activeOpps = opps.filter(isRankedActive);
-    const originalIndex = new Map(activeOpps.map((opp, index) => [opp.id, index]));
-    const ordered = [...activeOpps].sort((a, b) => {
-      const aRank = Number(a.priorityOrder);
-      const bRank = Number(b.priorityOrder);
-      const aValid = Number.isFinite(aRank) && aRank > 0;
-      const bValid = Number.isFinite(bRank) && bRank > 0;
-      if (aValid && bValid && aRank !== bRank) return aRank - bRank;
-      if (aValid !== bValid) return aValid ? -1 : 1;
-      const aReceived = a.kpis?.timeline?.receivedAt || a.dates?.requested || '';
-      const bReceived = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
-      return aReceived.localeCompare(bReceived) || (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
-    });
-
-    if (changedId && newOrder !== undefined && newOrder !== null) {
-      const currentIndex = ordered.findIndex(opp => opp.id === changedId);
-      if (currentIndex >= 0) {
-        const [changed] = ordered.splice(currentIndex, 1);
-        ordered.splice(Math.min(Math.max(1, newOrder), ordered.length + 1) - 1, 0, changed);
-      }
-    }
-
-    const rankById = new Map(ordered.map((opp, index) => [opp.id, index + 1]));
+    const requestedRank = changedId && newOrder != null ? Math.max(1, Math.trunc(newOrder)) : null;
+    const usedRanks = new Set<number>();
+    if (requestedRank !== null) usedRanks.add(requestedRank);
+    const rankById = new Map<string, number>();
+    if (changedId && requestedRank !== null && activeOpps.some(opp => opp.id === changedId)) rankById.set(changedId, requestedRank);
+    activeOpps
+      .filter(opp => opp.id !== changedId)
+      .sort((a, b) => (Number(a.priorityOrder) || Number.MAX_SAFE_INTEGER) - (Number(b.priorityOrder) || Number.MAX_SAFE_INTEGER))
+      .forEach(opp => {
+        let rank = Math.max(1, Math.trunc(Number(opp.priorityOrder) || 1));
+        while (usedRanks.has(rank)) rank += 1;
+        usedRanks.add(rank);
+        rankById.set(opp.id, rank);
+      });
     return opps.map(opp => {
       const nextRank = isRankedActive(opp) ? (rankById.get(opp.id) || null) : null;
       return opp.priorityOrder === nextRank ? opp : { ...opp, priorityOrder: nextRank };
@@ -2862,19 +2897,26 @@ function App() {
         <div className="flex-1 overflow-hidden relative flex min-h-0">
           {/* Startup Screen Overlay — shown when no DB is loaded */}
           {!isDbLoaded && (
-            <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center gap-6 p-8">
+            <div className="absolute inset-0 bg-white z-[10000] flex flex-col items-center justify-center gap-6 p-8">
               <img src="/icon.png?v=opportunityos-planner-2" className="w-20 h-20 rounded-2xl shadow-xl" alt="Tender Control" />
               <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900">Tender Control</h2>
                 <p className="text-gray-500 text-sm mt-1">
-                  {pendingHandle
+                  {isStartupChecking
+                    ? 'Restoring your last workspace…'
+                    : pendingHandle
                     ? `Your database "${(pendingHandle as any).name}" needs permission to reopen.`
                     : backendAvailable
                       ? 'Create a backend database or import an existing JSON database.'
                       : 'Open or create a database to get started.'}
                 </p>
               </div>
-              {pendingHandle && startupHint === '__reopen__' ? (
+              {isStartupChecking ? (
+                <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-5 py-3 text-sm font-medium text-gray-500" role="status" aria-live="polite">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-[#3DCD58]" />
+                  Restoring database and filters
+                </div>
+              ) : pendingHandle && startupHint === '__reopen__' ? (
                 <button
                   onClick={async () => {
                     try {
@@ -2903,7 +2945,7 @@ function App() {
                   </button>
                 </div>
               )}
-              {recentDbs.length > 0 && (
+              {!isStartupChecking && recentDbs.length > 0 && (
                 <div className="w-full max-w-sm">
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 text-center">Recent Databases</p>
                   <div className="bg-gray-50 rounded-xl border border-gray-200 overflow-hidden">
@@ -2922,7 +2964,7 @@ function App() {
           <div className={`flex-1 flex min-h-0 overflow-hidden transition-all duration-300`}>
             {/* Dashboard / Primary Content */}
             <div className="h-full w-full overflow-hidden">
-              <LocalErrorBoundary fallbackLabel="Dashboard">
+              <LocalErrorBoundary key="dashboard-boundary-recovery-v3" fallbackLabel="Dashboard">
                 {currentView === 'indicators-dashboard' ? <IndicatorsDashboard
                   opportunities={dashboardOpportunities}
                   hiddenSections={appSettings.hiddenIndicatorSections}

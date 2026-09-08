@@ -118,6 +118,11 @@ const RECORDER_STRINGS = {
     pickPrompt: 'Que dato es este?',
     cancel: 'Cancelar',
     steps: '{n} pasos grabados',
+    help: 'Navegar: abre Edicion y usa bFO normalmente. Senalar campo: marca el control completo de cada lista, fecha o comentario. Listo: guarda la receta ahora.',
+    recipeName: 'Nombre de la receta (opcional)',
+    saving: 'Guardando receta...',
+    saved: 'Guardada correctamente ({n} pasos). Ya puedes cerrar esta ventana.',
+    saveError: 'No se pudo guardar. Revisa que OpportunityOS siga abierto e intenta de nuevo.',
 };
 
 webRouter.post('/record/start', async (req: Request, res: Response) => {

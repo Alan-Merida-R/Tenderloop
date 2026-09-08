@@ -406,11 +406,11 @@ export const startRecording = async (url: string, config: RecorderConfig): Promi
     const ctx = await getContext(false);
 
     // exposeBinding throws if the name is already taken by an earlier session.
-    await ctx.exposeBinding('__oosRecord', (_source: unknown, payload: any) => {
-        if (!recording || recording.finished) return;
+    await ctx.exposeBinding('__oosRecord', async (_source: unknown, payload: any) => {
+        if (!recording || recording.finished) return { ok: false };
         if (payload?.kind === 'finish') {
-            recording.finished = true;
-            return;
+            const saved = await stopRecording(String(payload?.name || 'receta-bfo'));
+            return { ok: true, ...saved };
         }
         const target = payload?.target as TargetParts | undefined;
         recording.steps.push({
@@ -424,6 +424,7 @@ export const startRecording = async (url: string, config: RecorderConfig): Promi
             selector: target ? buildSelector(target) : undefined,
             confidence: target ? selectorConfidence(target) : undefined,
         });
+        return { ok: true, steps: recording.steps.length };
     }).catch((err: any) => {
         // Re-recording in the same browser session is normal; the binding
         // survives from last time and can simply be reused.

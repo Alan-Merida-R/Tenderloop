@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 /* Added Subtask to imports */
-import { Opportunity, Task, Subtask, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent, AlarmConfig } from '../types';
+import { Opportunity, Task, Subtask, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, taskStatusLabel, TaskPriority, PRIORITY_COLORS, HistoryEntry, PrdPresentation, STATUS_COLORS, OpportunityStatus, MeetingNote, NoteFolder, Commercial, CommercialQuickRef, KPIs, KPIArea, InlineTask, DayType, AreaDayRecord, KPITimeline, DeepLink, OpportunityLabel, OpportunityVersion, QuickLinkItem, TimeLog, FloatingTab, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, EmailConversation, EmailGhostFolder, EmailLabel, OpportunityEmailsData, Person, GlobalContact, Reminder, ApprovalEvent, AlarmConfig, RACI_LABELS } from '../types';
 import { ArrowLeft, ExternalLink, Save, Plus, Trash2, Copy, FileText, CheckSquare, DollarSign, ListChecks, Bold, Heading1, List as ListIcon, ListOrdered, User, Search, AlignLeft, AlignCenter, AlignRight, CheckCircle, Table, Type, Italic, Calendar as CalendarIcon, X, Clock, History as HistoryIcon, Presentation, FileDown, Briefcase, Zap, Maximize2, Minimize2, ChevronUp, ChevronDown, Link, Unlink, Eraser, FolderOpen, Folder, FolderPlus, AlertCircle, Link as LinkIcon, Columns, LayoutGrid, Filter, RotateCcw, Lock, ArrowUpDown, BarChart3, Target, CalendarDays, Timer, ChevronLeft, ChevronRight, Edit3, Tag, GitBranch, GitPullRequest, Database, Minus, Layout, Pin, Percent, FileSpreadsheet, Mail, Inbox, EyeOff, Eye, Check, Paperclip, Bell } from 'lucide-react';
 import { SearchableSelect, DateTimePicker, SearchableOption } from './RemindersBell';
 import { OpportunityFolderTab } from '../features/opportunity-folder/OpportunityFolderTab';
@@ -2156,7 +2156,7 @@ const FullCalendarModal = ({
                                                 <button type="button" onClick={() => onOpenTask(group.task.id)} className="min-w-0 flex-1 text-left" title="Open task and its tracker">
                                                     <span className="block truncate text-xs font-black text-gray-900 hover:text-blue-700 hover:underline"><span className="mr-1 text-[8px] uppercase text-blue-500">Task</span>{group.task.order ? `${group.task.order}. ` : ''}{group.task.title}</span>
                                                     <span className="mt-1 flex flex-wrap items-center gap-1 text-[8px] font-black uppercase tracking-wide text-gray-500">
-                                                        <span className="rounded bg-gray-100 px-1.5 py-0.5">{group.task.status}</span>
+                                                        <span className="rounded bg-gray-100 px-1.5 py-0.5">{taskStatusLabel(group.task.status)}</span>
                                                         {(group.task.externalAreas || []).slice(0, 2).map(area => <span key={area} className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">{area}</span>)}
                                                         {group.task.reworkForTaskId && <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700">Correction</span>}
                                                         {hasIncompleteData && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">Missing data</span>}
@@ -2538,7 +2538,7 @@ const translateStatus = (status: string) => {
         'No Status': 'No Status',
         'Waiting': 'Waiting',
     };
-    return mapping[status] || status;
+    return mapping[status] || taskStatusLabel(status);
 };
 
 const TaskTimerButtonList = React.memo(({ task, oppId }: { task: Task, oppId: string }) => {
@@ -3079,6 +3079,25 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     } | null>(null);
     const [showSrImport, setShowSrImport] = useState(false);
     const [versionSearchTerm, setVersionSearchTerm] = useState('');
+    const versionMenuButtonRef = useRef<HTMLButtonElement>(null);
+    // null until measured: portalling to document.body avoids the header's overflow-hidden clipping
+    // and the stakeholders/toolbar/delivery boxes stacking on top of this dropdown (see V0/V1).
+    const [versionMenuPosition, setVersionMenuPosition] = useState<{ top: number, right: number } | null>(null);
+    useLayoutEffect(() => {
+        if (!showVersionMenu) { setVersionMenuPosition(null); return; }
+        const positionMenu = () => {
+            const rect = versionMenuButtonRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setVersionMenuPosition({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
+        };
+        positionMenu();
+        window.addEventListener('resize', positionMenu);
+        window.addEventListener('scroll', positionMenu, true);
+        return () => {
+            window.removeEventListener('resize', positionMenu);
+            window.removeEventListener('scroll', positionMenu, true);
+        };
+    }, [showVersionMenu]);
 
     const handleVersionSwitch = (vId: string | null) => {
         if (vId === viewingVersionId && vId !== null) {
@@ -4701,8 +4720,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const newPerson: Person = { id: crypto.randomUUID(), name: '', email: '', role: '', roles: [], roleContexts: {} };
         handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), newPerson], true);
     };
+    const selectableGlobalContacts = useMemo(() => {
+        const unique = new Map<string, GlobalContact>();
+        globalContacts.forEach(contact => {
+            const email = contact.email.trim().toLowerCase();
+            const name = contact.name.trim().toLowerCase();
+            const identity = email ? `email:${email}` : `name:${name}`;
+            const existing = unique.get(identity);
+            const roles = [...(existing?.availableRoles || []), ...(contact.availableRoles || [])].reduce<string[]>((result, role) => {
+                const cleanRole = role.trim();
+                if (cleanRole && !result.some(item => item.localeCompare(cleanRole, undefined, { sensitivity: 'accent' }) === 0)) result.push(cleanRole);
+                return result;
+            }, []);
+            unique.set(identity, existing ? { ...existing, availableRoles: roles } : { ...contact, availableRoles: roles });
+        });
+        return Array.from(unique.values());
+    }, [globalContacts]);
     const addStakeholderFromDirectory = (directoryId: string) => {
-        const contact = globalContacts.find(c => c.id === directoryId);
+        const contact = selectableGlobalContacts.find(c => c.id === directoryId);
         if (!contact || (localOpp.stakeholders || []).some(p => p.directoryContactId === directoryId || (!!p.email && p.email.toLowerCase() === contact.email.toLowerCase()))) return;
         const person: Person = { id: crypto.randomUUID(), directoryContactId: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles?.[0] ? [contact.availableRoles[0]] : [], roleContexts: {}, aliases: contact.aliases || [] };
         handleFieldChange('stakeholders', [...(localOpp.stakeholders || []), person], true);
@@ -4880,9 +4915,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 </div>
                 {renderDirectorySearch()}
                 <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-                    <table className="w-full min-w-[920px] text-left text-xs">
+                    <table className="w-full min-w-[1080px] text-left text-xs">
                         <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-wider text-gray-400">
-                            <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Areas / roles</th><th className="px-3 py-2">Context</th><th className="px-3 py-2">Aliases</th><th className="w-10 px-2 py-2"></th></tr>
+                            <tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Areas / roles (RACI)</th><th className="px-3 py-2">Context</th><th className="px-3 py-2">Aliases</th><th className="w-10 px-2 py-2"></th></tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                     {(localOpp.stakeholders || []).map(person => {
@@ -4899,11 +4934,32 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 });
                             }
                         };
+                        const setPersonRaci = (role: string, value: '' | 'R' | 'A' | 'C' | 'I') => {
+                            const next = { ...(person.raci || {}) };
+                            if (value) next[role] = value; else delete next[role];
+                            updateStakeholder(person.id, 'raci', next);
+                        };
                         return (
                             <tr key={person.id} className="align-top hover:bg-gray-50/70">
                                 <td className="p-2"><input value={person.name} onChange={e => updateStakeholder(person.id, 'name', e.target.value)} placeholder="Name" className="w-full rounded border-gray-200 text-xs font-bold" /></td>
                                 <td className="p-2"><input value={person.email} onChange={e => updateStakeholder(person.id, 'email', e.target.value)} placeholder="Email" type="email" className="w-full rounded border-gray-200 text-xs" /></td>
-                                <td className="p-2 min-w-[180px]"><div className="flex flex-wrap items-center gap-1.5">{personRoles.map(role => <span key={role} className="rounded-full bg-[#3DCD58]/10 px-2 py-1 text-[10px] font-bold text-[#278a3b]">{role}</span>)}<MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select areas..." compact /></div></td>
+                                <td className="p-2 min-w-[260px]"><div className="flex flex-wrap items-center gap-1.5">{personRoles.map(role => (
+                                    <span key={role} className="inline-flex items-center gap-1 rounded-full bg-[#3DCD58]/10 pl-2 pr-1 py-0.5 text-[10px] font-bold text-[#278a3b]">
+                                        {role}
+                                        <select
+                                            value={person.raci?.[role] || ''}
+                                            onChange={e => setPersonRaci(role, e.target.value as '' | 'R' | 'A' | 'C' | 'I')}
+                                            title={person.raci?.[role] ? RACI_LABELS[person.raci[role]!] : 'Set RACI for this area'}
+                                            className="rounded border-none bg-white/70 py-0 pl-1 pr-4 text-[9px] font-black text-[#1f6b30] focus:ring-1 focus:ring-[#3DCD58]"
+                                        >
+                                            <option value="">–</option>
+                                            <option value="R">R</option>
+                                            <option value="A">A</option>
+                                            <option value="C">C</option>
+                                            <option value="I">I</option>
+                                        </select>
+                                    </span>
+                                ))}<MultiSelect options={trackedAreas} selected={personRoles} onChange={roles => updateStakeholder(person.id, 'roles', roles)} onCreate={addNewAreaForPerson} placeholder="Select areas..." compact /></div></td>
                                 <td className="p-2 min-w-[170px]"><DelimitedListInput value={Object.entries(person.roleContexts || {}).map(([r,c]) => `${r}: ${c}`).join('; ')} onCommit={raw => updateStakeholder(person.id, 'roleContexts', Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => { const [role, ...rest] = v.split(':'); return [role.trim(), rest.join(':').trim()]; })))} placeholder="TSC: Foxboro" className="w-full rounded border-gray-200 text-[10px]" /></td>
                                 <td className="p-2 min-w-[150px]"><DelimitedListInput value={(person.aliases || []).join('; ')} onCommit={raw => { const aliases = raw.split(';').map(v => v.trim()).filter(Boolean); updateStakeholder(person.id, 'aliases', aliases); if (person.directoryContactId) { const contactId = person.directoryContactId; onGlobalContactsChange?.(prev => prev.map(c => c.id === contactId ? { ...c, aliases } : c)); } }} placeholder="Aliases" className="w-full rounded border-gray-200 text-[10px]" /></td>
                                 <td className="p-2 text-center"><button onClick={() => removeStakeholder(person.id)} className="p-1 text-gray-300 hover:text-red-500" title="Remove"><X className="h-3.5 w-3.5" /></button></td>
@@ -4914,6 +4970,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         </tbody>
                     </table>
                 </div>
+                <p className="mt-2 text-[10px] text-gray-400 italic">RACI: pick R (Responsible), A (Accountable), C (Consulted) or I (Informed) next to each area a person is tied to.</p>
             </div>
         </>
     );
@@ -5043,13 +5100,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             const reconciled = existing.map(sub => {
                 if (!sub.systemKey) return sub;
                 const stillSelected = selected.some(system => system === sub.systemKey);
-                if (stillSelected && sub.outOfScope) { taskChanged = true; const { outOfScope, ...rest } = sub; return rest; }
-                if (!stillSelected && !sub.outOfScope) { taskChanged = true; return { ...sub, outOfScope: true }; }
-                return sub;
+                const hidesLegacySystemName = !sub.title || sub.title === sub.systemKey;
+                const normalized = hidesLegacySystemName ? { ...sub, title: 'Scope item' } : sub;
+                if (hidesLegacySystemName) taskChanged = true;
+                if (stillSelected && normalized.outOfScope) { taskChanged = true; const { outOfScope, ...rest } = normalized; return rest; }
+                if (!stillSelected && !normalized.outOfScope) { taskChanged = true; return { ...normalized, outOfScope: true }; }
+                return normalized;
             });
             selected.forEach(system => {
                 if (reconciled.some(sub => sub.systemKey === system)) return;
-                reconciled.push({ id: crypto.randomUUID(), title: system, completed: false, systemKey: system });
+                reconciled.push({ id: crypto.randomUUID(), title: 'Scope item', completed: false, systemKey: system });
                 taskChanged = true;
             });
             if (!taskChanged) return task;
@@ -5435,7 +5495,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const directoryMatches = useMemo(() => {
         const term = directorySearch.trim().toLowerCase();
         const already = (localOpp.stakeholders || []);
-        const pool = globalContacts.filter(c => !already.some(p => p.directoryContactId === c.id || (!!p.email && !!c.email && p.email.toLowerCase() === c.email.toLowerCase())));
+        const pool = selectableGlobalContacts.filter(c => !already.some(p => p.directoryContactId === c.id || (!!p.email && !!c.email && p.email.toLowerCase() === c.email.toLowerCase())));
         if (!term) return pool.slice(0, 8);
         return pool.filter(c =>
             c.name.toLowerCase().includes(term) ||
@@ -5990,7 +6050,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const baseKpis = opp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
         let nextAreas = [...(baseKpis.areasInvolved || [])];
         [...windows.flatMap(window => window.areas), 'Tendering'].forEach(areaName => {
-            if (!nextAreas.some(area => area.area === areaName)) nextAreas.push({ id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {} });
+            if (!nextAreas.some(area => area.area === areaName)) nextAreas.push({ id: crypto.randomUUID(), area: areaName, daysSpent: 0, waitingDays: 0, calendar: {}, autoAdded: true });
         });
         if (windows.length) {
             nextAreas = nextAreas.map(area => {
@@ -6039,6 +6099,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 return { ...area, calendar, daysSpent, waitingDays };
             });
         }
+        // Auto-added rows only belong in the Implementation Timeline while they still track real work or a
+        // currently assigned task; once a task is unassigned/deleted their calendar empties out and they should
+        // disappear instead of cluttering the list with areas no longer actually assigned to the proposal.
+        const currentlyAssignedAreas = new Set(windows.flatMap(window => window.areas));
+        nextAreas = nextAreas.filter(area => (
+            area.area === 'Tendering'
+            || !area.autoAdded
+            || currentlyAssignedAreas.has(area.area)
+            || Object.keys(area.calendar || {}).length > 0
+        ));
         return { ...opp, kpis: { ...baseKpis, areasInvolved: nextAreas } };
     }
 
@@ -8404,6 +8474,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {!hiddenHeaderFields.has('revisions') && (
                                             <div className="relative">
                                                 <button
+                                                    ref={versionMenuButtonRef}
                                                     onClick={() => setShowVersionMenu(!showVersionMenu)}
                                                     className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${isSnapshot ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
                                                 >
@@ -8412,10 +8483,10 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                                 </button>
 
-                                                {showVersionMenu && (
+                                                {showVersionMenu && versionMenuPosition && createPortal((
                                                     <>
-                                                        <div className="fixed inset-0 z-30" onClick={() => setShowVersionMenu(false)} />
-                                                        <div className="absolute top-full right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-40 flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200">
+                                                        <div className="fixed inset-0 z-[9998]" onClick={() => setShowVersionMenu(false)} />
+                                                        <div className="fixed w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-[9999] flex flex-col max-h-[500px] animate-in fade-in zoom-in-95 duration-200" style={{ top: versionMenuPosition.top, right: versionMenuPosition.right }}>
                                                             <div className="p-3 border-b border-gray-100 bg-gray-50 flex flex-col gap-2">
                                                                 <div className="flex justify-between items-center">
                                                                     <h4 className="font-bold text-xs text-gray-500 uppercase tracking-wider">Revision History</h4>
@@ -8492,11 +8563,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                             ))}
                                                                         </div>
                                                                     </div>
-                                                                ))}
+                                                ))}
                                                             </div>
                                                         </div>
                                                     </>
-                                                )}
+                                                ), document.body)}
                                             </div>
                                             )}
 
@@ -8618,7 +8689,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input autoFocus value={headerStakeholderSearch} onChange={event => setHeaderStakeholderSearch(event.target.value)} placeholder="Search by name, email, area or alias…" className="w-full rounded-xl border-slate-200 py-2.5 pl-9 pr-3 text-sm focus:border-blue-400 focus:ring-blue-400" /></div>
                                                         <p className="mt-2 text-[10px] text-slate-400">Select an existing contact or create a new one if it is not in the directory.</p>
                                                         <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
-                                                            {globalContacts.filter(contact => {
+                                                            {selectableGlobalContacts.filter(contact => {
                                                                 const query = headerStakeholderSearch.trim().toLowerCase();
                                                                 const alreadyAdded = (localOpp.stakeholders || []).some(person => person.directoryContactId === contact.id || (!!person.email && person.email.toLowerCase() === contact.email.toLowerCase()));
                                                                 return !alreadyAdded && (!query || contact.name.toLowerCase().includes(query) || contact.email.toLowerCase().includes(query) || (contact.availableRoles || []).some(role => role.toLowerCase().includes(query)) || (contact.aliases || []).some(alias => alias.toLowerCase().includes(query)));
@@ -8719,7 +8790,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             key={currentNote.id}
                                                             content={currentNote.content}
                                                             people={localOpp.stakeholders || []}
-                                                            directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
+                                                            directoryPeople={selectableGlobalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                             areas={trackedAreas}
                                                     prefill={sowPrefill}
                                                             globalForm={globalSowForm}
@@ -8842,7 +8913,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && ((selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 || (selectedTaskForEdit.task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
+                                                <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && ((selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 || (selectedTaskForEdit.task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}</select>
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Process Section</label>
@@ -9197,11 +9268,29 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <input
                                                 disabled={isSnapshot}
                                                 type="number"
+                                                min="1"
+                                                step="1"
                                                 value={localOpp.priorityOrder || ''}
                                                 onChange={(e) => handleFieldChange('priorityOrder', e.target.value ? parseInt(e.target.value) : null)}
-                                                className="w-full text-sm border-gray-200 rounded-lg font-bold disabled:bg-gray-50"
+                                                onKeyDown={(e) => {
+                                                    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                                                    e.preventDefault();
+                                                    const current = Math.max(1, Number(localOpp.priorityOrder) || 1);
+                                                    // Rank #1 is the highest position: ArrowUp moves toward 1.
+                                                    const next = e.key === 'ArrowUp' ? Math.max(1, current - 1) : current + 1;
+                                                    handleFieldChange('priorityOrder', next);
+                                                }}
+                                                className="w-full text-sm border-gray-200 rounded-lg font-bold disabled:bg-gray-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                                                 placeholder="e.g. 1"
                                             />
+                                            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                                                <button type="button" disabled={isSnapshot || (Number(localOpp.priorityOrder) || 1) <= 1} onClick={() => handleFieldChange('priorityOrder', Math.max(1, (Number(localOpp.priorityOrder) || 1) - 1))} className="flex items-center justify-center gap-1 rounded border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40" title="Move toward rank 1">
+                                                    <ChevronUp className="h-3 w-3" /> Higher
+                                                </button>
+                                                <button type="button" disabled={isSnapshot} onClick={() => handleFieldChange('priorityOrder', (Number(localOpp.priorityOrder) || 0) + 1)} className="flex items-center justify-center gap-1 rounded border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40" title="Move toward a larger rank number">
+                                                    <ChevronDown className="h-3 w-3" /> Lower
+                                                </button>
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Short Alias (1-2 words)</label>
@@ -9522,7 +9611,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                 <p className="text-xs text-gray-400 mb-3">Who's involved in this specific opportunity â€” suggested when picking who a task is waiting on.</p>
                                 {!isSnapshot && <select defaultValue="" onChange={e => { addStakeholderFromDirectory(e.target.value); e.currentTarget.value = ''; }} className="w-full mb-3 border-gray-200 rounded-lg text-xs bg-white">
                                     <option value="">Add from global directory...</option>
-                                    {globalContacts.filter(c => !(localOpp.stakeholders || []).some(p => p.directoryContactId === c.id || (!!p.email && p.email.toLowerCase() === c.email.toLowerCase()))).map(c => <option key={c.id} value={c.id}>{c.name} Â· {c.email || 'email missing'} Â· {(c.availableRoles || []).join(', ')}</option>)}
+                                    {selectableGlobalContacts.filter(c => !(localOpp.stakeholders || []).some(p => p.directoryContactId === c.id || (!!p.email && p.email.toLowerCase() === c.email.toLowerCase()))).map(c => <option key={c.id} value={c.id}>{c.name} Â· {c.email || 'email missing'} Â· {(c.availableRoles || []).join(', ')}</option>)}
                                 </select>}
                                 <div className="space-y-2">
                                     {(localOpp.stakeholders || []).map(person => (
@@ -10950,7 +11039,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                     <div className="flex items-start justify-between gap-3">
                                                                         <div className="min-w-0">
                                                                             <p className="truncate text-sm font-bold text-gray-800">{task.title}</p>
-                                                                            <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase ${TASK_STATUS_COLORS[task.status as TaskStatus]}`}>{task.status}</span>
+                                                                            <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-black uppercase ${TASK_STATUS_COLORS[task.status as TaskStatus]}`}>{taskStatusLabel(task.status)}</span>
                                                                         </div>
                                                                         <div className="flex shrink-0 gap-1">
                                                                             <button onClick={() => { setActiveTabSafe('tasks'); setSelectedTaskForEdit({ task }); }} className="rounded px-2 py-1 text-[10px] font-bold text-blue-600 hover:bg-blue-50">Open</button>
@@ -10968,7 +11057,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         key={currentNote.id}
                                                         content={currentNote.content}
                                                         people={localOpp.stakeholders || []}
-                                                        directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
+                                                        directoryPeople={selectableGlobalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                         areas={trackedAreas}
                                                         prefill={sowPrefill}
                                                         globalForm={globalSowForm}
@@ -11209,6 +11298,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             ) : (() => {
                                                 const renderTaskCard = (task: Task) => {
                                                     const isDone = task.status === 'Done';
+                                                    const isMissingInfo = task.status === 'Missing Info';
                                                     const doneSubtasks = task.subtasks.filter(s => s.completed && !s.outOfScope).length;
                                                     const totalSubtasks = task.subtasks.filter(s => !s.outOfScope).length;
                                                     const isExpanded = expandedTaskIds.has(task.id);
@@ -11230,7 +11320,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                 setDraggedTaskId(null);
                                                             }}
                                                             onDragEnd={() => setDraggedTaskId(null)}
-                                                            className={`group border rounded-xl transition-all cursor-pointer [content-visibility:auto] [contain-intrinsic-size:120px] ${draggedTaskId === task.id ? 'opacity-40' : ''} ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : `bg-white hover:shadow-md ${isDone ? 'border-gray-100' : 'border-gray-100 hover:border-[#3DCD58]/30'}`}`}
+                                                            className={`group border rounded-xl transition-all cursor-pointer [content-visibility:auto] [contain-intrinsic-size:120px] ${draggedTaskId === task.id ? 'opacity-40' : ''} ${highlightTaskId === task.id ? 'bg-yellow-100 border-yellow-400 border-2' : isMissingInfo ? 'bg-red-50 border-red-300 hover:border-red-500 hover:shadow-md' : `bg-white hover:shadow-md ${isDone ? 'border-gray-100' : 'border-gray-100 hover:border-[#3DCD58]/30'}`}`}
                                                             onClick={() => setSelectedTaskForEdit({ task })}
                                                         >
                                                             <div className="p-3 flex gap-3">
@@ -11365,7 +11455,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                 onChange={(e) => applyTaskFieldsDirect(task.id, { status: e.target.value as TaskStatus })}
                                                                                 className={`text-[10px] font-black uppercase pl-2 pr-1 py-1 rounded-full shadow-sm border-none cursor-pointer ${TASK_STATUS_COLORS[task.status]}`}
                                                                             >
-                                                                                {(task.owner === 'External Area' && ((task.responsibleTeamMemberIds || []).length > 0 || (task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s} value={s}>{s}</option>)}
+                                                                                {(task.owner === 'External Area' && ((task.responsibleTeamMemberIds || []).length > 0 || (task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}
                                                                             </select>
                                                                         </div>
                                                                     </div>
@@ -11421,7 +11511,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                         {/* Canceled/Done always render (never hidden behind a toggle) but sink to the bottom, dimmed, so they don't compete visually with active work. */}
                                                         {canceledTasks.length > 0 && (
                                                             <div className="pt-3">
-                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-300 mb-2">Canceled ({canceledTasks.length})</div>
+                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-300 mb-2">No aplica ({canceledTasks.length})</div>
                                                                 <div className="space-y-2.5 opacity-60">
                                                                     {canceledTasks.map(renderTaskCard)}
                                                                 </div>
@@ -11456,7 +11546,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                             }}
                                                         >
                                                             <div className="p-3 border-b border-gray-200 flex items-center justify-between shrink-0">
-                                                                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${TASK_STATUS_COLORS[status]}`}>{status}</span>
+                                                                <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full ${TASK_STATUS_COLORS[status]}`}>{taskStatusLabel(status)}</span>
                                                                 <span className="text-[10px] font-bold text-gray-400">{columnTasks.length}</span>
                                                             </div>
                                                             <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
@@ -11722,7 +11812,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Current Status</label>
-                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && ((selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 || (selectedTaskForEdit.task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s}>{s}</option>)}</select>
+                                            <select className="w-full border-gray-100 bg-gray-50 rounded-xl text-sm font-bold p-3 cursor-pointer focus:bg-white transition-all" value={selectedTaskForEdit.task.status} onChange={(e) => updateTaskInModal('status', e.target.value as any)}>{(selectedTaskForEdit.task.owner === 'External Area' && ((selectedTaskForEdit.task.responsibleTeamMemberIds || []).length > 0 || (selectedTaskForEdit.task.externalAreas || []).length > 0) ? ASSIGNED_TASK_STATUSES : TASK_STATUS_ORDER).map(s => <option key={s} value={s}>{taskStatusLabel(s)}</option>)}</select>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Process Section</label>
@@ -12093,7 +12183,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 key={splitViewNoteId}
                                                 content={localOpp.notes.find(n => n.id === splitViewNoteId)?.content || ''}
                                                 people={localOpp.stakeholders || []}
-                                                directoryPeople={globalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
+                                                directoryPeople={selectableGlobalContacts.map(contact => ({ id: contact.id, name: contact.name, email: contact.email, roles: contact.availableRoles, aliases: contact.aliases }))}
                                                 areas={trackedAreas}
                                                 prefill={sowPrefill}
                                                 globalForm={globalSowForm}

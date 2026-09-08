@@ -465,7 +465,13 @@ export interface Person {
   roleContexts?: Record<string, string>;
   /** Alternate names/nicknames for this person, searchable and used to match against the directory. */
   aliases?: string[];
+  /** RACI designation (Responsible/Accountable/Consulted/Informed) per area/role this person holds. */
+  raci?: Record<string, 'R' | 'A' | 'C' | 'I'>;
 }
+
+export const RACI_LABELS: Record<'R' | 'A' | 'C' | 'I', string> = {
+  R: 'Responsible', A: 'Accountable', C: 'Consulted', I: 'Informed',
+};
 
 export interface GlobalContact {
   id: string;
@@ -551,6 +557,10 @@ export interface KPIArea {
   daysSpent: number;
   waitingDays: number;
   calendar?: Record<string, AreaDayRecord>; // date string "YYYY-MM-DD" -> record
+  /** True when this row was auto-created from a task's assigned area rather than added by hand via "Add area".
+   *  Auto-created rows with no remaining calendar activity are pruned on rebuild so areas that are no
+   *  longer actually assigned to the proposal stop cluttering the Implementation Timeline. */
+  autoAdded?: boolean;
 }
 
 export interface KPITimeline {
@@ -981,10 +991,14 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   'Done': 'bg-emerald-100 text-emerald-700 font-black',
   'On Hold': 'bg-amber-100 text-amber-700',
   'Approval': 'bg-purple-100 text-purple-700 font-bold',
-  'Missing Info': 'bg-rose-100 text-rose-700',
+  'Missing Info': 'bg-red-100 text-red-800 border border-red-300 font-black',
   'Changes Requested / Rework': 'bg-orange-100 text-orange-800 font-bold',
   'Canceled': 'bg-gray-100 text-gray-400 line-through',
 };
+
+/** User-facing labels. Persisted values stay unchanged for backwards compatibility. */
+export const taskStatusLabel = (status: TaskStatus | string): string =>
+  status === 'Canceled' ? 'No aplica' : status;
 
 /** Shared display order for every task status selector, filter and board. */
 export const TASK_STATUS_ORDER: TaskStatus[] = ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info', 'Changes Requested / Rework', 'Done', 'Canceled'];

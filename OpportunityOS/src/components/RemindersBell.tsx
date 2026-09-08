@@ -380,8 +380,8 @@ export const RemindersBell: React.FC<RemindersBellProps> = ({ reminders, opportu
                 <>
                     {/* Invisible backdrop: closing only happens on an explicit click here,
                         so interacting with nested pickers/comboboxes never closes the panel. */}
-                    <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setShowForm(false); setPickingDate(false); }} />
-                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl border border-gray-200 shadow-lg z-50 overflow-visible" onClick={e => e.stopPropagation()}>
+                    <div className="fixed inset-0 z-[700]" onClick={() => { setOpen(false); setShowForm(false); setPickingDate(false); }} />
+                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl border border-gray-200 shadow-lg z-[710] overflow-visible" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
                             <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Reminders</span>
                             {due.length > 0 && (

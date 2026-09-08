@@ -76,6 +76,10 @@ export const parseSowFields = (note: MeetingNote | null): Record<string, any> =>
 export const asLabels = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : []);
 
 const legacyLabelsForOption = (option: ScopeCatalogOption): string[] => {
+    if (option.id === 'trainings' || option.label === 'Training') return ['Trainings'];
+    if (option.id === 'triconex' || option.label === 'Safety') return ['Triconex'];
+    if (option.id === 'm580-s' || option.label === 'M580 S') return ['Modicon 580 Safety', 'M580 Safety'];
+    if (option.id === 'tri-gp' || option.label === 'TriGP') return ['Tri-GP'];
     if (option.id === 'resales-lt-49' || option.label === 'Resales <49%') return ['Resales >20%'];
     if (option.id === 'fg' || option.label === 'SF&G') return ['F&G'];
     return [];
@@ -103,10 +107,16 @@ export const selectedFromFields = (
  */
 export const systemsFromLegacy = (fields: Record<string, any>, options: ScopeCatalogOption[]): string[] => {
     const flowSystems = asLabels(fields.flow_T001);
+    const oldSystems = asLabels(fields.sow_systems);
     const found: string[] = [];
     const add = (label?: string) => { if (label && !found.includes(label)) found.push(label); };
     if (fields.platform_modicon === true) add(options.find(o => /modicon/i.test(o.label))?.label);
-    if (fields.platform_triconex === true) add(options.find(o => /tricon/i.test(o.label))?.label);
+    // Matched by id, not a "tricon" label regex: the Safety rename means the label no longer
+    // contains "tricon", but the option's id stays 'triconex' so this keeps finding it.
+    if (fields.platform_triconex === true) add(options.find(o => o.id === 'triconex')?.label);
+    if (oldSystems.some(name => /^(triconex|modicon\s*580\s*safety|m580\s*safety)$/i.test(name.trim()))) {
+        add(options.find(o => o.id === 'triconex')?.label);
+    }
     if (fields.platform_foxboro === true) add(options.find(o => /foxboro/i.test(o.label))?.label);
     flowSystems.forEach(name => add(options.find(o => o.label.toLowerCase().includes(name.toLowerCase()))?.label));
     return found;
@@ -131,11 +141,16 @@ export const modulesFromFields = (
 ): Record<string, string[]> => {
     const map: Record<string, string[]> = {};
     (['systems', 'quickNotes'] as const).forEach((group: ScopeCatalogGroup) => {
-        catalog[group].forEach(option => {
+        (catalog[group] || []).forEach(option => {
             if (!option.children?.length) return;
             const key = scopeModuleKey(group, option);
             const saved = new Set(asLabels(fields[key]));
-            map[key] = option.children.filter(child => savedIncludesOption(saved, child)).map(child => child.label);
+            const selected = option.children.filter(child => savedIncludesOption(saved, child)).map(child => child.label);
+            if (option.id === 'triconex' && asLabels(fields.sow_systems).some(name => /^(modicon\s*580\s*safety|m580\s*safety)$/i.test(name.trim()))) {
+                const m580 = option.children.find(child => child.id === 'm580-s');
+                if (m580 && !selected.includes(m580.label)) selected.push(m580.label);
+            }
+            map[key] = selected;
         });
     });
     return map;
@@ -144,12 +159,13 @@ export const modulesFromFields = (
 export interface ScopeSelection {
     scope: string[];
     systems: string[];
+    applications: string[];
     quickNotes: string[];
     extras: string[];
     modules: Record<string, string[]>;
 }
 
-export const EMPTY_SCOPE_SELECTION: ScopeSelection = { scope: [], systems: [], quickNotes: [], extras: [], modules: {} };
+export const EMPTY_SCOPE_SELECTION: ScopeSelection = { scope: [], systems: [], applications: [], quickNotes: [], extras: [], modules: {} };
 
 /** Everything the Scope quick view holds, read straight out of a SOW note's fields. */
 export const readScopeSelection = (fields: Record<string, any>, catalog: ScopeCatalog): ScopeSelection => {
@@ -158,6 +174,11 @@ export const readScopeSelection = (fields: Record<string, any>, catalog: ScopeCa
     return {
         scope: scopeDirect.length ? scopeDirect : scopeFromLegacy(fields, catalog.scope),
         systems: systemsDirect.length ? systemsDirect : systemsFromLegacy(fields, catalog.systems),
+        applications: (() => {
+            const applicationOptions = catalog.applications || [];
+            const direct = selectedFromFields(fields, 'safety_applications', applicationOptions);
+            return direct.length ? direct : selectedFromFields(fields, 'triconex_products', applicationOptions);
+        })(),
         quickNotes: selectedFromFields(fields, 'quick_notes', catalog.quickNotes),
         extras: selectedFromFields(fields, 'scope_extras', catalog.extras),
         modules: modulesFromFields(fields, catalog),
@@ -166,7 +187,7 @@ export const readScopeSelection = (fields: Record<string, any>, catalog: ScopeCa
 
 /**
  * Systems as they read at a glance: each selected system followed by its selected
- * sub-modules, flattened into one list — "Triconex, SIS, Tricon CX" rather than a tree.
+ * sub-modules, flattened into one list — "Safety, SIS, Tricon CX" rather than a tree.
  * A sub-module whose parent is unselected is skipped, matching what the quick view shows.
  */
 export const flattenSystems = (selection: ScopeSelection, catalog: ScopeCatalog): string[] => {
@@ -184,6 +205,7 @@ export const flattenSystems = (selection: ScopeSelection, catalog: ScopeCatalog)
 export interface ScopeGlance {
     scope: string[];
     systems: string[];
+    applications: string[];
     quickNotes: string[];
     extras: string[];
     /** False when the opportunity has no SOW answers at all — nothing to render. */
@@ -204,23 +226,30 @@ export const readScopeGlance = (
     const fields = parseSowFields(pickPrimarySowNote(notes));
     const selection = readScopeSelection(fields, resolved);
     const legacyText = legacyLabels.map(label => label.text);
+    const legacySet = new Set(legacyText);
     const legacyMatches = (options: ScopeCatalogOption[]) => options
-        .filter(option => legacyText.some(label => scopeLabelKey(label) === scopeLabelKey(option.label)))
+        .filter(option => savedIncludesOption(legacySet, option))
         .map(option => option.label);
     const scope = Array.from(new Set([...selection.scope, ...legacyMatches(resolved.scope)]));
     const systemOptions = resolved.systems.flatMap(option => [option, ...(option.children || [])]);
     const systems = Array.from(new Set([...flattenSystems(selection, resolved), ...legacyMatches(systemOptions)]));
+    const safetySelected = selection.systems.some(label => resolved.systems.find(option => option.label === label)?.id === 'triconex');
+    const applications = safetySelected ? Array.from(new Set([...(selection.applications || []), ...legacyMatches(resolved.applications || [])])) : [];
     const quickNotes = Array.from(new Set([...selection.quickNotes, ...legacyMatches(resolved.quickNotes)]));
     const extras = Array.from(new Map([
         ...selection.extras,
         ...legacyLabels.filter(label => !catalogContainsLabel(resolved, label.text)).map(label => label.text),
     ].map(label => [scopeLabelKey(label), label])).values());
-    return { scope, systems, quickNotes, extras, hasAny: scope.length > 0 || systems.length > 0 || quickNotes.length > 0 || extras.length > 0 };
+    return { scope, systems, applications, quickNotes, extras, hasAny: scope.length > 0 || systems.length > 0 || applications.length > 0 || quickNotes.length > 0 || extras.length > 0 };
 };
 
 /** Plain-text form, e.g. "Upgrade, Migration and CF - EAE, Triconex, SIS". Used for tooltips. */
 export const formatScopeGlance = (glance: ScopeGlance): string => {
     const join = (list: string[]) =>
         list.length <= 1 ? (list[0] || '') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
-    return [join(glance.scope), [...glance.systems, ...glance.quickNotes].join(', '), glance.extras.join(', ')].filter(Boolean).join(' - ');
+    return [
+        join(glance.scope || []),
+        [...(glance.systems || []), ...(glance.applications || []), ...(glance.quickNotes || [])].join(', '),
+        (glance.extras || []).join(', '),
+    ].filter(Boolean).join(' - ');
 };
