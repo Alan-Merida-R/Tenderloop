@@ -95,6 +95,13 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
         return refs;
     }, [fields]);
 
+    // Optional: which internal office quoted/executes this proposal, only relevant when Alan
+    // works across more than one quoting center. Empty by default, never required.
+    const EXECUTION_CENTERS = ['Mexico', 'USA', 'Canada'];
+    const executionCenterFromSow = typeof fields.execution_center === 'string' ? fields.execution_center : '';
+    const [executionCenter, setExecutionCenter] = useState<string>(executionCenterFromSow);
+    useEffect(() => { setExecutionCenter(executionCenterFromSow); }, [executionCenterFromSow]);
+
     const [scopeTypes, setScopeTypes] = useState<string[]>(scopeTypesFromSow);
     const [systems, setSystems] = useState<string[]>(systemsFromSow);
     const [applications, setApplications] = useState<string[]>(applicationsFromSow);
@@ -132,6 +139,7 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
             safety_applications: applications,
             quick_notes: quickNotes,
             scope_extras: extras,
+            execution_center: executionCenter,
             // Sub-modules are written even when their parent is unselected, matching the SOW's
             // "hidden answers are preserved" rule — re-checking the parent brings them back.
             ...modules,
@@ -245,13 +253,31 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                             </div>
 
                             <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Execution Center <span className="normal-case font-semibold text-gray-400">(optional — only if this proposal is quoted from more than one center)</span></label>
+                                <div className="flex flex-wrap gap-2">
+                                    {EXECUTION_CENTERS.map(center => (
+                                        <label key={center} className={chip(executionCenter === center)} style={executionCenter === center ? { backgroundColor: '#64748b' } : undefined}>
+                                            <input
+                                                type="checkbox"
+                                                checked={executionCenter === center}
+                                                onChange={() => setExecutionCenter(prev => prev === center ? '' : center)}
+                                                disabled={disabled}
+                                                className="rounded border-gray-300 text-slate-600 focus:ring-slate-500"
+                                            />
+                                            {center}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">System</label>
                                 {renderGroup('systems', systems, setSystems)}
                             </div>
 
                             {systems.some(label => resolvedCatalog.systems.find(option => option.label === label)?.id === 'triconex') && (
                                 <div className="border-l-2 border-teal-200 pl-3 ml-1">
-                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Application</label>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Application Safety</label>
                                     <div className="flex flex-wrap gap-2">
                                         {(resolvedCatalog.applications || []).map(option => (
                                             <label key={option.id} className={chip(applications.includes(option.label))} style={applications.includes(option.label) ? { backgroundColor: scopeOptionColor(option, 'applications') } : undefined}>

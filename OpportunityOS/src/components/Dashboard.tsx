@@ -2316,26 +2316,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const target = generalOrderedOpps.find(item => item.id === targetId);
         if (!dragged || !target || getGeneralProposalStatus(dragged) !== getGeneralProposalStatus(target)) return;
 
-        const group = generalOrderedOpps.filter(item => getGeneralProposalStatus(item) === getGeneralProposalStatus(dragged));
-        const withoutDragged = group.filter(item => item.id !== draggedId);
-        const targetIndex = withoutDragged.findIndex(item => item.id === targetId);
-        if (targetIndex < 0) return;
-        const reordered = [...withoutDragged.slice(0, targetIndex), dragged, ...withoutDragged.slice(targetIndex)];
-
-        // Use the lowest free integers so Rank stays globally unique while its
-        // ordering remains scoped to the current status group.
-        const reservedRanks = new Set(opportunities
-            .filter(item => !reordered.some(groupItem => groupItem.id === item.id))
-            .map(item => Number(item.priorityOrder))
-            .filter(rank => Number.isFinite(rank) && rank > 0));
-        let candidate = 1;
-        reordered.forEach(item => {
-            while (reservedRanks.has(candidate)) candidate += 1;
-            if (item.priorityOrder !== candidate) onOppUpdate({ ...item, priorityOrder: candidate });
-            reservedRanks.add(candidate);
-            candidate += 1;
-        });
-    }, [generalOrderedOpps, onOppUpdate, opportunities]);
+        // One update is enough: App owns the global dense 1..N rebalance and
+        // shifts all affected opportunities atomically. Sending one stale
+        // update per row used to repeatedly rebalance the same list and create
+        // ranks far above the number of active opportunities.
+        onOppUpdate({ ...dragged, priorityOrder: target.priorityOrder || 1 });
+    }, [generalOrderedOpps, onOppUpdate]);
 
     const handleLatestHistoryEdit = useCallback((opp: Opportunity, eventId: string, content: string) => {
         const history = (opp.history || []).map(event => (

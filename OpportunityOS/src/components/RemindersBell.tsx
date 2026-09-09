@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pencil, Trash2, X } from 'lucide-react';
 import { Reminder, Opportunity, Task } from '../types';
 
@@ -376,12 +377,19 @@ export const RemindersBell: React.FC<RemindersBellProps> = ({ reminders, opportu
                 )}
             </button>
 
-            {open && (
+            {open && createPortal((
                 <>
                     {/* Invisible backdrop: closing only happens on an explicit click here,
                         so interacting with nested pickers/comboboxes never closes the panel. */}
                     <div className="fixed inset-0 z-[700]" onClick={() => { setOpen(false); setShowForm(false); setPickingDate(false); }} />
-                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl border border-gray-200 shadow-lg z-[710] overflow-visible" onClick={e => e.stopPropagation()}>
+                    <div
+                        className="fixed w-80 max-w-[calc(100vw-1rem)] bg-white rounded-xl border border-gray-200 shadow-lg z-[710] overflow-visible"
+                        style={{
+                            top: (containerRef.current?.getBoundingClientRect().bottom || 48) + 8,
+                            right: Math.max(8, window.innerWidth - (containerRef.current?.getBoundingClientRect().right || window.innerWidth - 8)),
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
                         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
                             <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">Reminders</span>
                             {due.length > 0 && (
@@ -479,7 +487,7 @@ export const RemindersBell: React.FC<RemindersBellProps> = ({ reminders, opportu
                         </div>
                     </div>
                 </>
-            )}
+            ), document.body)}
         </div>
     );
 };

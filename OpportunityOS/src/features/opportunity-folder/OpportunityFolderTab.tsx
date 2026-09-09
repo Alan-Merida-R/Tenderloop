@@ -276,9 +276,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
   const [historyDraft, setHistoryDraft] = useState<{ changes: string; reason: string }>({ changes: '', reason: '' });
   const [isCreatingRevision, setIsCreatingRevision] = useState(false);
-  // [F4] Last-modified badge: the most recently touched file in the current folder,
-  // plus its latest logged revision comment, so the user doesn't have to hunt for it.
-  const [lastModifiedBadge, setLastModifiedBadge] = useState<{ item: FileItem; comment: string | null } | null>(null);
 
   useEffect(() => {
     if (!('showDirectoryPicker' in window)) setIsApiSupported(false);
@@ -527,26 +524,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     }
   }, [loadCurrentDirectory, searchQuery]);
 
-  // [F4] Recompute the "last modified" badge whenever the current folder's listing changes.
-  useEffect(() => {
-    let cancelled = false;
-    const files = items.filter(i => i.kind === 'file' && i.lastModified);
-    if (files.length === 0) { setLastModifiedBadge(null); return; }
-    const newest = files.reduce((a, b) => (b.lastModified! > a.lastModified! ? b : a));
-    (async () => {
-      let comment: string | null = null;
-      try {
-        const key = newest.relativePath.join('/');
-        const history = await getAllFileRevisionHistory(opportunityId);
-        const forFile = history
-          .filter(h => h.newFileKey === key || h.sourceFileKey === key)
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        comment = forFile[0]?.reason || forFile[0]?.changes || null;
-      } catch { /* badge is best-effort, never blocks the folder view */ }
-      if (!cancelled) setLastModifiedBadge({ item: newest, comment });
-    })();
-    return () => { cancelled = true; };
-  }, [items, opportunityId]);
 
   /**
    * Re-list the folder whenever the user comes back to the app.
@@ -1129,16 +1106,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       setRevisionHistoryTitle('All tracked files, including missing or deleted files');
       setRevisionHistory(await getAllFileRevisionHistory(opportunityId));
     }
-    setShowRevisionHistory(true);
-  };
-
-  // [F4] Opens the existing revision-history picker scoped to one file, used by the
-  // last-modified badge so the user can jump straight to choosing among its revisions.
-  const openRevisionHistoryForItem = async (item: FileItem) => {
-    const familyId = await ensureRevisionFamilyId(item);
-    setRevisionHistoryFamilyId(familyId);
-    setRevisionHistoryTitle(item.name);
-    setRevisionHistory(await getFileRevisionHistory(opportunityId, familyId));
     setShowRevisionHistory(true);
   };
 
@@ -1812,8 +1779,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                   <div className="shrink-0">{getFileIcon(item.extension, item.kind === 'directory')}</div>
                   <span
                     className={`text-sm font-medium whitespace-normal break-words py-1 ${item.kind === 'directory' ? 'font-bold' : ''}`}
-                    onDoubleClick={(e) => { e.stopPropagation(); handleRename(item); }}
-                    title="Double-click to rename"
                   >{item.name}</span>
                 </div>
               </td>
@@ -2424,16 +2389,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {lastModifiedBadge && !searchQuery && (
-              <button
-                onClick={() => openRevisionHistoryForItem(lastModifiedBadge.item)}
-                title={lastModifiedBadge.comment ? `Latest note: ${lastModifiedBadge.comment}` : 'View revisions for this file'}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] font-bold text-amber-800 hover:bg-amber-100 transition-colors max-w-[220px]"
-              >
-                <History className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">Last modified: {lastModifiedBadge.item.name}</span>
-              </button>
-            )}
             {clipboard && (
               <button onClick={handlePaste} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-100 mr-2 animate-pulse">
                 <ClipboardPaste className="w-3.5 h-3.5" /> Paste {clipboard.op === 'move' ? 'Cut' : 'Copied'} ({clipboard.items.length})

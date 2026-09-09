@@ -387,8 +387,8 @@
 <div class="logic-hint">Every system in scope, AVEVA and Cyber included. A system with sub-modules opens its own list right below. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
 </div>
 <div class="field platform-hidden-field" id="safetyApplicationsBlock" style="margin-top:13px">
-<label>Application</label>
-<div class="multi-choice" data-key="safety_applications" data-question-label="Application"></div>
+<label>Application Safety</label>
+<div class="multi-choice" data-key="safety_applications" data-question-label="Application Safety"></div>
 <div class="logic-hint">Safety applications. This section appears when Safety is selected.</div>
 </div>
 <div class="field" id="quickNotesBlock" style="margin-top:13px">
@@ -1578,7 +1578,7 @@
   const DEFAULT_SCOPE_CATALOG={
     scope:[{id:'greenfield',label:'Green field'},{id:'upgrade',label:'Upgrade'},{id:'migration',label:'Migration'},{id:'cf',label:'CF'},{id:'parts',label:'Parts'},{id:'services',label:'Services'},{id:'trainings',label:'Training'}],
     systems:[{id:'eae',label:'EAE'},{id:'modicon-580',label:'Modicon 580'},{id:'epe',label:'EPE'},{id:'epp',label:'EPP'},{id:'foxboro',label:'Foxboro',children:[{id:'foxboro-cps',label:'CPs'},{id:'foxboro-ios',label:'I/Os'},{id:'foxboro-servers-workstations',label:'Servers / Workstations'},{id:'foxboro-network',label:'Network'}]},{id:'triconex',label:'Safety',children:[{id:'tricon-cx',label:'Tricon CX'},{id:'tricon',label:'Tricon'},{id:'trident',label:'Trident'},{id:'tri-gp',label:'TriGP'},{id:'m580-s',label:'M580 S'}]},{id:'aveva',label:'AVEVA'},{id:'cyber',label:'Cyber'}],
-    applications:[{id:'sis',label:'SIS'},{id:'bms',label:'BMS'},{id:'tmc',label:'TMC'},{id:'fg',label:'SF&G'},{id:'esd',label:'ESD'}],
+    applications:[{id:'sis',label:'SIS/ESD'},{id:'bms',label:'BMS'},{id:'tmc',label:'TMC'},{id:'fg',label:'SF&G'}],
     quickNotes:[{id:'new-cabinets',label:'New Cabinets',children:[{id:'regional-integration',label:'Regional Integration'},{id:'india-cabinets',label:'India Cabinets'}]},{id:'resales-lt-20',label:'Resales <20%'},{id:'resales-lt-49',label:'Resales <49%'},{id:'resales-gt-50',label:'Resales >50%'}],
     extras:[{id:'similar-copy',label:'Similar/Copy'},{id:'split',label:'Split'}]
   };

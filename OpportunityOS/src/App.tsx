@@ -10,7 +10,7 @@ import Dashboard from './components/Dashboard';
 import { IndicatorsDashboard } from './components/IndicatorsDashboard';
 import OpportunityDetail from './components/OpportunityDetail';
 import { SettingsModal, DEFAULT_SETTINGS, AppSettings, AppViewKey, APP_VIEWS, normalizeTaskStandards, visibleTaskStandards } from './components/SettingsModal';
-import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, catalogContainsLabel, ScopeCatalog, ensureScopeCatalogMigrated, SCOPE_CATALOG_MIGRATION_VERSION } from './components/scopeCatalog';
+import { DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, ScopeCatalog, ensureScopeCatalogMigrated, SCOPE_CATALOG_MIGRATION_VERSION } from './components/scopeCatalog';
 import { readScopeGlance } from './services/scopeSummary';
 import { FolderOpen, Save, PlusCircle, AlertCircle, FileJson, Layout, CheckSquare, BarChart3, Settings as SettingsIcon, History, ChevronDown, Trash2, Activity, ExternalLink } from 'lucide-react';
 import { TimerProvider } from './contexts/TimerContext';
@@ -41,6 +41,73 @@ const filterActionableReminders = (reminders: Reminder[], opportunities: Opportu
     return !task || (task.status !== 'Done' && task.status !== 'Canceled');
   });
   return filtered.length === reminders.length ? reminders : filtered;
+};
+
+const isTerminalOpportunity = (opportunity: Opportunity) => (
+  ['Submitted', 'Won', 'Lost', 'Canceled'].includes(opportunity.statusLabel)
+  || opportunity.detailedStatus === 'Completed'
+  || opportunity.detailedStatus === 'Canceled'
+);
+
+const mergeEntityLists = <T extends { id?: string }>(preferred: T[] | undefined, fallback: T[] | undefined): T[] => {
+  const result = [...(preferred || [])];
+  const seen = new Set(result.map((item, index) => item?.id ? `id:${item.id}` : `index:${index}`));
+  (fallback || []).forEach((item, index) => {
+    const key = item?.id ? `id:${item.id}` : `fallback:${index}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(item);
+    }
+  });
+  return result;
+};
+
+/**
+ * A corrupt/legacy DB can contain the same opportunity more than once. Every
+ * selector (Dashboard search, Reminders and Quick Organizer) consumes this
+ * shared list, so duplicates multiply everywhere. Keep one canonical record,
+ * preferring a terminal/final record and then the newest edit, while merging
+ * child collections so cleanup never discards tasks, notes or history.
+ */
+const dedupeOpportunities = (opportunities: Opportunity[] | undefined): Opportunity[] => {
+  if (!Array.isArray(opportunities) || opportunities.length < 2) return opportunities || [];
+  const result: Opportunity[] = [];
+  const indexByIdentity = new Map<string, number>();
+
+  opportunities.forEach((opportunity, sourceIndex) => {
+    const normalizedId = String(opportunity?.id || '').trim().toLowerCase();
+    const identity = normalizedId || `__missing_id_${sourceIndex}`;
+    const existingIndex = indexByIdentity.get(identity);
+    if (existingIndex == null) {
+      indexByIdentity.set(identity, result.length);
+      result.push(opportunity);
+      return;
+    }
+
+    const existing = result[existingIndex];
+    const existingTime = Date.parse(existing.lastUpdated || '') || 0;
+    const candidateTime = Date.parse(opportunity.lastUpdated || '') || 0;
+    const candidatePreferred = Number(isTerminalOpportunity(opportunity)) > Number(isTerminalOpportunity(existing))
+      || (isTerminalOpportunity(opportunity) === isTerminalOpportunity(existing) && candidateTime > existingTime);
+    const preferred = candidatePreferred ? opportunity : existing;
+    const fallback = candidatePreferred ? existing : opportunity;
+
+    result[existingIndex] = {
+      ...fallback,
+      ...preferred,
+      id: String(preferred.id || fallback.id || '').trim(),
+      dates: { ...fallback.dates, ...preferred.dates },
+      folderPaths: { ...(fallback.folderPaths || {}), ...(preferred.folderPaths || {}) },
+      tasks: mergeEntityLists(preferred.tasks, fallback.tasks),
+      notes: mergeEntityLists(preferred.notes, fallback.notes),
+      history: mergeEntityLists(preferred.history, fallback.history),
+      versions: mergeEntityLists(preferred.versions, fallback.versions),
+      stakeholders: mergeEntityLists(preferred.stakeholders, fallback.stakeholders),
+      labels: mergeEntityLists(preferred.labels, fallback.labels),
+    };
+  });
+
+  return result.length === opportunities.length ? opportunities : result;
 };
 
 
@@ -927,14 +994,14 @@ function App() {
   const stableGlobalSowForm = useMemo(() => appSettings.globalSowForm || EMPTY_SOW_FORM, [appSettings.globalSowForm]);
   // Normalized once here: the SOW iframe re-renders its option lists whenever this identity
   // changes, so handing it a fresh object every render would rebuild the form on every keystroke.
-  const stableScopeCatalog = useMemo(() => {
-    const catalog = normalizeScopeCatalog(appSettings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
-    const extras = new Map(catalog.extras.map(option => [option.id, option]));
-    stableGlobalLabels.forEach(label => {
-      if (!catalogContainsLabel(catalog, label.text)) extras.set(label.id, { id: label.id, label: label.text, color: label.color });
-    });
-    return { ...catalog, extras: [...extras.values()].filter(option => !catalogContainsLabel(catalog, option.label)) };
-  }, [appSettings.scopeCatalog, stableGlobalLabels]);
+  //
+  // This used to also fold every historical global label (stableGlobalLabels) into "extras", so
+  // the Scope button's Labels/Extras chips filled up with every old label ever created across all
+  // opportunities. Alan asked for only the catalog's own extras (Similar/Copy, Split, plus
+  // anything added in Settings) to show by default — an opportunity that already has one of those
+  // older labels still sees it via ScopeQuickViewModal's own per-opportunity `legacyLabels`
+  // fallback, so no existing selection is hidden, only the site-wide "show every label ever" list.
+  const stableScopeCatalog = useMemo(() => normalizeScopeCatalog(appSettings.scopeCatalog) || DEFAULT_SCOPE_CATALOG, [appSettings.scopeCatalog]);
   const rebalancePrioritiesRef = useRef<(opps: Opportunity[], changedId?: string, newOrder?: number | null, statusChanged?: boolean) => Opportunity[]>(() => []);
 
   useEffect(() => {
@@ -981,13 +1048,13 @@ function App() {
           isBroadcastingRef.current = true;
           setDb(prev => ({
             ...prev,
-            opportunities: prev.opportunities.map(o => o.id === oppId ? { ...o, ...oppData } : o)
+            opportunities: dedupeOpportunities(prev.opportunities.map(o => o.id === oppId ? { ...o, ...oppData } : o))
           }));
           setStatus('saved');
         } else if (event.data.type === 'DB_UPDATE') {
           console.debug("[Sync] Received FULL DB update from another tab");
           isBroadcastingRef.current = true; // Mark as remote change to avoid re-broadcast
-          setDb(event.data.db);
+          setDb({ ...event.data.db, opportunities: dedupeOpportunities(event.data.db?.opportunities) });
           setStatus('saved');
         } else if (event.data.type === 'BACKEND_REVISION') {
           const revision = Number(event.data.revision || 0);
@@ -1637,9 +1704,11 @@ function App() {
           return o;
         }
       });
-      // Keep ranks unique without collapsing deliberate gaps. Users may assign
-      // any positive rank (for example 2 even when 1 is currently unused).
-      const active = migratedOpps
+      // Rank is positional, not a free-form score. Normalize every loaded DB
+      // to a dense 1..N sequence so legacy gaps such as 1, 7, 30 disappear as
+      // soon as the database opens.
+      const uniqueMigratedOpps = dedupeOpportunities(migratedOpps);
+      const active = uniqueMigratedOpps
         .filter(o => !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel) && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled')
         .sort((a, b) => {
           const aRank = Number(a.priorityOrder) || Number.MAX_SAFE_INTEGER;
@@ -1649,17 +1718,8 @@ function App() {
           const bDate = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
           return aDate.localeCompare(bDate) || a.id.localeCompare(b.id);
         });
-      const usedRanks = new Set<number>();
-      let nextFreeRank = 1;
-      const rankById = new Map(active.map(opp => {
-        const requested = Number(opp.priorityOrder);
-        let rank = Number.isInteger(requested) && requested > 0 ? requested : nextFreeRank;
-        while (usedRanks.has(rank)) rank += 1;
-        usedRanks.add(rank);
-        while (usedRanks.has(nextFreeRank)) nextFreeRank += 1;
-        return [opp.id, rank];
-      }));
-      const normalizedRanks = migratedOpps.map(opp => ({ ...opp, priorityOrder: rankById.get(opp.id) || null }));
+      const rankById = new Map(active.map((opp, index) => [opp.id, index + 1]));
+      const normalizedRanks = uniqueMigratedOpps.map(opp => ({ ...opp, priorityOrder: rankById.get(opp.id) || null }));
       return { ...data, opportunities: normalizedRanks };
     } catch (err: any) {
       console.error("[Migration] Critical error during migration:", err);
@@ -2042,33 +2102,46 @@ function App() {
         !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel)
         && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled'
       );
-      const arrivalRank = Math.max(0, ...activeOpportunities.map(o => Number(o.priorityOrder) || 0)) + 1;
+      const arrivalRank = activeOpportunities.length + 1;
       return { ...prev, opportunities: [{ ...newOpp, priorityOrder: arrivalRank }, ...prev.opportunities] };
     });
     setSelectedOppId(newId);
   }, []);
 
   const rebalancePriorities = useCallback((opps: Opportunity[], changedId?: string, newOrder?: number | null, _statusChanged: boolean = false) => {
-    // Rank is global and independent from status. Manual values are preserved,
-    // including gaps; only collisions are shifted upward.
+    // Rank is a dense global position among active opportunities: always 1..N,
+    // never a free-form number. Moving one item inserts it at the requested
+    // position and shifts every item below it by exactly one.
     const isRankedActive = (opp: Opportunity) =>
       !['Submitted', 'Won', 'Lost', 'Canceled'].includes(opp.statusLabel)
       && opp.detailedStatus !== 'Completed' && opp.detailedStatus !== 'Canceled';
-    const activeOpps = opps.filter(isRankedActive);
-    const requestedRank = changedId && newOrder != null ? Math.max(1, Math.trunc(newOrder)) : null;
-    const usedRanks = new Set<number>();
-    if (requestedRank !== null) usedRanks.add(requestedRank);
-    const rankById = new Map<string, number>();
-    if (changedId && requestedRank !== null && activeOpps.some(opp => opp.id === changedId)) rankById.set(changedId, requestedRank);
-    activeOpps
-      .filter(opp => opp.id !== changedId)
-      .sort((a, b) => (Number(a.priorityOrder) || Number.MAX_SAFE_INTEGER) - (Number(b.priorityOrder) || Number.MAX_SAFE_INTEGER))
-      .forEach(opp => {
-        let rank = Math.max(1, Math.trunc(Number(opp.priorityOrder) || 1));
-        while (usedRanks.has(rank)) rank += 1;
-        usedRanks.add(rank);
-        rankById.set(opp.id, rank);
-      });
+    const activeOpps = opps
+      .map((opp, index) => ({ opp, index }))
+      .filter(({ opp }) => isRankedActive(opp))
+      .sort((a, b) => {
+        const aRank = Number(a.opp.priorityOrder);
+        const bRank = Number(b.opp.priorityOrder);
+        const aValid = Number.isFinite(aRank) && aRank > 0;
+        const bValid = Number.isFinite(bRank) && bRank > 0;
+        if (aValid && bValid && aRank !== bRank) return aRank - bRank;
+        if (aValid !== bValid) return aValid ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ opp }) => opp);
+
+    if (changedId) {
+      const changedIndex = activeOpps.findIndex(opp => opp.id === changedId);
+      if (changedIndex >= 0) {
+        const [changed] = activeOpps.splice(changedIndex, 1);
+        const requested = Number(newOrder);
+        const insertionIndex = newOrder != null && Number.isFinite(requested)
+          ? Math.min(activeOpps.length, Math.max(0, Math.trunc(requested) - 1))
+          : activeOpps.length;
+        activeOpps.splice(insertionIndex, 0, changed);
+      }
+    }
+
+    const rankById = new Map(activeOpps.map((opp, index) => [opp.id, index + 1]));
     return opps.map(opp => {
       const nextRank = isRankedActive(opp) ? (rankById.get(opp.id) || null) : null;
       return opp.priorityOrder === nextRank ? opp : { ...opp, priorityOrder: nextRank };
@@ -2420,7 +2493,7 @@ function App() {
   };
   // db.opportunities is already stable between renders when the array reference
   // hasn't actually changed — no extra memo needed.
-  const stableOpportunities = db.opportunities;
+  const stableOpportunities = useMemo(() => dedupeOpportunities(db.opportunities), [db.opportunities]);
 
   // The dashboard is completely covered while either detail view is open. Keep
   // its expensive search/index projection frozen until it becomes visible again.
@@ -2489,13 +2562,15 @@ function App() {
   }, [stableOpportunities, selectedOppId]);
 
   const handleSelectOpp = useCallback((id: string, dl?: DeepLink) => {
-    // startTransition lets React yield while it mounts the (large) OpportunityDetail
-    // tree, instead of blocking the main thread in one long synchronous commit — that
-    // block is what made the overlay's fade-in/zoom-in feel like it skipped frames.
-    React.startTransition(() => {
-      setSelectedOppId(id);
-      setActiveDeepLink(dl ? { ...dl, _nonce: ++deepLinkNonceRef.current } : null);
-    });
+    // Opening an expediente is an explicit, urgent interaction. Keeping this
+    // update inside startTransition allowed it to sit behind a burst of large
+    // Dashboard database updates (rank/status/inline edits), which made clicks
+    // appear completely frozen until the queue drained. Commit the lightweight
+    // selection immediately; the Dashboard data is frozen while the overlay is
+    // open, so mounting the detail no longer causes the old recomputation cost.
+    if (!dbRef.current.opportunities.some(opp => opp.id === id)) return;
+    setSelectedOppId(id);
+    setActiveDeepLink(dl ? { ...dl, _nonce: ++deepLinkNonceRef.current } : null);
   }, []);
 
   const handleCloseSelectedOpportunity = useCallback(() => {

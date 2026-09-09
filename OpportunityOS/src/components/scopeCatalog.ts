@@ -105,11 +105,10 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'cyber', label: 'Cyber' },
     ],
     applications: [
-        { id: 'sis', label: 'SIS' },
+        { id: 'sis', label: 'SIS/ESD' },
         { id: 'bms', label: 'BMS' },
         { id: 'tmc', label: 'TMC' },
         { id: 'fg', label: 'SF&G' },
-        { id: 'esd', label: 'ESD' },
     ],
     quickNotes: [
         { id: 'new-cabinets', label: 'New Cabinets', children: [
@@ -208,7 +207,7 @@ export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
  * Bump this whenever `migrateLegacyScopeCatalog` gains a new one-time fix, so it runs again for
  * everyone still below the new version. Never decrease it.
  */
-export const SCOPE_CATALOG_MIGRATION_VERSION = 7;
+export const SCOPE_CATALOG_MIGRATION_VERSION = 8;
 
 /**
  * One-time data fixes for catalogs saved by older builds: options that used to be missing,
@@ -298,9 +297,17 @@ export const migrateLegacyScopeCatalog = (catalog: ScopeCatalog): ScopeCatalog =
         extras.push({ id: 'split', label: 'Split' });
     }
 
-    const applications = DEFAULT_SCOPE_CATALOG.applications.map(defaultOption =>
-        (catalog.applications || []).find(option => option.id === defaultOption.id || scopeLabelKey(option.label) === scopeLabelKey(defaultOption.label)) || defaultOption
-    );
+    // ESD was merged into SIS ("SIS/ESD") and dropped as its own option. Match the existing 'sis'
+    // or 'esd' row (whichever the user answered) so a prior ESD-only selection isn't silently
+    // lost, but always force the current "SIS/ESD" label — a stale "SIS" label would never
+    // self-correct otherwise, since matching by id/label short-circuits before this rename.
+    const applications = DEFAULT_SCOPE_CATALOG.applications.map(defaultOption => {
+        const stored = catalog.applications || [];
+        const existing = stored.find(option => option.id === defaultOption.id || scopeLabelKey(option.label) === scopeLabelKey(defaultOption.label))
+            || (defaultOption.id === 'sis' ? stored.find(option => option.id === 'esd' || scopeLabelKey(option.label) === 'esd') : undefined);
+        if (!existing) return defaultOption;
+        return defaultOption.id === 'sis' ? { ...existing, id: 'sis', label: 'SIS/ESD' } : existing;
+    });
 
     return { scope, systems: systemsWithFoxboro, applications, quickNotes, extras };
 };
