@@ -109,6 +109,7 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
         { id: 'bms', label: 'BMS' },
         { id: 'tmc', label: 'TMC' },
         { id: 'fg', label: 'SF&G' },
+        { id: 'hipps', label: 'HIPPS' },
     ],
     quickNotes: [
         { id: 'new-cabinets', label: 'New Cabinets', children: [
@@ -207,7 +208,7 @@ export const normalizeScopeCatalog = (raw: any): ScopeCatalog | null => {
  * Bump this whenever `migrateLegacyScopeCatalog` gains a new one-time fix, so it runs again for
  * everyone still below the new version. Never decrease it.
  */
-export const SCOPE_CATALOG_MIGRATION_VERSION = 8;
+export const SCOPE_CATALOG_MIGRATION_VERSION = 9;
 
 /**
  * One-time data fixes for catalogs saved by older builds: options that used to be missing,

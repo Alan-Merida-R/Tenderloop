@@ -27,7 +27,11 @@ export default defineConfig(({ mode }) => {
         react(),
         tailwindcss(),
         VitePWA({
-          registerType: 'autoUpdate',
+          // Tender Control is served locally as a stable production build.
+          // Do not register an auto-updating worker: the updater rebuilds on
+          // disk and the next intentional launch receives that version.
+          injectRegister: null,
+          registerType: 'prompt',
           manifest: {
             id: '/',
             name: 'Tender Control',

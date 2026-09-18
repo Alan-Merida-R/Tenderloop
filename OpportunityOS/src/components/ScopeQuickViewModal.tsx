@@ -223,18 +223,6 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                     <>
                         <div className="p-6 space-y-5 overflow-y-auto">
                             <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Proposal Description</label>
-                                <textarea
-                                    value={scope}
-                                    onChange={(e) => setScope(e.target.value)}
-                                    disabled={disabled}
-                                    placeholder="Describe el alcance de la oportunidad..."
-                                    className="w-full text-base leading-relaxed p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent min-h-[22vh] resize-y disabled:bg-gray-50"
-                                />
-                                <p className="text-[11px] text-gray-400 mt-1 italic">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;. Sincronizado con la nota SOW.</p>
-                            </div>
-
-                            <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Type of Proposal</label>
                                 <div className="flex flex-wrap gap-2">
                                     {resolvedCatalog.scope.map(option => (
@@ -247,24 +235,6 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                                                 className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
                                             />
                                             {option.label}
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Execution Center <span className="normal-case font-semibold text-gray-400">(optional — only if this proposal is quoted from more than one center)</span></label>
-                                <div className="flex flex-wrap gap-2">
-                                    {EXECUTION_CENTERS.map(center => (
-                                        <label key={center} className={chip(executionCenter === center)} style={executionCenter === center ? { backgroundColor: '#64748b' } : undefined}>
-                                            <input
-                                                type="checkbox"
-                                                checked={executionCenter === center}
-                                                onChange={() => setExecutionCenter(prev => prev === center ? '' : center)}
-                                                disabled={disabled}
-                                                className="rounded border-gray-300 text-slate-600 focus:ring-slate-500"
-                                            />
-                                            {center}
                                         </label>
                                     ))}
                                 </div>
@@ -288,6 +258,18 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                                     </div>
                                 </div>
                             )}
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Proposal Description</label>
+                                <textarea
+                                    value={scope}
+                                    onChange={(e) => setScope(e.target.value)}
+                                    disabled={disabled}
+                                    placeholder="Describe el alcance de la oportunidad..."
+                                    className="w-full text-base leading-relaxed p-4 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#3DCD58] focus:border-transparent min-h-[22vh] resize-y disabled:bg-gray-50"
+                                />
+                                <p className="text-[11px] text-gray-400 mt-1 italic">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;. Sincronizado con la nota SOW.</p>
+                            </div>
 
                             <div>
                                 <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Extra Scope</label>
@@ -318,6 +300,24 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
                                     );
                                 })}
                             </div>}
+
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Execution Center <span className="normal-case font-semibold text-gray-400">(optional — only if this proposal is quoted from more than one center)</span></label>
+                                <div className="flex flex-wrap gap-2">
+                                    {EXECUTION_CENTERS.map(center => (
+                                        <label key={center} className={chip(executionCenter === center)} style={executionCenter === center ? { backgroundColor: '#64748b' } : undefined}>
+                                            <input
+                                                type="checkbox"
+                                                checked={executionCenter === center}
+                                                onChange={() => setExecutionCenter(prev => prev === center ? '' : center)}
+                                                disabled={disabled}
+                                                className="rounded border-gray-300 text-slate-600 focus:ring-slate-500"
+                                            />
+                                            {center}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
 
                             <p className="text-[11px] text-gray-400 italic">These lists are shared with the SOW Base Data section. Add or remove options in Settings &rarr; Labels &amp; Scope.</p>
                         </div>

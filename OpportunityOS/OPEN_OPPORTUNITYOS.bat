@@ -6,7 +6,7 @@ if exist "%~dp0scripts\check-for-update.ps1" powershell.exe -NoProfile -Executio
 
 :: Compatibility launcher for Windows environments that block .vbs or .hta
 :: files. It never deletes project files and keeps setup errors visible.
-if exist "node_modules\.bin\vite.cmd" (
+if exist "node_modules\.bin\vite.cmd" if exist "dist\index.html" (
     call "%~dp0engine_opportunityos.bat" HIDDEN
     exit /b %errorlevel%
 )

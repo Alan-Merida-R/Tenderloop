@@ -103,7 +103,7 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
           className="flex items-center gap-1.5 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"
           title="Export Opportunity Package"
         >
-          <Download className="w-3.5 h-3.5" /> Export
+          <Download className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Export</span>
         </button>
       )}
       <button
@@ -111,7 +111,7 @@ export const OpportunityExportImportButtons: React.FC<Props> = ({ opportunity, o
         className="flex items-center gap-1.5 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"
         title="Import Opportunity Package"
       >
-        <Upload className="w-3.5 h-3.5" /> Import
+        <Upload className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Import</span>
       </button>
     </div>
   );

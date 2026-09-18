@@ -11,14 +11,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Tender Control" />
     <script>
-      // Development launches used to register a PWA service worker on the same
-      // local origin. Remove any stale worker/cache so an updated installation
-      // cannot be replaced by an obsolete blank application shell.
+      // Older development launches registered a PWA service worker on this
+      // local origin. Clean it up in the background, but never force a reload:
+      // that could discard the user's filters after boot or resume.
       (function () {
         var isLocalDev = (location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '3000';
         if (!isLocalDev) return;
-
-        var wasControlled = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
 
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function (registrations) {
@@ -30,31 +28,6 @@
             keys.forEach(function (key) { caches.delete(key); });
           }).catch(function () {});
         }
-
-        // Unregistering above only affects the *next* navigation, not this one —
-        // if a stale worker already served this load, this window still has the
-        // obsolete/blank shell. Reload once automatically so the user isn't left
-        // staring at a blank window until they close and relaunch by hand.
-        if (wasControlled && !sessionStorage.getItem('OpportunityOS_SwRecoveryReload')) {
-          sessionStorage.setItem('OpportunityOS_SwRecoveryReload', '1');
-          location.reload();
-          return;
-        }
-
-        // Safety net for any other cause of a blank shell after the computer
-        // sleeps/wakes (Chrome discarding and silently reloading the app window,
-        // a dropped dev-server request, etc.): if React hasn't mounted anything
-        // into #root a few seconds after load, reload once automatically instead
-        // of requiring a manual close/reopen of the app.
-        window.addEventListener('load', function () {
-          setTimeout(function () {
-            var root = document.getElementById('root');
-            if (root && root.childElementCount === 0 && !sessionStorage.getItem('OpportunityOS_BlankRecoveryReload')) {
-              sessionStorage.setItem('OpportunityOS_BlankRecoveryReload', '1');
-              location.reload();
-            }
-          }, 4000);
-        });
       })();
     </script>
     <style>

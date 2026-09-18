@@ -202,15 +202,39 @@ export const flattenSystems = (selection: ScopeSelection, catalog: ScopeCatalog)
     return flat;
 };
 
+/** Extra Scope parents and their selected children, in the same order shown by the SOW. */
+export const flattenQuickNotes = (selection: ScopeSelection, catalog: ScopeCatalog): string[] => {
+    const flat: string[] = [];
+    const push = (label: string) => { if (label && !flat.includes(label)) flat.push(label); };
+    selection.quickNotes.forEach(label => {
+        push(label);
+        const option = catalog.quickNotes.find(item => item.label === label);
+        if (!option?.children?.length) return;
+        (selection.modules[scopeModuleKey('quickNotes', option)] || []).forEach(push);
+    });
+    return flat;
+};
+
 export interface ScopeGlance {
     scope: string[];
     systems: string[];
     applications: string[];
+    executionCenters: string[];
     quickNotes: string[];
     extras: string[];
     /** False when the opportunity has no SOW answers at all — nothing to render. */
     hasAny: boolean;
 }
+
+export type ScopeFilterCategory = 'scope' | 'systems' | 'applications' | 'executionCenters' | 'quickNotes' | 'extras';
+
+/** OR inside one Scope category, AND between every category that has selections. */
+export const matchesScopeGlanceFilters = (
+    glance: ScopeGlance,
+    selectedByCategory: Partial<Record<ScopeFilterCategory, string[]>>,
+): boolean => (Object.entries(selectedByCategory) as [ScopeFilterCategory, string[]][]).every(([category, selected]) =>
+    selected.length === 0 || selected.some(value => (glance[category] || []).includes(value))
+);
 
 /**
  * The at-a-glance scope for one opportunity: the Scope answers and the Systems answers
@@ -232,15 +256,21 @@ export const readScopeGlance = (
         .map(option => option.label);
     const scope = Array.from(new Set([...selection.scope, ...legacyMatches(resolved.scope)]));
     const systemOptions = resolved.systems.flatMap(option => [option, ...(option.children || [])]);
-    const systems = Array.from(new Set([...flattenSystems(selection, resolved), ...legacyMatches(systemOptions)]));
+    const selectedSystems = flattenSystems(selection, resolved);
+    // Opportunity labels predate the SOW catalog and can contradict a later Scope edit
+    // (for example, a proposal changed from Foxboro to Safety). They are recovery data,
+    // not an additional current selection: use them only when the SOW has no system.
+    const systems = Array.from(new Set(selectedSystems.length ? selectedSystems : legacyMatches(systemOptions)));
     const safetySelected = selection.systems.some(label => resolved.systems.find(option => option.label === label)?.id === 'triconex');
     const applications = safetySelected ? Array.from(new Set([...(selection.applications || []), ...legacyMatches(resolved.applications || [])])) : [];
-    const quickNotes = Array.from(new Set([...selection.quickNotes, ...legacyMatches(resolved.quickNotes)]));
+    const executionCenter = typeof fields.execution_center === 'string' ? fields.execution_center.trim() : '';
+    const executionCenters = executionCenter ? [executionCenter] : [];
+    const quickNotes = Array.from(new Set([...flattenQuickNotes(selection, resolved), ...legacyMatches(resolved.quickNotes)]));
     const extras = Array.from(new Map([
         ...selection.extras,
         ...legacyLabels.filter(label => !catalogContainsLabel(resolved, label.text)).map(label => label.text),
     ].map(label => [scopeLabelKey(label), label])).values());
-    return { scope, systems, applications, quickNotes, extras, hasAny: scope.length > 0 || systems.length > 0 || applications.length > 0 || quickNotes.length > 0 || extras.length > 0 };
+    return { scope, systems, applications, executionCenters, quickNotes, extras, hasAny: scope.length > 0 || systems.length > 0 || applications.length > 0 || executionCenters.length > 0 || quickNotes.length > 0 || extras.length > 0 };
 };
 
 /** Plain-text form, e.g. "Upgrade, Migration and CF - EAE, Triconex, SIS". Used for tooltips. */

@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bot, Check, ChevronDown, ChevronUp, Copy, History, Moon, Sparkles, Sun, Trash2, X } from 'lucide-react';
-import { DEFAULT_FOCUS_POLICY, FocusPolicy, Opportunity, QuickOrganizerPreferences, QuickOrganizerRun, Reminder, Task } from '../../types';
+import { Bot, Check, ChevronDown, ChevronUp, Copy, Globe, History, Moon, Sparkles, Sun, Trash2, X } from 'lucide-react';
+import { AlarmConfig, DEFAULT_FOCUS_POLICY, DEFAULT_PERSONAL_CONSTRAINTS, FocusPolicy, Opportunity, PersonalConstraints, QuickOrganizerPreferences, QuickOrganizerRun, Reminder, Task } from '../../types';
+import { extractFixedCommitments } from '../../services/commitmentExtractor';
+import type { ScopeCatalog } from '../../components/scopeCatalog';
+import type { TaskStandardLike } from '../../services/executionModel';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
 import { createBlock } from '../schedule/executionBlockUtils';
 import { buildOrganizerPrompt, ORGANIZER_CHIPS, TimeRange } from './promptBuilder';
 import { insertTasksInPlan } from '../../services/taskUtils';
 import { buildExecutionModel, forecastTask } from '../../services/executionModel';
-import { ParsedDueDateRow, ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow, parseOrganizerResponse } from './responseParser';
+import {
+    ParsedContingentRow, ParsedDeliveryDateRow, ParsedDueDateRow, ParsedExternalPushRow, ParsedMeta,
+    ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedOutOfScopeRow, ParsedQueueRow,
+    ParsedQuestionRow, ParsedRankingRow, ParsedReminderRow, ParsedScheduleRow, ParsedSuggestedMoveRow, parseOrganizerResponse,
+} from './responseParser';
 import { QuickOrganizerReview } from './QuickOrganizerReview';
 import { QuickOrganizerAvailabilityPicker } from './QuickOrganizerAvailabilityPicker';
 
@@ -23,9 +30,22 @@ interface Props {
     onSaveOrganizerRun: (run: QuickOrganizerRun) => void;
     onDeleteOrganizerRun: (id: string) => void;
     onOrganizerPreferencesChange: (preferences: QuickOrganizerPreferences) => void;
+    /**
+     * [TA6] The user's real holiday list (Settings -> Holidays), the same one the KPI
+     * business-day math uses. Without it the organizer was proposing work on public holidays.
+     */
+    holidays?: string[];
+    /** [TA6] Proposal alarm policy + scope catalog: the app's own measure of how big a proposal is. */
+    alarms?: AlarmConfig[];
+    scopeCatalog?: ScopeCatalog;
+    /** [TA6] Settings task standards — the user's declared duration per task, used when the timer is empty. */
+    taskStandards?: TaskStandardLike[];
     /** Called right after a plan is accepted — the host navigates to the Tasks view in Agenda mode. */
     onPlanAccepted?: () => void;
 }
+
+/** Marks the block of answers appended to the extra instructions, so a second round replaces it. */
+const ANSWER_BLOCK_MARKER = '=== MY ANSWERS TO YOUR QUESTIONS ===';
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-100 px-2 py-1 focus:border-[#3DCD58] focus:ring-0 w-full';
 
@@ -52,7 +72,7 @@ const buildDayWindow = (language: 'en' | 'es'): DayOption[] => {
     });
 };
 
-export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onDeleteReminder, onClose, organizerHistory, organizerPreferences, onSaveOrganizerRun, onDeleteOrganizerRun, onOrganizerPreferencesChange, onPlanAccepted }) => {
+export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, userName, onOppUpdate, onAddReminder, onDeleteReminder, onClose, organizerHistory, organizerPreferences, onSaveOrganizerRun, onDeleteOrganizerRun, onOrganizerPreferencesChange, holidays = [], alarms, scopeCatalog, taskStandards, onPlanAccepted }) => {
     const [phase, setPhase] = useState<'main' | 'review'>('main');
     const [extraInstructions, setExtraInstructions] = useState('');
     const [activeChipIds, setActiveChipIds] = useState<string[]>([]);
@@ -63,7 +83,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
      * stored; the copy kept in preferences is only a snapshot so the calibration travels with the
      * database. Nothing leaves the machine.
      */
-    const executionModel = useMemo(() => buildExecutionModel(opportunities), [opportunities]);
+    const executionModel = useMemo(() => buildExecutionModel(opportunities, { taskStandards }), [opportunities, taskStandards]);
 
     const updateFocusPolicy = (patch: Partial<FocusPolicy>) => {
         const next = { ...focusPolicy, ...patch };
@@ -72,6 +92,15 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     };
     const [recommendationLanguage, setRecommendationLanguage] = useState<'en' | 'es'>(organizerPreferences.displayLanguage || 'es');
     const [organizerTheme, setOrganizerTheme] = useState<'light' | 'dark'>(organizerPreferences.theme || 'light');
+    // [TA6] Every time in the prompt is stated in this zone, so "send it before 10:00 their
+    // time" means something. Auto-detected, overridable, and persisted with the database.
+    const browserTimezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Mexico_City', []);
+    const [timezone, setTimezone] = useState<string>(organizerPreferences.timezone || browserTimezone);
+    // Most external counterparts in this workflow are in Texas, so US Central is the default the
+    // organizer assumes for anyone with no timezone recorded, rather than the user's own zone.
+    const [stakeholderTimezone, setStakeholderTimezone] = useState<string>(organizerPreferences.stakeholderTimezone || 'America/Chicago');
+    const [personalConstraints, setPersonalConstraints] = useState<PersonalConstraints>(organizerPreferences.personalConstraints || DEFAULT_PERSONAL_CONSTRAINTS);
+    const [showConstraints, setShowConstraints] = useState(false);
     const [availabilityMode, setAvailabilityMode] = useState<'classic' | 'calendar'>('classic');
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const dayWindow = useMemo(() => buildDayWindow(recommendationLanguage), [recommendationLanguage]);
@@ -129,6 +158,24 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         [iso]: (prev[iso] || []).map((r, i) => i === idx ? { ...r, ...patch } : r),
     }));
     const todayLabel = useMemo(() => new Date().toLocaleDateString(recommendationLanguage === 'es' ? 'es-MX' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' }), [recommendationLanguage]);
+    // [TA6] Meetings read out of the notes, history events and reminders the user already writes.
+    // Shown before generating so a wrong detection can be unticked instead of silently eating an
+    // hour of the plan.
+    const [dismissedCommitmentIds, setDismissedCommitmentIds] = useState<string[]>([]);
+    const detectedCommitments = useMemo(() => {
+        const dates = Object.keys(timeRangesByDate).sort();
+        const todayIso = new Date().toLocaleDateString('en-CA');
+        return extractFixedCommitments(opportunities, {
+            horizonStart: dates[0] || todayIso,
+            horizonEnd: dates[dates.length - 1] || todayIso,
+            reminders,
+        });
+    }, [opportunities, reminders, timeRangesByDate]);
+    const activeCommitments = useMemo(
+        () => detectedCommitments.filter(item => !dismissedCommitmentIds.includes(item.id)),
+        [detectedCommitments, dismissedCommitmentIds]
+    );
+
     const [prompt, setPrompt] = useState('');
     const [promptDirty, setPromptDirty] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -146,6 +193,18 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const [missingTaskSuggestions, setMissingTaskSuggestions] = useState<ParsedMissingTaskSuggestion[]>([]);
     const [queuedTaskSuggestions, setQueuedTaskSuggestions] = useState<ParsedMissingTaskSuggestion[]>([]);
     const [opportunityAssessments, setOpportunityAssessments] = useState<ParsedOpportunityAssessment[]>([]);
+    // [TA6] Delivery dates are applied like due dates; everything below them is advisory and is
+    // only rendered for the user to act on by hand.
+    const [deliveryDateRows, setDeliveryDateRows] = useState<ParsedDeliveryDateRow[]>([]);
+    const [rankingRows, setRankingRows] = useState<ParsedRankingRow[]>([]);
+    const [externalPushRows, setExternalPushRows] = useState<ParsedExternalPushRow[]>([]);
+    const [contingentRows, setContingentRows] = useState<ParsedContingentRow[]>([]);
+    const [queueRows, setQueueRows] = useState<ParsedQueueRow[]>([]);
+    const [suggestedMoveRows, setSuggestedMoveRows] = useState<ParsedSuggestedMoveRow[]>([]);
+    const [outOfScopeRows, setOutOfScopeRows] = useState<ParsedOutOfScopeRow[]>([]);
+    const [assumptions, setAssumptions] = useState<string[]>([]);
+    const [questionRows, setQuestionRows] = useState<ParsedQuestionRow[]>([]);
+    const [responseMeta, setResponseMeta] = useState<ParsedMeta | null>(null);
     const [applied, setApplied] = useState(false);
 
     const stats = useMemo(() => {
@@ -162,8 +221,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     }, [opportunities]);
 
     const generatedPrompt = useMemo(
-        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel }),
-        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel]
+        () => buildOrganizerPrompt(opportunities, { userName, extraInstructions, activeChipIds, dayWindows: timeRangesByDate, oppIds: selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel, holidays, timezone, fixedCommitments: activeCommitments, personalConstraints, stakeholderTimezone, alarms, scopeCatalog }),
+        [opportunities, userName, extraInstructions, activeChipIds, timeRangesByDate, selectedOppIds, recommendationLanguage, reminders, focusPolicy, executionModel, holidays, timezone, activeCommitments, personalConstraints, stakeholderTimezone, alarms, scopeCatalog]
     );
 
     // Keep the editable prompt in sync with instructions/chips until the user
@@ -179,6 +238,19 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const changeLanguage = (language: 'en' | 'es') => {
         setRecommendationLanguage(language);
         onOrganizerPreferencesChange({ theme: organizerTheme, displayLanguage: language });
+    };
+    const changeTimezone = (value: string) => {
+        setTimezone(value);
+        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, timezone: value });
+    };
+    const changeStakeholderTimezone = (value: string) => {
+        setStakeholderTimezone(value);
+        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, stakeholderTimezone: value });
+    };
+    const updateConstraints = (patch: Partial<PersonalConstraints>) => {
+        const next = { ...personalConstraints, ...patch };
+        setPersonalConstraints(next);
+        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, personalConstraints: next });
     };
     const changeTheme = (theme: 'light' | 'dark') => {
         setOrganizerTheme(theme);
@@ -220,6 +292,23 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         setMissingTaskSuggestions(result.missingTaskSuggestions);
         setQueuedTaskSuggestions([]);
         setOpportunityAssessments(result.opportunityAssessments);
+        setRankingRows(result.rankingRows);
+        setExternalPushRows(result.externalPushRows);
+        setContingentRows(result.contingentRows);
+        setQueueRows(result.queueRows);
+        setSuggestedMoveRows(result.suggestedMoveRows);
+        setOutOfScopeRows(result.outOfScopeRows);
+        setAssumptions(result.assumptions);
+        setQuestionRows(result.questionRows);
+        setResponseMeta(result.meta);
+        // One row per opportunity at most: a second proposal for the same delivery date is a
+        // contradiction, and silently applying the last one would hide it.
+        const importedDeliveryOppIds = new Set<string>();
+        setDeliveryDateRows(result.deliveryDateRows.filter(row => {
+            if (importedDeliveryOppIds.has(row.oppId)) return false;
+            importedDeliveryOppIds.add(row.oppId);
+            return true;
+        }));
         const importedDueDateKeys = new Set<string>();
         setDueDateRows(result.dueDateRows.filter(row => {
             const key = `${row.oppId}::${row.taskId}`;
@@ -256,9 +345,37 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         importAnalysis(run.response, run.dayWindows, false);
     };
 
+    const updateQuestionAnswer = (id: string, answer: string) =>
+        setQuestionRows(prev => prev.map(row => row.id === id ? { ...row, answer } : row));
+
+    /**
+     * [TA6] The second pass. The answers are appended to the extra instructions rather than sent
+     * anywhere: the user copies the regenerated prompt into the same chat and the analysis runs
+     * again with the gaps closed. Previous answer blocks are replaced, never stacked, so answering
+     * twice does not leave the model reading two contradictory sets of answers.
+     */
+    const applyQuestionAnswers = () => {
+        const answered = questionRows.filter(row => row.answer.trim());
+        if (!answered.length) return;
+        const block = [
+            ANSWER_BLOCK_MARKER,
+            'These are my answers to the questions you asked in your previous answer. They are binding and they override any assumption you made in their place. Re-run the full analysis with them.',
+            ...answered.map(row => `- ${row.question} -> ${row.answer.trim()}`),
+        ].join('\n');
+        setExtraInstructions(current => {
+            const withoutPrevious = current.split(ANSWER_BLOCK_MARKER)[0].trimEnd();
+            return withoutPrevious ? `${withoutPrevious}\n\n${block}` : block;
+        });
+        setPromptDirty(false);
+        setPhase('main');
+    };
+
     const removeScheduleRow = (id: string) => setScheduleRows(prev => prev.filter(r => r.id !== id));
     const removeReminderRow = (id: string) => setReminderRows(prev => prev.filter(r => r.id !== id));
     const removeDueDateRow = (id: string) => setDueDateRows(prev => prev.filter(r => r.id !== id));
+    const removeDeliveryDateRow = (id: string) => setDeliveryDateRows(prev => prev.filter(r => r.id !== id));
+    const updateDeliveryDateRow = (id: string, patch: Partial<ParsedDeliveryDateRow>) =>
+        setDeliveryDateRows(prev => prev.map(row => row.id === id ? { ...row, ...patch } : row));
 
     const updateScheduleRow = (id: string, patch: Partial<ParsedScheduleRow>) =>
         setScheduleRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
@@ -313,7 +430,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             byTask.get(row.taskId)!.push(row);
         }
 
-        const affectedOppIds = new Set([...byOpp.keys(), ...dueDateRows.map(row => row.oppId), ...queuedTaskSuggestions.map(item => item.oppId)]);
+        const affectedOppIds = new Set([...byOpp.keys(), ...dueDateRows.map(row => row.oppId), ...deliveryDateRows.map(row => row.oppId), ...queuedTaskSuggestions.map(item => item.oppId)]);
         for (const oppId of affectedOppIds) {
             const byTask = byOpp.get(oppId) || new Map<string, ParsedScheduleRow[]>();
             const opp = opportunities.find(o => o.id === oppId);
@@ -339,7 +456,13 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                     dependsOnTaskIds: [], blockDoneUntilDependenciesDone: false,
                 }));
             const plannedTasks = insertTasksInPlan(updatedTasks, createdTasks);
-            onOppUpdate({ ...opp, tasks: plannedTasks, lastUpdated: new Date().toISOString() }, oppId, true);
+            // [TA6] The opportunity's own delivery date. Only moved when the AI proposed it AND the
+            // commitment is not hard — a hard commitment belongs to the customer, not to the plan.
+            const proposedDelivery = deliveryDateRows.find(row => row.oppId === oppId);
+            const deliveryPatch = proposedDelivery && opp.commercial?.deliveryCommitted !== 'hard'
+                ? { dates: { ...opp.dates, expected: proposedDelivery.date } }
+                : {};
+            onOppUpdate({ ...opp, ...deliveryPatch, tasks: plannedTasks, lastUpdated: new Date().toISOString() }, oppId, true);
         }
 
         const existingTaskReminders = new Set(reminders
@@ -379,6 +502,18 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             missingTaskSuggestions={missingTaskSuggestions}
             opportunityAssessments={opportunityAssessments}
             dueDateRows={dueDateRows}
+            deliveryDateRows={deliveryDateRows}
+            rankingRows={rankingRows}
+            externalPushRows={externalPushRows}
+            contingentRows={contingentRows}
+            queueRows={queueRows}
+            suggestedMoveRows={suggestedMoveRows}
+            outOfScopeRows={outOfScopeRows}
+            assumptions={assumptions}
+            questionRows={questionRows}
+            onQuestionAnswerChange={updateQuestionAnswer}
+            onUseAnswers={applyQuestionAnswers}
+            meta={responseMeta}
             opportunities={opportunities.filter(opp => selectedOppIds.includes(opp.id))}
             errors={parseErrors}
             onChange={updateScheduleRow}
@@ -387,6 +522,8 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
             onRemove={removeScheduleRow}
             onRemoveReminder={removeReminderRow}
             onRemoveDueDate={removeDueDateRow}
+            onDeliveryDateChange={updateDeliveryDateRow}
+            onRemoveDeliveryDate={removeDeliveryDateRow}
             onScheduleTask={scheduleTaskInDraft}
             onCreateSuggestedTask={queueSuggestedTask}
             language={recommendationLanguage}
@@ -556,6 +693,23 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                             <button onClick={() => changeLanguage('en')} className={`px-2.5 py-1 ${recommendationLanguage === 'en' ? 'bg-[#3DCD58] text-white' : 'text-gray-400 hover:text-white'}`}>English</button>
                         </div>
                     </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gray-800/60 border border-gray-700 px-3 py-2">
+                        <div className="min-w-0">
+                            <span className="text-[11px] font-bold text-gray-300 flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 text-[#3DCD58]" /> {recommendationLanguage === 'es' ? 'Zona horaria y días festivos' : 'Timezone and holidays'}</span>
+                            <p className="mt-0.5 text-[10px] text-gray-500">
+                                {recommendationLanguage === 'es'
+                                    ? <>Todas las horas del prompt se expresan en esta zona. Los festivos salen de Ajustes → Holidays: <b className={holidays.length ? 'text-[#3DCD58]' : 'text-amber-400'}>{holidays.length ? `${holidays.length} fecha(s) configurada(s)` : 'ninguno configurado, se usa una lista fija aproximada MX/US'}</b>.</>
+                                    : <>Every time in the prompt is expressed in this zone. Holidays come from Settings → Holidays: <b className={holidays.length ? 'text-[#3DCD58]' : 'text-amber-400'}>{holidays.length ? `${holidays.length} date(s) configured` : 'none configured, a fixed MX/US approximation is used'}</b>.</>}
+                            </p>
+                        </div>
+                        <input
+                            value={timezone}
+                            onChange={e => changeTimezone(e.target.value)}
+                            placeholder={browserTimezone}
+                            className="bg-gray-950 border border-gray-700 rounded-lg text-[11px] text-gray-100 px-2 py-1 w-[190px] focus:border-[#3DCD58] focus:ring-0"
+                            title={recommendationLanguage === 'es' ? 'Zona horaria IANA, p. ej. America/Mexico_City' : 'IANA timezone, e.g. America/Mexico_City'}
+                        />
+                    </div>
                     <textarea
                         value={extraInstructions}
                         onChange={e => setExtraInstructions(e.target.value)}
@@ -588,6 +742,34 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                                 ? 'Calculado con tus propios datos, sin IA ni servicios externos. Se envía en el prompt junto con la fórmula para estimar fechas.'
                                 : 'Computed from your own data — no AI, no external service. It is sent in the prompt together with the formula used to estimate dates.'}
                         </p>
+
+                        {executionModel.agendaAccuracy.blocksPlanned > 0 && (
+                            <div className="mt-2 rounded-lg border border-gray-700 bg-gray-950/60 p-2">
+                                <p className="text-[10px] font-bold text-gray-300">
+                                    {recommendationLanguage === 'es' ? 'Desviación medida contra tus agendas anteriores' : 'Measured deviation against your past agendas'}
+                                </p>
+                                <ul className="mt-1 space-y-0.5 text-[10px] text-gray-400">
+                                    <li>• {recommendationLanguage === 'es'
+                                        ? `${executionModel.agendaAccuracy.blocksWorked} de ${executionModel.agendaAccuracy.blocksPlanned} bloques agendados tuvieron trabajo real (${executionModel.agendaAccuracy.blocksSkipped} no se trabajaron).`
+                                        : `${executionModel.agendaAccuracy.blocksWorked} of ${executionModel.agendaAccuracy.blocksPlanned} planned blocks had real work (${executionModel.agendaAccuracy.blocksSkipped} were never worked).`}</li>
+                                    <li>• {recommendationLanguage === 'es'
+                                        ? `Planeaste ${executionModel.agendaAccuracy.plannedHours}h y registraste ${executionModel.agendaAccuracy.loggedHours}h.`
+                                        : `You planned ${executionModel.agendaAccuracy.plannedHours}h and logged ${executionModel.agendaAccuracy.loggedHours}h.`}</li>
+                                    {executionModel.agendaAccuracy.effortRatio !== null && (
+                                        <li className={executionModel.agendaAccuracy.effortRatio > 1 ? 'text-amber-300' : 'text-[#3DCD58]'}>
+                                            • {recommendationLanguage === 'es'
+                                                ? `Factor de desviación x${executionModel.agendaAccuracy.effortRatio}: una hora planeada te ha costado ${executionModel.agendaAccuracy.effortRatio}h reales. Las estimaciones ya se multiplican por este factor.`
+                                                : `Deviation factor x${executionModel.agendaAccuracy.effortRatio}: one planned hour has really cost ${executionModel.agendaAccuracy.effortRatio}h. Estimates are already multiplied by it.`}
+                                        </li>
+                                    )}
+                                    {executionModel.agendaAccuracy.medianStartDelayDays !== null && (
+                                        <li>• {recommendationLanguage === 'es'
+                                            ? `Empiezas una tarea ${executionModel.agendaAccuracy.medianStartDelayDays} día(s) después de agendarla, mediana.`
+                                            : `You start a task ${executionModel.agendaAccuracy.medianStartDelayDays} day(s) after planning it, median.`}</li>
+                                    )}
+                                </ul>
+                            </div>
+                        )}
 
                         {executionModel.confidence < 0.5 && (
                             <div className="mt-2 rounded-lg border border-amber-700/60 bg-amber-950/40 p-2">
@@ -694,13 +876,19 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                         onChange={e => { setPrompt(e.target.value); setPromptDirty(true); }}
                         className={`${inputCls} h-56 font-mono text-[11px] leading-relaxed resize-y`}
                     />
-                    <p className={`text-[10px] font-bold ${prompt.length > 15000 ? 'text-rose-400' : prompt.length > 10000 ? 'text-amber-400' : 'text-gray-500'}`}>
+                    <p className={`text-[10px] font-bold ${prompt.length > 32000 ? 'text-rose-400' : prompt.length > 24000 ? 'text-amber-400' : 'text-gray-500'}`}>
                         {(prompt.length / 1000).toFixed(1)}k characters
-                        {prompt.length > 15000
-                            ? ' — exceeds most Copilot paste limits. Deselect opportunities or days until this shrinks.'
-                            : prompt.length > 10000
-                                ? ' — may exceed the free Copilot paste limit (~10k). M365 Copilot accepts it; otherwise deselect some opportunities.'
-                                : ' — fits comfortably in Copilot.'}
+                        {prompt.length > 32000
+                            ? (recommendationLanguage === 'es'
+                                ? ' — demasiado largo para pegarlo. Quita oportunidades o días hasta que baje.'
+                                : ' — too long to paste. Deselect opportunities or days until it shrinks.')
+                            : prompt.length > 24000
+                                ? (recommendationLanguage === 'es'
+                                    ? ' — puede exceder el límite del Copilot gratuito. M365 Copilot lo acepta; si no, quita alguna oportunidad.'
+                                    : ' — may exceed the free Copilot paste limit. M365 Copilot accepts it; otherwise deselect an opportunity.')
+                                : (recommendationLanguage === 'es'
+                                    ? ' — cabe en Copilot. Unos 19k son las reglas fijas del prompt; el resto son tus datos.'
+                                    : ' — fits in Copilot. About 19k of it is the fixed rule set; the rest is your data.')}
                     </p>
                 </section>
 
@@ -723,7 +911,7 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
                 </section>
 
                 {/* Draft/applied status — full editing happens in the dedicated review workspace. */}
-                {(applied || scheduleRows.length > 0 || reminderRows.length > 0 || dueDateRows.length > 0 || parseErrors.length > 0) && (
+                {(applied || scheduleRows.length > 0 || reminderRows.length > 0 || dueDateRows.length > 0 || deliveryDateRows.length > 0 || parseErrors.length > 0) && (
                     <section className={`rounded-2xl p-4 flex items-center justify-between gap-3 border ${applied ? 'bg-emerald-950/30 border-[#3DCD58]/50' : 'bg-gray-900 border-gray-800'}`}>
                         <div className="min-w-0">
                             {applied ? (

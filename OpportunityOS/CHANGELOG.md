@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added a Duration filter and a Rank filter/sort (Excel-style, from the column header) to the General view table.
 
-## [Unreleased]
+## v1.0.3 - 2026-09-18
 ### Added
 - Added optional SharePoint-folder updates, including per-PC Settings, package checksum validation, backup and automatic recovery without blocking normal startup.
 - Added `PUBLICAR_ACTUALIZACION.bat`, which validates the project, asks for the release destination, and generates the versioned ZIP plus `latest.json`.

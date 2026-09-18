@@ -117,6 +117,22 @@ if not exist "node_modules\.bin\vite.cmd" (
     exit /b 1
 )
 
+:: --- Build the stable application shell ---
+:: Normal use must never run Vite's development/HMR server: any source edit by
+:: an agent would otherwise reload the user's active window. Installation and
+:: updates create dist once; this fallback repairs a missing build safely.
+if not exist "dist\index.html" (
+    if not "%MODE%"=="HIDDEN" echo [INFO] Building the stable Tender Control application. This can take a minute.
+    call npm.cmd run build
+    if errorlevel 1 (
+        if not "%MODE%"=="HIDDEN" (
+            echo [ERROR] Tender Control could not create its stable application build.
+            pause
+        )
+        exit /b 1
+    )
+)
+
 if "%MODE%"=="INSTALL" (
     echo [4/5] Creating desktop and Start Menu shortcuts... 1 step remaining.
     REM This is the compatibility path for machines that block .vbs/.hta, so
@@ -147,5 +163,5 @@ if exist "server\index.ts" (
 if "%MODE%"=="VISIBLE" echo [5/5] Opening Tender Control... 0 steps remaining.
 start "" /B cmd /c call "%~dp0_open_browser.bat" %BROWSER_MODE%
 
-:: --- Start Vite (keeps running until closed) ---
-call node_modules\.bin\vite.cmd --port 3000 --strictPort
+:: --- Serve the immutable production build (no file watcher, no HMR reloads) ---
+call node_modules\.bin\vite.cmd preview --host 127.0.0.1 --port 3000 --strictPort

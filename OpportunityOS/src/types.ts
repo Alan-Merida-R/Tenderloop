@@ -34,6 +34,9 @@ export const DETAILED_STATUS_LABELS: Record<DetailedStatus, string> = {
   'Canceled': 'Canceled',
 };
 
+/** Corporate black/gray used for every Process Board header when "Black" mode is on. */
+export const PROCESS_BOARD_BLACK_COLOR = '#5B6472';
+
 export interface DeepLink {
   tab: string;
   taskId?: string;
@@ -92,12 +95,37 @@ export interface CommercialInternalRevision {
   calculatedMargin: string;
 }
 
+export interface ProposalAlarmPolicy {
+  /** Age in days expected for a proposal with no Scope answers yet. */
+  defaultDays: number;
+  /** Expected age by Type of Proposal label, e.g. Green field or Migration. */
+  scopeDays: Record<string, number>;
+  /** The largest matching tier adds its days to the Scope base. */
+  amountTiers: Array<{ minAmount: number; extraDays: number; complexityMultiplier?: number }>;
+  /** Percentage of the calculated target at which the card becomes Warning. */
+  warningPercent: number;
+  /** Fixed days added only to the Warning formula. */
+  warningOffsetDays: number;
+  /** Percentage of the calculated target at which the card becomes Critical. */
+  criticalPercent: number;
+  /** Fixed days added only to the Critical formula. */
+  criticalOffsetDays: number;
+  /** Additional days by commercial commitment level. Firm proposals normally require more validation. */
+  quoteTypeDays: { Budgetary: number; Firm: number };
+  /** Percentage of the normal target retained for each revision difficulty. */
+  revisionPercent: { light: number; major: number };
+  /** Additional days by an individual Scope option, including cabinets and resale bands. */
+  scopeItemDays: Record<string, number>;
+}
+
 export interface AlarmConfig {
   id: string;
   daysThreshold: number; // Days remaining
   color: string; // Tailwind class (legacy / complex default)
   backgroundColor?: string; // Hex color for color picker
   textColor?: string; // Hex color for text
+  /** Used only by the proposal-scope-policy settings record. */
+  proposalPolicy?: ProposalAlarmPolicy;
 }
 
 
@@ -143,6 +171,16 @@ export interface Commercial {
 
   /** PA Cost used in Price Approval emails. */
   paCost?: number;
+
+  /**
+   * [TA6] How binding the opportunity's delivery date really is. Without it every delivery date
+   * looks equally immovable, so the organizer cannot tell which one it may propose moving:
+   * - 'hard': committed to the customer. Never propose a new delivery date; renegotiation is required.
+   * - 'soft': agreed but movable with a heads-up.
+   * - 'internal': a self-imposed target, freely movable.
+   * Unset is treated as 'soft' and flagged as an assumption.
+   */
+  deliveryCommitted?: 'hard' | 'soft' | 'internal';
 }
 
 export interface QuickLinkItem {
@@ -285,6 +323,14 @@ export interface Task {
 
   /** Expected deliverable of the task, used in assignment emails. */
   deliverable?: string;
+
+  /**
+   * [TA6] The user's own estimate of how many hours this task still needs.
+   * It is the TOP level of the estimation hierarchy: while it is set, it overrides every
+   * historical median and is never multiplied by the measured agenda-deviation factor — it is a
+   * commitment, not an average. Leave it empty to let the execution model estimate the task.
+   */
+  userEstimateHours?: number;
 
   /** ISO timestamp of when the task was last marked Done. Cleared if moved out of Done. */
   completedAt?: string;
@@ -582,6 +628,8 @@ export interface KPIs {
   effortContribution: number | null;  // 0–100
   sold: boolean | null;
   proposalAmountUSD: number | null;
+  /** Revision effort multiplier. Undefined defaults to light changes for R1+. */
+  revisionChangeImpact?: 'light' | 'major';
 
   timeline: KPITimeline;
   execution: KPIExecution;
@@ -852,7 +900,59 @@ export interface QuickOrganizerPreferences {
    * recomputing. See services/executionModel.ts.
    */
   executionModel?: import('./services/executionModel').ExecutionModel;
+  /**
+   * [TA6] IANA timezone every time in the prompt is expressed in. Empty = auto-detect from the
+   * browser. Stored because the recipient-hour rules ("send before 10:00 their time") are
+   * meaningless without knowing which zone the user's own hours are in.
+   */
+  timezone?: string;
+  /**
+   * [TA6] Default timezone assumed for a stakeholder who has none recorded. Most external
+   * counterparts in this workflow sit in Texas, so the organizer assumes US Central rather than
+   * silently using the user's own zone and proposing a 04:15 email. Always reported as an
+   * assumption in the answer.
+   */
+  stakeholderTimezone?: string;
+  /** [TA6] The user's own working shape, so sleep and meals stop being free text. */
+  personalConstraints?: PersonalConstraints;
 }
+
+/**
+ * [TA6 / audit B-G2] The day's real shape.
+ *
+ * Before this, "quiero dormir poquito" and "deja libre la comida" were free text in the extra
+ * instructions, so the assistant inferred a 04:15 wake-up and scheduled work over lunch. These are
+ * the same facts as parameters: they bound the calendar instead of hinting at it.
+ */
+export interface PersonalConstraints {
+  enabled: boolean;
+  /** "HH:mm" — nothing is ever scheduled before this, whatever the availability window says. */
+  earliestStart: string;
+  /** "HH:mm" — nothing is ever scheduled after this. */
+  latestEnd: string;
+  /** Hours of sleep to protect. Used to flag a plan that only fits by cutting them. */
+  targetSleepHours: number;
+  /** Recurring daily periods that must stay empty (lunch, school run...). Applied to every day. */
+  meals: Array<{ id: string; label: string; start: string; end: string }>;
+  /** Window where deep work belongs (costing, proposal writing). */
+  deepWorkStart: string;
+  deepWorkEnd: string;
+  /** Window for administrative work (emails, follow-ups, closing SRs). */
+  adminStart: string;
+  adminEnd: string;
+}
+
+export const DEFAULT_PERSONAL_CONSTRAINTS: PersonalConstraints = {
+  enabled: false,
+  earliestStart: '08:00',
+  latestEnd: '18:00',
+  targetSleepHours: 7,
+  meals: [{ id: 'lunch', label: 'Comida', start: '14:00', end: '15:00' }],
+  deepWorkStart: '08:00',
+  deepWorkEnd: '12:00',
+  adminStart: '15:00',
+  adminEnd: '18:00',
+};
 
 /**
  * One imported AI analysis. We retain the source prompt/response rather than a fragile copy of
@@ -900,6 +1000,9 @@ export interface UserSettings {
     hiddenIndicatorSections?: string[];
     hiddenProposalProcessColumns?: string[];
     processBoardColors?: Record<string, string>;
+    /** When true (default), every Process Board header renders in the corporate black/gray
+     *  instead of each column's saved color. Turning it off restores the saved colors. */
+    processBoardColumnsBlackMode?: boolean;
   };
   /** Daily Manager-report auto-export. Lives in the database so it survives browser/cache changes. */
   managerReportSync?: ManagerReportSyncSettings;
@@ -998,7 +1101,7 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
 
 /** User-facing labels. Persisted values stay unchanged for backwards compatibility. */
 export const taskStatusLabel = (status: TaskStatus | string): string =>
-  status === 'Canceled' ? 'No aplica' : status;
+  status === 'Canceled' ? 'Not Applicable' : status;
 
 /** Shared display order for every task status selector, filter and board. */
 export const TASK_STATUS_ORDER: TaskStatus[] = ['Pending', 'In Progress', 'On Hold', 'Approval', 'Missing Info', 'Changes Requested / Rework', 'Done', 'Canceled'];

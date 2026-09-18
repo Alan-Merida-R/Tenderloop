@@ -59,6 +59,15 @@ try {
                 if ($LASTEXITCODE -ne 0) { throw 'Dependencies could not be updated.' }
             } finally { Pop-Location }
         }
+
+        # The release archive intentionally excludes dist. Rebuild it before
+        # declaring the update complete so the normal launcher can serve the
+        # stable, non-HMR application immediately.
+        Push-Location $projectRoot
+        try {
+            & npm.cmd run build
+            if ($LASTEXITCODE -ne 0) { throw 'The stable application build could not be created.' }
+        } finally { Pop-Location }
     } catch {
         & robocopy.exe $backupRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
         throw

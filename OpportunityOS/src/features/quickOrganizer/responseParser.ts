@@ -56,6 +56,75 @@ export interface ParsedMissingTaskSuggestion {
     processSection?: ProcessSection;
 }
 
+/**
+ * [TA6] Sections the app shows but never writes back.
+ *
+ * They exist because the audit's core complaint was that anything which is not a calendar block
+ * disappeared from the plan: a five-minute ping that unblocks someone else, an escalation that is
+ * already overdue, a date that is correct but falls outside the horizon the user authorized.
+ * They are parsed so the review screen can show them, and deliberately not applied — the user
+ * decides what to do with each one.
+ */
+export interface ParsedRankingRow {
+    id: string; rank: number; oppId: string; oppLabel: string; score: number;
+    bucket: string; outOfScope: boolean; why: string;
+}
+
+export interface ParsedExternalPushRow {
+    id: string; key: string; oppId: string; taskId: string; oppLabel: string;
+    type: 'Ping' | 'Question' | 'Escalation'; to: string; sendBy: string; message: string;
+}
+
+export interface ParsedContingentRow {
+    id: string; key: string; oppId: string; taskId: string; oppLabel: string;
+    taskLabel: string; trigger: string; estMinutes: number | null; action: string;
+}
+
+export interface ParsedQueueRow {
+    id: string; position: number; key: string; oppId: string; taskId: string;
+    taskLabel: string; subtask: string; estMinutes: number | null; dependsOn: string; doneWhen: string;
+}
+
+export interface ParsedSuggestedMoveRow {
+    id: string; blockId: string; scope: string; name: string; action: string;
+    currentDate: string; currentStart: string; currentEnd: string;
+    newDate: string; newStart: string; newEnd: string; reason: string;
+}
+
+export interface ParsedOutOfScopeRow {
+    id: string; scope: 'Task' | 'Opportunity'; key: string; name: string;
+    currentDate: string; advisedDate: string; reason: string;
+}
+
+/** Delivery-date change for the whole opportunity. Unlike the rows above, this one IS applied. */
+export interface ParsedDeliveryDateRow {
+    id: string; oppId: string; oppLabel: string;
+    currentDelivery: string; date: string; rationale: string;
+}
+
+/**
+ * [TA6] A question the AI needs answered to do better next round.
+ *
+ * The point of the section is a second pass: the user answers in the review screen, the answers are
+ * appended to the prompt, and the same analysis runs again with the gaps closed. `assumed` is what
+ * the AI used in the meantime, so an unanswered question never blocks the plan.
+ */
+export interface ParsedQuestionRow {
+    id: string;
+    num: number;
+    question: string;
+    whyItMatters: string;
+    assumed: string;
+    /** Filled in by the user in the review screen. */
+    answer: string;
+}
+
+/** Answer-level metadata, used to detect a truncated or reformatted reply. */
+export interface ParsedMeta {
+    schemaVersion: string; generatedAt: string;
+    opportunityCount: number | null; taskCount: number | null; overallConfidence: number | null;
+}
+
 export interface ParseError {
     section: 'SCHEDULE' | 'REMINDERS';
     line: string;
@@ -73,6 +142,18 @@ export interface ParseResult {
     missingTaskSuggestions: ParsedMissingTaskSuggestion[];
     dueDateRows: ParsedDueDateRow[];
     opportunityAssessments: ParsedOpportunityAssessment[];
+    /** [TA6] Applied on accept, like dueDateRows. */
+    deliveryDateRows: ParsedDeliveryDateRow[];
+    /** [TA6] Advisory: displayed for the user to act on manually, never written to the database. */
+    rankingRows: ParsedRankingRow[];
+    externalPushRows: ParsedExternalPushRow[];
+    contingentRows: ParsedContingentRow[];
+    queueRows: ParsedQueueRow[];
+    suggestedMoveRows: ParsedSuggestedMoveRow[];
+    outOfScopeRows: ParsedOutOfScopeRow[];
+    questionRows: ParsedQuestionRow[];
+    assumptions: string[];
+    meta: ParsedMeta | null;
     errors: ParseError[];
 }
 
@@ -165,7 +246,11 @@ const unfoldCollapsedRows = (text: string, index: ReturnType<typeof buildTaskInd
     const keys = [...index.byKey.keys()].sort((a, b) => b.length - a.length);
     if (!keys.length) return text;
     const escapedKeys = keys.map(key => key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const rowStart = new RegExp(`(^|[ \\t]+)(${escapedKeys.join('|')})(?=\\s*\\|)`, 'gm');
+    // The whitespace before the key must NOT follow a column separator. Sections such as
+    // EXECUTION QUEUE ("Pos | Key | …") and OUT_OF_SCOPE_ADVICE ("Scope | Key | …") carry the key
+    // in a later column, and without this guard a perfectly well-formed row was split in two at
+    // its own key, losing every column before it.
+    const rowStart = new RegExp(`(^|(?<=[^|\\s])[ \\t]+)(${escapedKeys.join('|')})(?=\\s*\\|)`, 'gm');
     return text.replace(rowStart, (_match, prefix: string, key: string) => prefix ? `\n${key}` : key);
 };
 
@@ -227,10 +312,25 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
     const missingTaskSuggestions: ParsedMissingTaskSuggestion[] = [];
     const dueDateRows: ParsedDueDateRow[] = [];
     const opportunityAssessments: ParsedOpportunityAssessment[] = [];
+    const deliveryDateRows: ParsedDeliveryDateRow[] = [];
+    const rankingRows: ParsedRankingRow[] = [];
+    const externalPushRows: ParsedExternalPushRow[] = [];
+    const contingentRows: ParsedContingentRow[] = [];
+    const queueRows: ParsedQueueRow[] = [];
+    const suggestedMoveRows: ParsedSuggestedMoveRow[] = [];
+    const outOfScopeRows: ParsedOutOfScopeRow[] = [];
+    const questionRows: ParsedQuestionRow[] = [];
+    const assumptions: string[] = [];
+    let meta: ParsedMeta | null = null;
     const errors: ParseError[] = [];
 
     const lines = unfoldCollapsedRows(text, index).split(/\r?\n/);
-    let section: 'RECOMMENDATIONS' | 'PARETO' | 'BLOCKERS' | 'DELIVERY' | 'MISSING_TASKS' | 'DUE_DATES' | 'SCHEDULE' | 'REMINDERS' | 'OP_ASSESSMENT' | null = null;
+    let section:
+        | 'RECOMMENDATIONS' | 'PARETO' | 'BLOCKERS' | 'DELIVERY' | 'MISSING_TASKS' | 'DUE_DATES'
+        | 'SCHEDULE' | 'REMINDERS' | 'OP_ASSESSMENT'
+        | 'META' | 'RANKING' | 'MOVES' | 'QUEUE' | 'CONTINGENT' | 'EXTERNAL_PUSH'
+        | 'DELIVERY_DATES' | 'OUT_OF_SCOPE' | 'ASSUMPTIONS' | 'QUESTIONS'
+        | null = null;
 
     for (const raw of lines) {
         const line = raw.trim();
@@ -239,6 +339,18 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         if (/^(RECOMMENDATIONS|RECOMENDACIONES)\b/.test(heading)) { section = 'RECOMMENDATIONS'; continue; }
         if (/^(PARETO|20\/80)\b/.test(heading)) { section = 'PARETO'; continue; }
         if (/^(BLOCKERS|BLOCKAGES|BLOQUEOS)\b/.test(heading)) { section = 'BLOCKERS'; continue; }
+        // [TA6] Tested before the looser DELIVERY / DUE DATES patterns: "PROPOSED DELIVERY DATES"
+        // also matches both of them, so a later test would swallow the section.
+        if (/^(PROPOSED[_ ]DELIVERY[_ ]DATES|FECHAS DE ENTREGA PROPUESTAS)\b/.test(heading)) { section = 'DELIVERY_DATES'; continue; }
+        if (/^(OUT[_ ]OF[_ ]SCOPE[_ ]ADVICE|FUERA DE ALCANCE)\b/.test(heading)) { section = 'OUT_OF_SCOPE'; continue; }
+        if (/^(SUGGESTED[_ ]MOVES|MOVIMIENTOS SUGERIDOS)\b/.test(heading)) { section = 'MOVES'; continue; }
+        if (/^(EXTERNAL[_ ]PUSH|EMPUJE EXTERNO|SEGUIMIENTO EXTERNO)\b/.test(heading)) { section = 'EXTERNAL_PUSH'; continue; }
+        if (/^(EXECUTION[_ ]QUEUE|COLA DE EJECUCION|FILA DE EJECUCION)\b/.test(heading)) { section = 'QUEUE'; continue; }
+        if (/^(CONTINGENT|CONTINGENTE|TRABAJO CONTINGENTE)\b/.test(heading)) { section = 'CONTINGENT'; continue; }
+        if (/^(PRIORITY[_ ]RANKING|RANKING|PRIORIDAD)\b/.test(heading)) { section = 'RANKING'; continue; }
+        if (/^(QUESTIONS|PREGUNTAS)\b/.test(heading)) { section = 'QUESTIONS'; continue; }
+        if (/^(ASSUMPTIONS|SUPUESTOS)\b/.test(heading)) { section = 'ASSUMPTIONS'; continue; }
+        if (/^META\b/.test(heading)) { section = 'META'; continue; }
         if (/^(DELIVERY OUTLOOK|DELIVERY ANALYSIS|PANORAMA DE ENTREGA|ENTREGA)\b/.test(heading)) { section = 'DELIVERY'; continue; }
         if (/^(MISSING TASKS|SUGGESTED MISSING TASKS|TAREAS FALTANTES)\b/.test(heading)) { section = 'MISSING_TASKS'; continue; }
         if (/^(PROPOSED DUE DATES|DUE DATES|FECHAS LIMITE PROPUESTAS|FECHAS PROPUESTAS)\b/.test(heading)) { section = 'DUE_DATES'; continue; }
@@ -266,7 +378,7 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
             }
             continue;
         }
-        if (section === 'RECOMMENDATIONS' || section === 'PARETO' || section === 'BLOCKERS' || section === 'DELIVERY' || section === 'MISSING_TASKS') {
+        if (section === 'RECOMMENDATIONS' || section === 'PARETO' || section === 'BLOCKERS' || section === 'DELIVERY' || section === 'MISSING_TASKS' || section === 'ASSUMPTIONS') {
             if (!/^```/.test(line)) {
                 const value = cleanNarrative(line.replace(/^[-*]\s*/, ''));
                 if (!value) continue;
@@ -277,6 +389,7 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
                 else if (section === 'PARETO') paretoInsights.push(value);
                 else if (section === 'BLOCKERS') blockerInsights.push(value);
                 else if (section === 'DELIVERY') deliveryInsights.push(value);
+                else if (section === 'ASSUMPTIONS') assumptions.push(value);
                 else missingTaskInsights.push(value);
             }
             continue;
@@ -285,12 +398,153 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         // or their markdown-wrapped equivalents "| Key | ... |" / "|---|---|") in case the AI ignored
         // the "no markdown fences/table syntax" instruction.
         const bareLine = line.replace(/^\|+\s*/, '').replace(/\s*\|+$/, '');
-        if (/^```/.test(line) || /^key\b/i.test(bareLine) || /^[-|:\s]+$/.test(line)) continue;
+        if (/^```/.test(line) || /^(key|rank|blockid|pos|scope|oppid|schemaversion|num)\b/i.test(bareLine) || /^[-|:\s]+$/.test(line)) continue;
 
         const cells = splitCells(line);
         // A line with no delimiter at all is stray prose (e.g. "Let me know if you want changes!"),
         // not a malformed row — skip it silently instead of reporting a confusing error.
         if (cells.length < 2) continue;
+        // [TA6] Advisory sections. They are parsed defensively: a malformed advisory row is
+        // dropped instead of reported, because none of them writes to the database and a noisy
+        // error list would bury the errors that actually block accepting the plan.
+        if (section === 'META') {
+            if (cells.length < 4) continue;
+            const [schemaVersion, generatedAt, oppCount, taskCount, confidence = ''] = cells;
+            const toNumber = (value: string) => {
+                const parsed = Number(String(value).replace(/[^0-9.]/g, ''));
+                return Number.isFinite(parsed) ? parsed : null;
+            };
+            meta = {
+                schemaVersion: schemaVersion.trim(),
+                generatedAt: normalizeDateTime(generatedAt),
+                opportunityCount: toNumber(oppCount),
+                taskCount: toNumber(taskCount),
+                overallConfidence: toNumber(confidence),
+            };
+            continue;
+        }
+        if (section === 'QUESTIONS') {
+            if (cells.length < 2) continue;
+            const [numRaw, question, whyItMatters = '', assumed = ''] = cells;
+            if (!question.trim()) continue;
+            questionRows.push({
+                id: nextId(),
+                num: Number(String(numRaw).replace(/[^0-9]/g, '')) || questionRows.length + 1,
+                question: question.trim(),
+                whyItMatters: whyItMatters.trim(),
+                assumed: assumed.trim(),
+                answer: '',
+            });
+            continue;
+        }
+        if (section === 'RANKING') {
+            if (cells.length < 5) continue;
+            const [rankRaw, oppId, oppLabel, scoreRaw, bucketRaw, why = ''] = cells;
+            const opp = opportunities.find(item => item.id === oppId.trim());
+            const bucket = (bucketRaw || '').trim();
+            rankingRows.push({
+                id: nextId(),
+                rank: Number(String(rankRaw).replace(/[^0-9]/g, '')) || rankingRows.length + 1,
+                oppId: opp?.id || oppId.trim(),
+                oppLabel: opp ? (opp.alias || opp.title) : oppLabel.trim(),
+                score: Number(String(scoreRaw).replace(/[^0-9.]/g, '')) || 0,
+                // The prompt asks for "OUT-OF-SCOPE" appended to the bucket rather than given a
+                // column of its own, so the flag is recovered here and stripped from the label.
+                bucket: bucket.replace(/[\s/-]*OUT[\s_-]*OF[\s_-]*SCOPE/i, '').trim() || bucket,
+                outOfScope: /OUT[\s_-]*OF[\s_-]*SCOPE/i.test(bucket),
+                why: why.trim(),
+            });
+            continue;
+        }
+        if (section === 'MOVES') {
+            if (cells.length < 11) continue;
+            const [blockId, scope, name, action, currentDate, currentStart, currentEnd, newDate, newStart, newEnd, reason = ''] = cells;
+            suggestedMoveRows.push({
+                id: nextId(), blockId: blockId.trim(), scope: scope.trim(), name: name.trim(), action: action.trim(),
+                currentDate: normalizeDate(currentDate), currentStart: normalizeTime(currentStart), currentEnd: normalizeTime(currentEnd),
+                newDate: normalizeDate(newDate), newStart: normalizeTime(newStart), newEnd: normalizeTime(newEnd),
+                reason: reason.trim(),
+            });
+            continue;
+        }
+        if (section === 'QUEUE') {
+            if (cells.length < 5) continue;
+            const [posRaw, key, taskLabel, subtask, estRaw, dependsOn = '', doneWhen = ''] = cells;
+            const resolved = resolveTask(key, '', taskLabel, index);
+            const estMinutes = Number(String(estRaw).replace(/[^0-9.]/g, ''));
+            queueRows.push({
+                id: nextId(),
+                position: Number(String(posRaw).replace(/[^0-9]/g, '')) || queueRows.length + 1,
+                key: resolved ? resolved.opp.id + '::' + resolved.task.id : key.trim(),
+                oppId: resolved?.opp.id || '', taskId: resolved?.task.id || '',
+                taskLabel: resolved?.task.title || taskLabel.trim(),
+                subtask: subtask.trim() === '-' ? '' : subtask.trim(),
+                estMinutes: Number.isFinite(estMinutes) && estMinutes > 0 ? estMinutes : null,
+                dependsOn: dependsOn.trim(), doneWhen: doneWhen.trim(),
+            });
+            continue;
+        }
+        if (section === 'CONTINGENT') {
+            if (cells.length < 5) continue;
+            const [key, oppLabel, taskLabel, trigger, estRaw, action = ''] = cells;
+            const resolved = resolveTask(key, oppLabel, taskLabel, index);
+            const estMinutes = Number(String(estRaw).replace(/[^0-9.]/g, ''));
+            contingentRows.push({
+                id: nextId(),
+                key: resolved ? resolved.opp.id + '::' + resolved.task.id : key.trim(),
+                oppId: resolved?.opp.id || '', taskId: resolved?.task.id || '',
+                oppLabel: resolved ? (resolved.opp.alias || resolved.opp.title) : oppLabel.trim(),
+                taskLabel: resolved?.task.title || taskLabel.trim(),
+                trigger: trigger.trim(),
+                estMinutes: Number.isFinite(estMinutes) && estMinutes > 0 ? estMinutes : null,
+                action: action.trim(),
+            });
+            continue;
+        }
+        if (section === 'EXTERNAL_PUSH') {
+            if (cells.length < 5) continue;
+            const [key, oppLabel, typeRaw, to, sendBy, message = ''] = cells;
+            const resolved = resolveTask(key, oppLabel, '', index);
+            const normalizedType = (typeRaw || '').trim().toLowerCase();
+            const type: ParsedExternalPushRow['type'] = normalizedType.startsWith('escal')
+                ? 'Escalation'
+                : normalizedType.startsWith('quest') || normalizedType.startsWith('pregunt') ? 'Question' : 'Ping';
+            externalPushRows.push({
+                id: nextId(),
+                key: resolved ? resolved.opp.id + '::' + resolved.task.id : key.trim(),
+                oppId: resolved?.opp.id || '', taskId: resolved?.task.id || '',
+                oppLabel: resolved ? (resolved.opp.alias || resolved.opp.title) : oppLabel.trim(),
+                type, to: to.trim(), sendBy: normalizeTime(sendBy), message: message.trim(),
+            });
+            continue;
+        }
+        if (section === 'OUT_OF_SCOPE') {
+            if (cells.length < 6) continue;
+            const [scopeRaw, key, name, currentDate, advisedDate, reason = ''] = cells;
+            outOfScopeRows.push({
+                id: nextId(),
+                scope: /^opp/i.test(scopeRaw.trim()) ? 'Opportunity' : 'Task',
+                key: key.trim(), name: name.trim(),
+                currentDate: normalizeDate(currentDate), advisedDate: normalizeDate(advisedDate),
+                reason: reason.trim(),
+            });
+            continue;
+        }
+        if (section === 'DELIVERY_DATES') {
+            if (cells.length < 4) continue;
+            const [oppId, oppLabel, currentDelivery, proposed, rationale = ''] = cells;
+            const opp = opportunities.find(item => item.id === oppId.trim());
+            const date = normalizeDate(proposed);
+            // This section IS applied to the database, so an unmatched opportunity or an invalid
+            // date is a real error the user must see, not a silently dropped advisory row.
+            if (!opp) { errors.push({ section: 'SCHEDULE', line, reason: 'Could not match opportunity "' + oppId + '" for a proposed delivery date.' }); continue; }
+            if (!isDateValid(date)) { errors.push({ section: 'SCHEDULE', line, reason: 'Invalid proposed delivery date "' + proposed + '".' }); continue; }
+            deliveryDateRows.push({
+                id: nextId(), oppId: opp.id, oppLabel: opp.alias || opp.title || oppLabel.trim(),
+                currentDelivery: normalizeDate(currentDelivery), date, rationale: rationale.trim(),
+            });
+            continue;
+        }
         if (section === 'OP_ASSESSMENT') {
             if (cells.length < 11) continue;
             const [oppId, oppLabel, healthRaw, requiredRaw, availableRaw, feasibleRaw, suggestedRaw, reason, blocker, nextAction, summary] = cells;
@@ -394,5 +648,5 @@ export const parseOrganizerResponse = (text: string, opportunities: Opportunity[
         }
     }
 
-    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, missingTaskSuggestions, dueDateRows, opportunityAssessments, errors };
+    return { scheduleRows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, missingTaskSuggestions, dueDateRows, opportunityAssessments, deliveryDateRows, rankingRows, externalPushRows, contingentRows, queueRows, suggestedMoveRows, outOfScopeRows, questionRows, assumptions, meta, errors };
 };

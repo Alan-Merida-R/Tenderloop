@@ -448,6 +448,7 @@ function App() {
     hiddenIndicatorSections: settings.hiddenIndicatorSections,
     hiddenProposalProcessColumns: settings.hiddenProposalProcessColumns,
     processBoardColors: settings.processBoardColors,
+    processBoardColumnsBlackMode: settings.processBoardColumnsBlackMode,
   });
 
   const applyDbUiPreferences = (settings: AppSettings, preferences?: DatabaseSchema['userSettings']['uiPreferences']): AppSettings => {
@@ -461,6 +462,7 @@ function App() {
       ...(preferences.hiddenIndicatorSections !== undefined && { hiddenIndicatorSections: preferences.hiddenIndicatorSections as AppSettings['hiddenIndicatorSections'] }),
       ...(preferences.hiddenProposalProcessColumns !== undefined && { hiddenProposalProcessColumns: preferences.hiddenProposalProcessColumns }),
       ...(preferences.processBoardColors !== undefined && { processBoardColors: preferences.processBoardColors }),
+      ...(preferences.processBoardColumnsBlackMode !== undefined && { processBoardColumnsBlackMode: preferences.processBoardColumnsBlackMode as AppSettings['processBoardColumnsBlackMode'] }),
     };
   };
 
@@ -3060,6 +3062,7 @@ function App() {
                   alarms={appSettings.alarms}
                   hiddenProposalProcessColumns={appSettings.hiddenProposalProcessColumns}
                   processBoardColors={appSettings.processBoardColors}
+                  processBoardColumnsBlackMode={appSettings.processBoardColumnsBlackMode}
                   onMinimize={minimizeToDock}
                   onOpenTaskSubView={openTaskSubView}
                   remindersEnabled={appSettings.remindersEnabled || false}
@@ -3250,6 +3253,7 @@ function App() {
             onOppUpdate={updateOpportunity}
             onAddReminder={handleAddReminder}
             onDeleteReminder={handleDeleteReminder}
+            holidays={stableHolidays}
             onClose={() => setShowQuickOrganizer(false)}
             onPlanAccepted={() => {
               // Land the user directly on the accepted plan: Tasks view, Agenda mode.

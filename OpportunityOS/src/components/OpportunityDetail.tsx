@@ -12,6 +12,7 @@ import { openInNativeApp } from '../features/opportunity-folder/fileOps';
 import { SowFormEmbed } from './SowFormEmbed';
 import ScopeQuickViewModal from './ScopeQuickViewModal';
 import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, catalogContainsLabel, normalizeScopeCatalog, scopeLabelKey, scopeModuleKey, scopeOptionColor } from './scopeCatalog';
+import { getProposalAgeTargets } from '../services/proposalAlarmPolicy';
 import { parseSowFields, pickPrimarySowNote, readScopeSelection } from '../services/scopeSummary';
 import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { resolveEffectiveRootPath, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
@@ -1669,7 +1670,9 @@ const FullCalendarModal = ({
     const [viewingDayDetails, setViewingDayDetails] = useState<string | null>(null);
     const [viewingAreaDetails, setViewingAreaDetails] = useState<string | null>(null);
     const [isInternalAddAreaOpen, setIsInternalAddAreaOpen] = useState(false);
-    const [visibleAreaIds, setVisibleAreaIds] = useState<string[]>(areas.map(a => a.id));
+    // [K1] Areas start unchecked: the user picks which ones to see instead of having to
+    // uncheck the ones they don't care about every time they open the Implementation Timeline.
+    const [visibleAreaIds, setVisibleAreaIds] = useState<string[]>([]);
     const [selectionStart, setSelectionStart] = useState<{ areaId: string, date: string } | null>(null);
     const [selectionEnd, setSelectionEnd] = useState<{ areaId: string, date: string } | null>(null);
 
@@ -1721,13 +1724,6 @@ const FullCalendarModal = ({
         setViewDate(new Date());
         setScrollToTodayNonce(n => n + 1);
     };
-
-    // Initial sync
-    useEffect(() => {
-        if (visibleAreaIds.length === 0 && areas.length > 0) {
-            setVisibleAreaIds(areas.map(a => a.id));
-        }
-    }, [areas]);
 
     const getDaysInMonth = (year: number, month: number) => {
         const date = new Date(year, month, 1);
@@ -1835,7 +1831,10 @@ const FullCalendarModal = ({
                 addWindow(task.id, approvalAreas, cycle.approvalRequested, cycle.approved || cycle.changesRequestedAt || cycle.approvalRequired);
             });
             addWindow(task.id, executionAreas, task.responsibleRequestedDate, task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || todayKey);
-            addWindow(task.id, approvalAreas, task.approvalRequestedDate, task.approvalDeliveredDate || task.approvalDueDate || todayKey);
+            // [K0] Do not fall back to approvalDueDate: an approval that is still waiting
+            // must keep painting cells up to today, not stop at its target date, or the
+            // Implementation Timeline visually reads as resolved before it was approved.
+            addWindow(task.id, approvalAreas, task.approvalRequestedDate, task.approvalDeliveredDate || todayKey);
         });
         return result;
     }, [days.join('|'), tasks, stakeholders, holidays, todayKey]);
@@ -4443,9 +4442,31 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         }, 2000);
     };
 
-    /** BFO Opportunity Lines URL. Typed by hand here, or filled by the bFO autofill. */
+    /**
+     * [C1] BFO Opportunity Lines URL. Typed by hand here, or filled by the bFO autofill.
+     * Previously this only updated the Commercial-tab field — the "Open Lines" button
+     * opened it but the URL was never actually saved anywhere else, so it disappeared if
+     * the field was ever cleared/hidden. Now it is mirrored into a "Opportunity Lines"
+     * Quick Links entry in the same atomic update (both must land in one setLocalOpp
+     * call: this component's helpers all read `localOpp`/`normalizedQuickLinks` from the
+     * render closure, so two separate updates in the same tick would clobber each other).
+     */
+    const OPP_LINES_QUICK_LINK_LABEL = 'Opportunity Lines';
     const updateOppLinesLink = (value: string) => {
-        const updated = { ...localOpp, commercial: { ...localOpp.commercial, oppLinesLink: value }, lastUpdated: new Date().toISOString() };
+        const trimmed = value.trim();
+        const labelKey = normalizeQuickLinkKey(OPP_LINES_QUICK_LINK_LABEL);
+        const existing = normalizedQuickLinks.customLinks.find(link => normalizeQuickLinkKey(link.label) === labelKey);
+        const nextCustomLinks = trimmed
+            ? (existing
+                ? normalizedQuickLinks.customLinks.map(link => link.id === existing.id ? { ...link, url: trimmed } : link)
+                : [...normalizedQuickLinks.customLinks, { id: crypto.randomUUID(), type: 'link', label: OPP_LINES_QUICK_LINK_LABEL, url: trimmed } as QuickLinkItem])
+            : normalizedQuickLinks.customLinks;
+        const updated = {
+            ...localOpp,
+            commercial: { ...localOpp.commercial, oppLinesLink: value },
+            links: composeQuickLinks(normalizedQuickLinks.defaultUrls, nextCustomLinks),
+            lastUpdated: new Date().toISOString(),
+        };
         setLocalOpp(updated);
         if (saveToParentTimeoutRef.current) window.clearTimeout(saveToParentTimeoutRef.current);
         saveToParentTimeoutRef.current = window.setTimeout(() => {
@@ -5030,6 +5051,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const sowNote = useMemo(() => pickPrimarySowNote(localOpp.notes), [localOpp.notes]);
     const headerTaskProgress = useMemo(() => calculateWeightedTaskProgress(localOpp.tasks || []), [localOpp.tasks]);
     const resolvedScopeCatalog = useMemo(() => normalizeScopeCatalog(scopeCatalog) || DEFAULT_SCOPE_CATALOG, [scopeCatalog]);
+    const proposalAgeTargets = useMemo(
+        () => getProposalAgeTargets(localOpp, alarms, resolvedScopeCatalog),
+        [localOpp, alarms, resolvedScopeCatalog]
+    );
+    const isProposalRevision = /^R?([1-9]\d*)$/i.test((localOpp.revision || '').trim());
     const headerScopeSelection = useMemo(
         () => readScopeSelection(parseSowFields(sowNote), resolvedScopeCatalog),
         [sowNote, resolvedScopeCatalog]
@@ -6041,10 +6067,16 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 start: task.responsibleRequestedDate,
                 end: task.responsibleDeliveredDate || task.responsibleDueDate || task.dueDate || today,
             } : null,
+            // [K0] The CURRENT approval window must stay open (its end keeps sliding to
+            // "today" every time this recomputes) until it is actually approved
+            // (approvalDeliveredDate set by the Approve button). Falling back to
+            // approvalDueDate here used to cut the window off at the target date even
+            // when the task was still waiting — the timeline/KPI calendar then read as
+            // "resolved" the moment the due date passed, regardless of real approval.
             task.approvalRequestedDate ? {
                 areas: approvalAreas,
                 start: task.approvalRequestedDate,
-                end: task.approvalDeliveredDate || task.approvalDueDate || today,
+                end: task.approvalDeliveredDate || today,
             } : null,
         ].filter((window): window is { areas: string[]; start: string; end: string } => !!window && !!window.start && !!window.end);
         const baseKpis = opp.kpis || { languageSkill: 0, technicalUnderstanding: 0, dealProbability: 0, effortContribution: 0, sold: null, proposalAmountUSD: 0, timeline: { receivedAt: getTodayStr(), deliveredAt: null, cancelledAt: null, cancelledReason: null }, execution: { myWorkDays: 0, waitingOnOthersDays: 0 }, areasInvolved: [] };
@@ -8388,7 +8420,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                     <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50/50 shrink-0">
                         <div className="relative w-full px-4">
-                            <div className="flex items-start mb-0.5 gap-2 md:pr-[52%]">
+                            <div className="flex flex-wrap items-start justify-between mb-0.5 gap-2">
                                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                                     {!(isSubView && deepLink?.tab === 'tasks') && (
                                         <button
@@ -8438,7 +8470,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">QLK:</span>
-                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-40 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
@@ -8455,9 +8487,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-2 justify-end md:absolute md:right-0 md:top-0">
-                                <div className="scale-90 origin-right flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2 justify-end">
+                                <div className="scale-90 origin-right flex flex-wrap items-center justify-end gap-2">
                                     {!isSubView && (
                                         <>
                                             {!hiddenHeaderFields.has('exportImport') && (
@@ -8479,7 +8510,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${isSnapshot ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
                                                 >
                                                     <HistoryIcon className="w-3.5 h-3.5" />
-                                                    Revisions
+                                                    <span className="hidden lg:inline">Revisions</span>
                                                     {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                                 </button>
 
@@ -8574,11 +8605,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {!hiddenHeaderFields.has('exportPdf') && (
                                                 <>
                                                     <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm"><FileDown className="w-3.5 h-3.5" /> Export PDF</button>
+                                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm" title="Export PDF"><FileDown className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Export PDF</span></button>
                                                 </>
                                             )}
                                             {!hiddenHeaderFields.has('copySummary') && (
-                                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"><Copy className="w-3.5 h-3.5" /> Copy Summary</button>
+                                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm" title="Copy Summary"><Copy className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Copy Summary</span></button>
                                             )}
                                             {!isSnapshot && !hiddenHeaderFields.has('autoFillEmail') && (
                                                 <button
@@ -8587,7 +8618,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] border border-[#3DCD58]/20 rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"
                                                     title="Auto-fill this expediente from a bFO Support Request email (.msg / .eml file or pasted text)"
                                                 >
-                                                    <Mail className="w-3.5 h-3.5" /> Auto-fill from Email
+                                                    <Mail className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Auto-fill from Email</span>
                                                 </button>
                                             )}
                                             {!isSnapshot && !hiddenHeaderFields.has('delete') && (
@@ -8600,11 +8631,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     )}
                                 </div>
                             </div>
+                            </div>
 
                             <div className="flex flex-wrap md:flex-nowrap justify-between items-start gap-4 my-0.5 px-1">
                                 <div data-tutorial="opp-title" className="flex-1 w-full md:w-auto min-w-[200px]">
                                     <OptimizedInput disabled={isSnapshot} value={localOpp.title} onChange={(val: string) => handleFieldChange('title', val)} className="text-lg font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 w-full placeholder-gray-300 mb-0 leading-tight" placeholder="Title" />
-                                    <div className="mt-0.5 grid w-full grid-cols-[minmax(110px,0.8fr)_minmax(240px,2.2fr)_minmax(110px,0.8fr)] items-end gap-3">
+                                    <div className="mt-0.5 grid w-full grid-cols-[minmax(0,0.8fr)_minmax(0,2.2fr)_minmax(0,0.8fr)] items-end gap-3">
                                         <label className="min-w-0 border-r border-slate-200 pr-3">
                                             <span className="block text-[8px] font-black uppercase tracking-widest text-slate-400">Customer</span>
                                             <OptimizedInput disabled={isSnapshot} value={localOpp.customer} onChange={(val: string) => handleFieldChange('customer', val)} className="w-full min-w-0 truncate bg-transparent border-none focus:ring-0 p-0 text-xs font-semibold leading-tight text-slate-700 placeholder-gray-400" placeholder="Customer name" />
@@ -9006,6 +9038,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' &&
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                                 }
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">My estimate (hours)</label><input type="number" min={0} step={0.5} value={selectedTaskForEdit.task.userEstimateHours ?? ''} onChange={e => updateTaskInModal('userEstimateHours', e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Leave empty to use the execution model" title="Your own estimate of the hours still needed. It overrides the historical medians in the Quick Organizer and is never adjusted by the measured agenda-deviation factor." className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                             </div>}
                                         </div>
 
@@ -9683,6 +9716,21 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <input disabled={isSnapshot} type="number" value={localOpp.kpis.proposalAmountUSD || ''} onChange={(e) => updateKpiField('proposalAmountUSD', parseFloat(e.target.value))} className="w-full border-gray-200 rounded-lg text-sm disabled:bg-gray-50 font-black text-gray-700" placeholder="0.00" />
                                             </div>
                                         </div>
+
+                                        {isProposalRevision && <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><div className="text-[9px] font-black uppercase tracking-wide text-violet-700">Revision {localOpp.revision} · Commitment</div><p className="mt-1 text-[10px] text-violet-600">Indicate how difficult this revision is. This selection directly changes its Proposal Age target; if no selection is saved, Light is used.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'light')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${(!localOpp.kpis.revisionChangeImpact || localOpp.kpis.revisionChangeImpact === 'light') ? 'border-violet-400 bg-white text-violet-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Light revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.light}% of normal time</span></button><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'major')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${localOpp.kpis.revisionChangeImpact === 'major' ? 'border-fuchsia-500 bg-white text-fuchsia-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Major revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.major}% of normal time</span></button></div></div>}
+
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                            <div className="mb-3 flex items-center gap-2">
+                                                <Clock className="h-4 w-4 text-slate-600" />
+                                                <h4 className="text-xs font-black uppercase tracking-wide text-slate-700">Proposal Age Alerts</h4>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2 text-center">
+                                                <div className="rounded-lg bg-white p-2 border border-gray-100"><div className="text-[9px] font-bold uppercase text-gray-400">Today</div><div className="text-lg font-black text-slate-800">{totalElapsedCalendarDays}d</div></div>
+                                                <div className="rounded-lg bg-amber-50 p-2 border border-amber-100"><div className="text-[9px] font-bold uppercase text-amber-700">Warning</div><div className="text-lg font-black text-amber-700">{proposalAgeTargets.warningDays}d</div></div>
+                                                <div className="rounded-lg bg-red-50 p-2 border border-red-100"><div className="text-[9px] font-bold uppercase text-red-700">Critical</div><div className="text-lg font-black text-red-700">{proposalAgeTargets.criticalDays}d</div></div>
+                                            </div>
+                                            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">Calculated target: <strong>{proposalAgeTargets.expectedDays} days</strong> from Scope, individual Scope adjustments (resales/cabinets included), commercial amount and <strong>{localOpp.quoteType || 'Budgetary'}</strong> ({proposalAgeTargets.quoteTypeDays >= 0 ? '+' : ''}{proposalAgeTargets.quoteTypeDays}d){isProposalRevision ? ` · ${localOpp.kpis.revisionChangeImpact === 'major' ? 'major' : 'light'} revision factor ${Math.round(proposalAgeTargets.revisionFactor * 100)}%` : ''}. Warning = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.warningPercent}% {proposalAgeTargets.warningOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.warningOffsetDays}d · Critical = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.criticalPercent}% {proposalAgeTargets.criticalOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.criticalOffsetDays}d.</p>
+                                        </div>
                                     </div>
 
                                     {/* Timeline & Execution */}
@@ -10295,12 +10343,26 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     />
                                                 </div>
                                                 <div className="flex items-center gap-1.5 shrink-0">
-                                                    {(localOpp.commercial?.oppLinesLink || '').trim() && (
+                                                    {(localOpp.commercial?.oppLinesLink || '').trim() ? (
                                                         <button
                                                             onClick={() => window.open((localOpp.commercial?.oppLinesLink || '').trim(), '_blank', 'noopener,noreferrer')}
                                                             className="text-xs font-bold px-3 py-1.5 bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] transition-colors"
                                                         >
                                                             Open Lines
+                                                        </button>
+                                                    ) : (
+                                                        /* [C1] Not assigned yet: open the OP (Opportunity) page in BFO so the
+                                                           Opportunity Line link can be copied from there and pasted above. */
+                                                        <button
+                                                            onClick={() => {
+                                                                const bfoUrl = (normalizedQuickLinks.defaultUrls.bfo || '').trim();
+                                                                if (!bfoUrl) { alert('No BFO/Opportunity link saved yet. Add it in Quick Links first.'); return; }
+                                                                window.open(bfoUrl, '_blank', 'noopener,noreferrer');
+                                                            }}
+                                                            className="text-xs font-bold px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                                                            title="Open the Opportunity (OP) page in BFO to copy its Opportunity Line link"
+                                                        >
+                                                            Assign
                                                         </button>
                                                     )}
                                                     {onHideCommercialOppLinesLink && (
@@ -11499,29 +11561,51 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     );
                                                 };
 
-                                                const activeTasks = filteredTasks.filter(t => t.status !== 'Done' && t.status !== 'Canceled');
-                                                const canceledTasks = filteredTasks.filter(t => t.status === 'Canceled');
-                                                const doneTasks = filteredTasks.filter(t => t.status === 'Done');
+                                                // [TA-0] Action plan grouping order: 1) not-done tasks, ascending by their
+                                                // natural task order/number; 2) done tasks, most-recently-completed first;
+                                                // 3) "Not Applicable" (Canceled) tasks always last, since they're out of scope.
+                                                const byOrderAsc = (a: Task, b: Task) => {
+                                                    const ao = a.order ?? 999999;
+                                                    const bo = b.order ?? 999999;
+                                                    if (ao !== bo) return ao - bo;
+                                                    return (a.title || '').localeCompare(b.title || '');
+                                                };
+                                                const activeTasks = filteredTasks
+                                                    .filter(t => t.status !== 'Done' && t.status !== 'Canceled')
+                                                    .sort(byOrderAsc);
+                                                const doneTasks = filteredTasks
+                                                    .filter(t => t.status === 'Done')
+                                                    .sort((a, b) => {
+                                                        // Most recently completed first; fall back to task order (desc) when
+                                                        // completedAt is missing (e.g. legacy tasks marked Done before this field existed).
+                                                        if (a.completedAt && b.completedAt) return b.completedAt.localeCompare(a.completedAt);
+                                                        if (a.completedAt) return -1;
+                                                        if (b.completedAt) return 1;
+                                                        return (b.order ?? -999999) - (a.order ?? -999999);
+                                                    });
+                                                const canceledTasks = filteredTasks
+                                                    .filter(t => t.status === 'Canceled')
+                                                    .sort(byOrderAsc);
 
                                                 return (
                                                     <>
                                                         <div className="space-y-2.5">
                                                             {activeTasks.map(renderTaskCard)}
                                                         </div>
-                                                        {/* Canceled/Done always render (never hidden behind a toggle) but sink to the bottom, dimmed, so they don't compete visually with active work. */}
-                                                        {canceledTasks.length > 0 && (
-                                                            <div className="pt-3">
-                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-300 mb-2">No aplica ({canceledTasks.length})</div>
-                                                                <div className="space-y-2.5 opacity-60">
-                                                                    {canceledTasks.map(renderTaskCard)}
-                                                                </div>
-                                                            </div>
-                                                        )}
+                                                        {/* Done/Canceled always render (never hidden behind a toggle) but sink to the bottom, dimmed, so they don't compete visually with active work. Canceled ("Not Applicable") always comes last. */}
                                                         {doneTasks.length > 0 && (
                                                             <div className="pt-3">
                                                                 <div className="text-[11px] font-black uppercase tracking-widest text-gray-400 mb-2">Completed ({doneTasks.length})</div>
                                                                 <div className="space-y-2.5 opacity-80">
                                                                     {doneTasks.map(renderTaskCard)}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {canceledTasks.length > 0 && (
+                                                            <div className="pt-3">
+                                                                <div className="text-[11px] font-black uppercase tracking-widest text-gray-300 mb-2">Not Applicable ({canceledTasks.length})</div>
+                                                                <div className="space-y-2.5 opacity-60">
+                                                                    {canceledTasks.map(renderTaskCard)}
                                                                 </div>
                                                             </div>
                                                         )}
@@ -11909,6 +11993,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {selectedTaskForEdit.task.status !== 'Approval' && selectedTaskForEdit.task.status !== 'Changes Requested / Rework' &&
                                                 <div className="md:col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Deliverable</label><input value={selectedTaskForEdit.task.deliverable || ''} onChange={e => updateTaskInModal('deliverable', e.target.value)} placeholder="Expected deliverable (used in assignment emails)" className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                             }
+                                                <div><label className="text-[9px] font-bold text-gray-500 uppercase">My estimate (hours)</label><input type="number" min={0} step={0.5} value={selectedTaskForEdit.task.userEstimateHours ?? ''} onChange={e => updateTaskInModal('userEstimateHours', e.target.value === '' ? undefined : Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Leave empty to use the execution model" title="Your own estimate of the hours still needed. It overrides the historical medians in the Quick Organizer and is never adjusted by the measured agenda-deviation factor." className="w-full border-gray-200 rounded-lg text-sm p-2" /></div>
                                         </div>}
                                     </div>
 

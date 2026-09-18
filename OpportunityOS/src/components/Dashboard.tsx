@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallback } from 'react';
 /* Added Subtask to imports */
-import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, taskStatusLabel, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS } from '../types';
+import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, taskStatusLabel, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, PROCESS_BOARD_BLACK_COLOR } from '../types';
 import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical, TriangleAlert, Siren } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { collectSowTeamMembers } from '../services/sowTeamMembers';
 import { ResponsibleTeamPicker } from './OpportunityDetail';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
-import { getNextTask, getOppStatusWeight, getTaskPriorityWeight } from '../services/taskUtils';
+import { getNextTask, getOppStatusWeight, getTaskPriorityWeight, syncAssignmentSubtasks } from '../services/taskUtils';
 import { CalendarView } from './CalendarView';
 import { exportOpportunity, importOpportunity, downloadJSON } from '../services/opportunityExportImport';
 import { RichTextEditor } from './OpportunityDetail';
@@ -22,9 +22,10 @@ import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { ScheduleView } from '../features/schedule/ScheduleView';
 import { getLatestHistoryEntry } from '../services/historyUtils';
-import { readScopeGlance, formatScopeGlance } from '../services/scopeSummary';
+import { readScopeGlance, formatScopeGlance, matchesScopeGlanceFilters } from '../services/scopeSummary';
 import type { ScopeGlance } from '../services/scopeSummary';
 import { ScopeCatalog, scopeOptionColor, scopeLabelKey, SCOPE_CATALOG_GROUPS } from './scopeCatalog';
+import { getProposalAgeTargets } from '../services/proposalAlarmPolicy';
 
 const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
 const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v1';
@@ -200,6 +201,7 @@ interface Props {
     alarms?: import('../types').AlarmConfig[];
     hiddenProposalProcessColumns?: string[];
     processBoardColors?: Record<string, string>;
+    processBoardColumnsBlackMode?: boolean;
     onMinimize?: (tab: FloatingTab) => void;
     onOpenTaskSubView?: (oppId: string, taskId: string) => void;
     /** Whether the "Remind me" button shows up in the task detail modal. Off by default. */
@@ -225,7 +227,7 @@ const copyToClipboard = (text: string) => {
     }
 };
 
-const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], applications: [], quickNotes: [], extras: [], hasAny: false };
+const EMPTY_SCOPE_GLANCE: ScopeGlance = { scope: [], systems: [], applications: [], executionCenters: [], quickNotes: [], extras: [], hasAny: false };
 
 const getOpportunityActiveDays = (opp: Opportunity): number | null => {
     const submitted = opp.dates?.requested;
@@ -244,13 +246,13 @@ const getOpportunityActiveDays = (opp: Opportunity): number | null => {
     return Math.max(0, Math.floor((end - start) / 86400000));
 };
 
-const getProposalAgeIndicator = (days: number | null, alarms?: import('../types').AlarmConfig[], isSold = false) => {
+const getProposalAgeIndicator = (days: number | null, alarms?: import('../types').AlarmConfig[], isSold = false, targets?: { warningDays: number; criticalDays: number }) => {
     if (isSold) return { style: { backgroundColor: '#dcfce7', color: '#166534', borderColor: '#22c55e' }, className: '', level: 'sold' as const };
     if (days === null) return { style: undefined, className: 'bg-gray-100 text-gray-500 border-gray-200', level: 'normal' as const };
     const warning = alarms?.find(alarm => alarm.id === 'proposal-age-warning');
     const critical = alarms?.find(alarm => alarm.id === 'proposal-age-critical');
-    const warningDays = Math.max(0, warning?.daysThreshold ?? 20);
-    const criticalDays = Math.max(warningDays, critical?.daysThreshold ?? 30);
+    const warningDays = targets?.warningDays ?? Math.max(0, warning?.daysThreshold ?? 20);
+    const criticalDays = targets?.criticalDays ?? Math.max(warningDays, critical?.daysThreshold ?? 30);
     if (days > criticalDays) return { style: { backgroundColor: critical?.backgroundColor || '#fee2e2', color: critical?.textColor || '#b91c1c', borderColor: critical?.textColor || '#b91c1c' }, className: '', level: 'critical' as const };
     if (days >= warningDays) return { style: { backgroundColor: warning?.backgroundColor || '#fef3c7', color: warning?.textColor || '#92400e', borderColor: warning?.textColor || '#92400e' }, className: '', level: 'warning' as const };
     return { style: undefined, className: 'bg-gray-100 text-gray-500 border-gray-200', level: 'normal' as const };
@@ -429,8 +431,9 @@ const OpportunityCard = React.memo(({
     const scopeGlanceText = useMemo(() => formatScopeGlance(scopeGlance), [scopeGlance]);
 
     const activeDays = getOpportunityActiveDays(opp);
-    const ageIndicator = getProposalAgeIndicator(activeDays, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true);
-    const showFooter = isCardFieldVisible('expectedDate') || isCardFieldVisible('taskProgress');
+    const proposalAgeTargets = getProposalAgeTargets(opp, alarms, scopeCatalog);
+    const ageIndicator = getProposalAgeIndicator(activeDays, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true, proposalAgeTargets);
+    const showFooter = isCardFieldVisible('expectedDate');
 
     return (
         <div
@@ -468,8 +471,14 @@ const OpportunityCard = React.memo(({
                         )}
                         {isCardFieldVisible('duration') && activeDays !== null && <div className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${activeDays} days`}>
                             {ageIndicator.level === 'critical' ? <Siren className="h-3 w-3" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3 w-3" /> : ageIndicator.level === 'sold' ? <Check className="h-3 w-3" /> : <Clock className="h-2.5 w-2.5" />}
-                            <span className="font-bold">{activeDays} {activeDays === 1 ? 'day' : 'days'}</span>
+                            <span className="font-bold" title={`Warning: ${proposalAgeTargets.warningDays} days · Critical: ${proposalAgeTargets.criticalDays} days · Calculated from Scope and Commercial amount`}>{activeDays} {activeDays === 1 ? 'day' : 'days'}</span>
                         </div>}
+                        {isCardFieldVisible('taskProgress') && (opp.tasks || []).length > 0 && (
+                            <div className="flex items-center gap-1 rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500" title="Tasks Completed (canceled tasks don't count and are excluded from the total)">
+                                <CheckSquare className="h-3 w-3" />
+                                {(opp.tasks || []).filter((task: Task) => task.status === 'Done').length}/{(opp.tasks || []).filter((task: Task) => task.status !== 'Canceled').length}
+                            </div>
+                        )}
                         {false && isCardFieldVisible('duration') && activeDays !== null && (
                             <div className="flex items-center gap-1 text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
                                 {ageIndicator.level === 'critical' ? <Siren className="h-3 w-3" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3 w-3" /> : <Clock className="h-2.5 w-2.5" />}
@@ -537,6 +546,8 @@ const OpportunityCard = React.memo(({
                         {scopeGlance.scope.map(label => <span key={`sc-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.scope.find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), 'scope') }}>{label}</span>)}
                         {!!scopeGlance.systems.length && <span className="ml-0.5 text-[8px] font-black leading-none text-blue-700">SYSTEM</span>}
                         {scopeGlance.systems.map(label => <span key={`sy-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.systems.flatMap(o => [o, ...(o.children || [])]).find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), scopeCatalog?.systems.some(o => scopeLabelKey(o.label) === scopeLabelKey(label)) ? 'systems' : 'submodule') }}>{label}</span>)}
+                        {!!scopeGlance.applications.length && <span className="ml-0.5 text-[8px] font-black leading-none text-teal-700">APPLICATION</span>}
+                        {scopeGlance.applications.map(label => <span key={`ap-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.applications.find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), 'applications') }}>{label}</span>)}
                         {!!scopeGlance.extras.length && <span className="ml-0.5 text-[8px] font-black leading-none text-slate-500">EXTRA</span>}
                         {scopeGlance.extras.map(label => <span key={`ex-${label}`} className="text-[9px] font-bold leading-none px-1.5 py-1 rounded-md text-white border border-white/20" style={{ backgroundColor: scopeOptionColor(scopeCatalog?.extras.find(o => scopeLabelKey(o.label) === scopeLabelKey(label)), 'extra') }}>{label}</span>)}
                     </div>
@@ -605,18 +616,6 @@ const OpportunityCard = React.memo(({
                             />
                         </div>
                     ) : <div />}
-                    <div className="flex items-center gap-1.5">
-                        {isCardFieldVisible('taskProgress') && (
-                            <div className="flex gap-1">
-                                {(opp.tasks || []).length > 0 && (
-                                    <div className="flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded text-gray-500" title="Tasks Completed">
-                                        <CheckSquare className="w-3 h-3" />
-                                        {(opp.tasks || []).filter((t: any) => t.status === 'Done').length}/{(opp.tasks || []).length}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
                 </div>
             )}
         </div>
@@ -638,21 +637,24 @@ const getImportanceColor = (rank: number | null, dateStr?: string, isCompleted: 
     const daysLeft = Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
     const gradientPreference = alarms?.find(alarm => alarm.id === 'alias-delivery-gradient');
     if (useAliasGradient && (gradientPreference?.daysThreshold ?? 1) !== 0) {
-        const base = gradientPreference?.backgroundColor || '#2563eb';
+        const base = gradientPreference?.backgroundColor || '#6C93BD';
         const parseHex = (hex: string) => {
-            const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '2563eb';
+            const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '6C93BD';
             return [0, 2, 4].map(index => Number.parseInt(normalized.slice(index, index + 2), 16));
         };
         const mix = (from: number[], to: number[], ratio: number) => `#${from.map((channel, index) => Math.round(channel + (to[index] - channel) * ratio).toString(16).padStart(2, '0')).join('')}`;
         const rgb = parseHex(base);
-        if (daysLeft < 0) {
-            const darkness = Math.min(0.72, 0.45 + Math.abs(daysLeft) * 0.025);
-            return { className: 'border shadow-sm', style: { backgroundColor: mix(rgb, [0, 0, 0], darkness), borderColor: mix(rgb, [0, 0, 0], 0.75), color: '#ffffff' } };
-        }
-        const whiteRatio = daysLeft >= 30 ? 0.76 : 0.12 + (daysLeft / 30) * 0.64;
+        // Deepen toward the chosen blue instead of toward black. This keeps overdue
+        // aliases emphatic while preserving legibility at every point in the gradient.
+        const whiteRatio = daysLeft >= 30
+            ? 0.64
+            : daysLeft >= 0
+                ? 0.24 + (daysLeft / 30) * 0.40
+                : Math.max(0, 0.24 - Math.abs(daysLeft) * 0.02);
         const backgroundColor = mix(rgb, [255, 255, 255], whiteRatio);
         const luminance = (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255;
-        return { className: 'border shadow-sm', style: { backgroundColor, borderColor: mix(rgb, [255, 255, 255], Math.max(0, whiteRatio - 0.18)), color: daysLeft <= 2 && luminance < 0.48 ? '#ffffff' : mix(rgb, [0, 0, 0], 0.45) } };
+        const useWhiteText = whiteRatio < 0.36 || (daysLeft <= 2 && luminance < 0.55);
+        return { className: 'border shadow-sm', style: { backgroundColor, borderColor: mix(rgb, [255, 255, 255], Math.max(0, whiteRatio - 0.18)), color: useWhiteText ? '#ffffff' : mix(rgb, [0, 0, 0], 0.5) } };
     }
     
     if (alarms && alarms.length > 0) {
@@ -1155,7 +1157,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, label, isOpen, onTog
 };
 
 interface GroupedMultiSelectDropdownProps {
-    groups: { label: string; options: string[] }[];
+    groups: { key: 'scope' | 'systems' | 'applications' | 'executionCenters' | 'quickNotes' | 'extras'; label: string; options: string[] }[];
     selected: string[];
     onChange: (val: string[]) => void;
     label: string;
@@ -1251,7 +1253,7 @@ const GroupedMultiSelectDropdown = ({ groups, selected, onChange, label, isOpen,
  * Principal Dashboard component for TenderLoop.
  * Provides views for Kanban, Timeline, Table, and KPI metrics.
  */
-const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0, scopeCatalog }) => {
+const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, onCreate, onStageChange, onDateChange, onOppUpdate, onTaskUpdate, globalLabels = [], alarms = [], hiddenProposalProcessColumns = [], processBoardColors = {}, processBoardColumnsBlackMode = true, onMinimize, onOpenTaskSubView, remindersEnabled = false, onAddReminder, agendaFocusNonce = 0, scopeCatalog }) => {
     opportunities = Array.isArray(opportunities) ? opportunities : [];
     globalLabels = Array.isArray(globalLabels) ? globalLabels : [];
     alarms = Array.isArray(alarms) ? alarms : [];
@@ -1299,6 +1301,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'extra', label: 'Extra' },
         { key: 'expected', label: 'Expected Date' },
         { key: 'duration', label: 'Duration' },
+        { key: 'taskProgress', label: 'Tasks' },
         { key: 'amount', label: 'Amount' },
         { key: 'nextStep', label: 'Next Step' },
         { key: 'waiting', label: 'Waiting On' },
@@ -1624,6 +1627,20 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     };
 
     const [selectedTask, setSelectedTask] = useState<{ task: Task, oppId: string } | null>(null);
+    const selectedTaskOpportunity = useMemo(
+        () => selectedTask ? opportunities.find(opp => opp.id === selectedTask.oppId) : undefined,
+        [opportunities, selectedTask?.oppId]
+    );
+    const selectedTaskTeamMembers = useMemo(() => {
+        if (!selectedTaskOpportunity) return [];
+        const fromSow = collectSowTeamMembers(selectedTaskOpportunity.notes);
+        const fromStakeholders = (selectedTaskOpportunity.stakeholders || []).flatMap(person => {
+            const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : ['Stakeholder']);
+            return roles.map(role => ({ id: person.id, name: person.name, area: person.roleContexts?.[role] ? `${role} · ${person.roleContexts[role]}` : role }));
+        }).filter(member => member.name);
+        const seen = new Set<string>();
+        return [...fromStakeholders, ...fromSow].filter(member => !seen.has(member.id) && !!seen.add(member.id));
+    }, [selectedTaskOpportunity]);
     const [remindTaskPopoverOpen, setRemindTaskPopoverOpen] = useState(false);
     const [remindTaskWhen, setRemindTaskWhen] = useState('');
     const [remindTaskPicking, setRemindTaskPicking] = useState(false);
@@ -1858,12 +1875,28 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     // (built from preScopeFilteredOpps below) doesn't hide an option someone has selected.
     const filteredOpps = useMemo(() => {
         if (labelFilters.length === 0) return preScopeFilteredOpps;
+        const availableByCategory = {
+            scope: new Set<string>(), systems: new Set<string>(), applications: new Set<string>(), executionCenters: new Set<string>(),
+            quickNotes: new Set<string>(), extras: new Set<string>(),
+        };
+        ['Mexico', 'USA', 'Canada'].forEach(center => availableByCategory.executionCenters.add(center));
+        opportunities.forEach(opp => {
+            const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
+            (Object.keys(availableByCategory) as (keyof typeof availableByCategory)[]).forEach(category =>
+                glance[category].forEach(value => availableByCategory[category].add(value))
+            );
+        });
+        const selectedByCategory = Object.fromEntries(
+            (Object.keys(availableByCategory) as (keyof typeof availableByCategory)[]).map(category => [
+                category,
+                labelFilters.filter(value => availableByCategory[category].has(value)),
+            ])
+        );
         return preScopeFilteredOpps.filter(opp => {
             const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
-            const allTags = [...glance.scope, ...glance.systems, ...(glance.applications || []), ...glance.quickNotes, ...glance.extras];
-            return labelFilters.some(tag => allTags.includes(tag));
+            return matchesScopeGlanceFilters(glance, selectedByCategory);
         });
-    }, [preScopeFilteredOpps, labelFilters, scopeCatalog]);
+    }, [preScopeFilteredOpps, opportunities, labelFilters, scopeCatalog]);
 
     // Scope/Label filter options, grouped by section like the Scope quick view, and limited to
     // opportunities that are still visible once every other filter (and hidden process-board
@@ -1878,19 +1911,24 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     }, [preScopeFilteredOpps, kanbanGroupBy, hiddenProposalProcessColumns]);
 
     const scopeFilterGroups = useMemo(() => {
-        const buckets: Record<'scope' | 'systems' | 'applications' | 'quickNotes' | 'extras', Set<string>> = {
-            scope: new Set(), systems: new Set(), applications: new Set(), quickNotes: new Set(), extras: new Set(),
+        const buckets: Record<'scope' | 'systems' | 'applications' | 'executionCenters' | 'quickNotes' | 'extras', Set<string>> = {
+            scope: new Set(), systems: new Set(), applications: new Set(), executionCenters: new Set(), quickNotes: new Set(), extras: new Set(),
         };
         scopeFilterCandidates.forEach(opp => {
             const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
             glance.scope.forEach(v => buckets.scope.add(v));
             glance.systems.forEach(v => buckets.systems.add(v));
             (glance.applications || []).forEach(v => buckets.applications.add(v));
+            glance.executionCenters.forEach(v => buckets.executionCenters.add(v));
             glance.quickNotes.forEach(v => buckets.quickNotes.add(v));
             glance.extras.forEach(v => buckets.extras.add(v));
         });
+        const executionCenterGroup = { key: 'executionCenters' as const, label: 'Execution Center', options: ['Mexico', 'USA', 'Canada'] };
         return SCOPE_CATALOG_GROUPS
-            .map(group => ({ label: group.title, options: Array.from(buckets[group.key]).sort() }))
+            .flatMap(group => {
+                const catalogGroup = { key: group.key, label: group.title, options: Array.from(buckets[group.key]).sort() };
+                return group.key === 'scope' ? [catalogGroup, executionCenterGroup] : [catalogGroup];
+            })
             .filter(group => group.options.length > 0);
     }, [scopeFilterCandidates, scopeCatalog]);
 
@@ -2010,6 +2048,18 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             } else {
                 return; // Validation failed
             }
+        }
+
+        if (newStatus === 'Missing Info') {
+            const task = opportunities.find(opp => opp.id === oppId)?.tasks.find(candidate => candidate.id === taskId);
+            if (!task) return;
+            onTaskUpdate(oppId, taskId, {
+                status: 'Missing Info',
+                owner: 'External Area',
+                isAssignment: true,
+                responsibleRequestedDate: task.responsibleRequestedDate || new Date().toLocaleDateString('en-CA'),
+            });
+            return;
         }
 
         if (validateTaskCompletion(oppId, taskId, newStatus)) {
@@ -2380,10 +2430,38 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         const opp = opportunities.find(o => o.id === selectedTask.oppId);
         if (!opp) return;
 
-        const updatedTasks = (opp.tasks || []).map(t => t.id === selectedTask.task.id ? { ...t, [field]: value } : t);
+        const latestTask = (opp.tasks || []).find(task => task.id === selectedTask.task.id) || selectedTask.task;
+        let patch: Partial<Task> = { [field]: value };
+        if (field === 'status' && value === 'Missing Info') {
+            patch = {
+                ...patch,
+                owner: 'External Area',
+                isAssignment: true,
+                responsibleRequestedDate: latestTask.responsibleRequestedDate || new Date().toLocaleDateString('en-CA'),
+            };
+        }
+        if (field === 'owner' && latestTask.status === 'Missing Info') {
+            patch = { ...patch, owner: 'External Area', isAssignment: true };
+        }
+        if (field === 'responsibleTeamMemberIds') {
+            const ids = value as string[];
+            const members = ids.map(id => selectedTaskTeamMembers.find(member => member.id === id)).filter(Boolean);
+            patch = {
+                ...patch,
+                responsible: members.map(member => member!.name).join(', '),
+                externalAreas: Array.from(new Set(members.map(member => member!.area.split(' · ')[0]).filter(Boolean))),
+                ...(ids.length > 0 ? {
+                    owner: 'External Area',
+                    isAssignment: true,
+                    responsibleRequestedDate: latestTask.responsibleRequestedDate || new Date().toLocaleDateString('en-CA'),
+                } : {}),
+            };
+        }
+        const updatedTask = syncAssignmentSubtasks({ ...latestTask, ...patch });
+        const updatedTasks = (opp.tasks || []).map(t => t.id === selectedTask.task.id ? updatedTask : t);
         const updatedOpp = { ...opp, tasks: updatedTasks };
         onOppUpdate(updatedOpp);
-        setSelectedTask({ ...selectedTask, task: { ...selectedTask.task, [field]: value } });
+        setSelectedTask({ ...selectedTask, task: updatedTask });
     };
 
     const deleteTaskInModal = () => {
@@ -2617,8 +2695,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 return <td key={key} className="px-2 py-3 text-center font-mono text-xs text-gray-600"><EditableCell type="number" value={opp.priorityOrder ?? ''} onChange={(val) => handleRankEdit(opp, val)} displayValue={<span className="inline-flex items-center gap-0.5"><GripVertical className="h-3 w-3 cursor-grab text-gray-300" title="Drag this opportunity above another in the same status group" />{opp.priorityOrder ? `#${opp.priorityOrder}` : <span className="text-gray-300">—</span>}</span>} /></td>;
             case 'assigned':
                 return <td key={key} className="px-1 py-3 text-xs text-gray-600 font-mono"><EditableCell direct type="date" value={opp.dates?.requested || ''} onChange={(val) => handleInlineEdit(opp, 'dates.requested', val)} /></td>;
-            case 'scope':
-                return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">{readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).systems.join(', ')}</td>;
+            case 'scope': {
+                const glance = readScopeGlance(opp.notes, scopeCatalog, opp.labels || []);
+                return (
+                    <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">
+                        {glance.systems.join(', ')}
+                        {!!glance.applications.length && (
+                            <span className="text-teal-700"> · {glance.applications.join(', ')}</span>
+                        )}
+                    </td>
+                );
+            }
             case 'type':
                 return <td key={key} className="px-6 py-3 text-xs text-gray-600 font-medium">{readScopeGlance(opp.notes, scopeCatalog, opp.labels || []).scope.join(', ')}</td>;
             case 'extra':
@@ -2627,10 +2714,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 return <td key={key} className="px-1 py-3 text-xs text-gray-600 font-mono"><EditableCell direct type="date" value={opp.dates?.expected || ''} onChange={(val) => handleInlineEdit(opp, 'dates.expected', val)} /></td>;
             case 'duration': {
                 const days = getOpportunityActiveDays(opp);
-                const ageIndicator = getProposalAgeIndicator(days, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true);
+                const proposalAgeTargets = getProposalAgeTargets(opp, alarms, scopeCatalog);
+                const ageIndicator = getProposalAgeIndicator(days, alarms, opp.statusLabel === 'Won' || opp.kpis?.sold === true, proposalAgeTargets);
                 return (
                     <td key={key} className="px-3 py-3 text-center">
-                        {days !== null ? <div className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${days} days`}>
+                        {days !== null ? <div className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${days} · warning ${proposalAgeTargets.warningDays} · critical ${proposalAgeTargets.criticalDays} days`}>
                             {ageIndicator.level === 'critical' ? <Siren className="h-3.5 w-3.5" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3.5 w-3.5" /> : ageIndicator.level === 'sold' ? <Check className="h-3.5 w-3.5" /> : <Clock className="h-3 w-3" />}
                             <span className="font-medium">{days} {days === 1 ? 'day' : 'days'}</span>
                         </div> : <span className="text-gray-300">â€”</span>}
@@ -2638,6 +2726,21 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                             <div className="inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
                                 <Clock className="w-3 h-3 text-gray-400" />
                                 <span className="font-medium">{days}d</span>
+                            </div>
+                        ) : <span className="text-gray-300">—</span>}
+                    </td>
+                );
+            }
+            case 'taskProgress': {
+                const tasks = opp.tasks || [];
+                const countedTasks = tasks.filter((task: Task) => task.status !== 'Canceled');
+                const done = tasks.filter((task: Task) => task.status === 'Done').length;
+                return (
+                    <td key={key} className="px-3 py-3 text-center">
+                        {tasks.length > 0 ? (
+                            <div className="inline-flex items-center gap-1 rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-500 border border-gray-200" title="Tasks Completed (canceled tasks don't count and are excluded from the total)">
+                                <CheckSquare className="h-3 w-3" />
+                                <span className="font-medium">{done}/{countedTasks.length}</span>
                             </div>
                         ) : <span className="text-gray-300">—</span>}
                     </td>
@@ -3259,7 +3362,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                         ) : (
                                             (() => {
                                                 const isCollapsed = collapsedColumns.includes(columnKey);
-                                                const customColor = processBoardColors[columnKey];
+                                                const customColor = processBoardColumnsBlackMode !== false ? PROCESS_BOARD_BLACK_COLOR : processBoardColors[columnKey];
                                                 return (
                                             <div
                                                 className={`kanban-cursor-grab flex items-center justify-between mb-4 p-2 rounded-lg border-t-4 shadow-sm cursor-grab active:cursor-grabbing select-none ${!customColor ? (DETAILED_STATUS_COLORS[columnKey] || 'bg-gray-100 text-gray-600 border-gray-200') : ''} ${draggingCol === columnKey ? 'opacity-40 scale-95' : ''} transition-all ${isCollapsed ? 'flex-col gap-3 py-4' : ''}`}
@@ -3934,13 +4037,37 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 isOpen={openDropdown === 'taskExternalAreas'}
                                                 onToggle={() => toggleDropdown('taskExternalAreas')}
                                             />
-                                            <input list="dashboard-stakeholders-datalist" placeholder="Person Name" className="border-gray-200 rounded-lg text-sm flex-1 bg-white mt-2" value={selectedTask.task.responsible || ''} onChange={(e) => updateSelectedTask('responsible', e.target.value)} />
-                                            <datalist id="dashboard-stakeholders-datalist">
-                                                {(opportunities.find(o => o.id === selectedTask.oppId)?.stakeholders || []).map(p => <option key={p.id} value={p.name} />)}
-                                            </datalist>
+                                            <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
+                                                <label className="mb-2 block text-[9px] font-bold uppercase text-gray-500">Responsible people</label>
+                                                <ResponsibleTeamPicker
+                                                    options={selectedTaskTeamMembers}
+                                                    selected={selectedTask.task.responsibleTeamMemberIds || []}
+                                                    onChange={(ids) => updateSelectedTask('responsibleTeamMemberIds', ids)}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                 </div>
+                                {(selectedTask.task.status === 'Missing Info' || selectedTask.task.isAssignment) && (
+                                    <div className="mt-4 grid grid-cols-1 gap-3 border-t border-gray-200 pt-4 sm:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1 block text-[9px] font-bold uppercase text-gray-500">Requested on</label>
+                                            <input type="date" className="w-full rounded-lg border-gray-200 bg-white text-sm" value={selectedTask.task.responsibleRequestedDate || ''} onChange={(e) => updateSelectedTask('responsibleRequestedDate', e.target.value)} />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-[9px] font-bold uppercase text-gray-500">Expected information</label>
+                                            <input type="date" className="w-full rounded-lg border-gray-200 bg-white text-sm" value={selectedTask.task.responsibleDueDate || ''} onChange={(e) => updateSelectedTask('responsibleDueDate', e.target.value)} />
+                                        </div>
+                                        <div className="rounded-lg border border-gray-200 bg-white p-2">
+                                            <label className="mb-2 block text-[9px] font-bold uppercase text-gray-500">Approvers</label>
+                                            <ResponsibleTeamPicker options={selectedTaskTeamMembers} selected={selectedTask.task.approverTeamMemberIds || []} onChange={(ids) => updateSelectedTask('approverTeamMemberIds', ids)} />
+                                        </div>
+                                        <div className="rounded-lg border border-gray-200 bg-white p-2">
+                                            <label className="mb-2 block text-[9px] font-bold uppercase text-gray-500">Informed (CC)</label>
+                                            <ResponsibleTeamPicker options={selectedTaskTeamMembers} selected={selectedTask.task.informedTeamMemberIds || []} onChange={(ids) => updateSelectedTask('informedTeamMemberIds', ids)} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Dependency Status Preview */}

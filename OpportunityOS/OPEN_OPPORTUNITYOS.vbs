@@ -1,6 +1,6 @@
 Option Explicit
 
-Dim shell, fso, scriptDir, motorPath, viteLauncher, command, windowStyle, updaterPath, updaterCommand
+Dim shell, fso, scriptDir, motorPath, viteLauncher, productionBuild, command, windowStyle, updaterPath, updaterCommand
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -8,6 +8,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 motorPath = scriptDir & "\engine_opportunityos.bat"
 viteLauncher = scriptDir & "\node_modules\.bin\vite.cmd"
+productionBuild = scriptDir & "\dist\index.html"
 
 ' If OpportunityOS is already open, toggle its window (restore/focus it, or
 ' minimize it if it's already the active window) instead of opening another
@@ -43,7 +44,7 @@ End If
 ' OPEN_OPPORTUNITYOS.vbs and engine_opportunityos.bat are the two files every
 ' other launcher (the .bat fallback, the browser-tab variant, the installer)
 ' depends on.
-If fso.FileExists(viteLauncher) Then
+If fso.FileExists(viteLauncher) And fso.FileExists(productionBuild) Then
     command = "cmd.exe /d /c call """ & motorPath & """ HIDDEN"
     windowStyle = 0
 Else

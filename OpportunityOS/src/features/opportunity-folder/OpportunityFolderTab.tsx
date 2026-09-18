@@ -1270,6 +1270,12 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setPins(next);
   };
 
+  /**
+   * [F-3] A quick-access FILE opens directly in its native OS app, exactly like double-
+   * clicking it in the list — it no longer just navigates the in-app view to where the
+   * file lives. A quick-access FOLDER still navigates into it inside the Folder tab,
+   * which is the behavior that already worked correctly.
+   */
   const openPin = async (pin: FolderPin) => {
     if (!rootHandle) return;
     try {
@@ -1278,16 +1284,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         for (const seg of pin.relativePath) t = await t.getDirectoryHandle(seg);
         navigateTo(t, pin.relativePath, true);
       } else {
-        // Navigate to the parent dir and select the file.
-        const dirPath = pin.relativePath.slice(0, -1);
-        let t = rootHandle;
-        for (const seg of dirPath) t = await t.getDirectoryHandle(seg);
-        navigateTo(t, dirPath, true);
-        setTimeout(async () => {
-          const contents = await listDirectory(t, dirPath);
-          const found = contents.find(i => i.name === pin.name);
-          if (found) { setSelectedItem(found); setSelectedKeys(new Set([pin.key])); }
-        }, 120);
+        await handleOpenNative({ name: pin.name, kind: 'file', relativePath: pin.relativePath } as FileItem);
       }
     } catch {
       alert('Could not open the quick access. It may have been moved or deleted.');
@@ -1530,12 +1527,19 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       );
       if (isEditable) return;
       const sel = selectedItems();
+      // [F-2] Ctrl+Shift+C: copy folder path(s) — checked first so it never falls through
+      // to the plain Ctrl+C "copy item" shortcut below.
+      if (key === 'c' && e.shiftKey && sel.length > 0) { e.preventDefault(); handleCopyContainingFolderPaths(); return; }
       if (key === 'c' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'copy', items: sel }); }
       else if (key === 'x' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'move', items: sel }); }
       else if (key === 'v' && clipboard) { e.preventDefault(); handlePaste(); }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
+    // handleCopyContainingFolderPaths is intentionally omitted from deps: it is declared
+    // later in this component and only invoked from the event callback (after render
+    // completes), so referencing it here would throw a temporal-dead-zone error.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKeys, displayedItems, clipboard, handlePaste]);
 
   const handleDelete = (item: FileItem) => {
@@ -1659,6 +1663,31 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     const t = `${base}\\${selectedItem.relativePath.join('\\')}`;
     navigator.clipboard.writeText(t);
     setCopySuccess('full');
+    setTimeout(() => setCopySuccess(null), 2000);
+  };
+
+  /**
+   * [F-2] Keyboard-only shortcut (Ctrl+Shift+C), distinct from the "Copy path" button
+   * (handleCopyPath, which copies the exact path of the single selected item). This
+   * one copies FOLDER paths: for a selected folder, its own path; for a selected file,
+   * the path of the folder that CONTAINS it (never the file's own path). Works with
+   * multi-selection, deduplicating repeated containing folders.
+   */
+  const handleCopyContainingFolderPaths = async () => {
+    const sel = selectedItems();
+    if (!sel.length) return;
+    const base = await ensureRootPath();
+    if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
+    const folderRelPaths = new Map<string, string[]>();
+    for (const item of sel) {
+      const folderRel = item.kind === 'directory' ? item.relativePath : item.relativePath.slice(0, -1);
+      folderRelPaths.set(folderRel.join('\\'), folderRel);
+    }
+    const text = [...folderRelPaths.values()]
+      .map(rel => (rel.length ? `${base}\\${rel.join('\\')}` : base))
+      .join('\n');
+    navigator.clipboard.writeText(text);
+    setCopySuccess('folder');
     setTimeout(() => setCopySuccess(null), 2000);
   };
 
@@ -2622,6 +2651,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 {isFileSelected && <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Linked items"><LinkIcon className="w-3.5 h-3.5" /></button>}
               </>
             )}
+            <button onClick={handleCopyContainingFolderPaths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy folder path(s) — Ctrl+Shift+C. For a selected file, copies the path of the folder that contains it.">{copySuccess === 'folder' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <FolderOpen className="w-3.5 h-3.5" />}</button>
             <button onClick={handleDeleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-300 rounded-lg text-xs font-bold transition-all" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
           <button onClick={clearSelection} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>

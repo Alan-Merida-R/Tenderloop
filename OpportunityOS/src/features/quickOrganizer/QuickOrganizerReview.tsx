@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Bell, Bot, CalendarDays, Check, ChevronLeft, ClipboardList, Clock3, Gauge, LayoutGrid, Moon, Plus, Search, Sparkles, Sun, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, Bot, CalendarDays, Check, ChevronLeft, ClipboardList, Clock3, Gauge, LayoutGrid, ListOrdered, Moon, MoveRight, Plus, Search, Send, Sparkles, Sun, Timer, Trash2, Truck } from 'lucide-react';
 import { Opportunity } from '../../types';
 import { CalendarView } from '../../components/CalendarView';
 import { isOpportunitySchedulable, isTaskActive } from '../schedule/scheduleHelpers';
-import { ParsedDueDateRow, ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedReminderRow, ParsedScheduleRow } from './responseParser';
+import {
+    ParsedContingentRow, ParsedDeliveryDateRow, ParsedDueDateRow, ParsedExternalPushRow, ParsedMeta,
+    ParsedMissingTaskSuggestion, ParsedOpportunityAssessment, ParsedOutOfScopeRow, ParsedQueueRow,
+    ParsedRankingRow, ParsedReminderRow, ParsedScheduleRow, ParsedSuggestedMoveRow,
+} from './responseParser';
 import { QuickOrganizerWeekAgenda } from './QuickOrganizerWeekAgenda';
 import { QuickOrganizerPmDashboard } from './QuickOrganizerPmDashboard';
 
@@ -17,6 +21,17 @@ interface Props {
     missingTaskInsights: string[];
     missingTaskSuggestions: ParsedMissingTaskSuggestion[];
     dueDateRows: ParsedDueDateRow[];
+    /** [TA6] Applied on accept, like dueDateRows — but on the opportunity, not on a task. */
+    deliveryDateRows: ParsedDeliveryDateRow[];
+    /** [TA6] Advisory sections: shown so the user can act on them by hand, never written. */
+    rankingRows: ParsedRankingRow[];
+    externalPushRows: ParsedExternalPushRow[];
+    contingentRows: ParsedContingentRow[];
+    queueRows: ParsedQueueRow[];
+    suggestedMoveRows: ParsedSuggestedMoveRow[];
+    outOfScopeRows: ParsedOutOfScopeRow[];
+    assumptions: string[];
+    meta: ParsedMeta | null;
     opportunityAssessments: ParsedOpportunityAssessment[];
     opportunities: Opportunity[];
     errors: { section: string; line: string; reason: string }[];
@@ -26,6 +41,8 @@ interface Props {
     onRemove: (id: string) => void;
     onRemoveReminder: (id: string) => void;
     onRemoveDueDate: (id: string) => void;
+    onDeliveryDateChange: (id: string, patch: Partial<ParsedDeliveryDateRow>) => void;
+    onRemoveDeliveryDate: (id: string) => void;
     onScheduleTask: (oppId: string, taskId: string) => void;
     onCreateSuggestedTask: (suggestion: ParsedMissingTaskSuggestion) => void;
     language: 'en' | 'es';
@@ -70,7 +87,8 @@ const parseRecommendation = (text: string): ParsedRecommendation => {
 /** Complete draft workspace. Nothing in here mutates an opportunity until onApply is confirmed. */
 export const QuickOrganizerReview: React.FC<Props> = ({
     rows, reminderRows, recommendations, paretoInsights, blockerInsights, deliveryInsights, missingTaskInsights, missingTaskSuggestions, dueDateRows, opportunityAssessments, opportunities, errors, onChange, onReminderChange, onDueDateChange,
-    onRemove, onRemoveReminder, onRemoveDueDate, onScheduleTask, onCreateSuggestedTask, language, theme, onLanguageChange, onThemeChange, onBack, onApply,
+    deliveryDateRows, rankingRows, externalPushRows, contingentRows, queueRows, suggestedMoveRows, outOfScopeRows, assumptions, meta,
+    onRemove, onRemoveReminder, onRemoveDueDate, onDeliveryDateChange, onRemoveDeliveryDate, onScheduleTask, onCreateSuggestedTask, language, theme, onLanguageChange, onThemeChange, onBack, onApply,
 }) => {
     const es = language === 'es';
     const [workspaceView, setWorkspaceView] = useState<'pm' | 'plan'>('pm');
@@ -96,8 +114,14 @@ export const QuickOrganizerReview: React.FC<Props> = ({
     const invalidRows = rows.filter(r => !r.date || !r.startTime || !r.endTime || r.endTime <= r.startTime);
     const invalidDueDates = dueDateRows.filter(row => !/^\d{4}-\d{2}-\d{2}$/.test(row.date) || row.date < isoToday());
     const invalidReminders = reminderRows.filter(row => !row.title.trim() || isNaN(new Date(row.remindAt).getTime()));
-    const invalidCount = invalidRows.length + invalidDueDates.length + invalidReminders.length;
-    const canApply = rows.length + reminderRows.length + dueDateRows.length + createdSuggestionIds.length > 0 && invalidCount === 0;
+    // [TA6] A delivery date is written into the opportunity, so it gets the same gate as a due
+    // date. A row for a hard commitment is reported instead of blocking: it is simply skipped
+    // when the plan is applied, and the user is told why.
+    const invalidDeliveryDates = deliveryDateRows.filter(row => !/^\d{4}-\d{2}-\d{2}$/.test(row.date));
+    const hardCommittedDeliveries = deliveryDateRows.filter(row =>
+        opportunities.find(opp => opp.id === row.oppId)?.commercial?.deliveryCommitted === 'hard');
+    const invalidCount = invalidRows.length + invalidDueDates.length + invalidReminders.length + invalidDeliveryDates.length;
+    const canApply = rows.length + reminderRows.length + dueDateRows.length + deliveryDateRows.length + createdSuggestionIds.length > 0 && invalidCount === 0;
 
     return <div className={`fixed inset-0 z-[210] bg-gray-950 text-gray-100 flex flex-col overflow-hidden ${theme === 'light' ? 'qo-theme-light' : 'qo-theme-dark'}`}>
         <header className="shrink-0 px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-4">
@@ -131,6 +155,18 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                         </article>;
                     })}</div> : <div className="rounded-2xl border border-dashed border-gray-700 p-5 text-xs text-gray-500">{es ? 'La respuesta no incluyó la evaluación estructurada. Regenera el prompt para ver avance IA, capacidad y fechas realistas.' : 'The AI reply did not include the structured assessment. Regenerate the prompt to see AI progress, capacity and realistic delivery dates.'}</div>}
                 </section>
+                {rankingRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Gauge className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Prioridad calculada por la IA' : 'AI-computed priority'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Puntaje = cierre barato + urgencia + apalancamiento + valor. Cubo A: cierra en menos de 1h. Cubo B: destraba a otro. Cubo C: construcción.' : 'Score = cheap close + urgency + leverage + value. Bucket A: closes in under 1h. Bucket B: unblocks someone. Bucket C: build work.'}</p></div>
+                    <div className="mt-3 divide-y divide-gray-800/80 rounded-xl border border-gray-800 overflow-hidden">
+                        {[...rankingRows].sort((a, b) => a.rank - b.rank).map(row => <div key={row.id} className={`flex items-center gap-3 px-3 py-2 ${row.outOfScope ? 'bg-gray-900/40 opacity-70' : 'bg-gray-900/60'}`}>
+                            <span className="shrink-0 w-6 text-center text-[11px] font-black text-gray-500 tabular-nums">{row.rank}</span>
+                            <div className="min-w-0 flex-1"><p className="text-xs font-bold truncate">{row.oppLabel}{row.outOfScope && <span className="ml-2 text-[9px] font-black text-amber-400">{es ? 'FUERA DE ALCANCE' : 'OUT OF SCOPE'}</span>}</p><p className="text-[10px] text-gray-500 truncate">{row.why}</p></div>
+                            {row.bucket && <span className="shrink-0 text-[9px] font-black border border-gray-600 text-gray-300 rounded-md px-1.5 py-0.5">{row.bucket}</span>}
+                            <span className="shrink-0 text-sm font-black tabular-nums">{row.score}</span>
+                        </div>)}
+                    </div>
+                </section>}
+
                 <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
                     <h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bot className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Recomendaciones de IA' : 'AI recommendations'}</h2>
                     {recommendations.length ? (
@@ -150,6 +186,16 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                     ) : <p className="mt-3 text-xs text-gray-500">{es ? 'La respuesta no incluyó recomendaciones.' : 'The response did not include recommendations.'}</p>}
                 </section>
 
+                {assumptions.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-400" /> {es ? 'Supuestos que tomó la IA' : 'Assumptions the AI made'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Cada inferencia, dato faltante que rellenó y contradicción que encontró. Léelos antes de aceptar el plan.' : 'Every inference, missing field it filled in and contradiction it found. Read them before accepting the plan.'}</p></div>
+                    <ul className="mt-3 space-y-1.5">{assumptions.map((item, index) => <li key={index} className="flex items-start gap-2 text-[12px] leading-relaxed text-gray-200"><span className="shrink-0 mt-2 w-1.5 h-1.5 rounded-full bg-amber-400" />{item}</li>)}</ul>
+                </section>}
+
+                {meta && <p className="text-[10px] text-gray-500">
+                    {es ? 'Respuesta' : 'Answer'} {meta.schemaVersion || '?'} · {meta.generatedAt || '?'} · {meta.opportunityCount ?? '?'} {es ? 'oportunidades' : 'opportunities'} · {meta.taskCount ?? '?'} {es ? 'tareas' : 'tasks'}{meta.overallConfidence !== null ? ` · ${es ? 'confianza' : 'confidence'} ${meta.overallConfidence}%` : ''}
+                    {meta.opportunityCount !== null && meta.opportunityCount !== opportunities.length && <span className="ml-2 font-bold text-amber-400">{es ? `La IA dice haber analizado ${meta.opportunityCount} y tú seleccionaste ${opportunities.length}: la respuesta puede venir truncada.` : `The AI says it analyzed ${meta.opportunityCount} but you selected ${opportunities.length}: the answer may be truncated.`}</span>}
+                </p>}
+
                 <div className="grid lg:grid-cols-3 gap-3">
                     {([[es ? 'Tareas 20/80 de mayor impacto' : '20/80 high-leverage tasks', paretoInsights], [es ? 'Bloqueos y dependencias' : 'Blockers and dependencies', blockerInsights], [es ? 'Panorama de entrega' : 'Delivery outlook', deliveryInsights]] as const).map(([title, items]) => <section key={title} className="bg-gray-900 border border-gray-800 rounded-2xl p-4"><h2 className="text-[10px] font-black uppercase tracking-widest text-[#3DCD58]">{title}</h2><div className="mt-3 space-y-2">{items.length ? items.map((item, index) => <p key={index} className="text-xs leading-relaxed text-gray-200">{item}</p>) : <p className="text-xs text-gray-600">{es ? 'La IA no devolvió análisis.' : 'No analysis returned.'}</p>}</div></section>)}
                 </div>
@@ -168,6 +214,7 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                     {errors.map((e, i) => <p key={i} className="text-[11px] text-rose-300/80 mt-1">[{e.section}] {e.reason}</p>)}
                     {invalidDueDates.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">{es ? 'Las fechas de tarea no pueden estar vacías ni en el pasado.' : 'Task due dates cannot be blank or in the past.'}</p>}
                     {invalidReminders.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">{es ? 'Los recordatorios necesitan fecha, hora y un título concreto.' : 'Reminders need a valid date/time and a concrete title.'}</p>}
+                    {invalidDeliveryDates.length > 0 && <p className="text-[11px] text-rose-300/80 mt-1">{es ? 'Alguna fecha de entrega propuesta no es una fecha válida.' : 'A proposed delivery date is not a valid date.'}</p>}
                 </section>}
 
                 <section className="space-y-3">
@@ -183,6 +230,84 @@ export const QuickOrganizerReview: React.FC<Props> = ({
                         const task = opp?.tasks?.find(item => item.id === row.taskId);
                         return <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_130px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2.5"><div className="min-w-0"><p className="text-xs font-bold truncate">{row.taskLabel}</p><p className="text-[10px] text-gray-400 mt-0.5">Current: {task?.dueDate || 'Not set'} · Proposal delivery: {opp?.dates?.expected || 'Not set'}</p><p className="text-[10px] text-amber-300/80 mt-0.5 truncate" title={row.rationale}>{row.rationale || 'AI adjustment'}</p></div><input type="date" value={row.date} onChange={e => onDueDateChange(row.id, { date: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveDueDate(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>;
                     })}
+                </section>}
+
+                {deliveryDateRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Truck className="w-4 h-4 text-amber-400" /> {es ? 'Cambios de fecha de ENTREGA de la propuesta' : 'Proposal DELIVERY date changes'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Esta fecha es la de la oportunidad completa, no la de una tarea. Solo se aplica cuando el compromiso no es "hard".' : 'This is the whole opportunity date, not a task date. It is only applied when the commitment is not "hard".'}</p></div>
+                    {deliveryDateRows.map(row => {
+                        const opp = opportunities.find(item => item.id === row.oppId);
+                        const isHard = opp?.commercial?.deliveryCommitted === 'hard';
+                        return <div key={row.id} className={`grid grid-cols-[minmax(0,1fr)_130px_32px] gap-2 items-center rounded-xl p-2.5 ${isHard ? 'bg-rose-950/40 border border-rose-800/60' : 'bg-gray-800/60'}`}>
+                            <div className="min-w-0">
+                                <p className="text-xs font-bold truncate">{row.oppLabel}</p>
+                                <p className="text-[10px] text-gray-400 mt-0.5">{es ? 'Actual:' : 'Current:'} {opp?.dates?.expected || row.currentDelivery || (es ? 'sin fecha' : 'not set')} · {es ? 'Compromiso:' : 'Commitment:'} {opp?.commercial?.deliveryCommitted || (es ? 'sin definir (se asume soft)' : 'unset (assumed soft)')}</p>
+                                <p className="text-[10px] text-amber-300/80 mt-0.5" title={row.rationale}>{row.rationale || (es ? 'Ajuste de la IA' : 'AI adjustment')}</p>
+                                {isHard && <p className="text-[10px] font-bold text-rose-300 mt-0.5">{es ? 'Compromiso duro con el cliente: NO se aplicará. Requiere renegociar.' : 'Hard customer commitment: it will NOT be applied. Renegotiation required.'}</p>}
+                            </div>
+                            <input type="date" value={row.date} onChange={e => onDeliveryDateChange(row.id, { date: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]" />
+                            <button onClick={() => onRemoveDeliveryDate(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4" /></button>
+                        </div>;
+                    })}
+                    {hardCommittedDeliveries.length > 0 && <p className="text-[10px] text-rose-300/80">{es ? `${hardCommittedDeliveries.length} propuesta(s) se omitirán al aceptar por ser compromiso duro.` : `${hardCommittedDeliveries.length} proposal(s) will be skipped on accept because the commitment is hard.`}</p>}
+                </section>}
+
+                {externalPushRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Send className="w-4 h-4 text-sky-400" /> {es ? 'Empujar a otros (correos, preguntas, escalamientos)' : 'Push on others (pings, questions, escalations)'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Acciones de cinco minutos que ponen a trabajar a alguien más. No se agendan ni se guardan: hazlas y listo.' : 'Five-minute actions that put someone else to work. They are not scheduled or saved: just do them.'}</p></div>
+                    {externalPushRows.map(row => <article key={row.id} className="rounded-xl bg-gray-800/60 p-2.5">
+                        <div className="flex items-center gap-2">
+                            <span className={`shrink-0 text-[9px] font-black tracking-wider border rounded-md px-1.5 py-0.5 ${row.type === 'Escalation' ? 'bg-rose-950/70 text-rose-300 border-rose-700/60' : row.type === 'Question' ? 'bg-amber-950/70 text-amber-300 border-amber-700/60' : 'bg-sky-950/70 text-sky-300 border-sky-700/60'}`}>{row.type.toUpperCase()}</span>
+                            <p className="text-[11px] font-bold text-gray-200 truncate">{row.to || (es ? 'destinatario sin definir' : 'recipient not set')}</p>
+                            {row.sendBy && <span className="ml-auto shrink-0 text-[10px] font-black tabular-nums text-gray-400">{es ? 'antes de' : 'by'} {row.sendBy}</span>}
+                        </div>
+                        <p className="mt-1 text-[12px] leading-relaxed text-gray-100">{row.message}</p>
+                        <p className="mt-0.5 text-[10px] text-gray-500 truncate">{row.oppLabel}</p>
+                    </article>)}
+                </section>}
+
+                {contingentRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Timer className="w-4 h-4 text-emerald-400" /> {es ? 'Trabajo contingente (listo en cuanto te respondan)' : 'Contingent work (ready the moment they answer)'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'No ocupa bloque de calendario porque depende de otro. Se activa con el disparador.' : 'It gets no calendar block because it waits on someone else. The trigger activates it.'}</p></div>
+                    {contingentRows.map(row => <div key={row.id} className="rounded-xl bg-gray-800/60 p-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0"><p className="text-xs font-bold truncate">{row.taskLabel}</p><p className="text-[10px] text-gray-500 truncate">{row.oppLabel}</p></div>
+                            {row.estMinutes !== null && <span className="shrink-0 text-[10px] font-black text-emerald-300 tabular-nums">{row.estMinutes} min</span>}
+                        </div>
+                        <p className="mt-1 text-[11px] text-amber-200/90"><b>{es ? 'Cuando:' : 'When:'}</b> {row.trigger}</p>
+                        <p className="mt-0.5 text-[11px] text-gray-200"><b>{es ? 'Haz:' : 'Do:'}</b> {row.action}</p>
+                    </div>)}
+                </section>}
+
+                {queueRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><ListOrdered className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Cola de ejecución paso a paso' : 'Step-by-step execution queue'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Síguela de arriba a abajo sin tener que decidir nada más.' : 'Follow it top to bottom without having to decide anything else.'}</p></div>
+                    <ol className="divide-y divide-gray-800/80 rounded-xl border border-gray-800 overflow-hidden">
+                        {[...queueRows].sort((a, b) => a.position - b.position).map(row => <li key={row.id} className="flex items-start gap-3 bg-gray-900/60 px-3 py-2">
+                            <span className="shrink-0 mt-0.5 w-6 text-center text-[10px] font-black text-[#3DCD58] tabular-nums">{row.position}</span>
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[12px] font-bold text-gray-100">{row.subtask || row.taskLabel}</p>
+                                {row.subtask && <p className="text-[10px] text-gray-500 truncate">{row.taskLabel}</p>}
+                                {row.doneWhen && <p className="text-[10px] text-gray-400 mt-0.5">{es ? 'Terminado cuando:' : 'Done when:'} {row.doneWhen}</p>}
+                                {row.dependsOn && row.dependsOn !== '-' && <p className="text-[10px] text-amber-300/80 mt-0.5">{es ? 'Depende de:' : 'Depends on:'} {row.dependsOn}</p>}
+                            </div>
+                            {row.estMinutes !== null && <span className="shrink-0 text-[10px] font-black text-gray-400 tabular-nums">{row.estMinutes} min</span>}
+                        </li>)}
+                    </ol>
+                </section>}
+
+                {suggestedMoveRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-2">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><MoveRight className="w-4 h-4 text-amber-400" /> {es ? 'Bloques que convendría mover (tú decides)' : 'Blocks worth moving (you decide)'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'Son bloques fuera del alcance seleccionado: la IA no los reescribe, solo propone a dónde moverlos.' : 'These blocks are outside the selected scope: the AI never rewrites them, it only proposes where to move them.'}</p></div>
+                    {suggestedMoveRows.map(row => <div key={row.id} className="rounded-xl bg-gray-800/60 p-2.5">
+                        <div className="flex items-center gap-2"><span className="shrink-0 text-[9px] font-black tracking-wider border border-amber-700/60 bg-amber-950/70 text-amber-300 rounded-md px-1.5 py-0.5">{row.action.toUpperCase()}</span><p className="text-xs font-bold truncate">{row.name}</p></div>
+                        <p className="mt-1 text-[11px] text-gray-300 tabular-nums">{row.currentDate} {row.currentStart}–{row.currentEnd} → <b className="text-[#3DCD58]">{row.newDate} {row.newStart}–{row.newEnd}</b></p>
+                        <p className="mt-0.5 text-[10px] text-gray-500">{row.reason}</p>
+                    </div>)}
+                </section>}
+
+                {outOfScopeRows.length > 0 && <section className="bg-gray-900 border border-amber-800/60 rounded-2xl p-4 space-y-2">
+                    <div><h2 className="text-xs font-black uppercase tracking-widest text-amber-300 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {es ? 'Fechas correctas que caen fuera del horizonte' : 'Correct dates that fall outside the horizon'}</h2><p className="text-[11px] text-gray-500 mt-1">{es ? 'No se escriben en la base de datos porque están fuera de los días que autorizaste. Si quieres que sí se muevan, amplía los días en el paso 2 y vuelve a correr el prompt.' : 'They are not written to the database because they fall outside the days you authorized. To have them moved, widen the days in step 2 and re-run the prompt.'}</p></div>
+                    {outOfScopeRows.map(row => <div key={row.id} className="rounded-xl bg-amber-950/30 p-2.5">
+                        <div className="flex items-center gap-2"><span className="shrink-0 text-[9px] font-black tracking-wider border border-amber-700/60 text-amber-300 rounded-md px-1.5 py-0.5">{row.scope === 'Opportunity' ? (es ? 'OPORTUNIDAD' : 'OPPORTUNITY') : (es ? 'TAREA' : 'TASK')}</span><p className="text-xs font-bold truncate">{row.name}</p></div>
+                        <p className="mt-1 text-[11px] text-gray-300 tabular-nums">{row.currentDate || (es ? 'sin fecha' : 'not set')} → <b className="text-amber-300">{row.advisedDate}</b> {es ? '(solo consejo, no se aplica)' : '(advice only, not applied)'}</p>
+                        <p className="mt-0.5 text-[10px] text-gray-500">{row.reason}</p>
+                    </div>)}
                 </section>}
 
                 {reminderRows.length > 0 && <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3"><h2 className="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2"><Bell className="w-4 h-4 text-[#3DCD58]" /> {es ? 'Recordatorios propuestos' : 'Proposed reminders'}</h2>{reminderRows.map(row => <div key={row.id} className="grid grid-cols-[minmax(0,1fr)_180px_32px] gap-2 items-center bg-gray-800/60 rounded-xl p-2"><div><p className="text-xs font-bold">{row.taskLabel}</p><input value={row.title} onChange={e => onReminderChange(row.id, { title: e.target.value })} className="mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-[11px]"/></div><input type="datetime-local" value={row.remindAt} onChange={e => onReminderChange(row.id, { remindAt: e.target.value })} className="bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-[10px]"/><button onClick={() => onRemoveReminder(row.id)} className="text-gray-500 hover:text-rose-400"><Trash2 className="w-4 h-4"/></button></div>)}</section>}

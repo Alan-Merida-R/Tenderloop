@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Plus, Trash2, Save, CheckSquare, FileText, ChevronUp, ChevronDown, RotateCcw, ArrowUpDown, Lock, Calendar, Settings, User, Search, Tag, Bell, Play, LayoutList, Copy, Activity, Mail, Sparkles, Timer, EyeOff, Link as LinkIcon, FolderOpen, RefreshCw } from 'lucide-react';
-import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, GlobalContact, GeneralQuickLink } from '../types';
+import { TaskStatus, TaskPriority, TaskOwner, TASK_STATUS_COLORS, PRIORITY_COLORS, OpportunityLabel, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, GlobalContact, GeneralQuickLink, ProposalAlarmPolicy, PROCESS_BOARD_BLACK_COLOR } from '../types';
 import { MEETING_TEMPLATES } from './MeetingTemplates';
 import { STANDARD_TASKS } from './StandardTasks';
 import { playSound } from '../services/soundService';
@@ -17,6 +17,8 @@ import {
 import { deriveReporterId, reportFilename, checkFolderPath } from '../services/managerReportSync';
 import { locateFolderPath } from '../features/opportunity-folder/fileOps';
 import { PROCESS_SECTIONS, ProcessSection, SIMPLE_STANDARD_ID } from '../services/processSections';
+import { calculateProposalAlarm, DEFAULT_PROPOSAL_ALARM_POLICY, getProposalAlarmPolicy, syncProposalPolicyWithScopeCatalog } from '../services/proposalAlarmPolicy';
+import { buildProposalScopeTimeRows } from '../services/proposalScopeCatalog';
 
 // The SOW's question set is defined once, inside the iframe template, and read back out here
 // so this library stays a view of what the SOW actually renders. FLOW_DATA holds the original
@@ -197,6 +199,9 @@ export interface AppSettings {
   hiddenProposalProcessColumns?: string[];
   /** Custom colors for Process board buckets, keyed by detailed status. */
   processBoardColors?: Record<string, string>;
+  /** When true (default), every Process Board header renders in the corporate black/gray
+   *  instead of each column's saved color. Turning it off restores the saved colors. */
+  processBoardColumnsBlackMode?: boolean;
   /** Global variables usable across the app (e.g. the user name stamped when copying History). */
   userName?: string;
   /** Daily Manager-report auto-export toggle. Off by default; canonical copy lives in the database. */
@@ -275,6 +280,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hiddenOpportunityHeaderFields: [],
   hiddenProposalProcessColumns: ['Info Needed', 'Completed', 'Canceled'],
   processBoardColors: {},
+  processBoardColumnsBlackMode: true,
   userName: 'User',
   dailyManagerReportEnabled: false,
   dailyManagerReportFolder: '',
@@ -284,7 +290,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scopeCatalog: DEFAULT_SCOPE_CATALOG,
   scopeCatalogMigrationVersion: SCOPE_CATALOG_MIGRATION_VERSION,
   alarms: [
-    { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#2563eb', textColor: '#ffffff' },
+    { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#6C93BD', textColor: '#ffffff' },
+    { id: 'proposal-scope-policy', daysThreshold: 0, color: '', proposalPolicy: DEFAULT_PROPOSAL_ALARM_POLICY },
     { id: 'proposal-age-warning', daysThreshold: 20, color: '', backgroundColor: '#fef3c7', textColor: '#92400e' },
     { id: 'proposal-age-critical', daysThreshold: 30, color: '', backgroundColor: '#fee2e2', textColor: '#b91c1c' },
     { id: 'a1', daysThreshold: -11, color: 'bg-[repeating-linear-gradient(45deg,#ffffff,#ffffff_10px,#fecaca_10px,#fecaca_20px)] text-[#991b1b] border border-[#f87171]' },
@@ -464,6 +471,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   const [emailTplSelectedId, setEmailTplSelectedId] = useState<string>('status_report');
   const emailBodyRef = React.useRef<HTMLTextAreaElement>(null);
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
+  const [alarmCalculator, setAlarmCalculator] = useState({ scopeTypes: [] as string[], scopeItems: [] as string[], revision: 'R0', revisionChangeImpact: 'light' as 'light' | 'major', amount: 0 });
   const [syncMessage, setSyncMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [sowEditorText, setSowEditorText] = useState(() => JSON.stringify(initialSettings.globalSowForm || { sections: [], questions: [] }, null, 2));
@@ -570,8 +578,24 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
       try { const url = new URL(link.url); return !['http:', 'https:'].includes(url.protocol); } catch { return true; }
     });
     if (invalidQuickLink) { alert('Each quick link needs a valid web URL or an absolute Windows file/folder path, plus a name of up to two words.'); return; }
+    const catalogToSave = normalizeScopeCatalog(settings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
+    const catalogLabels = (Object.values(catalogToSave) as ScopeCatalogOption[][]).flatMap(options => options.flatMap(option => [option.label, ...(option.children || []).map(child => child.label)]));
+    const normalizedCatalogLabels = catalogLabels.map(label => label.trim().toLocaleLowerCase()).filter(Boolean);
+    if (normalizedCatalogLabels.some((label, index) => normalizedCatalogLabels.indexOf(label) !== index)) {
+      alert('Every Scope option and sub-module needs a unique name so its alarm time can be configured independently.');
+      return;
+    }
+    const policy = getProposalAlarmPolicy(settings.alarms || DEFAULT_SETTINGS.alarms || []);
+    const syncedPolicy = syncProposalPolicyWithScopeCatalog(policy, catalogToSave);
+    const alarmList = settings.alarms || DEFAULT_SETTINGS.alarms || [];
+    const hasPolicy = alarmList.some(alarm => alarm.id === 'proposal-scope-policy');
+    const syncedAlarms = hasPolicy
+      ? alarmList.map(alarm => alarm.id === 'proposal-scope-policy' ? { ...alarm, proposalPolicy: syncedPolicy } : alarm)
+      : [...alarmList, { id: 'proposal-scope-policy', daysThreshold: 0, color: '', proposalPolicy: syncedPolicy }];
     onSave({
       ...settings,
+      scopeCatalog: catalogToSave,
+      alarms: syncedAlarms,
       defaultTasks: standards[0]?.tasks || settings.defaultTasks,
       taskStandards: standards,
       globalContacts: contacts,
@@ -597,12 +621,27 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
   // Only the label changes; the id stays put because it is what the sub-module answer key is
   // derived from, so a rename never moves a whole sub-module list to a different key.
   const renameScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number], label: string) => {
+    const previousLabel = path.length === 1 ? scopeCatalog[group][path[0]]?.label : scopeCatalog[group][path[0]]?.children?.[path[1]]?.label;
     const list = scopeCatalog[group].map((option, index) => {
       if (index !== path[0]) return option;
       if (path.length === 1) return { ...option, label };
       return { ...option, children: (option.children || []).map((child, childIndex) => childIndex === path[1] ? { ...child, label } : child) };
     });
-    updateScopeCatalogGroup(group, list);
+    const nextCatalog = { ...scopeCatalog, [group]: list };
+    if (!previousLabel || !label.trim() || previousLabel === label) { setSettings(prev => ({ ...prev, scopeCatalog: nextCatalog })); return; }
+    setSettings(prev => {
+      const alarms = prev.alarms || DEFAULT_SETTINGS.alarms || [];
+      const policy = getProposalAlarmPolicy(alarms);
+      const isBase = group === 'scope' && path.length === 1;
+      const source = isBase ? policy.scopeDays : policy.scopeItemDays;
+      if (source[previousLabel] === undefined || source[label] !== undefined) return { ...prev, scopeCatalog: nextCatalog };
+      const renamed = { ...source, [label]: source[previousLabel] };
+      delete renamed[previousLabel];
+      const nextPolicy = isBase ? { ...policy, scopeDays: renamed } : { ...policy, scopeItemDays: renamed };
+      const exists = alarms.some(alarm => alarm.id === 'proposal-scope-policy');
+      const record = { id: 'proposal-scope-policy', daysThreshold: 0, color: '', proposalPolicy: nextPolicy };
+      return { ...prev, scopeCatalog: nextCatalog, alarms: exists ? alarms.map(alarm => alarm.id === record.id ? { ...alarm, proposalPolicy: nextPolicy } : alarm) : [...alarms, record] };
+    });
   };
   const recolorScopeOption = (group: ScopeCatalogGroup, path: [number] | [number, number], color: string) => {
     updateScopeCatalogGroup(group, scopeCatalog[group].map((option, index) => {
@@ -612,7 +651,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
     }));
   };
   const addScopeOption = (group: ScopeCatalogGroup, parentIndex?: number) => {
-    const stamp = `${Date.now().toString(36)}`;
+    const stamp = crypto.randomUUID();
     if (parentIndex === undefined) {
       updateScopeCatalogGroup(group, [...scopeCatalog[group], { id: `opt-${stamp}`, label: 'New option' }]);
       return;
@@ -1200,7 +1239,19 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-2 flex items-center gap-2"><LayoutList className="w-4 h-4 text-[#3DCD58]" /> Process Board Columns</h3>
                 <p className="text-xs text-gray-500 mb-4">Choose the process buckets to hide and customize their header colors in the Proposals dashboard. Hidden buckets remain available in the data and can be restored here.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 cursor-pointer hover:bg-gray-100 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={settings.processBoardColumnsBlackMode !== false}
+                    onChange={() => setSettings(prev => ({ ...prev, processBoardColumnsBlackMode: prev.processBoardColumnsBlackMode === false }))}
+                    className="rounded border-gray-300 text-[#3DCD58] focus:ring-[#3DCD58]"
+                  />
+                  <span className="flex-1">
+                    <span className="font-bold">Black</span> — every header uses the corporate black/gray instead of each column's saved color
+                  </span>
+                  <span className="h-5 w-6 rounded border border-white/20 shrink-0" style={{ backgroundColor: PROCESS_BOARD_BLACK_COLOR }} />
+                </label>
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${settings.processBoardColumnsBlackMode !== false ? 'opacity-50' : ''}`}>
                   {DETAILED_STATUS_ORDER.map(status => {
                     const isHidden = (settings.hiddenProposalProcessColumns || []).includes(status);
                     return (
@@ -1222,8 +1273,9 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                           value={(settings.processBoardColors || {})[status] || DEFAULT_PROCESS_BOARD_COLORS[status] || '#6B7280'}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) => setSettings(prev => ({ ...prev, processBoardColors: { ...(prev.processBoardColors || {}), [status]: event.target.value } }))}
-                          className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
-                          title={`Color for ${status}`}
+                          disabled={settings.processBoardColumnsBlackMode !== false}
+                          className="h-7 w-8 cursor-pointer rounded border-0 bg-transparent p-0 disabled:cursor-not-allowed"
+                          title={settings.processBoardColumnsBlackMode !== false ? 'Turn off "Black" above to pick a custom color' : `Color for ${status}`}
                         />
                       </label>
                     );
@@ -2174,13 +2226,13 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                             className="flex-1 text-sm font-bold text-gray-700 border border-gray-200 rounded p-1.5 focus:border-[#3DCD58] focus:ring-0"
                             placeholder="Option name"
                           />
-                          <button
+                          {(group.key === 'systems' || group.key === 'quickNotes') && <button
                             onClick={() => addScopeOption(group.key, index)}
                             className="px-2 py-1.5 text-[10px] font-black uppercase tracking-wider text-gray-400 rounded hover:bg-gray-100 hover:text-[#3DCD58]"
                             title="Add a sub-module under this option"
                           >
                             + Sub
-                          </button>
+                          </button>}
                           <button onClick={() => removeScopeOption(group.key, [index])} className="p-2 text-gray-300 hover:text-red-500 rounded hover:bg-red-50">
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -2266,7 +2318,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 {(() => {
                   const alarms = settings.alarms || DEFAULT_SETTINGS.alarms || [];
-                  const preference = alarms.find(alarm => alarm.id === 'alias-delivery-gradient') || { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#2563eb', textColor: '#ffffff' };
+                  const preference = alarms.find(alarm => alarm.id === 'alias-delivery-gradient') || { id: 'alias-delivery-gradient', daysThreshold: 1, color: '', backgroundColor: '#6C93BD', textColor: '#ffffff' };
                   const updatePreference = (changes: Partial<typeof preference>) => {
                     const exists = alarms.some(alarm => alarm.id === preference.id);
                     setSettings({ ...settings, alarms: exists ? alarms.map(alarm => alarm.id === preference.id ? { ...alarm, ...changes } : alarm) : [...alarms, { ...preference, ...changes }] });
@@ -2279,11 +2331,87 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                       <button type="button" onClick={() => updatePreference({ daysThreshold: 1 })} className={`rounded-lg border px-3 py-2 text-xs font-bold ${gradientMode ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500'}`}>Gradient · Default</button>
                       <button type="button" onClick={() => updatePreference({ daysThreshold: 0 })} className={`rounded-lg border px-3 py-2 text-xs font-bold ${!gradientMode ? 'border-[#3DCD58] bg-emerald-50 text-emerald-700' : 'border-gray-200 text-gray-500'}`}>Thresholds · Previous</button>
                     </div>
-                    {gradientMode && <label className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600">Preferred base color<input type="color" value={preference.backgroundColor || '#2563eb'} onChange={event => updatePreference({ backgroundColor: event.target.value })} className="h-8 w-12 cursor-pointer rounded border-0" /></label>}
+                    {gradientMode && <label className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600">Preferred base color<input type="color" value={preference.backgroundColor || '#6C93BD'} onChange={event => updatePreference({ backgroundColor: event.target.value })} className="h-8 w-12 cursor-pointer rounded border-0" /></label>}
                   </div>;
                 })()}
-                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Proposal Age Indicator</h3>
-                <p className="mt-1 text-xs text-gray-500">Configure the elapsed-day warning shown on proposal cards and the General view. Warning applies at or above its threshold; Critical applies above its threshold.</p>
+                {(() => {
+                  const alarms = settings.alarms || DEFAULT_SETTINGS.alarms || [];
+                  const policy = getProposalAlarmPolicy(alarms);
+                  const scopeCatalogForAlarms = normalizeScopeCatalog(settings.scopeCatalog) || DEFAULT_SCOPE_CATALOG;
+                  const scopeTimeRows = buildProposalScopeTimeRows(scopeCatalogForAlarms);
+                  const scopeTimeGroups = Array.from(new Set(scopeTimeRows.map(row => row.category))).map(category => ({ category, rows: scopeTimeRows.filter(row => row.category === category) }));
+                  const updatePolicy = (changes: Partial<ProposalAlarmPolicy>) => {
+                    const nextPolicy = { ...policy, ...changes };
+                    const exists = alarms.some(alarm => alarm.id === 'proposal-scope-policy');
+                    const record = { id: 'proposal-scope-policy', daysThreshold: 0, color: '', proposalPolicy: nextPolicy };
+                    setSettings({ ...settings, alarms: exists ? alarms.map(alarm => alarm.id === record.id ? { ...alarm, proposalPolicy: nextPolicy } : alarm) : [...alarms, record] });
+                  };
+                  const calculatorSelectedRows = scopeTimeRows.filter(row => alarmCalculator.scopeItems.includes(row.label));
+                  const calculatorRowsFor = (bucket: string) => calculatorSelectedRows.filter(row => row.bucket === bucket).map(row => row.label);
+                  const calculatorResult = calculateProposalAlarm({
+                    scopeTypes: alarmCalculator.scopeTypes,
+                    systems: calculatorRowsFor('systems'),
+                    applications: calculatorRowsFor('applications'),
+                    quickNotes: calculatorRowsFor('quickNotes'),
+                    extras: calculatorRowsFor('extras'),
+                    quoteType: 'Budgetary',
+                    amount: alarmCalculator.amount,
+                    revision: alarmCalculator.revision,
+                    revisionChangeImpact: alarmCalculator.revisionChangeImpact,
+                  }, policy);
+                  const calculatorTarget = calculatorResult.expectedDays;
+                  const calculatorWarning = Math.max(1, Math.round(calculatorTarget * policy.warningPercent / 100) + policy.warningOffsetDays);
+                  const calculatorCritical = Math.max(1, Math.round(calculatorTarget * policy.criticalPercent / 100) + policy.criticalOffsetDays);
+                  return <div className="mb-6 flex flex-col border-b border-gray-100 pb-6">
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Proposal Age Indicator · Scope rules</h3>
+                    <p className="mt-1 text-xs text-gray-500">Edit how Scope changes the Proposal Age Indicator: it uses the largest selected proposal type, then adds the commercial tier and every selected Scope item.</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div className="overflow-x-auto rounded-xl border border-gray-200">
+                        <table className="w-full text-left text-xs"><thead className="bg-slate-50 text-[9px] font-black uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2">Alert</th><th className="px-3 py-2">% of target</th><th className="px-3 py-2">Adjust days</th><th className="px-3 py-2">Formula</th></tr></thead><tbody><tr className="border-t border-amber-100 bg-amber-50/60"><td className="px-3 py-2 font-black text-amber-700">Warning</td><td className="px-3 py-2"><input type="number" min="1" max="99" value={policy.warningPercent} onChange={event => { const warningPercent = Math.min(99, Math.max(1, Number(event.target.value) || 1)); updatePolicy({ warningPercent, criticalPercent: Math.max(policy.criticalPercent, warningPercent + 1) }); }} className="w-16 rounded border-amber-200 bg-white p-1 text-center font-bold" /></td><td className="px-3 py-2"><input type="number" value={policy.warningOffsetDays} onChange={event => updatePolicy({ warningOffsetDays: Math.round(Number(event.target.value) || 0) })} className="w-16 rounded border-amber-200 bg-white p-1 text-center font-bold" /></td><td className="px-3 py-2 text-[10px] text-amber-800">target × % + days</td></tr><tr className="border-t border-red-100 bg-red-50/60"><td className="px-3 py-2 font-black text-red-700">Critical</td><td className="px-3 py-2"><input type="number" min={Math.min(200, policy.warningPercent + 1)} max="200" value={policy.criticalPercent} onChange={event => updatePolicy({ criticalPercent: Math.min(200, Math.max(policy.warningPercent + 1, Number(event.target.value) || policy.warningPercent + 1)) })} className="w-16 rounded border-red-200 bg-white p-1 text-center font-bold" /></td><td className="px-3 py-2"><input type="number" value={policy.criticalOffsetDays} onChange={event => updatePolicy({ criticalOffsetDays: Math.round(Number(event.target.value) || 0) })} className="w-16 rounded border-red-200 bg-white p-1 text-center font-bold" /></td><td className="px-3 py-2 text-[10px] text-red-800">target × % + days</td></tr></tbody></table>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 content-start">
+                        {(['Budgetary', 'Firm'] as const).map(type => <label key={type} className={`text-[9px] font-bold uppercase ${type === 'Firm' ? 'text-blue-600' : 'text-violet-600'}`}>{type} proposal<input type="number" value={policy.quoteTypeDays[type]} onChange={event => updatePolicy({ quoteTypeDays: { ...policy.quoteTypeDays, [type]: Math.round(Number(event.target.value) || 0) } })} className="mt-1 w-full rounded border-gray-200 p-1.5 text-sm font-bold text-gray-700" title={`Days added for a ${type} proposal`} /></label>)}
+                        {(['light', 'major'] as const).map(type => <label key={type} className={`text-[9px] font-bold uppercase ${type === 'major' ? 'text-fuchsia-600' : 'text-violet-600'}`}>{type} revision %<div className="mt-1 flex"><input type="number" min="1" max="100" value={policy.revisionPercent[type]} onChange={event => updatePolicy({ revisionPercent: { ...policy.revisionPercent, [type]: Math.min(100, Math.max(1, Math.round(Number(event.target.value) || 1))) } })} className="min-w-0 flex-1 rounded-l border-gray-200 p-1.5 text-sm font-bold text-gray-700" title={`Percentage of normal time used for a ${type} revision`} /><span className="rounded-r border border-l-0 border-gray-200 bg-slate-50 px-2 py-1.5 text-xs font-black text-gray-400">%</span></div></label>)}
+                        <p className="col-span-2 text-[10px] leading-relaxed text-gray-400">Per-system/application/extra days live in the Scope time table below — set them per exact item there instead of a generic count here.</p>
+                      </div>
+                    </div>
+                    <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">Example: if Scope calculates 30 days, Warning at 70% appears on day 21 and Critical at 100% on day 30.</p>
+                    <div className="order-last mt-4 overflow-hidden rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white">
+                      <div className="border-b border-indigo-100 bg-indigo-100/60 px-4 py-3"><div className="text-xs font-black uppercase tracking-wide text-indigo-800">Try the calculator</div><p className="mt-0.5 text-[11px] text-indigo-700">Normal target = base Scope + amount base days + (selected items × amount factor) + Budgetary/Firm. For R1+, Commitment applies the editable Light or Major percentage above. Warning and Critical each apply their own formula to the final target.</p></div>
+                      <div className="grid gap-3 p-4 lg:grid-cols-[1.15fr_.85fr]">
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Amount USD<input type="number" min="0" value={alarmCalculator.amount || ''} onChange={event => setAlarmCalculator(current => ({ ...current, amount: Math.max(0, Number(event.target.value) || 0) }))} className="mt-1 w-full rounded border-gray-200 bg-white p-1.5 text-xs font-bold text-gray-700" /></label>
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Revision<select value={alarmCalculator.revision} onChange={event => setAlarmCalculator(current => ({ ...current, revision: event.target.value }))} className="mt-1 w-full rounded border-gray-200 bg-white p-1.5 text-xs font-bold text-gray-700"><option value="R0">R0 · first issue</option><option value="R1">R1</option><option value="R2">R2</option><option value="R3">R3+</option></select></label>
+                          {alarmCalculator.revision !== 'R0' && <label className="text-[9px] font-bold uppercase text-gray-500">Commitment<select value={alarmCalculator.revisionChangeImpact} onChange={event => setAlarmCalculator(current => ({ ...current, revisionChangeImpact: event.target.value as 'light' | 'major' }))} className="mt-1 w-full rounded border-gray-200 bg-white p-1.5 text-xs font-bold text-gray-700"><option value="light">Light · {policy.revisionPercent.light}%</option><option value="major">Major · {policy.revisionPercent.major}%</option></select></label>}
+                          </div>
+                          <div className="rounded-lg border border-indigo-100 bg-white p-3"><div className="mb-2 flex items-center justify-between gap-2"><div className="text-[9px] font-black uppercase tracking-wide text-indigo-700">Mini Scope</div><span className="text-[9px] text-slate-400">Select every applicable item</span></div><div className="grid gap-2 sm:grid-cols-2">{scopeTimeGroups.map(group => <div key={group.category} className="rounded-md bg-slate-50 p-2"><div className="mb-1 text-[9px] font-bold uppercase text-slate-400">{group.category}</div><div className="flex flex-wrap gap-1">{group.rows.map(row => { const selected = row.mode === 'base' ? alarmCalculator.scopeTypes.includes(row.label) : alarmCalculator.scopeItems.includes(row.label); return <button type="button" key={row.label} onClick={() => setAlarmCalculator(current => row.mode === 'base' ? { ...current, scopeTypes: selected ? current.scopeTypes.filter(value => value !== row.label) : [...current.scopeTypes, row.label] } : { ...current, scopeItems: selected ? current.scopeItems.filter(value => value !== row.label) : [...current.scopeItems, row.label] })} className={`rounded border px-1.5 py-1 text-[9px] font-bold transition-colors ${selected ? 'border-indigo-500 bg-indigo-100 text-indigo-800' : 'border-gray-200 bg-white text-gray-600 hover:border-indigo-300'}`}>{row.label}</button>; })}</div></div>)}</div></div>
+                        </div>
+                        <div className="grid grid-cols-3 content-start gap-2 text-center"><div className="rounded-lg bg-white p-2 shadow-sm"><div className="text-[9px] font-bold uppercase text-slate-400">Target</div><div className="text-xl font-black text-slate-700">{calculatorTarget}d</div></div><div className="rounded-lg bg-amber-100 p-2"><div className="text-[9px] font-bold uppercase text-amber-700">Warning</div><div className="text-xl font-black text-amber-700">{calculatorWarning}d</div></div><div className="rounded-lg bg-red-100 p-2"><div className="text-[9px] font-bold uppercase text-red-700">Critical</div><div className="text-xl font-black text-red-700">{calculatorCritical}d</div></div><p className="col-span-3 rounded-lg bg-white/70 p-2 text-[10px] leading-relaxed text-slate-500">Calculator uses the R0 / Budgetary baseline. Normal: {calculatorResult.scopeBase} base + {calculatorResult.amountDays} amount + {calculatorResult.specificScopeDays} selected × {calculatorResult.complexityMultiplier} + {calculatorResult.quoteTypeDays} Budgetary = {calculatorResult.normalDays}d. {alarmCalculator.revision !== 'R0' ? `${alarmCalculator.revision} ${alarmCalculator.revisionChangeImpact} = ${Math.round(calculatorResult.revisionFactor * 100)}% → ` : ''}Final target: {calculatorTarget}d.</p></div>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="text-[9px] font-bold uppercase text-gray-400">Scope time table</div>
+                      <p className="mt-1 text-[11px] text-gray-500">This table follows your Scope catalog. Proposal types define the base; every other selected row adds its own days, including cabinets and resale bands.</p>
+                      <div className="mt-2 grid gap-3 lg:grid-cols-2">
+                        {scopeTimeGroups.map(group => <section key={group.category} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm"><div className="mb-3 flex items-center justify-between"><h4 className="text-[10px] font-black uppercase tracking-wide text-slate-700">{group.category}</h4><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">{group.rows[0]?.mode === 'base' ? 'base time' : 'adds when selected'}</span></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{group.rows.map(row => <label key={`${row.category}-${row.label}`} className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-2 transition-colors hover:border-indigo-200"><span title={row.label} className="block truncate text-[10px] font-bold text-slate-700">{row.label}</span><span className="mt-0.5 block text-[8px] uppercase tracking-wide text-slate-400">Days</span><div className="mt-1 flex items-center"><input type="number" min={row.mode === 'base' ? 1 : 0} value={row.mode === 'base' ? (policy.scopeDays[row.label] ?? policy.defaultDays) : (policy.scopeItemDays[row.label] || 0)} onChange={event => row.mode === 'base' ? updatePolicy({ scopeDays: { ...policy.scopeDays, [row.label]: Math.max(1, Number(event.target.value) || 1) } }) : updatePolicy({ scopeItemDays: { ...policy.scopeItemDays, [row.label]: Math.max(0, Number(event.target.value) || 0) } })} className="min-w-0 flex-1 rounded-l border-gray-200 bg-white p-1.5 text-right text-sm font-black text-gray-700" /><span className="rounded-r border border-l-0 border-gray-200 bg-white px-1.5 py-1.5 text-[10px] font-bold text-gray-400">d</span></div></label>)}</div></section>)}
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="text-[9px] font-bold uppercase text-gray-400">Commercial amount tiers (USD)</div>
+                      <div className="mt-2 space-y-2">
+                        {policy.amountTiers.map((tier, index) => {
+                          const unit = tier.minAmount >= 1000000 && tier.minAmount % 1000000 === 0 ? 'M' : 'K';
+                          const factor = unit === 'M' ? 1000000 : 1000;
+                          return <div key={index} className="grid grid-cols-[1.2fr_.8fr_.9fr_auto] gap-2 rounded-lg bg-slate-50 p-2"><label className="text-[9px] font-bold uppercase text-gray-400">From amount<div className="mt-1 flex"><input type="number" min="0" value={tier.minAmount / factor} onChange={event => { const amountTiers = policy.amountTiers.map((item, i) => i === index ? { ...item, minAmount: Math.max(0, Number(event.target.value) || 0) * factor } : item); updatePolicy({ amountTiers }); }} className="min-w-0 flex-1 rounded-l border-gray-200 p-1.5 text-sm font-bold text-gray-700" /><select value={unit} onChange={event => { const nextFactor = event.target.value === 'M' ? 1000000 : 1000; const amountTiers = policy.amountTiers.map((item, i) => i === index ? { ...item, minAmount: Math.round(item.minAmount / nextFactor) * nextFactor } : item); updatePolicy({ amountTiers }); }} className="rounded-r border-l-0 border-gray-200 bg-white p-1.5 text-xs font-black text-gray-600"><option value="K">K</option><option value="M">M</option></select></div></label><label className="text-[9px] font-bold uppercase text-gray-400">Base days<input type="number" min="0" value={tier.extraDays} onChange={event => { const amountTiers = policy.amountTiers.map((item, i) => i === index ? { ...item, extraDays: Math.max(0, Number(event.target.value) || 0) } : item); updatePolicy({ amountTiers }); }} className="mt-1 w-full rounded border-gray-200 p-1.5 text-sm font-bold text-gray-700" /></label><label className="text-[9px] font-bold uppercase text-gray-400">Extra factor<input type="number" min="0" step="0.05" value={tier.complexityMultiplier ?? 1} onChange={event => { const amountTiers = policy.amountTiers.map((item, i) => i === index ? { ...item, complexityMultiplier: Math.max(0, Number(event.target.value) || 0) } : item); updatePolicy({ amountTiers }); }} className="mt-1 w-full rounded border-gray-200 p-1.5 text-sm font-bold text-gray-700" title="Multiplies systems, resales, cabinets and every other Scope addition for this amount" /></label><button type="button" onClick={() => updatePolicy({ amountTiers: policy.amountTiers.filter((_, i) => i !== index) })} className="mt-5 rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500" title="Remove tier"><Trash2 className="h-4 w-4" /></button></div>;
+                        })}
+                      </div>
+                      <button type="button" onClick={() => updatePolicy({ amountTiers: [...policy.amountTiers, { minAmount: 100000, extraDays: 0, complexityMultiplier: 1 }] })} className="mt-2 text-xs font-bold text-[#3DCD58] hover:underline">+ Add commercial tier</button>
+                    </div>
+                  </div>;
+                })()}
+                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-2"><Bell className="w-4 h-4" /> Proposal Age Indicator · Base thresholds</h3>
+                <p className="mt-1 text-xs text-gray-500">Configure the generic elapsed-day warning used when no Scope-based rule applies. Warning applies at or above its threshold; Critical applies above its threshold.</p>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {([
                     { id: 'proposal-age-warning', label: 'Warning', defaults: { daysThreshold: 20, backgroundColor: '#fef3c7', textColor: '#92400e' } },
@@ -2317,7 +2445,7 @@ export const SettingsModal: React.FC<Props> = ({ isOpen, onClose, onSave, initia
                 <div className="space-y-3">
                   {(() => {
                     const activeAlarms = settings.alarms && settings.alarms.length > 0 ? settings.alarms : DEFAULT_SETTINGS.alarms;
-                    return ([...activeAlarms].filter(alarm => !alarm.id.startsWith('proposal-age-') && alarm.id !== 'alias-delivery-gradient').sort((a, b) => a.daysThreshold - b.daysThreshold)).map((alarm) => (
+                    return ([...activeAlarms].filter(alarm => !alarm.id.startsWith('proposal-age-') && alarm.id !== 'alias-delivery-gradient' && alarm.id !== 'proposal-scope-policy').sort((a, b) => a.daysThreshold - b.daysThreshold)).map((alarm) => (
                     <div key={alarm.id} className="flex items-center gap-3 p-2 border border-gray-100 rounded-lg hover:bg-gray-50">
                       <div className="flex flex-col w-32">
                         <label className="text-[9px] font-bold text-gray-400 uppercase">Days Left</label>

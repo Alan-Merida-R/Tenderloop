@@ -8,11 +8,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { isWebUrlAllowed, WEB_ALLOWED_HOSTS } from '../config';
-import {
-    openLoginWindow, probeUrl, redactProbe, sessionStatus, closeSession,
-    startRecording, stopRecording, getRecordedSteps, recordingStatus,
-} from '../os/webAutomation';
-import { RECIPE_FIELDS } from '../os/bfoFieldMap';
+import { openLoginWindow, probeUrl, redactProbe, sessionStatus, closeSession, readOpportunity } from '../os/webAutomation';
 
 export const webRouter = Router();
 
@@ -104,55 +100,26 @@ webRouter.post('/close', async (_req: Request, res: Response) => {
     return res.json({ ok: true });
 });
 
-// --- Recorder ------------------------------------------------------------
+// --- Read one opportunity, starting from its SR link ---------------------
 //
-// Teach a recipe once by browsing bFO normally. The window is deliberately
-// visible: PingID needs a human, and the user is the one driving.
-
-/** Panel copy, in Spanish because the person reading it is the user. */
-const RECORDER_STRINGS = {
-    title: 'Grabando',
-    navigate: 'Navegar',
-    capture: 'Senalar campo',
-    finish: 'Listo',
-    pickPrompt: 'Que dato es este?',
-    cancel: 'Cancelar',
-    steps: '{n} pasos grabados',
-    help: 'Navegar: abre Edicion y usa bFO normalmente. Senalar campo: marca el control completo de cada lista, fecha o comentario. Listo: guarda la receta ahora.',
-    recipeName: 'Nombre de la receta (opcional)',
-    saving: 'Guardando receta...',
-    saved: 'Guardada correctamente ({n} pasos). Ya puedes cerrar esta ventana.',
-    saveError: 'No se pudo guardar. Revisa que OpportunityOS siga abierto e intenta de nuevo.',
-};
-
-webRouter.post('/record/start', async (req: Request, res: Response) => {
+// Strictly read-only: it navigates SR -> Opportunity -> Account and reports
+// what it found. Nothing is clicked into edit mode and nothing is saved.
+webRouter.post('/read', async (req: Request, res: Response) => {
     const url = requireAllowedUrl(req, res);
     if (!url) return;
+    const headless = param(req, 'headless') === '1';
+    const settle = Number(param(req, 'settleMs'));
     try {
-        const result = await startRecording(url, {
-            fields: RECIPE_FIELDS.map(f => ({ key: f.key, label: f.label })),
-            strings: RECORDER_STRINGS,
+        const result = await readOpportunity(url, {
+            headless,
+            settleMs: Number.isFinite(settle) && settle > 0 ? settle : undefined,
         });
-        return res.json({
-            ok: true,
-            ...result,
-            message: 'Se abrio bFO. Pasa PingID, navega como siempre, y usa "Senalar campo" para marcar cada dato.',
-        });
-    } catch (err: any) {
-        return res.status(500).json({ error: err.message });
-    }
-});
-
-webRouter.get('/record/steps', (_req: Request, res: Response) => {
-    res.json({ ok: true, status: recordingStatus(), steps: getRecordedSteps() });
-});
-
-webRouter.post('/record/stop', async (req: Request, res: Response) => {
-    const name = param(req, 'name') || 'recipe';
-    try {
-        const result = await stopRecording(name);
         return res.json({ ok: true, ...result });
     } catch (err: any) {
-        return res.status(400).json({ error: err.message });
+        const message = String(err?.message || err);
+        const hint = /ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_|ERR_TIMED_OUT|ERR_INTERNET_DISCONNECTED/.test(message)
+            ? 'The page could not be reached. Check the VPN connection and try again.'
+            : undefined;
+        return res.status(500).json({ error: message, hint });
     }
 });

@@ -335,10 +335,36 @@
   @media(max-width:520px){.multi-choice{grid-template-columns:1fr}}
   @media print{.builder-only,.custom-question-controls,.custom-section-summary-tools,dialog,.designer-banner,.flow-actions{display:none!important}.question-card{break-inside:avoid}}
 
+  /* PRINT FILTERS — which questions print (answered / unanswered+flagged / everything) and
+     whether the printed page is the full questionnaire or the executive summary. Scoped to
+     @media print only, so choosing a filter never changes what you see while editing on screen. */
+  #executiveSummaryPrint{display:none}
+  @media print{
+    body[data-print-filter="answered"] .qa-tracked:not(.answered){display:none!important}
+    body[data-print-filter="unanswered"] .qa-tracked.answered:not(.flagged){display:none!important}
+    body.print-executive details.section-card,
+    body.print-executive .sticky-tools,
+    body.print-executive .terminal-overview,
+    body.print-executive .nav-panel{display:none!important}
+    body.print-executive #executiveSummaryPrint{display:block!important}
+  }
+  #executiveSummaryPrint{max-width:900px;margin:0 auto;font-size:13px;line-height:1.5;color:#1d2939}
+  #executiveSummaryPrint h1{font-size:20px;margin:0 0 4px}
+  #executiveSummaryPrint .exec-subtitle{color:#667085;font-size:12px;margin:0 0 20px}
+  #executiveSummaryPrint h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:#344054;border-bottom:1px solid #d8dee8;padding-bottom:4px;margin:20px 0 8px;break-after:avoid}
+  #executiveSummaryPrint p{margin:0 0 8px}
+  #executiveSummaryPrint .exec-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:8px}
+  #executiveSummaryPrint .exec-grid div{display:flex;gap:6px}
+  #executiveSummaryPrint .exec-grid b{color:#475467;font-weight:700;white-space:nowrap}
+  #executiveSummaryPrint ul{margin:0 0 8px;padding-left:20px}
+  #executiveSummaryPrint .exec-empty{color:#98a2b3;font-style:italic}
+  #executiveSummaryPrint .exec-flag{color:#b42318}
+
 </style>
 </head>
 <body>
 <div class="page-shell">
+<div id="executiveSummaryPrint"></div>
 <div class="sticky-tools">
 <div class="toolbar">
 <div class="toolbar-title">Scope Workspace</div>
@@ -347,6 +373,15 @@
 <span class="progress-text" id="progressText">0% complete</span>
 </div>
 <button aria-pressed="false" class="btn" id="designerModeBtn" title="Design questions (form designer)" type="button">Designer</button><button class="btn builder-only" id="addSectionBtn" title="Add a new section" type="button">+ Section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" title="Guided mode: show only the questions that apply" type="button">Guided</button><button class="btn" id="generateMeetingNoteBtn" title="Generate meeting note (KOM)" type="button">Meeting note</button><button class="btn" id="reviewGapsBtn" title="Review gaps: list unanswered required questions" type="button">Gaps</button><button class="btn" id="flaggedBtn" title="Show only flagged questions" type="button">🚩 Flagged</button><button class="btn" id="navigationBtn" title="Navigation panel / search in document" type="button">☰ Nav</button><button class="btn" id="overviewBtn" title="Overview of captured information" type="button">Overview</button>
+<select class="btn" id="printFilterSelect" title="Which questions to include when printing">
+<option value="all">Print: all questions</option>
+<option value="answered">Print: only answered</option>
+<option value="unanswered">Print: only unanswered / flagged</option>
+</select>
+<select class="btn" id="printFormatSelect" title="Print layout">
+<option value="questionnaire">Format: full questionnaire</option>
+<option value="executive">Format: executive summary</option>
+</select>
 <button class="btn primary" id="printBtn" title="Print / export to PDF" type="button">PDF</button>
 </div>
 </div>
@@ -1310,6 +1345,27 @@
     const req=requiredAndVisible(), filled=req.filter(isFilled).length, pct=req.length?Math.round(filled/req.length*100):100;
     $('#progressBar').style.width=pct+'%'; $('#progressText').textContent=`${pct}% (${filled}/${req.length} required)`;
     renderOverview();
+    markAnsweredState();
+  }
+  /**
+   * Marks every question box as "qa-tracked" (it has an actual answer field, so the print
+   * filters below may hide it) and "answered" (that field currently has a value). Structural
+   * `.field`/`.check-row` wrappers with no `[data-key]` inside (section intros, static labels)
+   * are left untouched so they never get hidden by the answered/unanswered print filter.
+   */
+  function markAnsweredState(){
+    $$('.question-card').forEach(card=>{
+      const key=card.dataset.questionId, el=key?keyEl(key):null;
+      card.classList.add('qa-tracked');
+      card.classList.toggle('answered', !!el&&isFilled(el));
+    });
+    $$('.field,.check-row').forEach(box=>{
+      if(box.closest('.question-card'))return; // already handled at the card level above
+      const el=box.querySelector('[data-key]');
+      if(!el)return;
+      box.classList.add('qa-tracked');
+      box.classList.toggle('answered', isFilled(el));
+    });
   }
   function renderOverview(){
     const body=$('#overviewBody'); if(!body) return;
@@ -1334,6 +1390,73 @@
     const displayValue=value=>value===true?'Yes':value===false?'No':Array.isArray(value)?value.join(', '):typeof value==='object'?Object.values(value).filter(Boolean).map(v=>v===true?'Yes':v===false?'No':v).join(' — '):String(value).replace(/<[^>]*>/g,' ');
     body.innerHTML=rows.length?rows.map(row=>{const tbd=flaggedQuestions.has(row.key);return `<div class="terminal-line"><div class="terminal-question">${esc(row.section)} · ${esc(row.label)}</div><div><span class="terminal-tag ${tbd?'tbd':''}">[${tbd?'TBD 🚩':'CONFIRMED'}]</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}">${esc(displayValue(row.value))}</textarea></div>`;}).join(''):'<div class="terminal-line">No captured information matches this search.</div>';
     $$('.overview-edit',body).forEach(input=>input.addEventListener('change',()=>{const el=keyEl(input.dataset.overviewKey);if(!el)return;const raw=input.value.trim();if(el.type==='checkbox')setValue(el,/^(yes|true|1)$/i.test(raw));else if(el.classList.contains('multi-choice'))setValue(el,raw.split(',').map(v=>v.trim()).filter(Boolean));else setValue(el,raw);syncChangedKey(el.dataset.key);updateConditionalVisibility();persistNow();}));
+  }
+  /**
+   * Builds the "executive summary" print page: a short, readable brief for people who were not
+   * involved in filling the SOW — customer/dates up top, then scope/commercial/deliverables as
+   * prose-ish blocks, then a plain list of what's still open (flagged or unanswered-required).
+   * Rebuilt fresh right before every print so it always reflects the latest answers.
+   */
+  function formatAnswerForSummary(raw){
+    if(raw===true)return 'Yes'; if(raw===false)return 'No';
+    if(Array.isArray(raw))return raw.filter(Boolean).join(', ');
+    if(raw&&typeof raw==='object')return Object.values(raw).filter(Boolean).join(' — ');
+    return String(raw??'').replace(/<[^>]*>/g,' ').trim();
+  }
+  function renderExecutiveSummary(){
+    const host=$('#executiveSummaryPrint'); if(!host)return;
+    const get=key=>formatAnswerForSummary(value(key));
+    const line=(label,raw)=>{ const text=get(raw); return `<div><b>${esc(label)}:</b> <span>${text?esc(text):'<span class="exec-empty">not answered</span>'}</span></div>`; };
+    const customer=get('flow_B003')||'Customer not set', opId=get('flow_B001')||get('flow_B002')||'';
+    const systemsList=systemValues();
+    const systemsWithModules=systemsList.map(name=>{
+      const option=catalogOptions('systems').find(o=>o.label===name);
+      if(!option||!option.children?.length)return esc(name);
+      const chosen=(value(moduleKey('systems',option))||[]).filter(Boolean);
+      return chosen.length?`${esc(name)} (${chosen.map(esc).join(', ')})`:esc(name);
+    });
+    const deliverables=Array.isArray(value('flow_D003'))?value('flow_D003'):[];
+    const openItems=[];
+    $$('.question-card.flagged, [data-flag-box].flagged').forEach(box=>{
+      const el=box.matches('.question-card')?$('[data-key]',box):box.querySelector('[data-key]');
+      if(!el)return;
+      openItems.push({label:fieldLabel(el),section:sectionLabel(el),flagged:true});
+    });
+    requiredAndVisible().filter(el=>!isFilled(el)).forEach(el=>{
+      if(openItems.some(item=>item.label===fieldLabel(el)))return;
+      openItems.push({label:fieldLabel(el),section:sectionLabel(el),flagged:false});
+    });
+    host.innerHTML=`
+      <h1>${esc(customer)}${opId?` — ${esc(opId)}`:''}</h1>
+      <p class="exec-subtitle">Executive summary · generated ${esc(new Date().toLocaleDateString())}</p>
+      <h2>Project</h2>
+      <div class="exec-grid">
+        ${line('Customer','flow_B003')}
+        ${line('Opportunity / OP ID','flow_B001')}
+        ${line('Site','flow_B007')}
+        ${line('Seller / CSE','flow_B006')}
+        ${line('Proposal due date','flow_B004')}
+        ${line('Decision maker','flow_B010')}
+      </div>
+      <h2>Scope</h2>
+      <p>${esc(get('scope_summary')||get('included_scope'))||'<span class="exec-empty">No scope description yet.</span>'}</p>
+      <div class="exec-grid">
+        ${line('Type of proposal','scope_types')}
+      </div>
+      <p><b>Systems:</b> ${systemsWithModules.length?systemsWithModules.join(' · '):'<span class="exec-empty">not selected</span>'}</p>
+      <h2>Commercial</h2>
+      <div class="exec-grid">
+        ${line('Commercial structure','flow_C001')}
+        ${line('Order entry date','flow_C003')}
+        ${line('Execution start','flow_C004')}
+        ${line('Execution finish','flow_C005')}
+      </div>
+      <p><b>Payment milestones:</b> ${esc(get('flow_C002'))||'<span class="exec-empty">not answered</span>'}</p>
+      <h2>Deliverables at handover</h2>
+      <p>${deliverables.length?esc(deliverables.join(', ')):'<span class="exec-empty">not selected</span>'}</p>
+      <h2>Open items / to confirm</h2>
+      ${openItems.length?`<ul>${openItems.map(item=>`<li class="${item.flagged?'exec-flag':''}">${item.flagged?'🚩 ':''}${esc(item.section)} — ${esc(item.label)}</li>`).join('')}</ul>`:'<p class="exec-empty">Nothing flagged and no required question is missing.</p>'}
+    `;
   }
   function fieldLabel(el){
     const explicit=el.dataset.questionLabel;
@@ -1578,7 +1701,7 @@
   const DEFAULT_SCOPE_CATALOG={
     scope:[{id:'greenfield',label:'Green field'},{id:'upgrade',label:'Upgrade'},{id:'migration',label:'Migration'},{id:'cf',label:'CF'},{id:'parts',label:'Parts'},{id:'services',label:'Services'},{id:'trainings',label:'Training'}],
     systems:[{id:'eae',label:'EAE'},{id:'modicon-580',label:'Modicon 580'},{id:'epe',label:'EPE'},{id:'epp',label:'EPP'},{id:'foxboro',label:'Foxboro',children:[{id:'foxboro-cps',label:'CPs'},{id:'foxboro-ios',label:'I/Os'},{id:'foxboro-servers-workstations',label:'Servers / Workstations'},{id:'foxboro-network',label:'Network'}]},{id:'triconex',label:'Safety',children:[{id:'tricon-cx',label:'Tricon CX'},{id:'tricon',label:'Tricon'},{id:'trident',label:'Trident'},{id:'tri-gp',label:'TriGP'},{id:'m580-s',label:'M580 S'}]},{id:'aveva',label:'AVEVA'},{id:'cyber',label:'Cyber'}],
-    applications:[{id:'sis',label:'SIS/ESD'},{id:'bms',label:'BMS'},{id:'tmc',label:'TMC'},{id:'fg',label:'SF&G'}],
+    applications:[{id:'sis',label:'SIS/ESD'},{id:'bms',label:'BMS'},{id:'tmc',label:'TMC'},{id:'fg',label:'SF&G'},{id:'hipps',label:'HIPPS'}],
     quickNotes:[{id:'new-cabinets',label:'New Cabinets',children:[{id:'regional-integration',label:'Regional Integration'},{id:'india-cabinets',label:'India Cabinets'}]},{id:'resales-lt-20',label:'Resales <20%'},{id:'resales-lt-49',label:'Resales <49%'},{id:'resales-gt-50',label:'Resales >50%'}],
     extras:[{id:'similar-copy',label:'Similar/Copy'},{id:'split',label:'Split'}]
   };
@@ -1970,7 +2093,14 @@
   $('#overviewSectionFilter').addEventListener('change',renderOverview);
   $('#terminalOverview').addEventListener('click',e=>{if(e.target===e.currentTarget)closeOverview();});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverview();});
-  $('#printBtn').addEventListener('click',()=>window.print());
+  $('#printBtn').addEventListener('click',()=>{
+    markAnsweredState();
+    document.body.dataset.printFilter=$('#printFilterSelect')?.value||'all';
+    const executive=($('#printFormatSelect')?.value||'questionnaire')==='executive';
+    document.body.classList.toggle('print-executive',executive);
+    if(executive)renderExecutiveSummary();
+    window.print();
+  });
   $('#expandFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=true));
   $('#collapseFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=false));
   $('#questionType').addEventListener('change',updateOptionsVisibility);

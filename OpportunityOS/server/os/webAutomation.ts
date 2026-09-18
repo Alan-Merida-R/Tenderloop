@@ -13,13 +13,12 @@ import { chromium } from 'playwright-core';
 import type { BrowserContext, Page, Response } from 'playwright-core';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { CHROME_PROFILE_DIR, WEB_PROBES_DIR, WEB_RECIPES_DIR } from '../config';
+import { CHROME_PROFILE_DIR, WEB_PROBES_DIR } from '../config';
 import { collectSnapshot } from './pageScripts';
 import type { PageSnapshot } from './pageScripts';
-import { buildSelector, selectorConfidence } from './selectorPolicy';
-import type { TargetParts } from './selectorPolicy';
-import { installRecorder } from './recorderScript';
-import type { RecorderConfig } from './recorderScript';
+import { buildSelector } from './selectorPolicy';
+import { readOpportunityFromSr } from './bfoReader';
+import type { BfoReadout } from './bfoReader';
 
 /** Same search order as _open_browser.bat, so both pick the same Chrome. */
 const chromeCandidates = (): string[] => [
@@ -356,136 +355,21 @@ export const probeUrl = async (
     }
 };
 
-// --- Recorder -------------------------------------------------------------
-//
-// Teaching a recipe by watching. The overlay is injected into every document of
-// a VISIBLE session (PingID has to be answered by a human), reports each click
-// through an exposed binding, and the selector policy is applied here in Node.
-
-export interface RecordedStep {
-    index: number;
-    kind: 'navigate' | 'click' | 'capture';
-    /** Masked: recipes and their logs must not carry record ids around. */
-    url: string;
-    label: string;
-    text?: string;
-    field?: string;
-    selector?: string;
-    confidence?: 'high' | 'medium' | 'low';
-    target?: TargetParts;
-}
-
-interface RecordingSession {
-    startedAt: string;
-    steps: RecordedStep[];
-    finished: boolean;
-}
-
-let recording: RecordingSession | null = null;
-
-export const recordingStatus = () => ({
-    active: !!recording && !recording.finished,
-    finished: !!recording?.finished,
-    steps: recording ? recording.steps.length : 0,
-    startedAt: recording?.startedAt ?? null,
-});
-
-/** Everything captured so far, with record ids masked out of the URLs. */
-export const getRecordedSteps = (): RecordedStep[] => recording ? recording.steps : [];
+// --- Reading an opportunity ----------------------------------------------
 
 /**
- * Start a recording session at `url` in a visible window.
+ * Read one opportunity out of bFO, starting from its SR link.
  *
- * Visible is not a preference here: the user has to clear PingID by hand, and
- * the whole point is that they drive the browser themselves.
+ * Visible by default: PingID needs a human, and watching the browser walk the
+ * three pages is the fastest way to see what went wrong on the first runs.
  */
-export const startRecording = async (url: string, config: RecorderConfig): Promise<{ url: string }> => {
-    // A fresh session must not inherit half-recorded steps from an old one.
-    recording = { startedAt: new Date().toISOString(), steps: [], finished: false };
-
-    const ctx = await getContext(false);
-
-    // exposeBinding throws if the name is already taken by an earlier session.
-    await ctx.exposeBinding('__oosRecord', async (_source: unknown, payload: any) => {
-        if (!recording || recording.finished) return { ok: false };
-        if (payload?.kind === 'finish') {
-            const saved = await stopRecording(String(payload?.name || 'receta-bfo'));
-            return { ok: true, ...saved };
-        }
-        const target = payload?.target as TargetParts | undefined;
-        recording.steps.push({
-            index: recording.steps.length,
-            kind: payload?.kind === 'capture' ? 'capture' : payload?.kind === 'click' ? 'click' : 'navigate',
-            url: maskUrl(String(payload?.url || '')),
-            label: String(payload?.label || ''),
-            text: payload?.text ? String(payload.text) : undefined,
-            field: payload?.field ? String(payload.field) : undefined,
-            target,
-            selector: target ? buildSelector(target) : undefined,
-            confidence: target ? selectorConfidence(target) : undefined,
-        });
-        return { ok: true, steps: recording.steps.length };
-    }).catch((err: any) => {
-        // Re-recording in the same browser session is normal; the binding
-        // survives from last time and can simply be reused.
-        if (!/already registered/i.test(String(err?.message || err))) throw err;
-    });
-
-    await ctx.addInitScript({
-        content: `(() => { const __name = (f) => f; (${installRecorder.toString()})(${JSON.stringify(config)}); })()`,
-    });
-
+export const readOpportunity = async (
+    srUrl: string,
+    opts: { headless?: boolean; settleMs?: number } = {}
+): Promise<BfoReadout> => {
+    const headless = opts.headless === true;
+    const ctx = await getContext(headless);
     const page = ctx.pages()[0] || await ctx.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.bringToFront().catch(() => { });
-    return { url: page.url() };
-};
-
-/**
- * Close the session and write the recipe to disk.
- *
- * Navigate steps are dropped from the saved recipe: they record where the user
- * happened to be, not an instruction to replay. What matters is the clicks that
- * got them there and the values they pointed at.
- */
-export const stopRecording = async (name: string): Promise<{ file: string; steps: number; warnings: string[] }> => {
-    if (!recording) throw new Error('No recording is in progress.');
-    recording.finished = true;
-
-    const steps = recording.steps
-        .filter(step => step.kind !== 'navigate')
-        .map(step => {
-            // On a click, `text` is the button or tab label — worth keeping, it
-            // is what makes a saved recipe readable. On a capture it is the
-            // VALUE that was pointed at (a customer address, an amount), which
-            // the recipe never needs: replay reads whatever is there at the
-            // time. Dropping it keeps customer data out of a file that gets
-            // shared while debugging a recipe.
-            if (step.kind !== 'capture') return step;
-            const { text, ...rest } = step;
-            return { ...rest, text: text ? `<${text.length} chars>` : undefined };
-        });
-    const warnings: string[] = [];
-
-    const weak = steps.filter(step => step.confidence === 'low');
-    if (weak.length) {
-        warnings.push(`${weak.length} step(s) could only be pinned down by position, so they will break if bFO reorders that part of the page.`);
-    }
-    if (!steps.some(step => step.kind === 'capture')) {
-        warnings.push('Nothing was tagged as a field, so this recipe would navigate but never read anything.');
-    }
-
-    if (!existsSync(WEB_RECIPES_DIR)) mkdirSync(WEB_RECIPES_DIR, { recursive: true });
-    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 60) || 'recipe';
-    const file = path.join(WEB_RECIPES_DIR, `${safeName}.json`);
-    writeFileSync(file, JSON.stringify({
-        name: safeName,
-        recordedAt: recording.startedAt,
-        // The starting URL is never stored: it is injected per opportunity from
-        // whatever SR link the expediente already holds.
-        startsFrom: '{srUrl}',
-        steps,
-    }, null, 2), 'utf8');
-
-    return { file, steps: steps.length, warnings };
+    if (!headless) await page.bringToFront().catch(() => { });
+    return readOpportunityFromSr(page, srUrl, opts.settleMs ?? 3000);
 };

@@ -27,7 +27,8 @@ if "%BROWSER_MODE%"=="TAB" (
 :: throttles/backgrounds occluded windows and Windows' native-occlusion check
 :: can make it look invisible to Chromium after a suspend/app-switch, so the
 :: window comes back as a blank/reloaded shell and the user has to reopen it.
-set "APP_FLAGS=--app="%APP_URL%" --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion"
+set "KEEP_ALIVE_FLAGS=--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,MemorySaverMode,TabDiscarding,AutomaticTabDiscarding"
+set "APP_FLAGS=--app="%APP_URL%" %KEEP_ALIVE_FLAGS%"
 
 :: If the user installed OpportunityOS as a real Chrome app (address bar
 :: "Install" button), Chrome assigned it a stable app-id and its own taskbar
@@ -41,15 +42,15 @@ for /f "usebackq delims=" %%A in (`powershell.exe -NoProfile -ExecutionPolicy By
 
 if defined CHROME_APP_ID (
     if exist "%ProgramFiles%\Google\Chrome\Application\chrome_proxy.exe" (
-        start "" "%ProgramFiles%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID%
+        start "" "%ProgramFiles%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID% %KEEP_ALIVE_FLAGS%
         exit /b 0
     )
     if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome_proxy.exe" (
-        start "" "%ProgramFiles(x86)%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID%
+        start "" "%ProgramFiles(x86)%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID% %KEEP_ALIVE_FLAGS%
         exit /b 0
     )
     if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome_proxy.exe" (
-        start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID%
+        start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome_proxy.exe" --profile-directory=Default --app-id=%CHROME_APP_ID% %KEEP_ALIVE_FLAGS%
         exit /b 0
     )
 )

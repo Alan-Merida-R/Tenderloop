@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict';
 import type { MeetingNote } from '../src/types';
-import { readScopeGlance, formatScopeGlance } from '../src/services/scopeSummary';
+import { readScopeGlance, formatScopeGlance, matchesScopeGlanceFilters } from '../src/services/scopeSummary';
 import { DEFAULT_SCOPE_CATALOG, catalogContainsLabel, migrateLegacyScopeCatalog } from '../src/components/scopeCatalog';
 
 let passed = 0;
@@ -30,12 +30,12 @@ test('modern answers: scope + systems, Safety products and applications', () => 
         scope_types: ['Upgrade', 'Migration', 'CF'],
         sow_systems: ['EAE', 'Safety'],
         triconex_products: ['Tricon CX'],
-        safety_applications: ['SIS'],
+        safety_applications: ['SIS/ESD'],
     }));
     assert.deepEqual(glance.scope, ['Upgrade', 'Migration', 'CF']);
     assert.deepEqual(glance.systems, ['EAE', 'Safety', 'Tricon CX']);
-    assert.deepEqual(glance.applications, ['SIS']);
-    assert.equal(formatScopeGlance(glance), 'Upgrade, Migration and CF - EAE, Safety, Tricon CX, SIS');
+    assert.deepEqual(glance.applications, ['SIS/ESD']);
+    assert.equal(formatScopeGlance(glance), 'Upgrade, Migration and CF - EAE, Safety, Tricon CX, SIS/ESD');
 });
 
 test("the user's short example reads as expected", () => {
@@ -100,6 +100,14 @@ test('the SOW note holding answers wins over an empty duplicate', () => {
     assert.deepEqual(readScopeGlance(notes).scope, ['Parts']);
 });
 
+test('Extra Scope sub-modules saved by the SOW are included in the live scope', () => {
+    const glance = readScopeGlance(sow({
+        quick_notes: ['New Cabinets'],
+        'qnmod_new-cabinets': ['Regional Integration', 'India Cabinets'],
+    }));
+    assert.deepEqual(glance.quickNotes, ['New Cabinets', 'Regional Integration', 'India Cabinets']);
+});
+
 test('legacy Triconex system name is presented as Safety', () => {
     const glance = readScopeGlance(sow({ sow_systems: ['Triconex'], triconex_products: ['Tricon CX'] }));
     assert.deepEqual(glance.systems, ['Safety', 'Tricon CX']);
@@ -146,6 +154,13 @@ test('migration recognizes edited Safety ids and removes duplicate legacy rows',
     assert.deepEqual(safetyRows[0].children?.map(child => child.label), ['Tricon CX', 'Tricon', 'Trident', 'TriGP', 'M580 S']);
 });
 
+test('migration adds HIPPS to existing Safety application catalogs', () => {
+    const catalog = structuredClone(DEFAULT_SCOPE_CATALOG);
+    catalog.applications = catalog.applications.filter(option => option.id !== 'hipps');
+    const migrated = migrateLegacyScopeCatalog(catalog);
+    assert.deepEqual(migrated.applications.map(option => option.label), ['SIS/ESD', 'BMS', 'TMC', 'SF&G', 'HIPPS']);
+});
+
 test('legacy Triconex labels are catalog aliases instead of unmatched extras', () => {
     assert.equal(catalogContainsLabel(DEFAULT_SCOPE_CATALOG, 'Triconex'), true);
     const glance = readScopeGlance(sow({}), DEFAULT_SCOPE_CATALOG, [{ id: 'legacy', text: 'Triconex', color: '#000000' }]);
@@ -153,5 +168,50 @@ test('legacy Triconex labels are catalog aliases instead of unmatched extras', (
     assert.deepEqual(glance.extras, []);
 });
 
-console.log(`\n${passed}/15 scope checks passed`);
-if (passed !== 15) process.exit(1);
+test('current SOW system overrides a contradictory historical opportunity label', () => {
+    const glance = readScopeGlance(
+        sow({ sow_systems: ['Safety'] }),
+        DEFAULT_SCOPE_CATALOG,
+        [{ id: 'legacy-foxboro', text: 'Foxboro', color: '#000000' }],
+    );
+    assert.deepEqual(glance.systems, ['Safety']);
+    assert.equal(glance.systems.includes('Foxboro'), false);
+});
+
+test('scope filters use OR inside categories and AND between categories', () => {
+    const migrationSafety = readScopeGlance(sow({ scope_types: ['Migration'], sow_systems: ['Safety'], execution_center: 'Mexico' }));
+    const upgradeFoxboro = readScopeGlance(sow({ scope_types: ['Upgrade'], sow_systems: ['Foxboro'], execution_center: 'Mexico' }));
+    const partsSafety = readScopeGlance(sow({ scope_types: ['Parts'], sow_systems: ['Safety'], execution_center: 'Mexico' }));
+    const usaMigration = readScopeGlance(sow({ scope_types: ['Migration'], sow_systems: ['Safety'], execution_center: 'USA' }));
+    const filters = { scope: ['Migration', 'Upgrade'], systems: ['Foxboro', 'Safety'], executionCenters: ['Mexico'] };
+    assert.equal(matchesScopeGlanceFilters(migrationSafety, filters), true);
+    assert.equal(matchesScopeGlanceFilters(upgradeFoxboro, filters), true);
+    assert.equal(matchesScopeGlanceFilters(partsSafety, filters), false);
+    assert.equal(matchesScopeGlanceFilters(usaMigration, filters), false);
+});
+
+test('every Scope filter section is independently required', () => {
+    const glance = readScopeGlance(sow({
+        scope_types: ['Migration'],
+        sow_systems: ['Safety'],
+        safety_applications: ['SIS/ESD'],
+        execution_center: 'Mexico',
+        quick_notes: ['New Cabinets'],
+        scope_extras: ['Similar/Copy'],
+    }));
+    const filters = {
+        scope: ['Upgrade', 'Migration'],
+        systems: ['Foxboro', 'Safety'],
+        applications: ['BMS', 'SIS/ESD'],
+        executionCenters: ['Canada', 'Mexico'],
+        quickNotes: ['Resales <20%', 'New Cabinets'],
+        extras: ['Split', 'Similar/Copy'],
+    };
+    assert.equal(matchesScopeGlanceFilters(glance, filters), true);
+    (Object.keys(filters) as Array<keyof typeof filters>).forEach(category => {
+        assert.equal(matchesScopeGlanceFilters({ ...glance, [category]: [] }, filters), false, `${category} must be required`);
+    });
+});
+
+console.log(`\n${passed}/20 scope checks passed`);
+if (passed !== 20) process.exit(1);

@@ -39,8 +39,7 @@ export const ENABLE_WEB_AUTOMATION = process.env.OPPORTUNITYOS_DISABLE_WEB !== '
  */
 export const CHROME_PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 
-/** Extraction recipes (Phase 2) and probe artifacts (HTML/screenshots/JSON). */
-export const WEB_RECIPES_DIR = path.join(DATA_DIR, 'web-recipes');
+/** Probe artifacts (HTML / screenshots / captured JSON responses). */
 export const WEB_PROBES_DIR = path.join(DATA_DIR, 'web-probes');
 
 /**

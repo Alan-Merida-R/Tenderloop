@@ -54,7 +54,7 @@ const health = (_req: express.Request, res: express.Response) => {
         features: [
             'open', 'open-many', 'reveal', 'clipboard', 'clipboard-email-reply', 'locate',
             'find-dir', 'copy-template', 'check-path', 'list-dir', 'write-manager-report', 'move',
-            ...(ENABLE_WEB_AUTOMATION ? ['web-automation', 'web-recorder'] : []),
+            ...(ENABLE_WEB_AUTOMATION ? ['web-automation', 'web-reader'] : []),
         ],
     });
 };
