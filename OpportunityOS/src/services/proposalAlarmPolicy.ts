@@ -32,6 +32,7 @@ export const DEFAULT_PROPOSAL_ALARM_POLICY: ProposalAlarmPolicy = {
         'Resales <49%': 2,
         'Resales >50%': 4,
     },
+    tenderEstimateWeightPercent: 60,
 };
 
 export const getProposalAlarmPolicy = (alarms: AlarmConfig[] = []): ProposalAlarmPolicy => {
@@ -44,6 +45,7 @@ export const getProposalAlarmPolicy = (alarms: AlarmConfig[] = []): ProposalAlar
         quoteTypeDays: { ...DEFAULT_PROPOSAL_ALARM_POLICY.quoteTypeDays, ...(stored?.quoteTypeDays || {}) },
         revisionPercent: { ...DEFAULT_PROPOSAL_ALARM_POLICY.revisionPercent, ...(stored?.revisionPercent || {}) },
         scopeItemDays: { ...DEFAULT_PROPOSAL_ALARM_POLICY.scopeItemDays, ...(stored?.scopeItemDays || {}) },
+        tenderEstimateWeightPercent: stored?.tenderEstimateWeightPercent ?? DEFAULT_PROPOSAL_ALARM_POLICY.tenderEstimateWeightPercent,
     };
 };
 
@@ -69,6 +71,11 @@ export interface ProposalAlarmCalculationInput {
     amount?: number;
     revision?: string;
     revisionChangeImpact?: 'light' | 'major';
+    /**
+     * Tender owner's own duration estimate. It weighs on the target but does not replace it:
+     * see tenderEstimateWeightPercent in the policy.
+     */
+    tenderEstimateDays?: number | null;
 }
 
 /** Single source of truth for the calculator, cards and KPI age alerts. */
@@ -91,8 +98,46 @@ export const calculateProposalAlarm = (input: ProposalAlarmCalculationInput, pol
     const revisionDifficulty = input.revisionChangeImpact === 'major' ? 'major' : 'light';
     const revisionPercent = Math.min(100, Math.max(1, Number(policy.revisionPercent[revisionDifficulty]) || DEFAULT_PROPOSAL_ALARM_POLICY.revisionPercent[revisionDifficulty]));
     const revisionFactor = revisionNumber > 0 ? revisionPercent / 100 : 1;
-    const expectedDays = Math.max(1, Math.round(normalDays * revisionFactor));
-    return { expectedDays, normalDays, revisionFactor, scopeBase, amountDays, specificScopeDays, complexityMultiplier, quoteTypeDays };
+    const calculatedDays = Math.max(1, Math.round(normalDays * revisionFactor));
+    // The tender owner knows things the Scope cannot express (a difficult customer, a vendor that
+    // always answers late), so their estimate has to move the target. But it is one opinion against
+    // a model fed by scope, amount, quote type and revision, and taking it as absolute truth is what
+    // made the target ignore everything else. Blend the two instead, with a configurable weight.
+    const rawTenderEstimateDays = Math.max(0, Math.round(Number(input.tenderEstimateDays) || 0));
+    const isTenderEstimateApplied = rawTenderEstimateDays > 0;
+    const tenderEstimateWeightPercent = Math.min(100, Math.max(0, Math.round(
+        Number(policy.tenderEstimateWeightPercent ?? DEFAULT_PROPOSAL_ALARM_POLICY.tenderEstimateWeightPercent) || 0
+    )));
+    const tenderEstimateWeight = tenderEstimateWeightPercent / 100;
+    const blendedDays = Math.max(1, Math.round(
+        calculatedDays * (1 - tenderEstimateWeight) + rawTenderEstimateDays * tenderEstimateWeight
+    ));
+    const expectedDays = isTenderEstimateApplied ? blendedDays : calculatedDays;
+    const warningPercent = Math.min(99, Math.max(1, Number(policy.warningPercent) || 70));
+    const criticalPercent = Math.max(warningPercent + 1, Math.min(200, Number(policy.criticalPercent) || 100));
+    const warningOffsetDays = Math.round(Number(policy.warningOffsetDays) || 0);
+    const criticalOffsetDays = Math.round(Number(policy.criticalOffsetDays) || 0);
+    return {
+        expectedDays,
+        calculatedDays,
+        normalDays,
+        revisionFactor,
+        scopeBase,
+        amountDays,
+        specificScopeDays,
+        complexityMultiplier,
+        quoteTypeDays,
+        /** What the tender owner typed, untouched — the UI shows it next to the blended target. */
+        tenderEstimateDays: isTenderEstimateApplied ? rawTenderEstimateDays : null,
+        isTenderEstimateApplied,
+        tenderEstimateWeightPercent,
+        warningDays: Math.max(1, Math.round(expectedDays * warningPercent / 100) + warningOffsetDays),
+        criticalDays: Math.max(1, Math.round(expectedDays * criticalPercent / 100) + criticalOffsetDays),
+        warningPercent,
+        criticalPercent,
+        warningOffsetDays,
+        criticalOffsetDays,
+    };
 };
 
 /** Calculates the expected proposal age from the live Scope and Commercial amount. */
@@ -104,7 +149,7 @@ export const getExpectedProposalDays = (opportunity: Opportunity, alarms: AlarmC
         Number(opportunity.kpis?.proposalAmountUSD || 0),
         ...((opportunity.commercial?.customSections || []).map(section => Number(section.sellPrice || 0))),
     );
-    return calculateProposalAlarm({ scopeTypes: scope.scope, systems: scope.systems, applications: scope.applications, quickNotes: scope.quickNotes, extras: scope.extras, quoteType: opportunity.quoteType, amount, revision: opportunity.revision, revisionChangeImpact: opportunity.kpis?.revisionChangeImpact }, policy).expectedDays;
+    return calculateProposalAlarm({ scopeTypes: scope.scope, systems: scope.systems, applications: scope.applications, quickNotes: scope.quickNotes, extras: scope.extras, quoteType: opportunity.quoteType, amount, revision: opportunity.revision, revisionChangeImpact: opportunity.kpis?.revisionChangeImpact, tenderEstimateDays: opportunity.kpis?.proposalDaysEstimate }, policy).expectedDays;
 };
 
 export const getProposalAgeTargets = (opportunity: Opportunity, alarms: AlarmConfig[] = [], catalog?: ScopeCatalog) => {
@@ -115,20 +160,21 @@ export const getProposalAgeTargets = (opportunity: Opportunity, alarms: AlarmCon
         Number(opportunity.kpis?.proposalAmountUSD || 0),
         ...((opportunity.commercial?.customSections || []).map(section => Number(section.sellPrice || 0))),
     );
-    const calculation = calculateProposalAlarm({ scopeTypes: scope.scope, systems: scope.systems, applications: scope.applications, quickNotes: scope.quickNotes, extras: scope.extras, quoteType: opportunity.quoteType, amount, revision: opportunity.revision, revisionChangeImpact: opportunity.kpis?.revisionChangeImpact }, policy);
-    const expectedDays = calculation.expectedDays;
-    const warningPercent = Math.min(99, Math.max(1, Number(policy.warningPercent) || 70));
-    const criticalPercent = Math.max(warningPercent + 1, Math.min(200, Number(policy.criticalPercent) || 100));
+    const calculation = calculateProposalAlarm({ scopeTypes: scope.scope, systems: scope.systems, applications: scope.applications, quickNotes: scope.quickNotes, extras: scope.extras, quoteType: opportunity.quoteType, amount, revision: opportunity.revision, revisionChangeImpact: opportunity.kpis?.revisionChangeImpact, tenderEstimateDays: opportunity.kpis?.proposalDaysEstimate }, policy);
     return {
-        expectedDays,
-        warningDays: Math.max(1, Math.round(expectedDays * warningPercent / 100) + Math.round(Number(policy.warningOffsetDays) || 0)),
-        criticalDays: Math.max(1, Math.round(expectedDays * criticalPercent / 100) + Math.round(Number(policy.criticalOffsetDays) || 0)),
-        warningPercent,
-        criticalPercent,
-        warningOffsetDays: Math.round(Number(policy.warningOffsetDays) || 0),
-        criticalOffsetDays: Math.round(Number(policy.criticalOffsetDays) || 0),
+        expectedDays: calculation.expectedDays,
+        calculatedDays: calculation.calculatedDays,
+        warningDays: calculation.warningDays,
+        criticalDays: calculation.criticalDays,
+        warningPercent: calculation.warningPercent,
+        criticalPercent: calculation.criticalPercent,
+        warningOffsetDays: calculation.warningOffsetDays,
+        criticalOffsetDays: calculation.criticalOffsetDays,
         quoteTypeDays: Math.round(Number(policy.quoteTypeDays[opportunity.quoteType || 'Budgetary']) || 0),
         revisionFactor: calculation.revisionFactor,
         revisionPercent: policy.revisionPercent,
+        isManualEstimate: calculation.isTenderEstimateApplied,
+        tenderEstimateDays: calculation.tenderEstimateDays,
+        tenderEstimateWeightPercent: calculation.tenderEstimateWeightPercent,
     };
 };

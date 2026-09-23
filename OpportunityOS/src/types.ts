@@ -116,6 +116,13 @@ export interface ProposalAlarmPolicy {
   revisionPercent: { light: number; major: number };
   /** Additional days by an individual Scope option, including cabinets and resale bands. */
   scopeItemDays: Record<string, number>;
+  /**
+   * How much the tender owner's own estimate pulls the final target, 0-100.
+   * The estimate is a strong opinion, not an override: the target is a weighted blend of it
+   * and the Scope calculation. 100 reproduces the old behaviour (estimate wins outright),
+   * 0 ignores the estimate entirely.
+   */
+  tenderEstimateWeightPercent?: number;
 }
 
 export interface AlarmConfig {
@@ -628,6 +635,8 @@ export interface KPIs {
   effortContribution: number | null;  // 0–100
   sold: boolean | null;
   proposalAmountUSD: number | null;
+  /** Tender owner's manual estimate for proposal duration; overrides the calculated alarm target when set. */
+  proposalDaysEstimate?: number | null;
   /** Revision effort multiplier. Undefined defaults to light changes for R1+. */
   revisionChangeImpact?: 'light' | 'major';
 

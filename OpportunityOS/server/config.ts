@@ -65,6 +65,32 @@ export const WEB_ALLOWED_HOSTS = [
 ];
 
 /**
+ * Link-rewriting gateways that may only be a STARTING point.
+ *
+ * SR links arrive by email already rewritten by the mail scanner, so the URL
+ * the user pastes is a gateway that redirects to Salesforce a moment later.
+ * These hosts are deliberately NOT in WEB_ALLOWED_HOSTS: a rewritten link can
+ * point anywhere, so landing on one proves nothing. The reader still refuses to
+ * read a page until the browser has actually arrived on an allow-listed
+ * Salesforce host, which is what keeps the gateway from widening the door.
+ */
+const ENTRY_GATEWAY_HOSTS = [
+    'mimecastprotect.com',
+    'protect-eu.mimecast.com',
+    'protect-us.mimecast.com',
+    'safelinks.protection.outlook.com',
+];
+
+/** True when the host is a mail-scanner gateway we accept as an entry point. */
+export const isWebEntryGateway = (url: string): boolean => {
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { return false; }
+    if (parsed.protocol !== 'https:') return false;
+    const host = parsed.hostname.toLowerCase();
+    return ENTRY_GATEWAY_HOSTS.some(allowed => host === allowed || host.endsWith(`.${allowed}`));
+};
+
+/**
  * True when the URL's host is allow-listed AND the scheme is safe.
  * Subdomains match ("bfo.salesforce.com"); look-alike suffixes do not
  * ("notsalesforce.com"). Loopback is NOT allow-listed by default — it has to be

@@ -9,6 +9,7 @@ import { OpportunityFolderTab } from '../features/opportunity-folder/Opportunity
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { openInNativeApp } from '../features/opportunity-folder/fileOps';
+import { movePin } from '../services/folderPinsStore';
 import { SowFormEmbed } from './SowFormEmbed';
 import ScopeQuickViewModal from './ScopeQuickViewModal';
 import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, catalogContainsLabel, normalizeScopeCatalog, scopeLabelKey, scopeModuleKey, scopeOptionColor } from './scopeCatalog';
@@ -57,6 +58,23 @@ const appendChangeRevisionNoteEvent = (notes: MeetingNote[], changeRevisionId: s
 // Once a task is assigned to someone, it can only move through this lifecycle —
 // 'Pending'/'In Progress' don't apply once responsibility has been handed off.
 const ASSIGNED_TASK_STATUSES: TaskStatus[] = ['Missing Info', 'On Hold', 'Approval', 'Changes Requested / Rework', 'Done', 'Canceled'];
+
+/**
+ * Handing a task to someone is the moment it starts waiting on them, so it moves to Missing Info.
+ *
+ * Quick-assign used to set only owner/responsible and leave the status on 'Pending'. Because the
+ * status dropdown of an assigned task is restricted to ASSIGNED_TASK_STATUSES - which has no
+ * 'Pending' entry - the select fell back to rendering its first option, 'Missing Information'.
+ * The task therefore LOOKED assigned and waiting while its stored status was still 'Pending', so
+ * the row never turned red and the proposal card never counted it as waiting.
+ *
+ * A task already sitting in one of the assigned states keeps it: an Approval, a Done or a Canceled
+ * must not be dragged back to Missing Info just because the people list changed.
+ */
+export const assignmentStatusPatch = (task: { status: TaskStatus } | undefined, ids: string[] = [], externalAreas: string[] = []): Partial<Task> =>
+    (ids.length > 0 || externalAreas.length > 0) && task && !ASSIGNED_TASK_STATUSES.includes(task.status)
+        ? { status: 'Missing Info' }
+        : {};
 
 const normalizeHistoryDate = (value?: string | null) => {
     if (!value) return getTodayStr();
@@ -3412,6 +3430,40 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     const [selectedFolderEntryPath, setSelectedFolderEntryPath] = useState<string[] | null>(null);
     const [showLabelMenu, setShowLabelMenu] = useState(false);
     const [versionToRestore, setVersionToRestore] = useState<OpportunityVersion | null>(null);
+    const expedienteRootPathRef = useRef<string>('');
+    const expedienteFolderStorageKey = localOpp.revision?.trim() ? `${opportunity.id}::${localOpp.revision.trim()}` : opportunity.id;
+    const expedientePins = localOpp.folderPins?.[expedienteFolderStorageKey] || [];
+    const [showExpedientePins, setShowExpedientePins] = useState(false);
+
+    /** Folder Quick Access remains available from every expediente tab. */
+    const openExpedientePin = async (pin: typeof expedientePins[number], revealInApp = false) => {
+        if (revealInApp) {
+            setFolderNavTarget(pin.relativePath.join('/'));
+            setActiveTabSafe('folder');
+            return;
+        }
+        try {
+            const rootPath = expedienteRootPathRef.current || await resolveEffectiveRootPath(opportunity.id, localOpp.revision);
+            if (!rootPath) {
+                alert('This expediente does not have a saved folder path yet. Link its folder once from the Folder section.');
+                return;
+            }
+            expedienteRootPathRef.current = rootPath;
+            await openInNativeApp(rootPath, pin.relativePath);
+        } catch (error: any) {
+            alert(error?.message || 'Could not open the quick access.');
+        }
+    };
+
+    const reorderExpedientePin = async (pinKey: string, direction: -1 | 1) => {
+        const pins = await movePin(expedienteFolderStorageKey, pinKey, direction);
+        // The folder store persists through App's bridge. Mirror its returned order locally so
+        // the panel responds immediately instead of waiting for the parent opportunity refresh.
+        const current = localOppRef.current;
+        const updated = { ...current, folderPins: { ...(current.folderPins || {}), [expedienteFolderStorageKey]: pins } };
+        localOppRef.current = updated;
+        setLocalOpp(updated);
+    };
 
     /**
      * Root folder path, resolved as soon as the expediente opens.
@@ -3422,7 +3474,6 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
      * shortcut fire immediately, and the ref keeps the listener from being torn down
      * and re-registered every time the value changes.
      */
-    const expedienteRootPathRef = useRef<string>('');
     useEffect(() => {
         let cancelled = false;
         expedienteRootPathRef.current = '';
@@ -6452,13 +6503,24 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!task) return;
 
         const finalPatch: Partial<Task> = { ...patch };
+        // A quick assignment can arrive with an area but no named person. Treat both as a real
+        // handoff and persist Missing Info in the same update; otherwise the restricted select can
+        // display Missing Info while the stored task still says Pending/In Progress (no red badge).
+        const assignmentTargets = (finalPatch.responsibleTeamMemberIds ?? task.responsibleTeamMemberIds ?? []).length > 0
+            || (finalPatch.externalAreas ?? task.externalAreas ?? []).length > 0;
+        if (assignmentTargets && (finalPatch.isAssignment || finalPatch.owner === 'External Area') && finalPatch.status === undefined && !ASSIGNED_TASK_STATUSES.includes(task.status)) {
+            finalPatch.status = 'Missing Info';
+        }
         // Keep quick status changes consistent with the full task editor. Missing
         // Information is an external assignment and must immediately surface in
         // the proposal card/general waiting indicators.
         if (finalPatch.status === 'Missing Info') {
             // Same rule as updateTaskInModal: the clock starts here, whether the task waits on a
             // named person or on an area that has no responsible registered yet.
-            const hasTarget = (task.responsibleTeamMemberIds || []).length > 0 || (task.externalAreas || []).length > 0;
+            // Read the ids/areas from the patch first: on a first assignment the stored task still
+            // has none, and using it would skip starting the assignment clock.
+            const hasTarget = (finalPatch.responsibleTeamMemberIds ?? task.responsibleTeamMemberIds ?? []).length > 0
+                || (finalPatch.externalAreas ?? task.externalAreas ?? []).length > 0;
             finalPatch.owner = 'External Area';
             finalPatch.isAssignment = true;
             if (hasTarget && !task.responsibleRequestedDate) finalPatch.responsibleRequestedDate = getTodayStr();
@@ -6583,7 +6645,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         // the assignment clock starts. A task can be waiting on a named person OR on an area with no
         // responsible registered yet — both count, so the request date is initialized for either.
         if (field === 'status' && value === 'Missing Info') {
-            const hasTarget = (latestTask.responsibleTeamMemberIds || []).length > 0 || (latestTask.externalAreas || []).length > 0;
+            const hasTarget = (extraPatch?.responsibleTeamMemberIds ?? latestTask.responsibleTeamMemberIds ?? []).length > 0
+                || (extraPatch?.externalAreas ?? latestTask.externalAreas ?? []).length > 0;
             extraPatch = {
                 ...extraPatch,
                 owner: 'External Area',
@@ -7695,11 +7758,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         });
 
         const hasTarget = nextAreas.length > 0 || ids.length > 0;
+        const statusPatch = assignmentStatusPatch(task, ids, nextAreas);
         updateTaskInModal('externalAreas', nextAreas, {
             responsibleTeamMemberIds: ids,
             responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
+            ...statusPatch,
             ...(hasTarget
-                ? { isAssignment: true }
+                ? { owner: 'External Area', isAssignment: true, ...(statusPatch.status === 'Missing Info' && !task.responsibleRequestedDate ? { responsibleRequestedDate: getTodayStr() } : {}) }
                 : { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' }),
         });
     };
@@ -7753,11 +7818,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         if (!task) return;
         // Keep the areas chosen by hand and add the ones the picked people belong to.
         const nextAreas = Array.from(new Set([...(task.externalAreas || []), ...ids.map(id => memberById(id).area).filter(Boolean)]));
+        const statusPatch = assignmentStatusPatch(task, ids, nextAreas);
         updateTaskInModal('responsibleTeamMemberIds', ids, {
             responsible: ids.map(id => memberById(id).name).filter(Boolean).join(', '),
             externalAreas: nextAreas,
+            ...statusPatch,
             // The clock is started by the move to Missing Info, not by picking a person.
-            ...(ids.length > 0 || nextAreas.length > 0 ? { isAssignment: true } : {}),
+            ...(ids.length > 0 || nextAreas.length > 0 ? { owner: 'External Area', isAssignment: true, ...(statusPatch.status === 'Missing Info' && !task.responsibleRequestedDate ? { responsibleRequestedDate: getTodayStr() } : {}) } : {}),
             // Clear the (now hidden) requested/due-back/delivered dates when nothing is targeted anymore.
             ...(ids.length === 0 && nextAreas.length === 0 ? { responsibleRequestedDate: '', responsibleDueDate: '', responsibleDeliveredDate: '' } : {})
         });
@@ -7784,11 +7851,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
         const current = task.responsibleTeamMemberIds || [];
         if (current.includes(personId)) return;
         const ids = [...current, personId];
+        const nextAreas = mergeAreasForMembers(task, ids);
         applyTaskFieldsDirect(taskId, {
             responsibleTeamMemberIds: ids,
             responsible: ids.map(id => memberById(id).name).filter(Boolean).join(', '),
             owner: 'External Area',
-            externalAreas: mergeAreasForMembers(task, ids),
+            externalAreas: nextAreas,
+            ...assignmentStatusPatch(task, ids, nextAreas),
         });
     };
 
@@ -8410,7 +8479,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
             {/* Main Content Area */}
             <div className="flex max-h-[33vh] flex-col shrink-0 overflow-hidden bg-white relative z-20">
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-white z-20">
+                <div className="flex-1 min-h-0 flex flex-col overflow-y-auto overflow-x-hidden bg-white z-20">
                     {isSnapshot && !isSubView && (
                         <div className="bg-amber-100 text-amber-800 px-4 py-1 text-xs font-bold flex justify-between items-center border-b border-amber-200">
                             <span className="flex items-center gap-2"><Lock className="w-3 h-3" /> READ ONLY - Viewing Snapshot: {activeVersion?.commitMessage}</span>
@@ -8419,9 +8488,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                     )}
 
                     <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50/50 shrink-0">
-                        <div className="relative w-full px-4">
+                        <div className="@container relative w-full px-4">
                             <div className="flex flex-wrap items-start justify-between mb-0.5 gap-2">
-                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
                                     {!(isSubView && deepLink?.tab === 'tasks') && (
                                         <button
                                             onClick={(e) => {
@@ -8465,12 +8534,14 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">ID</span>
                                                 <div className="flex -space-x-px">
-                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-36 bg-transparent" value={localOpp.id} onChange={(val: string) => handleFieldChange('id', normalizeOpportunityId(val) || val.trim())} />
+                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-36 min-w-0 @max-[48rem]:w-24 bg-transparent" value={localOpp.id} onChange={(val: string) => handleFieldChange('id', normalizeOpportunityId(val) || val.trim())} />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[9px] font-black text-gray-300 uppercase tracking-tighter">QLK:</span>
-                                                    <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-16 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
+                                                    {/* w-16 clipped anything longer than six digits. Widen it and keep the full
+                                                        value reachable as a tooltip for unusually long quotelink numbers. */}
+                                                    <OptimizedInput disabled={isSnapshot} title={localOpp.qlk || 'Quotelink number'} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-28 min-w-0 @max-[48rem]:w-20 bg-transparent" value={localOpp.qlk} onChange={(val: string) => handleFieldChange('qlk', val)} placeholder="000000" />
                                                 </div>
                                                 <div className="w-px h-3 bg-gray-200"></div>
                                                 <div className="flex items-center gap-1">
@@ -8483,12 +8554,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                     {!isSubView && (
                                         <div className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-sm">
                                             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">SR</span>
-                                            <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
+                                            <OptimizedInput disabled={isSnapshot} className="text-xs font-mono font-bold text-gray-800 border-none focus:ring-0 p-0 w-24 min-w-0 @max-[48rem]:w-16 bg-transparent" value={localOpp.srId || ''} onChange={(val: string) => handleFieldChange('srId', val)} placeholder="SR-..." />
                                         </div>
                                     )}
                                 </div>
-                            <div className="flex flex-wrap items-center gap-2 justify-end">
-                                <div className="scale-90 origin-right flex flex-wrap items-center justify-end gap-2">
+                            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                <div className="scale-90 origin-right flex min-w-0 flex-wrap items-center justify-end gap-2">
                                     {!isSubView && (
                                         <>
                                             {!hiddenHeaderFields.has('exportImport') && (
@@ -8510,7 +8581,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     className={`flex items-center gap-2 px-2 py-1 border rounded-lg text-xs font-medium transition-all shadow-sm ${isSnapshot ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:text-blue-600'}`}
                                                 >
                                                     <HistoryIcon className="w-3.5 h-3.5" />
-                                                    <span className="hidden lg:inline">Revisions</span>
+                                                    <span className="hidden @min-[56rem]:inline">Revisions</span>
                                                     {(localOpp.versions || []).length > 0 && <span className="bg-gray-100 text-gray-600 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1">{(localOpp.versions || []).length}</span>}
                                                 </button>
 
@@ -8605,11 +8676,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             {!hiddenHeaderFields.has('exportPdf') && (
                                                 <>
                                                     <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm" title="Export PDF"><FileDown className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Export PDF</span></button>
+                                                    <button onClick={handleExportPDF} className="flex items-center gap-2 px-2 py-1 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:text-[#3DCD58] transition-all shadow-sm" title="Export PDF"><FileDown className="w-3.5 h-3.5" /> <span className="hidden @min-[56rem]:inline">Export PDF</span></button>
                                                 </>
                                             )}
                                             {!hiddenHeaderFields.has('copySummary') && (
-                                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm" title="Copy Summary"><Copy className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Copy Summary</span></button>
+                                                <button onClick={generateExecutiveSummary} className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm" title="Copy Summary"><Copy className="w-3.5 h-3.5" /> <span className="hidden @min-[56rem]:inline">Copy Summary</span></button>
                                             )}
                                             {!isSnapshot && !hiddenHeaderFields.has('autoFillEmail') && (
                                                 <button
@@ -8618,7 +8689,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     className="flex items-center gap-2 px-2 py-1 bg-[#3DCD58]/10 text-[#3DCD58] border border-[#3DCD58]/20 rounded-lg text-xs font-medium hover:bg-[#3DCD58]/20 transition-all shadow-sm"
                                                     title="Auto-fill this expediente from a bFO Support Request email (.msg / .eml file or pasted text)"
                                                 >
-                                                    <Mail className="w-3.5 h-3.5" /> <span className="hidden lg:inline">Auto-fill from Email</span>
+                                                    <Mail className="w-3.5 h-3.5" /> <span className="hidden @min-[56rem]:inline">Auto-fill from Email</span>
                                                 </button>
                                             )}
                                             {!isSnapshot && !hiddenHeaderFields.has('delete') && (
@@ -8689,15 +8760,19 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             <span className="flex items-center justify-between gap-2 text-[9px] font-black uppercase tracking-widest text-gray-500">Commercial amount<button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setActiveTabSafe('commercial'); }} className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-black text-emerald-800 hover:bg-emerald-100" title="Open Commercial"><span>Open</span><ExternalLink className="h-2.5 w-2.5" /></button></span>
                                             <span className="flex items-center text-xs font-bold text-gray-900"><DollarSign className="h-3 w-3 text-emerald-700" /><input disabled={isSnapshot} type="number" value={localOpp.commercial.cqaOfficialSellPrice || 0} onChange={event => updateOfficialSellPrice(Number(event.target.value) || 0)} className="w-32 border-0 bg-transparent p-0 font-bold focus:ring-0" /></span>
                                         </label>
-                                        <div className="flex min-w-36 flex-1 flex-col rounded-lg border border-cyan-200 bg-cyan-50/50 px-2.5 py-1 shadow-sm" title={`${headerTaskProgress.percent}% weighted progress across ${headerTaskProgress.sectionCount} process section${headerTaskProgress.sectionCount === 1 ? '' : 's'}. Done and Canceled count as complete; active non-Pending statuses count at least halfway.`}>
-                                            <span className="text-[9px] font-black uppercase tracking-widest text-cyan-800">Task progress</span>
-                                            <div className="flex items-center gap-2"><span className="text-xs font-bold text-cyan-950">{headerTaskProgress.percent}%</span><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-cyan-200"><div className="h-full rounded-full bg-cyan-700 transition-all" style={{ width: `${headerTaskProgress.percent}%` }} /></div><span className="text-[9px] font-bold text-cyan-800" title="Done or Canceled tasks">{headerTaskProgress.terminalTasks}/{headerTaskProgress.totalTasks}</span></div>
-                                        </div>
+                                        <button type="button" onClick={() => setActiveTabSafe('tasks')} className="flex min-w-36 flex-1 flex-col rounded-lg border border-cyan-200 bg-cyan-50/50 px-2.5 py-1 text-left shadow-sm transition-colors hover:border-cyan-400 hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-cyan-400" title={`${headerTaskProgress.percent}% weighted progress across ${headerTaskProgress.sectionCount} process section${headerTaskProgress.sectionCount === 1 ? '' : 's'}. Done and Canceled count as complete; active non-Pending statuses count at least halfway. Click to open Tasks.`}>
+                                            <span className="flex items-center justify-between gap-1 text-[9px] font-black uppercase tracking-widest text-cyan-800">Task progress <ExternalLink className="h-2.5 w-2.5 text-cyan-600" /></span>
+                                            <div className="flex w-full items-center gap-2"><span className="text-xs font-bold text-cyan-950">{headerTaskProgress.percent}%</span><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-cyan-200"><div className="h-full rounded-full bg-cyan-700 transition-all" style={{ width: `${headerTaskProgress.percent}%` }} /></div><span className="text-[9px] font-bold text-cyan-800" title="Done or Canceled tasks">{headerTaskProgress.terminalTasks}/{headerTaskProgress.totalTasks}</span></div>
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="flex w-full md:w-auto md:flex-[0_1_48%] md:max-w-[48%] flex-wrap items-start justify-end gap-1.5 shrink-0">
-                                    <div className={`order-10 mt-0.5 self-start ${stakeholdersSectionEnabled && !hiddenHeaderFields.has('stakeholdersTable') ? 'w-[calc(50%-0.1875rem)] basis-[calc(50%-0.1875rem)]' : 'w-full basis-full'}`}>
-                                        <button type="button" onClick={() => setScopeModalOpen(true)} className="group h-[98px] w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 text-left shadow-sm transition-colors hover:border-emerald-300 hover:bg-white" title="Open Scope: Type of Proposal, System, Sub-system and Notes at a glance">
+                                <div className="@container flex w-full min-w-0 md:w-auto md:flex-[0_1_48%] md:max-w-[48%] flex-wrap items-start justify-end gap-1.5">
+                                    {/* Scope and Stakeholders keep their normal side-by-side half-width look for as
+                                        long as this column has room. Below ~30rem of column width there is no room
+                                        for two readable cards, so each one takes a full-width row of its own —
+                                        the layout moves, it never shrinks the cards into something unreadable. */}
+                                    <div className={`order-10 mt-0.5 min-w-0 self-start ${stakeholdersSectionEnabled && !hiddenHeaderFields.has('stakeholdersTable') ? 'w-[calc(50%-0.1875rem)] basis-[calc(50%-0.1875rem)] @max-[30rem]:w-full @max-[30rem]:basis-full' : 'w-full basis-full'}`}>
+                                        <button type="button" onClick={() => setScopeModalOpen(true)} className="group min-h-[98px] w-full min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 text-left shadow-sm transition-colors hover:border-emerald-300 hover:bg-white" title="Open Scope: Type of Proposal, System, Sub-system and Notes at a glance">
                                             <span className="flex items-center justify-between border-b border-slate-200 pb-0.5 text-[9px] font-black uppercase tracking-widest text-slate-700"><span className="flex items-center gap-1"><Target className="h-3 w-3 text-emerald-700" /> Scope</span><ExternalLink className="h-2.5 w-2.5 text-slate-400" /></span>
                                             <span className="mt-0.5 grid grid-cols-[96px_minmax(0,1fr)] gap-x-1.5 gap-y-0.5 text-[9px] leading-tight">
                                                 <span className="whitespace-nowrap font-black uppercase text-slate-500">Type of Proposal</span><span className="truncate font-semibold text-slate-800">{headerScopeSelections.scope.join(' · ') || 'Not selected'}</span>
@@ -8708,7 +8783,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                         </button>
                                     </div>
                                     {stakeholdersSectionEnabled && !hiddenHeaderFields.has('stakeholdersTable') && (
-                                        <div className="relative order-10 mt-0.5 w-[calc(50%-0.1875rem)] basis-[calc(50%-0.1875rem)] shrink-0 self-start rounded-lg border border-slate-200 bg-white shadow-sm">
+                                        <div className="relative order-10 mt-0.5 w-[calc(50%-0.1875rem)] min-w-0 basis-[calc(50%-0.1875rem)] self-start overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm @max-[30rem]:w-full @max-[30rem]:basis-full">
                                             <div className="flex items-center justify-between gap-3 rounded-t-lg border-b border-slate-100 bg-slate-50 px-2 py-0.5"><span className="text-[8px] font-black uppercase tracking-wider text-slate-600">Stakeholders · Area / Name</span>{!isSnapshot && <button onClick={() => { setHeaderStakeholderPickerOpen(value => !value); setHeaderStakeholderSearch(''); }} className="flex items-center gap-0.5 text-[8px] font-black uppercase text-blue-700"><Plus className="h-2.5 w-2.5" /> Add</button>}</div>
                                             {headerStakeholderPickerOpen && createPortal((
                                                 <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-[2px]" onMouseDown={() => setHeaderStakeholderPickerOpen(false)}>
@@ -8801,7 +8876,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 )}
             </div>
 
-            <div ref={scrollContainerRef} className={`flex-1 min-h-0 ${isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId)) || activeTab === 'notes' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'} p-0 md:p-4 bg-gray-50/30`}>
+            <div className="flex min-h-0 flex-1">
+            <div ref={scrollContainerRef} className={`flex-1 min-w-0 min-h-0 ${isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId)) || activeTab === 'notes' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'} p-0 md:p-4 bg-gray-50/30`}>
                 {(isSubView && deepLink && (deepLink.taskId || (deepLink.tab === 'notes' && deepLink.noteId))) ? (
                     <div className="h-full w-full">
                         {/* Only render Task/Note content in isolated mode */}
@@ -9719,6 +9795,12 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
                                         {isProposalRevision && <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><div className="text-[9px] font-black uppercase tracking-wide text-violet-700">Revision {localOpp.revision} · Commitment</div><p className="mt-1 text-[10px] text-violet-600">Indicate how difficult this revision is. This selection directly changes its Proposal Age target; if no selection is saved, Light is used.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'light')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${(!localOpp.kpis.revisionChangeImpact || localOpp.kpis.revisionChangeImpact === 'light') ? 'border-violet-400 bg-white text-violet-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Light revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.light}% of normal time</span></button><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'major')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${localOpp.kpis.revisionChangeImpact === 'major' ? 'border-fuchsia-500 bg-white text-fuchsia-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Major revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.major}% of normal time</span></button></div></div>}
 
+                                        <label className="block rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                                            <span className="block text-[10px] font-black uppercase tracking-wide text-blue-700">My proposal-days estimate</span>
+                                            <span className="mt-1 block text-[10px] text-blue-600">Optional. It pulls the target toward your number by {proposalAgeTargets.tenderEstimateWeightPercent}%; the remaining {100 - proposalAgeTargets.tenderEstimateWeightPercent}% still comes from the Scope calculation, so it influences the target without replacing it.{proposalAgeTargets.isManualEstimate ? ` Your ${proposalAgeTargets.tenderEstimateDays}d + calculated ${proposalAgeTargets.calculatedDays}d → target ${proposalAgeTargets.expectedDays}d.` : ''}</span>
+                                            <input disabled={isSnapshot} type="number" min="1" value={localOpp.kpis.proposalDaysEstimate || ''} onChange={event => updateKpiField('proposalDaysEstimate', event.target.value ? Math.max(1, Number(event.target.value)) : null)} placeholder={`Calculated: ${proposalAgeTargets.expectedDays} days`} className="mt-2 w-full rounded-lg border-blue-200 bg-white text-sm font-black text-blue-900 disabled:bg-gray-50" />
+                                        </label>
+
                                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                                             <div className="mb-3 flex items-center gap-2">
                                                 <Clock className="h-4 w-4 text-slate-600" />
@@ -9729,7 +9811,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div className="rounded-lg bg-amber-50 p-2 border border-amber-100"><div className="text-[9px] font-bold uppercase text-amber-700">Warning</div><div className="text-lg font-black text-amber-700">{proposalAgeTargets.warningDays}d</div></div>
                                                 <div className="rounded-lg bg-red-50 p-2 border border-red-100"><div className="text-[9px] font-bold uppercase text-red-700">Critical</div><div className="text-lg font-black text-red-700">{proposalAgeTargets.criticalDays}d</div></div>
                                             </div>
-                                            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">Calculated target: <strong>{proposalAgeTargets.expectedDays} days</strong> from Scope, individual Scope adjustments (resales/cabinets included), commercial amount and <strong>{localOpp.quoteType || 'Budgetary'}</strong> ({proposalAgeTargets.quoteTypeDays >= 0 ? '+' : ''}{proposalAgeTargets.quoteTypeDays}d){isProposalRevision ? ` · ${localOpp.kpis.revisionChangeImpact === 'major' ? 'major' : 'light'} revision factor ${Math.round(proposalAgeTargets.revisionFactor * 100)}%` : ''}. Warning = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.warningPercent}% {proposalAgeTargets.warningOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.warningOffsetDays}d · Critical = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.criticalPercent}% {proposalAgeTargets.criticalOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.criticalOffsetDays}d.</p>
+                                            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">{proposalAgeTargets.isManualEstimate ? <>Target: <strong>{proposalAgeTargets.expectedDays} days</strong> — your {proposalAgeTargets.tenderEstimateDays}d estimate weighted {proposalAgeTargets.tenderEstimateWeightPercent}% against the calculated {proposalAgeTargets.calculatedDays}d. Calculated</> : <>Calculated target: <strong>{proposalAgeTargets.expectedDays} days</strong></>} from Scope, individual Scope adjustments (resales/cabinets included), commercial amount and <strong>{localOpp.quoteType || 'Budgetary'}</strong> ({proposalAgeTargets.quoteTypeDays >= 0 ? '+' : ''}{proposalAgeTargets.quoteTypeDays}d){isProposalRevision ? ` · ${localOpp.kpis.revisionChangeImpact === 'major' ? 'major' : 'light'} revision factor ${Math.round(proposalAgeTargets.revisionFactor * 100)}%` : ''}. Warning = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.warningPercent}% {proposalAgeTargets.warningOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.warningOffsetDays}d · Critical = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.criticalPercent}% {proposalAgeTargets.criticalOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.criticalOffsetDays}d.</p>
                                         </div>
                                     </div>
 
@@ -11533,6 +11615,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                     responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
                                                                                     owner: ids.length > 0 ? 'External Area' : task.owner,
                                                                                     externalAreas: mergeAreasForMembers(task, ids),
+                                                                                    ...assignmentStatusPatch(task, ids, mergeAreasForMembers(task, ids)),
                                                                                 })}
                                                                             />
                                                                             {((task.responsibleTeamMemberIds || []).length > 0 || (task.externalAreas || []).length > 0) && (
@@ -11705,6 +11788,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                             responsible: ids.map(id => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
                                                                                             owner: ids.length > 0 ? 'External Area' : task.owner,
                                                                                             externalAreas: mergeAreasForMembers(task, ids),
+                                                                                            ...assignmentStatusPatch(task, ids, mergeAreasForMembers(task, ids)),
                                                                                         })}
                                                                                     />
                                                                                     {((task.responsibleTeamMemberIds || []).length > 0 || (task.externalAreas || []).length > 0) && (
@@ -11819,6 +11903,81 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                         )}
                     </div>
                 )}
+            </div>
+
+            {!isSubView && activeTab !== 'folder' && (
+                <aside
+                    className={`relative flex shrink-0 flex-col overflow-visible transition-all duration-200 ${showExpedientePins ? 'w-52 border-l border-slate-200 bg-slate-50/80 shadow-[-4px_0_14px_rgba(15,23,42,0.03)]' : 'w-0 border-l-0 bg-transparent'}`}
+                    aria-label="Folder quick access"
+                >
+                    {showExpedientePins ? (
+                        <div className="flex min-h-10 items-center gap-1 border-b border-slate-200 px-1.5 py-1.5">
+                            <span className="flex items-center gap-1.5 pl-1 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#3DCD58]/15 text-[#239b3d]"><Pin className="h-3 w-3" /></span>
+                                Quick Access
+                            </span>
+                        <button
+                            type="button"
+                            onClick={() => setShowExpedientePins(value => !value)}
+                            className="ml-auto rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-slate-700"
+                            title={showExpedientePins ? 'Collapse' : 'Quick Access'}
+                            aria-expanded={showExpedientePins}
+                        >
+                            {showExpedientePins ? <ChevronRight className="h-4 w-4" /> : <Pin className="h-4 w-4 text-[#3DCD58]" />}
+                        </button>
+                        </div>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setShowExpedientePins(true)}
+                            className="absolute -left-11 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-[#2a9d43] shadow-sm transition-all hover:-translate-y-px hover:border-[#3DCD58]/60 hover:bg-emerald-50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/30"
+                            title="Open Quick Access"
+                            aria-label="Open Quick Access"
+                            aria-expanded={false}
+                        >
+                            <Pin className="h-3.5 w-3.5" />
+                        </button>
+                    )}
+                    {showExpedientePins && (
+                        <div className="flex-1 space-y-2 overflow-y-auto p-2">
+                            {expedientePins.length === 0 ? (
+                                <div className="mt-8 rounded-xl border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-[10px] leading-relaxed text-slate-400">
+                                    <Pin className="mx-auto mb-2 h-7 w-7 text-[#3DCD58] opacity-35" />
+                                    Pin files or folders from Folder to keep them here.
+                                </div>
+                            ) : expedientePins.map((pin, pinIndex) => (
+                                <div
+                                    key={pin.key}
+                                    onClick={event => openExpedientePin(pin, event.shiftKey)}
+                                    onKeyDown={event => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            openExpedientePin(pin, event.shiftKey);
+                                        }
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    className="group flex min-h-[68px] w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition-all hover:-translate-y-px hover:border-[#3DCD58]/60 hover:bg-emerald-50/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/30"
+                                    title={`${pin.relativePath.join('/')} · Shift+click: show in Folder`}
+                                >
+                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3DCD58]/20 bg-[#3DCD58]/10 text-[#249c3f] transition-colors group-hover:bg-[#3DCD58] group-hover:text-white">
+                                        {pin.kind === 'directory' ? <FolderOpen className="h-4.5 w-4.5" /> : <FileText className="h-4.5 w-4.5" />}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-xs font-black text-slate-800">{pin.name}</span>
+                                        <span className="mt-0.5 block truncate text-[9px] font-medium text-slate-500">{pin.relativePath.slice(0, -1).join('/') || 'Root'}</span>
+                                        <span className="mt-1 block text-[8px] font-bold uppercase tracking-wide text-[#299b42]">Open · Shift: show location</span>
+                                    </span>
+                                    <span className="flex shrink-0 flex-col rounded-md border border-slate-100 bg-slate-50 p-0.5 opacity-70 transition-opacity group-hover:opacity-100">
+                                        <button type="button" disabled={pinIndex === 0} onClick={event => { event.stopPropagation(); void reorderExpedientePin(pin.key, -1); }} className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-25" title="Move up"><ChevronUp className="h-3 w-3" /></button>
+                                        <button type="button" disabled={pinIndex === expedientePins.length - 1} onClick={event => { event.stopPropagation(); void reorderExpedientePin(pin.key, 1); }} className="rounded p-0.5 text-slate-400 hover:bg-white hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-25" title="Move down"><ChevronDown className="h-3 w-3" /></button>
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </aside>
+            )}
             </div>
 
             {/* Task Edit Modal */}

@@ -22,6 +22,21 @@ export interface ReadResult {
     title: string;
     url: string;
     looksLikeLogin: boolean;
+    /**
+     * How many elements each layer saw. When a value comes back empty this is
+     * what says WHY: zero holders means the fields had not rendered (or are not
+     * marked the way we expect), while holders>0 with empty values means the
+     * value selectors are wrong. Guessing between those two without numbers
+     * wastes a round trip to the work computer.
+     */
+    counts: {
+        apiHolders: number;
+        formGroups: number;
+        anchors: number;
+        addressEls: number;
+        shadowRoots: number;
+        iframes: number;
+    };
 }
 
 /**
@@ -132,7 +147,21 @@ export function readBfoPage(): ReadResult {
 
     var bodyText = clean(document.body ? document.body.innerText : '').toLowerCase();
 
+    // Count open shadow roots so a page that hides everything behind closed
+    // roots is distinguishable from one that simply has not rendered yet.
+    var shadowRoots = 0;
+    var allEls = deepQueryAll('*');
+    for (var q = 0; q < allEls.length; q++) if (allEls[q].shadowRoot) shadowRoots++;
+
     return {
+        counts: {
+            apiHolders: holders.length,
+            formGroups: groups.length,
+            anchors: anchors.length,
+            addressEls: addrEls.length,
+            shadowRoots: shadowRoots,
+            iframes: deepQueryAll('iframe').length,
+        },
         byApiName: byApiName,
         links: links,
         addressLines: addressLines,

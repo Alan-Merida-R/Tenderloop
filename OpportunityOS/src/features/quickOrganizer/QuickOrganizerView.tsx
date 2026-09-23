@@ -105,6 +105,20 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const dayWindow = useMemo(() => buildDayWindow(recommendationLanguage), [recommendationLanguage]);
 
+    // A preference change must preserve the other Quick Organizer controls. Changing only the
+    // theme used to replace the complete preferences object and erase TA6 configuration.
+    const savePreferences = (patch: Partial<QuickOrganizerPreferences>) => onOrganizerPreferencesChange({
+        ...organizerPreferences,
+        theme: organizerTheme,
+        displayLanguage: recommendationLanguage,
+        timezone,
+        stakeholderTimezone,
+        personalConstraints,
+        focusPolicy,
+        executionModel,
+        ...patch,
+    });
+
     const eligibleOpps = useMemo(
         () => opportunities
             .filter(isOpportunitySchedulable)
@@ -113,7 +127,11 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
         [opportunities]
     );
     // Keep the prompt intentionally small: an empty selection excludes all opportunities.
-    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities.filter(isOpportunitySchedulable).filter(opp => (opp.tasks || []).some(isTaskActive)).map(opp => opp.id));
+    const [selectedOppIds, setSelectedOppIds] = useState<string[]>(() => opportunities
+        .filter(isOpportunitySchedulable)
+        .filter(opp => (opp.tasks || []).some(isTaskActive))
+        .sort((a, b) => (a.priorityOrder ?? Number.MAX_SAFE_INTEGER) - (b.priorityOrder ?? Number.MAX_SAFE_INTEGER))
+        .map(opp => opp.id));
 
     /** Tasks whose current due date is earlier than what the model says is achievable. */
     const atRiskTasks = useMemo(() => {
@@ -237,24 +255,24 @@ export const QuickOrganizerView: React.FC<Props> = ({ opportunities, reminders, 
 
     const changeLanguage = (language: 'en' | 'es') => {
         setRecommendationLanguage(language);
-        onOrganizerPreferencesChange({ theme: organizerTheme, displayLanguage: language });
+        savePreferences({ displayLanguage: language });
     };
     const changeTimezone = (value: string) => {
         setTimezone(value);
-        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, timezone: value });
+        savePreferences({ timezone: value });
     };
     const changeStakeholderTimezone = (value: string) => {
         setStakeholderTimezone(value);
-        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, stakeholderTimezone: value });
+        savePreferences({ stakeholderTimezone: value });
     };
     const updateConstraints = (patch: Partial<PersonalConstraints>) => {
         const next = { ...personalConstraints, ...patch };
         setPersonalConstraints(next);
-        onOrganizerPreferencesChange({ ...organizerPreferences, theme: organizerTheme, displayLanguage: recommendationLanguage, personalConstraints: next });
+        savePreferences({ personalConstraints: next });
     };
     const changeTheme = (theme: 'light' | 'dark') => {
         setOrganizerTheme(theme);
-        onOrganizerPreferencesChange({ theme, displayLanguage: recommendationLanguage });
+        savePreferences({ theme });
     };
 
     const handleCopy = async () => {

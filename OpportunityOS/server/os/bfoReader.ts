@@ -15,7 +15,10 @@
 // it did on the day it was recorded, which is exactly what Lightning does not
 // guarantee.
 
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
 import type { Page } from 'playwright-core';
+import { WEB_PROBES_DIR } from '../config';
 import { readBfoPage } from './bfoReaderScript';
 import type { ReadResult } from './bfoReaderScript';
 
@@ -34,6 +37,10 @@ export interface BfoReadout {
     warnings: string[];
     /** Which page each value came from, so a wrong value is easy to trace. */
     sources: Record<string, string>;
+    /** Per-page element counts: what the reader actually saw on each page. */
+    diagnostics: Record<string, ReadResult['counts']>;
+    /** Folder holding the saved HTML of any page that yielded no fields. */
+    savedPages?: string;
 }
 
 /** Playwright's evaluate needs the __name shim; see evaluateInPage in webAutomation. */
@@ -59,10 +66,39 @@ const waitForSalesforce = async (page: Page, timeoutMs = 60000): Promise<boolean
     return false;
 };
 
-/** Lightning keeps rendering after load; give the record body a moment to fill in. */
-const settle = async (page: Page, settleMs: number) => {
+/**
+ * Wait until the record's fields are actually on the page.
+ *
+ * A fixed timer is a guess, and it guesses wrong in both directions: Lightning
+ * often needs more than three seconds to paint a record body, and the first run
+ * against real bFO came back with every value empty while the links (which
+ * render much earlier) were all correct. Polling for the field wrappers instead
+ * ties the wait to the thing we actually need.
+ */
+const settle = async (page: Page, settleMs: number, timeoutMs = 20000) => {
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => { });
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const ready = await page.evaluate(
+            `document.querySelectorAll('[data-target-selection-name], .slds-form-element, .forceOutputAddressText').length`
+        ).catch(() => 0);
+        if (Number(ready) > 0) break;
+        await page.waitForTimeout(500);
+    }
+    // Even once the wrappers exist, their values stream in a beat later.
     await page.waitForTimeout(settleMs);
+};
+
+/**
+ * Save a page that produced nothing, so the next failure can be diagnosed from
+ * the real DOM instead of another round trip to the work computer.
+ */
+const savePageForDiagnosis = async (page: Page, label: string, dir: string) => {
+    try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, `${label}.html`), await page.content(), 'utf8');
+        await page.screenshot({ path: path.join(dir, `${label}.png`), fullPage: true }).catch(() => { });
+    } catch { /* diagnosis is best-effort; never fail the read over it */ }
 };
 
 /** Find a value by the tail of its API name, e.g. "Amount" or "ForecastCategoryName". */
@@ -96,7 +132,23 @@ const absolute = (href: string, base: string): string => {
 export const readOpportunityFromSr = async (page: Page, srUrl: string, settleMs = 3000): Promise<BfoReadout> => {
     const warnings: string[] = [];
     const sources: Record<string, string> = {};
-    const out: BfoReadout = { srUrl, warnings, sources };
+    const diagnostics: Record<string, ReadResult['counts']> = {};
+    const out: BfoReadout = { srUrl, warnings, sources, diagnostics };
+    const diagDir = path.join(WEB_PROBES_DIR, 'read-' + new Date().toISOString().replace(/[:.]/g, '-'));
+    let savedAnything = false;
+
+    /** Record what a page yielded, and keep its HTML when it yielded nothing. */
+    const account = async (label: string, read: ReadResult) => {
+        diagnostics[label] = read.counts;
+        // An Account page renders its address without any form wrappers, so
+        // "no fields" only means trouble when nothing at all came through.
+        if (read.counts.apiHolders === 0 && read.counts.formGroups === 0 && read.counts.addressEls === 0) {
+            warnings.push(`No fields rendered on the ${label} page (saw ${read.counts.anchors} links, ${read.counts.shadowRoots} shadow roots, ${read.counts.iframes} iframes). Its HTML was saved for diagnosis.`);
+            await savePageForDiagnosis(page, label, diagDir);
+            savedAnything = true;
+            out.savedPages = diagDir;
+        }
+    };
 
     // --- 1. The Support Request -------------------------------------------
     await page.goto(srUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -107,6 +159,7 @@ export const readOpportunityFromSr = async (page: Page, srUrl: string, settleMs 
     await settle(page, settleMs);
 
     const sr = await readPage(page);
+    await account('sr', sr);
     if (sr.looksLikeLogin) {
         warnings.push('bFO asked to sign in. Open the login window, clear PingID, and run this again.');
         return out;
@@ -131,6 +184,7 @@ export const readOpportunityFromSr = async (page: Page, srUrl: string, settleMs 
     await page.goto(out.opportunityUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle(page, settleMs);
     const opp = await readPage(page);
+    await account('opportunity', opp);
 
     out.finalAmount = byApi(opp, 'Opportunity.Amount', '.Amount') ?? byLabel(opp, 'Amount');
     out.forecastCategory = byApi(opp, 'ForecastCategoryName', 'ForecastCategory') ?? byLabel(opp, 'Forecast Category');
@@ -160,6 +214,7 @@ export const readOpportunityFromSr = async (page: Page, srUrl: string, settleMs 
     await page.goto(out.accountUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await settle(page, settleMs);
     const acct = await readPage(page);
+    await account('account', acct);
 
     if (acct.addressLines.length) {
         out.clientAddress = acct.addressLines.join(', ');
@@ -167,7 +222,11 @@ export const readOpportunityFromSr = async (page: Page, srUrl: string, settleMs 
     } else {
         out.clientAddress = byLabel(acct, 'Address', 'Billing Address', 'Shipping Address');
         sources.clientAddress = 'Account (label)';
-        if (!out.clientAddress) warnings.push('The address was not found on the Account page.');
+        if (!out.clientAddress) {
+            warnings.push(`The address was not found on the Account page (saw ${acct.counts.addressEls} address elements and ${acct.counts.apiHolders} fields).`);
+            if (!savedAnything) await savePageForDiagnosis(page, 'account', diagDir);
+            out.savedPages = diagDir;
+        }
     }
 
     return out;

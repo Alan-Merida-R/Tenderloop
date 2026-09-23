@@ -23,6 +23,7 @@ import { useScheduleNotifications } from './features/schedule/useScheduleNotific
 import { useReminderNotifications } from './features/reminders/useReminderNotifications';
 import { RemindersBell } from './components/RemindersBell';
 import { QuickOrganizerView } from './features/quickOrganizer/QuickOrganizerView';
+import { QuickOrganizerIntro } from './features/quickOrganizer/QuickOrganizerIntro';
 import { InteractiveTutorial } from './components/InteractiveTutorial';
 import { buildManagerReport, downloadManagerReport } from './services/managerReport';
 import { deriveReporterId, runDailyExportIfDue, writeManagerReportToFolder } from './services/managerReportSync';
@@ -338,7 +339,9 @@ class LocalErrorBoundary extends React.Component {
       sessionStorage.setItem(recoveryKey, 'done');
       // Keep a diagnostic backup, then remove only Dashboard filter state. The
       // database connection and every opportunity remain untouched.
-      ['general', 'proposals', 'tasks'].forEach(mode => {
+      // 'opps' is the shared General+Proposals scope; the legacy per-mode keys are
+      // still cleared so an old corrupt payload cannot survive the recovery.
+      ['opps', 'tasks', 'general', 'proposals'].forEach(mode => {
         const key = `tl.dashboardFilters.${mode}.v1`;
         const saved = localStorage.getItem(key);
         if (saved) localStorage.setItem(`${key}.recoveryBackup`, saved);
@@ -364,7 +367,7 @@ class LocalErrorBoundary extends React.Component {
             className="mt-2 px-4 py-2 bg-[#3DCD58] text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors"
             onClick={() => {
               sessionStorage.removeItem('tl.dashboard.iterableRecovery.v1');
-              ['general', 'proposals', 'tasks'].forEach(mode => localStorage.removeItem(`tl.dashboardFilters.${mode}.v1`));
+              ['opps', 'tasks', 'general', 'proposals'].forEach(mode => localStorage.removeItem(`tl.dashboardFilters.${mode}.v1`));
               (this as any).setState({ error: null });
             }}
           >
@@ -423,6 +426,7 @@ function App() {
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
   const [showQuickOrganizer, setShowQuickOrganizer] = useState(false);
+  const [showQuickOrganizerIntro, setShowQuickOrganizerIntro] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
 
   // While the tutorial runs, each step activation dispatches this event so any
@@ -3207,7 +3211,7 @@ function App() {
           onSave={handleSaveSettings}
           initialSettings={{ ...appSettings, globalLabels: stableGlobalLabels }}
           opportunities={stableOpportunities}
-          onOpenQuickOrganizer={() => { setShowSettings(false); setShowQuickOrganizer(true); }}
+          onOpenQuickOrganizer={() => { setShowSettings(false); setShowQuickOrganizerIntro(true); setShowQuickOrganizer(true); }}
           onExportManagerReport={handleExportManagerReport}
           onRunDailyExportNow={handleRunDailyExportNow}
           managerSyncStatus={{
@@ -3234,7 +3238,13 @@ function App() {
             quickLinksCount={(appSettings.generalQuickLinks || []).length}
           />
         )}
-        {showQuickOrganizer && (
+        {showQuickOrganizer && showQuickOrganizerIntro && (
+          <QuickOrganizerIntro
+            userName={appSettings.userName || 'User'}
+            onDone={() => setShowQuickOrganizerIntro(false)}
+          />
+        )}
+        {showQuickOrganizer && !showQuickOrganizerIntro && (
           <QuickOrganizerView
             opportunities={stableOpportunities}
             reminders={stableReminders}

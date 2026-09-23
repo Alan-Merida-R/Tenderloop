@@ -177,6 +177,7 @@ export const IndicatorsDashboard: React.FC<Props> = ({ opportunities: allOpportu
           margin: Number(opp.commercial?.cqaOfficialMargin) || 0,
           isBudgetary: opp.quoteType === 'Budgetary',
           days: revisionDays.length ? revisionDays.reduce((sum, d) => sum + d, 0) / revisionDays.length : null,
+          cseCalendarDays: daysBetween(opp.dates?.assigned || opp.kpis?.timeline?.receivedAt, opp.dates?.expected),
           revs: revisionCount(opp),
         };
       }).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true })),
@@ -237,13 +238,13 @@ export const IndicatorsDashboard: React.FC<Props> = ({ opportunities: allOpportu
     {timerEnabled && !hidden.has('longestTasks') && <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="text-sm font-bold text-gray-800">Average time per process stage</h2><p className="text-xs text-gray-400">Your standard is calculated from timers on your own tasks, grouped by stage.</p></div>{data.standardTimes.length ? <div className="space-y-3">{data.standardTimes.map(item => <div key={item.stage} className="grid grid-cols-[minmax(120px,220px)_1fr_auto] items-center gap-3"><span className="truncate text-xs font-semibold text-gray-700" title={item.stage}>{item.stage}</span><div className="h-3 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-[#3DCD58]" style={{ width: `${Math.max(2, (item.average / maxStage) * 100)}%` }}/></div><span className="text-xs font-black text-gray-700">{hours(item.average)} <span className="font-normal text-gray-400">({item.tasks})</span></span></div>)}</div> : <p className="text-sm text-gray-400">No timers yet on your own tasks with an assigned process stage.</p>}</section>}
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <button onClick={() => setTableOpen(o => !o)} className="flex w-full items-center justify-between gap-2 text-left">
-        <div className="flex items-center gap-2"><Table2 size={18} className="text-gray-500"/><div><h2 className="text-sm font-bold text-gray-800">Opportunities detail</h2><p className="text-xs text-gray-400">Amount, margin, quote type, duration and revisions per proposal.</p></div></div>
+        <div className="flex items-center gap-2"><Table2 size={18} className="text-gray-500"/><div><h2 className="text-sm font-bold text-gray-800">Opportunities detail</h2><p className="text-xs text-gray-400">Amount, margin, quote type, duration, CSE calendar commitment and revisions.</p></div></div>
         <ChevronDown size={18} className={`shrink-0 text-gray-400 transition-transform ${tableOpen ? 'rotate-180' : ''}`}/>
       </button>
       {tableOpen && (data.oppRows.length ? <div className="mt-4 max-h-[420px] overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white"><tr className="border-b border-gray-100 text-left text-[10px] font-bold uppercase tracking-wider text-gray-400">
-            <th className="pb-2 pr-3">Opportunity</th><th className="pb-2 pr-3">Amount</th><th className="pb-2 pr-3">Margin</th><th className="pb-2 pr-3">Type</th><th className="pb-2 pr-3">Time</th><th className="pb-2">Revs</th>
+            <th className="pb-2 pr-3">Opportunity</th><th className="pb-2 pr-3">Amount</th><th className="pb-2 pr-3">Margin</th><th className="pb-2 pr-3">Type</th><th className="pb-2 pr-3">Time</th><th className="pb-2 pr-3">CSE days</th><th className="pb-2">Revs</th>
           </tr></thead>
           <tbody>{data.oppRows.map(row => (
             <tr key={row.id} onClick={() => onSelectOpportunity(row.id)} className="cursor-pointer border-b border-gray-50 hover:bg-gray-50">
@@ -252,6 +253,7 @@ export const IndicatorsDashboard: React.FC<Props> = ({ opportunities: allOpportu
               <td className="py-2 pr-3 text-gray-700">{row.margin ? `${row.margin.toFixed(1)}%` : '—'}</td>
               <td className="py-2 pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${row.isBudgetary ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>{row.isBudgetary ? 'Budgetary' : 'Firm'}</span></td>
               <td className="py-2 pr-3 text-gray-700">{row.days === null ? '—' : `${row.days.toFixed(1)}d`}</td>
+              <td className="py-2 pr-3 text-gray-700" title="Calendar days from Assigned/Received to Expected">{row.cseCalendarDays === null ? '—' : `${row.cseCalendarDays}d`}</td>
               <td className="py-2 text-gray-700">{row.revs}</td>
             </tr>
           ))}</tbody>

@@ -19,6 +19,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added a Duration filter and a Rank filter/sort (Excel-style, from the column header) to the General view table.
 
+## v1.0.4 - 2026-09-23
+
+### Added
+- Added `proposalDaysEstimate` field on KPIs: tender owners can now enter their own duration estimate directly from the proposal card, blended with the scope-based calculation using a configurable weight (`tenderEstimateWeightPercent`, default 60%).
+- Added the Tender Estimate input to the Settings > Alarms calculator so the blending behaviour can be previewed before committing it on a live proposal.
+- Added `check:quick-organizer` npm script and `scripts/verify-quick-organizer.ts` test suite for the Quick Organizer prompt builder and response parser.
+- Added Quick Organizer Intro splash: a motivational screen shown once each time the user opens the organizer, before the main view loads.
+- Added `QuickOrganizerIntro` component gated by a new `showQuickOrganizerIntro` state in `App.tsx`.
+- Added reorderable folder pins: `movePinRecord` in `opportunityFolderStore.ts` and `movePin` in `folderPinsStore.ts` let the user drag pins up/down in the Quick Access sidebar.
+- Added `calendarTasks` memo in Dashboard that filters out closed/canceled opportunities from the Calendar View so only schedulable work appears.
+- Added `assignmentStatusPatch` helper in `OpportunityDetail.tsx`: assigning a responsible person or area now automatically moves the task to Missing Info and starts the assignment clock in one atomic update.
+- Added diagnostic counters (`counts`) to the BFO reader script (`bfoReaderScript.ts`): reports how many API holders, form groups, anchors, address elements, shadow roots and iframes were found, so empty-value failures are diagnosable without a round trip.
+- Added page-save diagnostics to `bfoReader.ts`: when a field is not found (e.g. Account address), the reader now saves the full page HTML/screenshot to a timestamped diagnostics folder and reports the path.
+- Added `isWebEntryGateway` to `server/config.ts`: the `/read` endpoint now accepts mail-scanner redirect URLs (Mimecast, Safe Links) as valid entry points, since SR links from Outlook go through those gateways before reaching Salesforce.
+- Added `openFileForeground` in `server/os/shell.ts`: opening a document now finds an already-open window by title and brings it to the front instead of launching a duplicate or showing an "already open" error.
+- Added `quoteType` (Firm/Budgetary) selector to the Settings alarm calculator so the Firm validation premium is previewed alongside amount and scope.
+
+### Changed
+- Dashboard filter state is now shared between General and Proposals views (`filterScope = 'opps'`): switching between them preserves the search text and filters instead of resetting. Tasks view keeps its own independent scope.
+- Dashboard Status column filter now matches against both `detailedStatus` and `statusLabel` so a selection made in one view does not silently empty the other.
+- Error boundary recovery now clears the new shared `opps` filter key alongside the legacy per-mode keys.
+- Quick Organizer prompt builder no longer includes email addresses, prices or margins in the copied AI prompt; only names and roles are sent. The prompt now emits the expediente rank alongside user priority and includes the CSE window dates for delivery reasoning.
+- Quick Organizer agenda rule split: a normal run preserves existing blocks as baseline (AGENDA PRESERVATION RULE); only an explicit reschedule request rebuilds them (AGENDA REORGANIZATION RULE).
+- Proposal alarm engine (`calculateProposalAlarm`) now returns `calculatedDays` (pure scope result) alongside `expectedDays` (blended), plus `warningDays`, `criticalDays`, and all intermediate values in a single return object. `getProposalAgeTargets` delegates entirely to the engine instead of duplicating percent/offset math.
+- Opportunity detail header uses CSS `@container` queries and responsive widths so the ID/QLK inputs shrink gracefully on narrow screens. QLK input widened from `w-16` to `w-20` with a tooltip for long quotelink numbers.
+- Opportunity detail main content area changed from `overflow-hidden` to `overflow-y-auto` so tall header content is scrollable instead of clipped.
+
+### Fixed
+- Fixed task assignment not starting the clock: assigning a responsible person through the team picker, the task card, or the detail modal now atomically sets `owner: 'External Area'`, `isAssignment: true`, status `Missing Info` and `responsibleRequestedDate` in one update instead of requiring a separate status change.
+- Fixed Task status dropdown in Dashboard task cards: replaced invisible `bg-transparent border-none` select with a visible pill-style `rounded px-2 py-1` select that shows the status color.
+- Fixed Calendar View showing tasks from closed/canceled opportunities: the view now only renders tasks whose parent opportunity is still schedulable.
+
 ## v1.0.3 - 2026-09-18
 ### Added
 - Added optional SharePoint-folder updates, including per-PC Settings, package checksum validation, backup and automatic recovery without blocking normal startup.

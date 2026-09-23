@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FolderOpen,
   ChevronRight,
+  ChevronDown,
   Plus,
   Upload,
   Trash2,
@@ -36,7 +37,7 @@ import {
 import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
 import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
-import { getPins, addPin, removePin, isPinned, FolderPin } from '../../services/folderPinsStore';
+import { getPins, addPin, removePin, movePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
 import { FileItem } from './types';
@@ -60,6 +61,18 @@ interface Props {
   /** Reports the single selected file/folder to the expediente-level shortcut. */
   onSelectionChange?: (path: string[] | null) => void;
 }
+
+/**
+ * Shortcut for "copy the containing folder path(s)" [F-2].
+ *
+ * Declared here so the handler and every label stay in sync. It was Ctrl+Shift+C, which Chrome
+ * and Edge reserve for DevTools' inspect-element, so the browser ate the combo before the app
+ * saw it. U is free in Chrome, Edge and Firefox on Windows, is a mnemonic for "Ubicacion", and
+ * avoids Ctrl+Alt (that is AltGr on Spanish keyboards). To change it again, edit these two
+ * lines only: the key must stay lowercase and must not be c/x/v, which the file list uses.
+ */
+const COPY_FOLDER_PATH_KEY = 'u';
+const COPY_FOLDER_PATH_SHORTCUT = 'Ctrl+Shift+U';
 
 const REVISION_RE = /\bR(\d+)(?:\.(\d+))?\b/i;
 
@@ -1276,13 +1289,23 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
    * file lives. A quick-access FOLDER still navigates into it inside the Folder tab,
    * which is the behavior that already worked correctly.
    */
-  const openPin = async (pin: FolderPin) => {
+  const openPin = async (pin: FolderPin, revealInApp = false) => {
     if (!rootHandle) return;
     try {
-      if (pin.kind === 'directory') {
+      if (pin.kind === 'directory' || revealInApp) {
+        const targetPath = pin.kind === 'directory' ? pin.relativePath : pin.relativePath.slice(0, -1);
         let t = rootHandle;
-        for (const seg of pin.relativePath) t = await t.getDirectoryHandle(seg);
-        navigateTo(t, pin.relativePath, true);
+        for (const seg of targetPath) t = await t.getDirectoryHandle(seg);
+        navigateTo(t, targetPath, true);
+        if (pin.kind === 'file') {
+          const contents = await listDirectory(t, targetPath);
+          const file = contents.find(item => item.name === pin.name);
+          if (file) {
+            setSelectedItem(file);
+            setSelectedKeys(new Set([file.relativePath.join('/')]));
+            setAnchorKey(file.relativePath.join('/'));
+          }
+        }
       } else {
         await handleOpenNative({ name: pin.name, kind: 'file', relativePath: pin.relativePath } as FileItem);
       }
@@ -1514,22 +1537,27 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     });
   };
 
-  // Ctrl/Cmd+C / X / V over the file list, matching Windows Explorer. Skipped while an editable
-  // field (alias input, search box, rename prompt, etc.) has focus so normal text copy/paste survives.
+  // Ctrl/Cmd+C / X / V over the file list, matching Windows Explorer, plus the copy-folder-path
+  // combo below. Skipped while an editable field (alias input, search box, rename prompt, etc.)
+  // has focus so normal text copy/paste survives.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
-      if (key !== 'c' && key !== 'x' && key !== 'v') return;
+      if (key !== 'c' && key !== 'x' && key !== 'v' && key !== COPY_FOLDER_PATH_KEY) return;
       const target = e.target as HTMLElement | null;
       const isEditable = !!target && (
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
       );
       if (isEditable) return;
       const sel = selectedItems();
-      // [F-2] Ctrl+Shift+C: copy folder path(s) — checked first so it never falls through
-      // to the plain Ctrl+C "copy item" shortcut below.
-      if (key === 'c' && e.shiftKey && sel.length > 0) { e.preventDefault(); handleCopyContainingFolderPaths(); return; }
+      // [F-2] Copy folder path(s). This used to be Ctrl+Shift+C, which Chrome and Edge reserve
+      // for DevTools' inspect-element: the browser swallowed the combo and the copy silently
+      // failed. Plain Ctrl+U (view source) is left alone — only the Shift variant is claimed.
+      if (key === COPY_FOLDER_PATH_KEY) {
+        if (e.shiftKey && sel.length > 0) { e.preventDefault(); handleCopyContainingFolderPaths(); }
+        return;
+      }
       if (key === 'c' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'copy', items: sel }); }
       else if (key === 'x' && sel.length > 0) { e.preventDefault(); setClipboard({ op: 'move', items: sel }); }
       else if (key === 'v' && clipboard) { e.preventDefault(); handlePaste(); }
@@ -1667,7 +1695,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   };
 
   /**
-   * [F-2] Keyboard-only shortcut (Ctrl+Shift+C), distinct from the "Copy path" button
+   * [F-2] Keyboard-only shortcut (COPY_FOLDER_PATH_SHORTCUT), distinct from the "Copy path" button
    * (handleCopyPath, which copies the exact path of the single selected item). This
    * one copies FOLDER paths: for a selected folder, its own path; for a selected file,
    * the path of the folder that CONTAINS it (never the file's own path). Works with
@@ -2438,10 +2466,10 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] shadow-sm transition-colors" onClick={async () => {
               try {
                 // @ts-ignore
-                const [handle] = await window.showOpenFilePicker({ multiple: true });
-                if (handle && currentHandle) {
+                const handles = await window.showOpenFilePicker({ multiple: true });
+                if (handles.length > 0 && currentHandle) {
                   if (await verifyPermission(currentHandle, true)) {
-                    await uploadFiles(currentHandle, [await handle.getFile()]);
+                    await uploadFiles(currentHandle, await Promise.all(handles.map(handle => handle.getFile())));
                     loadCurrentDirectory();
                   } else {
                     alert("Write permission denied.");
@@ -2493,12 +2521,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 <Pin className="w-6 h-6 mx-auto mb-2 opacity-20" />
                 Pin files or folders with the pin icon to keep them within reach here.
               </div>
-            ) : pins.map(pin => (
-              <div key={pin.key} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer transition-colors" onClick={() => openPin(pin)} title={pin.relativePath.join('/')}>
+            ) : pins.map((pin, pinIndex) => (
+              <div key={pin.key} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer transition-colors" onClick={(event) => openPin(pin, event.shiftKey)} title={`${pin.relativePath.join('/')} · Shift+click: show in Folder`}>
                 <div className="shrink-0">{getFileIcon(pin.kind === 'directory' ? undefined : pin.name.split('.').pop()?.toLowerCase(), pin.kind === 'directory')}</div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium truncate">{pin.name}</div>
                   <div className="text-[9px] text-gray-400 truncate">{pin.relativePath.slice(0, -1).join('/') || 'Root'}</div>
+                </div>
+                <div className="flex shrink-0 flex-col opacity-0 transition-opacity group-hover:opacity-100">
+                  <button disabled={pinIndex === 0} onClick={(e) => { e.stopPropagation(); movePin(storageKey, pin.key, -1).then(setPins); }} className="rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-25" title="Move up"><ChevronUp className="h-3 w-3" /></button>
+                  <button disabled={pinIndex === pins.length - 1} onClick={(e) => { e.stopPropagation(); movePin(storageKey, pin.key, 1).then(setPins); }} className="rounded text-gray-400 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-25" title="Move down"><ChevronDown className="h-3 w-3" /></button>
                 </div>
                 <button onClick={(e) => { e.stopPropagation(); removePin(storageKey, pin.key).then(setPins); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded shrink-0" title="Remove quick access"><X className="w-3 h-3" /></button>
               </div>
@@ -2651,7 +2683,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 {isFileSelected && <button onClick={() => setShowLinkedItems(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Linked items"><LinkIcon className="w-3.5 h-3.5" /></button>}
               </>
             )}
-            <button onClick={handleCopyContainingFolderPaths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy folder path(s) — Ctrl+Shift+C. For a selected file, copies the path of the folder that contains it.">{copySuccess === 'folder' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <FolderOpen className="w-3.5 h-3.5" />}</button>
+            <button onClick={handleCopyContainingFolderPaths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title={`Copy folder path(s) — ${COPY_FOLDER_PATH_SHORTCUT}. For a selected file, copies the path of the folder that contains it.`}>{copySuccess === 'folder' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <FolderOpen className="w-3.5 h-3.5" />}</button>
             <button onClick={handleDeleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-300 rounded-lg text-xs font-bold transition-all" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
           <button onClick={clearSelection} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>

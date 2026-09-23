@@ -18,6 +18,7 @@ import {
   migrateLegacyFolderData,
   isFolderStoreReady,
   removePinRecord,
+  movePinRecord,
 } from './opportunityFolderStore';
 
 export type FolderPin = FolderPinRecord;
@@ -61,6 +62,13 @@ export const removePin = async (storageKey: string, key: string): Promise<Folder
   const opportunityId = oppIdFromStorageKey(storageKey);
   await ensureMigrated(opportunityId);
   removePinRecord(opportunityId, storageKey, key);
+  return listPins(opportunityId, storageKey);
+};
+
+export const movePin = async (storageKey: string, key: string, direction: -1 | 1): Promise<FolderPin[]> => {
+  const opportunityId = oppIdFromStorageKey(storageKey);
+  await ensureMigrated(opportunityId);
+  movePinRecord(opportunityId, storageKey, key, direction);
   return listPins(opportunityId, storageKey);
 };
 

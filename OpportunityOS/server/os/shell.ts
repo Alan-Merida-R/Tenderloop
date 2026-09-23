@@ -34,6 +34,30 @@ const openFileNative = (target: string): Promise<void> =>
     });
 
 /**
+ * Reuse and raise an already-open document window when possible. Office and many
+ * desktop viewers put the file name in MainWindowTitle; matching it before launch
+ * avoids the misleading "already open" error and restores a minimized window.
+ */
+const openFileForeground = async (target: string): Promise<void> => {
+    const normalized = path.normalize(target);
+    const titleNeedle = path.basename(normalized, path.extname(normalized));
+    const script = [
+        `$p=${psSingleQuote(normalized)}`,
+        `$needle=${psSingleQuote(titleNeedle)}`,
+        `function Get-OppyDocWin($want){ $hit=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like ('*' + $want + '*') } | Select-Object -First 1; if($hit){ return [IntPtr]$hit.MainWindowHandle }; return [IntPtr]::Zero }`,
+        `$h=Get-OppyDocWin $needle`,
+        `if($h -eq [IntPtr]::Zero){ Start-Process -FilePath $p; foreach($wait in 180,250,350,500,700){ Start-Sleep -Milliseconds $wait; $h=Get-OppyDocWin $needle; if($h -ne [IntPtr]::Zero){ break } } }`,
+        `if($h -ne [IntPtr]::Zero){ [void][OppyWin]::Force($h) }`,
+    ].join('; ');
+
+    try {
+        await runPs(script, 12000);
+    } catch {
+        await openFileNative(normalized);
+    }
+};
+
+/**
  * Open a FOLDER in Explorer and actually bring it to the front.
  *
  * Plain `start "" "C:\\folder"` launches Explorer, but this server is a
@@ -78,7 +102,7 @@ export const openNative = async (target: string): Promise<void> => {
     let isDir = false;
     try { isDir = statSync(target).isDirectory(); } catch { /* treat as file */ }
     if (isDir) return openFolderForeground(target);
-    return openFileNative(target);
+    return openFileForeground(target);
 };
 
 // ---------------------------------------------------------------------------

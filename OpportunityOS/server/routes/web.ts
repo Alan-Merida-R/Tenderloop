@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { isWebUrlAllowed, WEB_ALLOWED_HOSTS } from '../config';
+import { isWebUrlAllowed, isWebEntryGateway, WEB_ALLOWED_HOSTS } from '../config';
 import { openLoginWindow, probeUrl, redactProbe, sessionStatus, closeSession, readOpportunity } from '../os/webAutomation';
 
 export const webRouter = Router();
@@ -28,13 +28,21 @@ const param = (req: Request, name: string): string => {
     return typeof fromQuery === 'string' ? fromQuery.trim() : '';
 };
 
-/** Validate the caller-supplied URL, or write the 4xx and return null. */
-const requireAllowedUrl = (req: Request, res: Response): string | null => {
+/**
+ * Validate the caller-supplied URL, or write the 4xx and return null.
+ *
+ * `allowGateway` additionally accepts a mail-scanner link (Mimecast, Safe
+ * Links), which is what an SR link from Outlook actually looks like. Only the
+ * reader opts in, because only the reader then insists on arriving at a real
+ * Salesforce host before it reads anything.
+ */
+const requireAllowedUrl = (req: Request, res: Response, allowGateway = false): string | null => {
     const url = param(req, 'url');
     if (!url) {
         res.status(400).json({ error: 'Missing "url".' });
         return null;
     }
+    if (allowGateway && isWebEntryGateway(url)) return url;
     if (!isWebUrlAllowed(url)) {
         res.status(403).json({
             error: 'This host is not allow-listed for web automation.',
@@ -105,7 +113,7 @@ webRouter.post('/close', async (_req: Request, res: Response) => {
 // Strictly read-only: it navigates SR -> Opportunity -> Account and reports
 // what it found. Nothing is clicked into edit mode and nothing is saved.
 webRouter.post('/read', async (req: Request, res: Response) => {
-    const url = requireAllowedUrl(req, res);
+    const url = requireAllowedUrl(req, res, true);
     if (!url) return;
     const headless = param(req, 'headless') === '1';
     const settle = Number(param(req, 'settleMs'));

@@ -83,5 +83,54 @@ test('KPI/card targets use the same policy engine', () => {
     assert.equal(targets.criticalDays, 51);
 });
 
-console.log(`\n${passed}/9 proposal alarm checks passed`);
-if (passed !== 9) process.exit(1);
+test('Tender estimate pulls the target without replacing the calculation', () => {
+    const opportunity = {
+        id: 'manual', quoteType: 'Firm', labels: [], notes: [], commercial: { cqaOfficialSellPrice: 1_000_000, customSections: [] },
+        kpis: { proposalAmountUSD: 0, proposalDaysEstimate: 14 },
+    } as Opportunity;
+    const targets = getProposalAgeTargets(opportunity, []);
+    const calculator = calculateProposalAlarm({
+        quoteType: 'Firm',
+        amount: 1_000_000,
+        tenderEstimateDays: 14,
+    }, DEFAULT_PROPOSAL_ALARM_POLICY);
+    // Automatic 33d (default 20 + amount 8 + Firm 5) blended with the 14d estimate at 60%:
+    // 33 * 0.4 + 14 * 0.6 = 21.6 -> 22. The estimate moves the target a long way, but the Scope
+    // calculation still holds it up; neither number wins outright.
+    assert.equal(calculator.calculatedDays, 33);
+    assert.equal(targets.expectedDays, 22);
+    assert.equal(targets.warningDays, 15);
+    assert.equal(targets.criticalDays, 22);
+    assert.equal(targets.isManualEstimate, true);
+    assert.equal(targets.tenderEstimateDays, 14);
+    assert.equal(targets.tenderEstimateWeightPercent, 60);
+    assert.equal(calculator.expectedDays, targets.expectedDays);
+    assert.equal(calculator.warningDays, targets.warningDays);
+    assert.equal(calculator.criticalDays, targets.criticalDays);
+    assert.equal(calculator.isTenderEstimateApplied, true);
+});
+
+test('Tender estimate weight is configurable at both extremes', () => {
+    const input = { quoteType: 'Firm' as const, amount: 1_000_000, tenderEstimateDays: 14 };
+    // 100% reproduces the previous behaviour: the estimate decides alone.
+    const full = calculateProposalAlarm({ ...input }, { ...DEFAULT_PROPOSAL_ALARM_POLICY, tenderEstimateWeightPercent: 100 });
+    assert.equal(full.expectedDays, 14);
+    // 0% ignores the estimate entirely and falls back to the pure calculation.
+    const none = calculateProposalAlarm({ ...input }, { ...DEFAULT_PROPOSAL_ALARM_POLICY, tenderEstimateWeightPercent: 0 });
+    assert.equal(none.expectedDays, 33);
+    assert.equal(none.calculatedDays, 33);
+    // Half weight lands between the two: 33 * 0.5 + 14 * 0.5 = 23.5 -> 24.
+    const half = calculateProposalAlarm({ ...input }, { ...DEFAULT_PROPOSAL_ALARM_POLICY, tenderEstimateWeightPercent: 50 });
+    assert.equal(half.expectedDays, 24);
+});
+
+test('No tender estimate leaves the calculation untouched', () => {
+    const plain = calculateProposalAlarm({ quoteType: 'Firm', amount: 1_000_000 }, DEFAULT_PROPOSAL_ALARM_POLICY);
+    assert.equal(plain.isTenderEstimateApplied, false);
+    assert.equal(plain.tenderEstimateDays, null);
+    assert.equal(plain.expectedDays, plain.calculatedDays);
+    assert.equal(plain.expectedDays, 33);
+});
+
+console.log(`\n${passed}/12 proposal alarm checks passed`);
+if (passed !== 12) process.exit(1);

@@ -388,6 +388,19 @@ export const removePinRecord = (opportunityId: string, storageKey: string, key: 
   });
 };
 
+export const movePinRecord = (opportunityId: string, storageKey: string, key: string, direction: -1 | 1) => {
+  mutateOpp(opportunityId, opp => {
+    const all = opp.folderPins || {};
+    const current = all[storageKey] || [];
+    const index = current.findIndex(pin => pin.key === key);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return opp;
+    const reordered = [...current];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    return { ...opp, folderPins: { ...all, [storageKey]: reordered } };
+  });
+};
+
 /**
  * Copy pins from one revision's storage key to another.
  *

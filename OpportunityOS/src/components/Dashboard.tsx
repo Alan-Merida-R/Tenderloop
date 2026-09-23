@@ -4,7 +4,7 @@ import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_
 import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical, TriangleAlert, Siren } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
 import { collectSowTeamMembers } from '../services/sowTeamMembers';
-import { ResponsibleTeamPicker } from './OpportunityDetail';
+import { ResponsibleTeamPicker, assignmentStatusPatch } from './OpportunityDetail';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { getNextTask, getOppStatusWeight, getTaskPriorityWeight, syncAssignmentSubtasks } from '../services/taskUtils';
@@ -21,6 +21,7 @@ import { useTimer, useTimerActions } from '../contexts/TimerContext';
 import { EditableCell, ColumnSelector, ColumnFilter } from './TableComponents';
 import { ExecutionScheduleSection } from '../features/schedule/ExecutionScheduleSection';
 import { ScheduleView } from '../features/schedule/ScheduleView';
+import { isOpportunitySchedulable } from '../features/schedule/scheduleHelpers';
 import { getLatestHistoryEntry } from '../services/historyUtils';
 import { readScopeGlance, formatScopeGlance, matchesScopeGlanceFilters } from '../services/scopeSummary';
 import type { ScopeGlance } from '../services/scopeSummary';
@@ -851,7 +852,7 @@ const TaskCard = React.memo(({
                     value={item.status}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onStatusChange(item.opp.id, item.id, e.target.value as TaskStatus)}
-                    className={`text-[10px] border-none p-0 bg-transparent font-medium cursor-pointer ${(TASK_STATUS_COLORS[item.status as TaskStatus] || '').split(' ')[1] || ''}`}
+                    className={`text-[10px] rounded px-2 py-1 font-medium cursor-pointer ${TASK_STATUS_COLORS[item.status as TaskStatus] || 'bg-gray-100 text-gray-500'}`}
                 >
                     {TASK_STATUS_ORDER.map(s => <option key={s} value={s}>{translateStatus(s)}</option>)}
                 </select>
@@ -906,6 +907,7 @@ const TaskCard = React.memo(({
                             responsible: ids.map((id: string) => sowTeamMembers.find(m => m.id === id)?.name).filter(Boolean).join(', '),
                             owner: ids.length > 0 ? 'External Area' : item.owner,
                             externalAreas: Array.from(new Set(ids.map((id: string) => sowTeamMembers.find(m => m.id === id)?.area).filter(Boolean))),
+                            ...assignmentStatusPatch(item, ids),
                             ...(ids.length > 0 ? { isAssignment: true, responsibleRequestedDate: item.responsibleRequestedDate || new Date().toLocaleDateString('en-CA') } : {})
                         })}
                     />
@@ -1444,12 +1446,17 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     }, [openDropdown]);
     useEffect(() => { setOpenDropdown(null); }, [mode]);
 
+    // General and Proposals are two presentations of the same opportunity list, so they
+    // share one search/filter state: switching between them must never reset or diverge
+    // what the user typed. Tasks keeps its own scope because its filters are task-level.
+    const filterScope = mode === 'tasks' ? 'tasks' : 'opps';
+
     // Restore the complete dashboard filter state after a reload. Dropdowns are
     // intentionally never restored open, so the Scope menu cannot leak onto the DB picker.
     useEffect(() => {
         dashboardFiltersHydratedRef.current = false;
         try {
-            const saved = localStorage.getItem(`tl.dashboardFilters.${mode}.v1`);
+            const saved = localStorage.getItem(`tl.dashboardFilters.${filterScope}.v1`);
             if (saved) {
                 const value = JSON.parse(saved);
                 setFilterText(value.filterText || '');
@@ -1470,16 +1477,16 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         setOpenDropdown(null);
         const timer = window.setTimeout(() => { dashboardFiltersHydratedRef.current = true; }, 0);
         return () => window.clearTimeout(timer);
-    }, [mode]);
+    }, [filterScope]);
 
     useEffect(() => {
         if (!dashboardFiltersHydratedRef.current) return;
-        localStorage.setItem(`tl.dashboardFilters.${mode}.v1`, JSON.stringify({
+        localStorage.setItem(`tl.dashboardFilters.${filterScope}.v1`, JSON.stringify({
             filterText, taskSearchText, selectedOppChips, statusFilters, detailedStatusFilters,
             labelFilters, dateFilterStart, dateFilterEnd, taskOppStatusFilters, columnFilters,
             submittedDateFilter, expectedDateFilter, rankSortDirection,
         }));
-    }, [mode, filterText, taskSearchText, selectedOppChips, statusFilters, detailedStatusFilters, labelFilters, dateFilterStart, dateFilterEnd, taskOppStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter, rankSortDirection]);
+    }, [filterScope, filterText, taskSearchText, selectedOppChips, statusFilters, detailedStatusFilters, labelFilters, dateFilterStart, dateFilterEnd, taskOppStatusFilters, columnFilters, submittedDateFilter, expectedDateFilter, rankSortDirection]);
 
     // "Edit Cards" is a plain inline dropdown, so nothing dismisses it on its own: close it when
     // the user clicks away, presses Escape, or leaves the proposals view (otherwise it would still
@@ -1810,8 +1817,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             if (columnFilters.id?.length > 0 && (!opp.id || !columnFilters.id.includes(opp.id))) continue;
             if (columnFilters.title?.length > 0 && (!opp.title || !columnFilters.title.includes(opp.title))) continue;
             if (columnFilters.status?.length > 0) {
-                const statusValue = mode === 'general' ? (opp.detailedStatus || 'Working on it') : opp.statusLabel;
-                if (!columnFilters.status.includes(statusValue)) continue;
+                // The Status column shows detailedStatus in General and statusLabel in Proposals.
+                // Both views now share one filter state, so a selection made in either view has to
+                // match against both fields instead of silently emptying the other table.
+                const detailed = opp.detailedStatus || 'Working on it';
+                if (!columnFilters.status.includes(detailed) && !columnFilters.status.includes(opp.statusLabel)) continue;
             }
             if (columnFilters.amount?.length > 0) {
                 const [operator, rawValue] = columnFilters.amount[0].split(':');
@@ -2201,6 +2211,14 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         return taskData.filtered;
     }, [mode, showNextSteps, taskData.filtered]);
 
+    // Calendar View plans upcoming work, so it only shows tasks whose opportunity is still
+    // in play. Closed or canceled proposals keep their tasks everywhere else (board, table,
+    // history), but their leftovers must not surface here as things left to schedule.
+    const calendarTasks = useMemo(
+        () => filteredTasks.filter((t: any) => !t.opp || isOpportunitySchedulable(t.opp)),
+        [filteredTasks]
+    );
+
     const groupedTasks = useMemo(() => {
         if (mode === 'tasks' && showNextSteps) {
             const newGrouped: Record<string, any[]> = {};
@@ -2450,6 +2468,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 ...patch,
                 responsible: members.map(member => member!.name).join(', '),
                 externalAreas: Array.from(new Set(members.map(member => member!.area.split(' · ')[0]).filter(Boolean))),
+                ...assignmentStatusPatch(latestTask, ids),
                 ...(ids.length > 0 ? {
                     owner: 'External Area',
                     isAssignment: true,
@@ -3665,7 +3684,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                 <div className="flex-1 min-w-0 h-full flex gap-4 overflow-hidden relative">
                                     <div className="flex-1 min-w-0 h-full">
                                         <CalendarView<any>
-                                            items={filteredTasks}
+                                            items={calendarTasks}
                                             getDate={(t) => t.dueDate}
                                             onDateDrop={handleCalendarDrop}
                                             onDateClick={setSelectedCalendarDate}
@@ -3711,7 +3730,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                     </div>
 
                                     {showCalendarSidebar && (() => {
-                                        const unscheduledSidebarTasks = filteredTasks.filter(t => !t.dueDate && t.status !== 'Done' && t.status !== 'Canceled');
+                                        const unscheduledSidebarTasks = calendarTasks.filter((t: any) => !t.dueDate && t.status !== 'Done' && t.status !== 'Canceled');
                                         return (
                                         <div className="w-80 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden animate-in slide-in-from-right-4 duration-300">
                                             <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between shrink-0">

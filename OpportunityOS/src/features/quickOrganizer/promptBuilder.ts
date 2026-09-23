@@ -144,7 +144,12 @@ const clip = (value: string, max: number): string => {
     return `${(boundary > max * 0.6 ? cut.slice(0, boundary) : cut).trim()} […truncated]`;
 };
 
-const compact = (value: string | undefined, max = 800): string => clip((value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), max);
+const redactConfidentialForAi = (value: string): string => value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email removed]')
+    .replace(/(?:USD|MXN|EUR|US\$|MX\$|\$)\s?[\d,.]+/gi, '[price removed]')
+    .replace(/\b(?:price|precio|margin|margen)\s*[:=]?\s*-?\d+(?:\.\d+)?%?/gi, '[commercial value removed]');
+
+const compact = (value: string | undefined, max = 800): string => clip(redactConfidentialForAi((value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')), max);
 
 const lastHistoryLines = (opp: Opportunity, n = 5): string[] => {
     return [...(opp.history || [])]
@@ -189,13 +194,13 @@ const blockingOthersCount = (task: Task, allTasks: Task[]): number =>
     allTasks.filter(other => other.id !== task.id && (other.dependsOnTaskIds || []).includes(task.id)).length;
 
 /**
- * [TA6 / audit T11] Names the approver so an escalation can be addressed to a person.
+ * Names the approver so an escalation can be addressed without exporting email addresses.
  * Ids are either a stakeholder id or a "Name|Area" key, matching resolveTeamMemberRecipients.
  */
 const resolveMemberNames = (ids: string[] | undefined, stakeholders: Person[]): string[] =>
     (ids || []).map(id => {
         const person = stakeholders.find(candidate => candidate.id === id);
-        if (person) return person.email ? `${person.name} <${person.email}>` : person.name;
+        if (person) return person.name;
         return id.includes('|') ? id.split('|')[0] : id;
     }).filter(Boolean);
 
@@ -324,6 +329,7 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
     const oppIdFilter = new Set(options.oppIds || []);
     const hasExplicitOppSelection = options.oppIds !== undefined;
     const userOrder = new Map((options.oppIds || []).map((id, index) => [id, index]));
+    const rescheduleAll = options.activeChipIds.includes('reschedule-all');
     const eligibleOpps = opportunities
         .filter(isOpportunitySchedulable)
         .filter(opp => !hasExplicitOppSelection || oppIdFilter.has(opp.id))
@@ -357,6 +363,8 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
         // An explicit user order is authoritative. Automatic priority is only the fallback.
         .sort((a, b) => {
             if (userOrder.size) return (userOrder.get(a.opp.id) ?? 9999) - (userOrder.get(b.opp.id) ?? 9999);
+            const rankDelta = (a.opp.priorityOrder ?? Number.MAX_SAFE_INTEGER) - (b.opp.priorityOrder ?? Number.MAX_SAFE_INTEGER);
+            if (rankDelta !== 0) return rankDelta;
             const pd = (b.pendingDays ?? 0) - (a.pendingDays ?? 0);
             if (pd !== 0) return pd;
             const ea = a.opp.dates?.expected || '9999-99-99';
@@ -401,19 +409,21 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
 
     lines.push('=== PRIORITIZATION MODEL (YOU COMPUTE IT — replaces any fixed execution order) ===');
     lines.push('Do not expect a fixed task order from me. Score every opportunity/task instead:');
-    lines.push('SCORE = CLOSE + URG + LEV + VAL (max 90, ties broken by opportunity/task age).');
+    lines.push('SCORE = CLOSE + URG + LEV + RANK (max 90, ties broken by opportunity/task age).');
     lines.push('  CLOSE (0-30): 30 if less than 1h of my own work leaves it deliverable; 20 if it fits in one day; 10 if 2-3 days; 0 if it is blocked on an external input that has not arrived.');
     lines.push('  URG (0-25): overdue=25, due today=22, due in 1 day=18, 2-3 days=12, 4-5 days=6, more=2.');
     lines.push('  LEV (0-20): +10 if it blocks another task/opportunity from moving forward; +10 if it has a fixed commitment already agendado in the windows below.');
-    lines.push('  VAL (0-15): value x probability, normalized within this batch. Unknown probability counts as 50% and must be recorded in ASSUMPTIONS/RECOMMENDATIONS.');
+    lines.push('  RANK (0-15): respect the opportunity rank set by the user in the expediente; rank 1 receives the strongest signal. Never infer priority from price, margin or other confidential commercial data.');
     lines.push('HARD RULE over the score: if the owner of the next action is not me (status Missing Info / Approval / Changes Requested / Rework), that task never receives a SCHEDULE block — see the state handling rule below — and the opportunity is still ranked in PRIORITY RANKING so I see where it stands.');
-    lines.push('Buckets: A = cheap close (<1h, leaves it deliverable) — schedule first regardless of value. B = unblocker (a few minutes that puts someone else to work) — prefer sending before 10:00 local time. C = build (60-90 min blocks) — largest gap of the day, one opportunity at a time.');
-    lines.push('Respect my explicit opportunity order below as a signal into VAL/LEV, not as a fixed sequence that skips the score.');
+    lines.push('Buckets: A = cheap close (<1h, leaves it deliverable). B = unblocker (a few minutes that puts someone else to work) — prefer sending before 10:00 local time. C = build (60-90 min blocks) — largest gap of the day, one opportunity at a time. Balance them: after quick closures/unblockers, protect at least one C block per available day while heavy work remains.');
+    lines.push('Respect my explicit opportunity order and expediente rank as the RANK signal, without turning it into a rigid sequence that skips urgency or dependencies.');
     eligibleOpps.forEach(({ opp }, index) => lines.push(`User priority signal ${index + 1}: ${opp.alias || opp.title} (id: ${opp.id})`));
     lines.push('SYSTEM NEXT STEP is a strong signal for CLOSE/LEV on that task, not an automatic first slot: a task in Missing Info, Approval or Changes Requested / Rework still follows the state-handling rule below regardless of being the next step.');
     lines.push('');
     lines.push(`TASK DATE RULE: today is ${todayStr}. In PROPOSED_DUE_DATES, return a row whenever moving a task earlier or later creates a more efficient, dependency-safe and realistic sequence AND the new date falls inside the planning horizon below. Fix past and missing dates that fall inside the horizon. Do not preserve a date merely because it already exists, and do not move one merely because the arithmetic allows it.`);
-    lines.push('AGENDA REORGANIZATION RULE: every supplied existing work block belonging to an in-scope task (see SELECTION SCOPE) is editable. Move, split, shorten or consolidate it when that improves flow, protects urgent delivery, respects dependencies or reduces overload. For every in-scope task that currently has blocks, return its complete replacement block set in SCHEDULE, even when unchanged. Returned blocks replace the old blocks; they are never appended. Never touch a block outside SELECTION SCOPE directly — propose it in SUGGESTED_MOVES instead.');
+    lines.push(rescheduleAll
+        ? 'AGENDA REORGANIZATION RULE: I explicitly requested a full reschedule. Existing in-scope blocks may move, split, shorten or consolidate. Return the complete replacement block set in SCHEDULE; returned blocks replace the old blocks and are never appended.'
+        : 'AGENDA PRESERVATION RULE: the preliminary agenda is the baseline. Keep every feasible existing in-scope block on its original date and time. Move one only for a real collision, unavailable window, holiday, broken dependency or demonstrably impossible delivery; state that concrete reason in SUGGESTED_MOVES. Return every unchanged block too because SCHEDULE is a complete replacement set. Never optimize merely for neatness.');
     lines.push('Create a reminder only for a concrete external follow-up or critical checkpoint. Maximum 3 total and one per task. Prefer zero reminders when the schedule is enough.');
     lines.push('STATE HANDLING (BINDING): a task in Missing Info, Approval or Changes Requested / Rework receives no SCHEDULE block, but it MUST appear in EXTERNAL PUSH, and also in CONTINGENT when less than 1h of my own work remains once it unblocks. It never disappears from the day for being in a waiting state. Waiting is not work, but waiting must always produce an action.');
     lines.push('WAITING ARITHMETIC: remaining wait = the external area p80 turnaround MINUS the working days elapsed since the waitingSince field of that task (NOT since today). If the result is <= 0 the answer is already overdue: emit an Escalation in EXTERNAL PUSH naming the approver and the days overdue, never a later date that hides the delay.');
@@ -560,12 +570,12 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
         const ageTargets = getProposalAgeTargets(opp, options.alarms || [], options.scopeCatalog);
         const glance = readScopeGlance(opp.notes, options.scopeCatalog, opp.labels || []);
         lines.push('');
-        lines.push(`User priority #${userOrder.get(opp.id) !== undefined ? userOrder.get(opp.id)! + 1 : 'auto'} — Opportunity: ${opp.alias || opp.title} (id: ${opp.id})`);
+        lines.push(`User priority #${userOrder.get(opp.id) !== undefined ? userOrder.get(opp.id)! + 1 : 'auto'} | Expediente rank:${opp.priorityOrder ?? 'not set'} — Opportunity: ${opp.alias || opp.title} (id: ${opp.id})`);
         // [TA6 / audit O3] deliveryCommitted is what makes PROPOSED_DELIVERY_DATES usable at all:
         // without it every delivery date looks equally immovable. Unset defaults to 'soft'
         // and the assistant is told to record that as an assumption.
         const deliveryCommitted = opp.commercial?.deliveryCommitted || 'soft (assumed — not set by the user)';
-        lines.push(`  Type:${opp.quoteType || '?'} | Delivery:${opp.dates?.expected || 'none'} | deliveryCommitted:${deliveryCommitted} | Status:${opp.statusLabel}/${opp.detailedStatus || 'N/A'} | Age:${pendingDays ?? '?'}d | Customer:${opp.customer || '?'} | Owner:${opp.seller || '?'} | Value:${opp.commercial?.currency || 'USD'} ${opp.commercial?.cqaOfficialSellPrice || opp.kpis?.proposalAmountUSD || '?'} | Probability:${opp.kpis?.dealProbability ?? '?'}%`);
+        lines.push(`  Type:${opp.quoteType || '?'} | Delivery:${opp.dates?.expected || 'none'} | CSE window:${opp.dates?.assigned || opp.kpis?.timeline?.receivedAt || 'unknown'}..${opp.dates?.expected || 'unknown'} | deliveryCommitted:${deliveryCommitted} | Status:${opp.statusLabel}/${opp.detailedStatus || 'N/A'} | Age:${pendingDays ?? '?'}d | Customer:${opp.customer || '?'} | Owner:${opp.seller || '?'}`);
         lines.push(`  Sizing (computed by my own scope/amount policy, not guessed): expectedProposalDays:${ageTargets.expectedDays} | warningAtDay:${ageTargets.warningDays} | criticalAtDay:${ageTargets.criticalDays} | currentAge:${pendingDays ?? '?'}d${pendingDays !== null && pendingDays >= ageTargets.criticalDays ? ' — ALREADY PAST THE CRITICAL AGE' : pendingDays !== null && pendingDays >= ageTargets.warningDays ? ' — past the warning age' : ''}`);
         lines.push('  Read expectedProposalDays as how much work this proposal is worth in total: a 30-day proposal is a different animal from a 12-day one, and two tasks with the same title do not cost the same in each. Use it to scale effort and to judge how much of the remaining time is already spent, never as a deadline.');
         if (glance.hasAny) {
@@ -582,10 +592,9 @@ export const buildOrganizerPrompt = (opportunities: Opportunity[], options: Buil
         if (nextStep) lines.push(`  SYSTEM NEXT STEP (MUST BE FIRST unless status is Missing Info, Approval, or Changes Requested / Rework): ${opp.id}::${nextStep.id} | ${nextStep.title} | status:${nextStep.status}`);
         if (compact(opp.description)) lines.push(`  Overview: ${compact(opp.description, 2000)}`);
         if ((opp.labels || []).length) lines.push(`  Labels: ${opp.labels.map(label => label.text).join(', ')}`);
-        // [TA6 / audit B-S1] The email is what turns "ping the approver" into an action I can take
-        // without opening another screen. Timezone/contactWindow/responsiveness are still not stored
-        // per person anywhere in the app, so they are deliberately absent rather than invented.
-        const stakeholders = (opp.stakeholders || []).map(person => `${person.name}${person.role ? ` (${person.role})` : ''}${person.roles?.length ? ` [${person.roles.join(', ')}]` : ''}${person.email ? ` <${person.email}>` : ''}`);
+        // Names/roles are enough to plan a follow-up. Email addresses, prices and margins never
+        // enter the copied AI prompt; the user can resolve the recipient locally when acting.
+        const stakeholders = (opp.stakeholders || []).map(person => `${person.name}${person.role ? ` (${person.role})` : ''}${person.roles?.length ? ` [${person.roles.join(', ')}]` : ''}`);
         lines.push(`  Stakeholders: ${stakeholders.length ? stakeholders.join('; ') : 'none recorded'}`);
         if (stakeholders.length) lines.push(`  No timezone is recorded for any of them. Assume ${stakeholderTimezone} and a ${'08:00-17:00'} contact window in THEIR zone unless a name, area or history event says otherwise, and record that assumption once in ASSUMPTIONS. Convert every SendBy time in EXTERNAL PUSH into my own zone (${timezone}) before writing it, and never tell me to send something that would land outside their working hours.`);
         if (scope) lines.push(`  Scope: ${compact(scope, 2500)}`);
