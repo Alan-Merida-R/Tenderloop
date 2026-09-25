@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, MarkerUnwritableError, relativeFromAbsolute, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
 import { getPins, addPin, removePin, movePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -672,38 +672,42 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
    * prompt only if the helper cannot locate it. Shared by "link existing" and the
    * template flow.
    */
-  const resolveExactFolderPath = async (handle: FileSystemDirectoryHandle, fallbackToMarker = true): Promise<string> => {
-    // Name + child-name hints (findDirByName / locateFolderPath) needs no write into
-    // the target folder, so it's tried first. SharePoint/OneDrive-synced folders can
-    // treat a write as a change to sync, and the marker file races the Windows Search
-    // index before it's had a chance to pick up a file that was just created — both of
-    // which made the old marker-first order unreliable (and browser-dependent, since
-    // each browser's File System Access implementation flushes writes to disk on a
-    // different schedule). The marker strategy is now only a fallback.
+  const resolveExactFolderPath = async (handle: FileSystemDirectoryHandle): Promise<string> => {
     // Paths we already know about. A folder being linked now is nearly always a
-    // sibling of one linked before, so these turn a multi-second search into an
-    // instant answer — and since the helper still verifies the folder's contents,
-    // a stale hint can only cost time, never point at the wrong folder.
+    // sibling of one linked before, so the helper checks these on disk first.
     const knownPaths: Record<string, string> = oppRef.current.opportunity.folderPaths || {};
     const near = [...Object.values(knownPaths), ...getFolderPathHints()].filter(Boolean);
 
+    // 1) Content matching writes nothing and usually finds the candidate.
+    let byContent: string | null = null;
     try {
-      const byContent = await locateFolderPath(handle, near);
-      if (byContent) {
-        rememberFolderPathHint(byContent);
-        return byContent;
-      }
+      byContent = await locateFolderPath(handle, near);
     } catch (err) {
       console.warn('Folder path detection by content failed', err);
     }
-    if (fallbackToMarker) {
-      try {
-        return (await locateFolderPathWithMarker(handle)) || '';
-      } catch {
-        return '';
+
+    // 2) Content is not identity: copied templates can be byte-for-byte equal. A
+    //    unique marker written through this exact handle proves which folder it is;
+    //    with the candidate first in `near`, that check is a single disk lookup.
+    try {
+      const byMarker = await locateFolderPathWithMarker(handle, byContent ? [byContent, ...near] : near);
+      if (byMarker) {
+        rememberFolderPathHint(byMarker);
+        return byMarker;
       }
+      // The marker was written but is not in the content candidate: that candidate
+      // is another folder. An unknown path is better than a wrong one.
+      return '';
+    } catch (err) {
+      // Read-only folder: no marker is possible, so the unique content match (the
+      // helper refuses ambiguous ones) is the best proof available.
+      if (err instanceof MarkerUnwritableError && byContent) {
+        rememberFolderPathHint(byContent);
+        return byContent;
+      }
+      console.warn('Folder path detection by marker failed', err);
+      return '';
     }
-    return '';
   };
 
   /**
@@ -856,12 +860,13 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       let resolvedDestParentPath: string | undefined;
       const resolveDestParentPath = async () => {
         if (!resolvedDestParentPath) {
-          resolvedDestParentPath = (await locateFolderPathWithMarker(destParent)) ?? undefined;
+          // A read-only or unlocatable parent just means the browser copy below is used.
+          resolvedDestParentPath = (await locateFolderPathWithMarker(destParent, getFolderPathHints()).catch(() => null)) ?? undefined;
         }
         return resolvedDestParentPath;
       };
       const resolvedTemplatePath = templateOsPath || (templateHandle
-        ? (await locateFolderPathWithMarker(templateHandle)) ?? undefined
+        ? (await locateFolderPathWithMarker(templateHandle, getFolderPathHints()).catch(() => null)) ?? undefined
         : undefined);
       const resolvedDest = await resolveDestParentPath();
 
@@ -947,23 +952,19 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleGoToPath = async () => {
     if (!goToPath.trim() || !rootHandle) return;
 
-    // Clean path
-    let cleanPath = goToPath.trim().replace(/\\/g, '/');
-    let rootDisplay = (rootPathInput || rootPathDisplay).replace(/\\/g, '/');
-
-    if (!cleanPath.toLowerCase().startsWith(rootDisplay.toLowerCase())) {
+    // Only the saved base path counts: an unsaved edit in the Base Path box is not
+    // the folder the handle points to.
+    const base = await ensureRootPath();
+    if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
+    const segments = relativeFromAbsolute(base, goToPath);
+    if (!segments) {
       alert("Path is outside the linked folder root.");
       return;
     }
-
-    // Extract relative path
-    const relPath = cleanPath.slice(rootDisplay.length).replace(/^\//, '');
-    if (!relPath) {
+    if (!segments.length) {
       navigateTo(rootHandle, []);
       return;
     }
-
-    const segments = relPath.split('/');
 
     try {
       let h = rootHandle;
@@ -1382,7 +1383,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     // Best-effort OS hint: absolute path(s) as text (real file drag-out to
     // Teams/Outlook is not supported from the browser — use "Copy to Windows").
     if (rootPathDisplay) {
-      const paths = dragging.map(i => `${rootPathDisplay}\\${i.relativePath.join('\\')}`);
+      const paths = dragging.map(i => toAbsolutePath(rootPathDisplay, i.relativePath));
       e.dataTransfer.setData('text/plain', paths.join('\n'));
     }
     e.dataTransfer.effectAllowed = 'copyMove';
@@ -1691,8 +1692,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleCopyPath = async () => {
     if (!selectedItem) return;
     const base = await ensureRootPath();
-    const t = `${base}\\${selectedItem.relativePath.join('\\')}`;
-    navigator.clipboard.writeText(t);
+    // Without a base path this used to copy "\file.docx", which looks like a path but is not.
+    if (!base) { alert(PATH_UNAVAILABLE_MSG); return; }
+    navigator.clipboard.writeText(toAbsolutePath(base, selectedItem.relativePath));
     setCopySuccess('full');
     setTimeout(() => setCopySuccess(null), 2000);
   };
@@ -1714,9 +1716,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       const folderRel = item.kind === 'directory' ? item.relativePath : item.relativePath.slice(0, -1);
       folderRelPaths.set(folderRel.join('\\'), folderRel);
     }
-    const text = [...folderRelPaths.values()]
-      .map(rel => (rel.length ? `${base}\\${rel.join('\\')}` : base))
-      .join('\n');
+    const text = [...folderRelPaths.values()].map(rel => toAbsolutePath(base, rel)).join('\n');
     navigator.clipboard.writeText(text);
     setCopySuccess('folder');
     setTimeout(() => setCopySuccess(null), 2000);
@@ -1735,11 +1735,35 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleSaveRootPath = async () => {
     if (!rootPathInput.trim()) return;
     const value = rootPathInput.trim();
-    await setRootPathDisplay(storageKey, value);
-    setRootPathDisplayVal(value);
-    persistFolderPath(value);
-    rememberFolderPathHint(value);
-    setPathUndetected(false);
+    setIsLocating(true);
+    try {
+      if (rootHandle) {
+        const agreement = await handleMatchesPath(rootHandle, value);
+        if (agreement !== 'match') {
+          alert(agreement === 'mismatch'
+            ? 'That path does not belong to the folder selected in Files. Nothing was saved.'
+            : 'The local helper could not verify that path. Restart Tender Control and try again; nothing was saved.');
+          return;
+        }
+      } else {
+        // listDirByPath proves both that the path exists and that it is a directory.
+        // checkOsPath alone would also accept a regular file.
+        try {
+          await listDirByPath(value, []);
+        } catch {
+          alert('That folder path could not be verified. Nothing was saved.');
+          return;
+        }
+      }
+      await setRootPathDisplay(storageKey, value);
+      setRootPathDisplayVal(value);
+      persistFolderPath(value);
+      rememberFolderPathHint(value);
+      setPathUndetected(false);
+      setIsEditingPath(false);
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   /** Detect the absolute base path silently (no blocking spinner). Used on load. */
@@ -2337,7 +2361,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                       value={rootPathInput}
                       onChange={e => setRootPathInput(e.target.value)}
                       onKeyDown={e => {
-                        if (e.key === 'Enter') { handleSaveRootPath(); setIsEditingPath(false); }
+                        if (e.key === 'Enter') handleSaveRootPath();
                         if (e.key === 'Escape') setIsEditingPath(false);
                       }}
                       className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:ring-[#3DCD58] focus:border-[#3DCD58] font-mono"
@@ -2345,7 +2369,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                     />
                     <div className="flex gap-1">
                       <button
-                        onClick={() => { handleSaveRootPath(); setIsEditingPath(false); }}
+                        onClick={handleSaveRootPath}
                         className="flex-1 py-1.5 bg-[#3DCD58] text-white text-[10px] font-black uppercase rounded hover:bg-[#2db64a] transition-colors"
                       >
                         Save

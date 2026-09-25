@@ -29,10 +29,18 @@ const runPs = async (script: string, timeoutMs = 8000): Promise<string> => {
  */
 const openFileNative = (target: string): Promise<void> =>
     new Promise((resolve, reject) => {
-        const child = execFile('explorer.exe', [target], { windowsHide: true });
+        const child = spawnExplorer(target);
         child.once('spawn', resolve);
         child.once('error', reject);
     });
+
+/**
+ * explorer.exe treats "," and ";" as switch separators, so an unquoted path like
+ * D:\Bids\ACME,Inc\R1 opened Documents instead. Node only quotes arguments that
+ * contain spaces, so always quote it verbatim (a Windows path cannot contain ").
+ */
+const spawnExplorer = (target: string, callback?: () => void) =>
+    execFile('explorer.exe', [`"${target}"`], { windowsHide: true, windowsVerbatimArguments: true }, callback);
 
 /**
  * Raise the document window after launch when possible. Office and many desktop
@@ -92,7 +100,7 @@ const openFolderForeground = async (target: string): Promise<void> => {
     // raise finish in the background and answer as soon as the folder is on its way.
     const raise = runWarmPowerShell(script, 15000).catch(() => {
         // Worker unavailable: at least open the folder, even if it lands behind.
-        execFile('explorer.exe', [normalized], { windowsHide: true }, () => { });
+        spawnExplorer(normalized, () => { });
     });
     await Promise.race([raise, new Promise<void>(resolve => { setTimeout(resolve, 400); })]);
 };
@@ -540,11 +548,42 @@ export const findDirByChildren = async (
 export const findDirByName = async (name: string, hints: string[]): Promise<FindDirResult | null> =>
     findDirByChildren(name, hints.map(hint => ({ name: hint })));
 
+/** Find the only candidate that contains the browser-created identity marker. */
+export const findDirByMarkerCandidates = (
+    marker: string,
+    folderName: string,
+    candidates: string[],
+): string | null => {
+    const wanted = folderName.toLowerCase();
+    const matches = new Map<string, string>();
+    for (const raw of candidates) {
+        const candidate = path.normalize(String(raw || '').trim().replace(/[\\/]+$/, ''));
+        if (!candidate || (wanted && path.basename(candidate).toLowerCase() !== wanted)) continue;
+        if (existsSync(path.join(candidate, marker))) matches.set(candidate.toLowerCase(), candidate);
+    }
+    return matches.size === 1 ? matches.values().next().value || null : null;
+};
+
 /**
- * DEPRECATED (kept for parity): find a folder by a unique marker file inside
- * it. Slow full-tree scan; superseded by findDirByName.
+ * Locate a folder by a unique marker created through its browser handle.
+ * Related saved paths are checked first, without waiting for Windows Search to
+ * index the new marker. This proves handle/path identity even when several
+ * template folders have identical names and contents.
  */
-export const locateByMarker = async (marker: string, folderName = ''): Promise<{ path: string; searchedRoot: string } | null> => {
+export const locateByMarker = async (
+    marker: string,
+    folderName = '',
+    near: string[] = [],
+): Promise<{ path: string; searchedRoot: string } | null> => {
+    if (folderName && near.length) {
+        const directGuesses = near.flatMap(raw => {
+            const candidate = path.normalize(String(raw || '').trim().replace(/[\\/]+$/, ''));
+            return candidate ? [candidate, path.join(path.dirname(candidate), folderName), path.join(candidate, folderName)] : [];
+        });
+        const direct = findDirByMarkerCandidates(marker, folderName, directGuesses);
+        if (direct) return { path: direct, searchedRoot: 'near' };
+    }
+
     // The marker itself may take several seconds to enter Windows Search. The folder
     // normally already exists in the index, though, so enumerate every same-named
     // folder and test for the unique marker directly on disk. This is deterministic
@@ -560,12 +599,9 @@ export const locateByMarker = async (marker: string, folderName = ''): Promise<{
                 `$r=$q.ExecuteReader();while($r.Read()){[uri]::UnescapeDataString(($r.GetString(0) -replace '^file:','')) -replace '/','\\'};$c.Close()`,
                 2500
             );
-            const matches = (out || '')
-                .split(/\r?\n/)
-                .map(candidate => path.normalize(candidate.trim()))
-                .filter(candidate => candidate && existsSync(path.join(candidate, marker)));
-            const unique = Array.from(new Set(matches));
-            if (unique.length === 1) return { path: unique[0], searchedRoot: 'folder-index' };
+            const indexed = (out || '').split(/\r?\n/).map(candidate => candidate.trim()).filter(Boolean);
+            const exact = findDirByMarkerCandidates(marker, folderName, indexed);
+            if (exact) return { path: exact, searchedRoot: 'folder-index' };
         } catch { /* fall through to querying the marker itself */ }
     }
     try {
@@ -589,30 +625,5 @@ export const locateByMarker = async (marker: string, folderName = ''): Promise<{
 
     // A marker that is not indexed yet is preferable to an incorrect path.
     // Do not recursively scan all local drives from the UI request.
-    return null;
-
-    const home = process.env.USERPROFILE || process.env.HOMEPATH || 'C:\\Users';
-    const roots: string[] = [];
-    const pushRoot = (p?: string) => { if (p && existsSync(p) && !roots.includes(p)) roots.push(p); };
-    pushRoot(home);
-    pushRoot(process.env.OneDrive);
-    pushRoot(process.env.OneDriveCommercial);
-    pushRoot(process.env.OneDriveConsumer);
-    pushRoot('C:\\Projects');
-    pushRoot('D:\\');
-    pushRoot('C:\\');
-
-    for (const root of roots) {
-        try {
-            const dir = await runPowerShell(
-                `$ErrorActionPreference='SilentlyContinue';` +
-                `Get-ChildItem -LiteralPath ${psSingleQuote(root)} -Filter ${psSingleQuote(marker)} -Recurse -File -Force ` +
-                `| Select-Object -First 1 -ExpandProperty DirectoryName`,
-                20000
-            );
-            const firstLine = (dir || '').split(/\r?\n/)[0].trim();
-            if (firstLine && existsSync(firstLine)) return { path: firstLine, searchedRoot: root };
-        } catch { /* try next root */ }
-    }
     return null;
 };

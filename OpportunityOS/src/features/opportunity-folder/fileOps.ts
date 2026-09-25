@@ -295,11 +295,41 @@ export const deleteEntry = async (
 
 const OPEN_HELPER_URL = 'http://127.0.0.1:3099';
 
-const buildAbsolutePath = (rootPathDisplay: string, relativePath: string[]): string => {
-  const root = (rootPathDisplay || '').trim().replace(/[\/\\]+$/, '');
+/**
+ * Canonical Windows form of a base path: backslashes, no surrounding quotes, no
+ * doubled or trailing separators. A bare drive keeps its root ("G:" -> "G:\") and
+ * a UNC share keeps its leading "\\".
+ */
+export const normalizeWindowsPath = (value: string): string => {
+  let p = String(value || '').trim().replace(/^"(.*)"$/, '$1').trim().replace(/\//g, '\\');
+  const isUnc = p.startsWith('\\\\');
+  p = p.replace(/\\{2,}/g, '\\').replace(/\\+$/, '');
+  if (isUnc) p = `\\${p}`;
+  if (/^[A-Za-z]:$/.test(p)) p += '\\';
+  return p;
+};
+
+/** Absolute path of `relativePath` inside the base folder; the base itself when it is empty. */
+export const buildAbsolutePath = (rootPathDisplay: string, relativePath: string[]): string => {
+  const root = normalizeWindowsPath(rootPathDisplay);
   if (!root) throw new Error('Base path is not set. Configure the "Base Path" in the sidebar first.');
-  const rel = relativePath.join('\\');
-  return `${root}\\${rel}`;
+  const rel = relativePath.filter(segment => segment !== '').join('\\');
+  if (!rel) return root;
+  return root.endsWith('\\') ? `${root}${rel}` : `${root}\\${rel}`;
+};
+
+/**
+ * Segments of `absolute` relative to the base folder, or null when it lies outside it.
+ * Whole folder names only: "C:\Bids\R10" is not inside "C:\Bids\R1".
+ */
+export const relativeFromAbsolute = (rootPathDisplay: string, absolute: string): string[] | null => {
+  const root = normalizeWindowsPath(rootPathDisplay).replace(/\\$/, '');
+  const target = normalizeWindowsPath(absolute).replace(/\\$/, '');
+  if (!root || !target) return null;
+  if (target.toLowerCase() === root.toLowerCase()) return [];
+  const prefix = `${root}\\`;
+  if (!target.toLowerCase().startsWith(prefix.toLowerCase())) return null;
+  return target.slice(prefix.length).split('\\').filter(Boolean);
 };
 
 export const openInNativeApp = async (
@@ -574,26 +604,45 @@ export const locateFolderPath = async (
   return null;
 };
 
+/** The identity marker could not be written (read-only permission or a locked folder). */
+export class MarkerUnwritableError extends Error {
+  constructor() {
+    super('Could not write the temporary marker into the folder');
+    this.name = 'MarkerUnwritableError';
+  }
+}
+
 /**
  * Resolve an exact absolute path for a directory handle by dropping a temporary
  * marker file into it and asking the helper to locate that marker. This is more
  * reliable than name-based lookup for standard Windows folders such as
- * Documents, Downloads or Pictures.
+ * Documents, Downloads or Pictures. Throws MarkerUnwritableError when the marker
+ * cannot be created, so callers can tell "no write access" from "not found".
  */
-export const locateFolderPathWithMarker = async (dirHandle: FileSystemDirectoryHandle): Promise<string | null> => {
+export const locateFolderPathWithMarker = async (
+  dirHandle: FileSystemDirectoryHandle,
+  near: string[] = [],
+): Promise<string | null> => {
   const marker = `.tenderloop_marker_${Date.now()}_${Math.random().toString(36).slice(2)}.tmp`;
   try {
-    const fileHandle = await dirHandle.getFileHandle(marker, { create: true });
-    // @ts-ignore
-    const writable = await fileHandle.createWritable();
-    await writable.write('marker');
-    await writable.close();
+    try {
+      const fileHandle = await dirHandle.getFileHandle(marker, { create: true });
+      // @ts-ignore
+      const writable = await fileHandle.createWritable();
+      await writable.write('marker');
+      await writable.close();
+    } catch {
+      throw new MarkerUnwritableError();
+    }
 
-    const qs = new URLSearchParams({ marker, name: dirHandle.name }).toString();
+    const qs = new URLSearchParams({
+      marker,
+      name: dirHandle.name,
+      near: JSON.stringify(near.filter(Boolean)),
+    }).toString();
     // Windows Search indexes a newly-created marker asynchronously, so one shot
-    // races the index. Three quick attempts are enough now that locateFolderPath
-    // does the real work: this only runs when content matching already failed,
-    // and nine seconds of spinner was worse than reporting "not detected yet".
+    // races the index. Known candidates (`near`) are checked on disk first and
+    // answer at once; the retries only matter for a folder found nowhere near.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
       if (resp && resp.ok) {

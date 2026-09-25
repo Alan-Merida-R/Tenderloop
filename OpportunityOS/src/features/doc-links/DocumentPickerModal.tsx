@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Search, ChevronRight, RefreshCw, Check, ArrowLeft, ChevronUp } from 'lucide-react';
-import { getFolderHandleForRevision, verifyPermission } from '../../services/opportunityFolderLink';
-import { listDirectory, searchFiles } from '../opportunity-folder/fileOps';
+import { getFolderHandleForRevision, resolveEffectiveRootPath, verifyPermission } from '../../services/opportunityFolderLink';
+import { listDirectory, listDirByPath, searchFiles } from '../opportunity-folder/fileOps';
 import { getFileIcon } from '../opportunity-folder/icons';
 import { FileItem } from '../opportunity-folder/types';
 
@@ -20,6 +20,7 @@ interface Props {
 export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, onSelect, onClose, title = "Select Document", multi = false, initialPath }) => {
   const [rootHandle, setRootHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [currentHandle, setCurrentHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [rootPath, setRootPath] = useState('');
   const [path, setPath] = useState<string[]>([]);
   const [items, setItems] = useState<FileItem[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -27,37 +28,73 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<FileItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    getFolderHandleForRevision(opportunityId, revision).then(async (handle) => {
+    let cancelled = false;
+    Promise.all([
+      getFolderHandleForRevision(opportunityId, revision),
+      resolveEffectiveRootPath(opportunityId, revision),
+    ]).then(async ([handle, absolutePath]) => {
+      if (cancelled) return;
+      setRootPath(absolutePath || '');
       if (handle && await verifyPermission(handle, false)) {
-        setRootHandle(handle);
-        if (initialPath && initialPath.length > 0) {
+        let h = handle;
+        let initial = initialPath || [];
+        if (initial.length > 0) {
           try {
-            let h = handle;
-            for (const seg of initialPath) {
-              h = await h.getDirectoryHandle(seg);
-            }
-            setCurrentHandle(h);
-            setPath(initialPath);
-            return;
+            for (const seg of initial) h = await h.getDirectoryHandle(seg);
           } catch {
-            // Folder may have moved/been renamed — fall back to root below.
+            h = handle;
+            initial = [];
           }
         }
-        setCurrentHandle(handle);
+        if (!cancelled) {
+          setRootHandle(handle);
+          setCurrentHandle(h);
+          setPath(initial);
+        }
+      } else if (!cancelled) {
+        // A saved absolute path is enough for read-only browsing through the
+        // helper. This keeps Files usable after the browser revokes its handle.
+        setRootHandle(null);
+        setCurrentHandle(null);
+        setPath(initialPath || []);
+        if (!absolutePath) {
+          setLoadError('No folder path is linked to this revision yet.');
+        }
       }
+    }).catch((error) => {
+      if (!cancelled) setLoadError(error?.message || 'Could not load the linked folder.');
     });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opportunityId, revision]);
 
   const load = useCallback(async () => {
-    if (!currentHandle) return;
+    if (!currentHandle && !rootPath) return;
     setLoading(true);
-    const data = await listDirectory(currentHandle, path);
-    setItems(data);
-    setLoading(false);
-  }, [currentHandle, path]);
+    setLoadError('');
+    try {
+      const data = currentHandle
+        ? await listDirectory(currentHandle, path)
+        : (await listDirByPath(rootPath, path)).map((entry): FileItem => ({
+            name: entry.name,
+            kind: entry.kind,
+            pathOnly: true,
+            extension: entry.kind === 'file' ? entry.name.split('.').pop()?.toLowerCase() : undefined,
+            size: entry.size,
+            lastModified: entry.mtime,
+            relativePath: [...path, entry.name],
+          }));
+      setItems(data);
+    } catch (error: any) {
+      setItems([]);
+      setLoadError(error?.message || 'Could not load this folder.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentHandle, path, rootPath]);
 
   useEffect(() => {
     load();
@@ -78,6 +115,9 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
           if (item.kind === 'file') found.push(item);
         }, () => stopped);
         if (!stopped) setSearchResults(found);
+      } catch (error: any) {
+        // A revoked permission or a folder removed mid-search: show it instead of an endless empty list.
+        if (!stopped) setLoadError(error?.message || 'Search failed.');
       } finally {
         if (!stopped) setSearching(false);
       }
@@ -87,8 +127,8 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
 
   const handleNavigate = (item: FileItem) => {
     if (item.kind === 'directory') {
-      setCurrentHandle(item.handle as FileSystemDirectoryHandle);
-      setPath([...path, item.name]);
+      setCurrentHandle((item.handle as FileSystemDirectoryHandle | undefined) || null);
+      setPath(item.relativePath);
     } else {
       const key = item.relativePath.join('/');
       if (multi) {
@@ -100,24 +140,27 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
   };
 
   const handleBack = async () => {
-    if (path.length === 0 || !rootHandle) return;
-    let h = rootHandle;
+    if (path.length === 0) return;
     const newPath = path.slice(0, -1);
-    for (const seg of newPath) {
-      h = await h.getDirectoryHandle(seg);
+    if (rootHandle) {
+      let h = rootHandle;
+      for (const seg of newPath) h = await h.getDirectoryHandle(seg);
+      setCurrentHandle(h);
+    } else {
+      setCurrentHandle(null);
     }
-    setCurrentHandle(h);
     setPath(newPath);
   };
 
   const handleJumpToPath = async (idx: number) => {
-    if (!rootHandle) return;
     const newPath = path.slice(0, idx + 1);
-    let h = rootHandle;
-    for (const seg of newPath) {
-      h = await h.getDirectoryHandle(seg);
+    if (rootHandle) {
+      let h = rootHandle;
+      for (const seg of newPath) h = await h.getDirectoryHandle(seg);
+      setCurrentHandle(h);
+    } else {
+      setCurrentHandle(null);
     }
-    setCurrentHandle(h);
     setPath(newPath);
   };
 
@@ -153,7 +196,8 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
             <input 
               value={search} 
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search files..."
+              disabled={!rootHandle}
+              placeholder={rootHandle ? 'Search files...' : 'Browse by folder (search needs folder permission)'}
               className="w-full pl-9 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-1 focus:ring-[#3DCD58]"
             />
           </div>
@@ -164,7 +208,7 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
 
         <div className="px-4 py-2 border-b border-gray-50 flex items-center gap-1 text-xs text-gray-500 overflow-x-auto whitespace-nowrap bg-gray-50/30">
           <button 
-            onClick={() => { setCurrentHandle(rootHandle); setPath([]); }} 
+            onClick={() => { setCurrentHandle(rootHandle); setPath([]); }}
             className="hover:text-[#3DCD58] font-bold transition-colors"
           >
             Root
@@ -188,7 +232,7 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
             const isSelected = selectedKeys.includes(key);
             return (
               <div 
-                key={item.name}
+                key={key}
                 onClick={() => handleNavigate(item)}
                 className={`flex items-center justify-between px-4 py-2.5 hover:bg-emerald-50 cursor-pointer border-b border-gray-50 transition-colors ${isSelected ? 'bg-emerald-50/50' : ''}`}
               >
@@ -210,6 +254,7 @@ export const DocumentPickerModal: React.FC<Props> = ({ opportunityId, revision, 
           {displayedItems.length === 0 && !loading && !searching && (
              <div className="p-10 text-center text-gray-400 italic">No files found.</div>
           )}
+          {loadError && <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">{loadError}</div>}
           {searching && <div className="p-10 text-center text-sm font-medium text-gray-400">Searching the entire opportunity folder…</div>}
         </div>
 

@@ -31,6 +31,7 @@ import {
   setFolderPath,
   mergeFolderPaths,
 } from '../src/services/opportunityFolderStore';
+import { buildAbsolutePath, normalizeWindowsPath, relativeFromAbsolute } from '../src/features/opportunity-folder/fileOps';
 
 let passed = 0;
 const results: string[] = [];
@@ -320,6 +321,48 @@ test('pins: inheriting never overwrites pins the revision already has', () => {
   addPinRecord('opp-1', 'opp-1::R1', { key: 'Mine', name: 'Mine', kind: 'directory', relativePath: ['Mine'] });
   inheritPins('opp-1', 'opp-1::R0', 'opp-1::R1');
   assert.deepEqual(listPins('opp-1', 'opp-1::R1').map(p => p.key), ['Mine']);
+});
+
+// ---------------------------------------------------------------------------
+// Absolute paths of files selected in the Folder tab
+// ---------------------------------------------------------------------------
+
+test('paths: a selected file joins to exactly one backslash-separated path', () => {
+  assert.equal(buildAbsolutePath('C:\\Bids\\ACME\\R1', ['Docs', 'Offer.docx']), 'C:\\Bids\\ACME\\R1\\Docs\\Offer.docx');
+  assert.equal(buildAbsolutePath('C:\\Bids\\ACME\\R1\\', ['Offer.docx']), 'C:\\Bids\\ACME\\R1\\Offer.docx');
+  assert.equal(buildAbsolutePath('C:/Bids/ACME/R1/', ['Offer.docx']), 'C:\\Bids\\ACME\\R1\\Offer.docx');
+  assert.equal(buildAbsolutePath('  "C:\\Bids\\R1"  ', ['a.pdf']), 'C:\\Bids\\R1\\a.pdf');
+  assert.equal(buildAbsolutePath('C:\\Bids\\\\R1', ['a.pdf']), 'C:\\Bids\\R1\\a.pdf');
+});
+
+test('paths: drive roots, Google Drive letters and UNC shares keep their shape', () => {
+  assert.equal(buildAbsolutePath('G:', ['Mi unidad', 'a.xlsx']), 'G:\\Mi unidad\\a.xlsx');
+  assert.equal(buildAbsolutePath('G:\\', ['a.xlsx']), 'G:\\a.xlsx');
+  assert.equal(buildAbsolutePath('\\\\server\\share\\Bids', ['a.pdf']), '\\\\server\\share\\Bids\\a.pdf');
+  assert.equal(normalizeWindowsPath('//server/share/Bids/'), '\\\\server\\share\\Bids');
+});
+
+test('paths: the folder itself has no trailing separator and a missing base is an error', () => {
+  assert.equal(buildAbsolutePath('C:\\Bids\\R1\\', []), 'C:\\Bids\\R1');
+  assert.throws(() => buildAbsolutePath('', ['a.pdf']), /Base path is not set/);
+  assert.throws(() => buildAbsolutePath('   ', ['a.pdf']), /Base path is not set/);
+});
+
+test('paths: Go to path maps back to segments only inside the linked folder', () => {
+  assert.deepEqual(relativeFromAbsolute('C:\\Bids\\R1', 'c:/bids/r1/Docs/Offer.docx'), ['Docs', 'Offer.docx']);
+  assert.deepEqual(relativeFromAbsolute('C:\\Bids\\R1\\', 'C:\\Bids\\R1'), []);
+  assert.deepEqual(relativeFromAbsolute('G:', 'G:\\Mi unidad\\x'), ['Mi unidad', 'x']);
+  assert.equal(relativeFromAbsolute('C:\\Bids\\R1', 'C:\\Bids\\R10\\Offer.docx'), null, 'R10 is not inside R1');
+  assert.equal(relativeFromAbsolute('C:\\Bids\\R1', 'D:\\Other'), null);
+  assert.equal(relativeFromAbsolute('', 'C:\\Bids'), null);
+});
+
+test('paths: every selected path round-trips through build -> relative', () => {
+  const bases = ['C:\\Bids\\ACME\\R1', 'G:\\', '\\\\srv\\share\\x', 'D:/tmp/'];
+  const rels = [['a.pdf'], ['Sub dir', 'b (1).docx'], ['Ñandú', 'Año 2026', 'c.xlsx']];
+  for (const base of bases) for (const rel of rels) {
+    assert.deepEqual(relativeFromAbsolute(base, buildAbsolutePath(base, rel)), rel, `${base} + ${rel.join('/')}`);
+  }
 });
 
 registerOpportunityFolderBridge(null);

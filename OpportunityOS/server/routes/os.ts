@@ -415,10 +415,11 @@ osRouter.post('/compose-email', async (req: Request, res: Response) => {
 osRouter.get('/locate', async (req: Request, res: Response) => {
     const marker = q(req, 'marker').trim();
     const name = q(req, 'name').trim();
+    const near = parsePaths(req.query.near);
     if (!marker || /[\\/]/.test(marker)) return res.status(400).json({ error: 'Invalid "marker"' });
     if (name && /[\\/:*?"<>|]/.test(name)) return res.status(400).json({ error: 'Invalid "name"' });
 
-    const found = await locateByMarker(marker, name);
+    const found = await locateByMarker(marker, name, near);
     if (found) return res.json({ ok: true, ...found });
     return res.status(404).json({ error: 'Marker not found in known roots', marker });
 });

@@ -18,18 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `check:system-section` npm script.
 - The installer (`INSTALAR_OPPORTUNITYOS.hta`, `engine_opportunityos.bat`) now fingerprints `package-lock.json` and reinstalls dependencies whenever it changes, instead of only checking that `node_modules` exists — a stale `node_modules` from a previous version no longer passes setup.
 - The updater (`scripts/check-for-update.ps1`, `scripts/publish-update.ps1`) now ships and compares a `release-manifest.json` per release, so an update also removes files that no longer belong to the current release instead of only overwriting/adding files. Added `ACTUALIZAR_TENDER_CONTROL.cmd` and `scripts/install-update-v2.ps1` as the standalone manual-update package copied next to `latest.json`.
+- Added `findDirByMarkerCandidates` (`server/os/shell.ts`): proves a folder's identity by checking known/nearby candidates on disk for a unique marker file, instead of only scanning the Windows Search index. `locateByMarker` checks these `near` candidates first and answers instantly when one matches; the `GET /api/os/locate` route now accepts a `near` list. Covered by a new `check:system-section` case.
+- `locateFolderPathWithMarker` now accepts `near` candidates (checked first) and throws a typed `MarkerUnwritableError` when the marker can't be written, so callers can fall back to content-matching instead of reporting "not found" for a read-only folder.
+- Added `DocumentPickerModal` fallback to path-only browsing (`listDirByPath`) when the browser folder permission/handle isn't available, so linked-folder documents stay pickable after a handle is revoked; it now also surfaces load/search errors instead of showing an empty list.
+- `handleSaveRootPath` (Folder tab) now verifies a manually typed Base Path against the linked handle (or, without a handle, that it is a real, listable folder) before saving it, instead of trusting free text.
+- Added `normalizeWindowsPath`/`relativeFromAbsolute` (`fileOps.ts`) for canonical absolute-path building and mapping an absolute path back to segments inside the linked folder (used by "Go to path"); covered by new `check:folder` cases (drive roots, UNC shares, round-trips).
 
 ### Changed
 - Creating a new proposal revision now keeps the previous revision's SOW/Scope note instead of discarding it: the new revision starts with an editable copy of the SOW note (Scope lives there), while the prior revision's own copy is untouched.
 - Folder pins and the expediente's Quick Access pins now use Ctrl+click (`event.ctrlKey || event.metaKey`) to reveal a pin in the Folder tab, replacing Shift+click.
 - `openFileNative` now hands the file to `explorer.exe` and returns as soon as the process is accepted, instead of waiting for the target application to finish starting; window-foregrounding runs as a best-effort background step afterward so `/open` no longer feels frozen for slow-starting apps (e.g. Office).
 - `sowTeamMembers.ts`: added `buildOpportunityTeamMembers`, consolidating the stakeholder+SOW team-member merge logic that `Dashboard.tsx` and `OpportunityDetail.tsx` each duplicated separately.
+- `resolveExactFolderPath` now always confirms a content match with the marker check (proving handle identity) instead of only falling back to the marker when content matching fails outright — two folders with byte-identical copied templates could otherwise resolve to the wrong one.
+- Explorer is now always launched via a quoted `execFile` call (`spawnExplorer`) so a path containing `,` or `;` (e.g. `ACME,Inc`) opens the intended folder instead of Documents.
 
 ### Fixed
 - Fixed a proposal's Seller/CSE appearing twice in team pickers (once as a stakeholder, once under its legacy SOW `name|area` id) by matching on name/alias before merging the two lists.
 - Fixed the expediente's Quick Access pin navigation not opening a pinned folder correctly: a trailing slash is now added for directory pins so Folder deep-navigation doesn't treat the last path segment as a file name.
 - Fixed two em dashes in `INSTALAR_OPPORTUNITYOS.hta` that had been mangled into `â€”` by a previous save with the wrong encoding.
+- Fixed "Go to path" only accepting a path that started with the currently typed (possibly unsaved) Base Path text; it now resolves against the saved root and correctly maps any path truly inside it.
 - Removed the unused `scripts/install-update.ps1` (superseded by `scripts/install-update-v2.ps1`, which is the only one referenced by the updater and publish script).
+- Removed dead unreachable code left after a previous `locateByMarker` rewrite (a disk-wide fallback scan below an unconditional `return null`).
 
 ## v1.0.2 - 2026-08-28
 ### Fixed
