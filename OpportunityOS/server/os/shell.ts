@@ -22,39 +22,39 @@ const runPs = async (script: string, timeoutMs = 8000): Promise<string> => {
     }
 };
 
-/** Open a file in its native Windows app (cmd `start`). */
+/**
+ * Hand a file to the Windows shell and return as soon as the process was
+ * accepted. Waiting for the associated application to finish starting made the
+ * /open request feel frozen, especially for Office documents.
+ */
 const openFileNative = (target: string): Promise<void> =>
     new Promise((resolve, reject) => {
-        // The first "" is a required empty window title — without it,
-        // `start "C:\path"` would treat the path as a title.
-        const safe = target.replace(/"/g, '\\"');
-        exec(`start "" "${safe}"`, { windowsHide: true }, (err) => {
-            if (err) reject(err); else resolve();
-        });
+        const child = execFile('explorer.exe', [target], { windowsHide: true });
+        child.once('spawn', resolve);
+        child.once('error', reject);
     });
 
 /**
- * Reuse and raise an already-open document window when possible. Office and many
- * desktop viewers put the file name in MainWindowTitle; matching it before launch
- * avoids the misleading "already open" error and restores a minimized window.
+ * Raise the document window after launch when possible. Office and many desktop
+ * viewers put the file name in MainWindowTitle, so the warm worker can restore
+ * a minimized window without making the open request wait for the application.
  */
 const openFileForeground = async (target: string): Promise<void> => {
     const normalized = path.normalize(target);
     const titleNeedle = path.basename(normalized, path.extname(normalized));
+    await openFileNative(normalized);
+
     const script = [
-        `$p=${psSingleQuote(normalized)}`,
         `$needle=${psSingleQuote(titleNeedle)}`,
         `function Get-OppyDocWin($want){ $hit=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like ('*' + $want + '*') } | Select-Object -First 1; if($hit){ return [IntPtr]$hit.MainWindowHandle }; return [IntPtr]::Zero }`,
-        `$h=Get-OppyDocWin $needle`,
-        `if($h -eq [IntPtr]::Zero){ Start-Process -FilePath $p; foreach($wait in 180,250,350,500,700){ Start-Sleep -Milliseconds $wait; $h=Get-OppyDocWin $needle; if($h -ne [IntPtr]::Zero){ break } } }`,
+        `$h=[IntPtr]::Zero`,
+        `foreach($wait in 100,150,250,400,600){ Start-Sleep -Milliseconds $wait; $h=Get-OppyDocWin $needle; if($h -ne [IntPtr]::Zero){ break } }`,
         `if($h -ne [IntPtr]::Zero){ [void][OppyWin]::Force($h) }`,
     ].join('; ');
 
-    try {
-        await runPs(script, 12000);
-    } catch {
-        await openFileNative(normalized);
-    }
+    // Window discovery is best effort and must never delay the HTTP response.
+    // The shell has already accepted the file by this point.
+    void runWarmPowerShell(script, 5000).catch(() => { });
 };
 
 /**
@@ -236,6 +236,22 @@ export interface CopyStats {
     skipped: { path: string; reason: string }[];
 }
 
+/** Use Win32 extended-length paths so copies keep working beyond MAX_PATH. */
+const extendedFsPath = (value: string): string => process.platform === 'win32' ? path.toNamespacedPath(value) : value;
+
+export const copyFileVerified = (sourcePath: string, targetPath: string): void => {
+    const source = extendedFsPath(sourcePath);
+    const target = extendedFsPath(targetPath);
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(source, target);
+    const sourceSize = statSync(source).size;
+    const targetSize = statSync(target).size;
+    if (sourceSize !== targetSize) {
+        rmSync(target, { force: true });
+        throw new Error(`Copy verification failed (${sourceSize} bytes expected, ${targetSize} written).`);
+    }
+};
+
 const shouldSkipCopyTemplateEntry = (name: string): boolean => {
     const lower = String(name || '').toLowerCase();
     return ['desktop.ini', 'thumbs.db', '.ds_store', '$recycle.bin', 'system volume information'].includes(lower);
@@ -251,11 +267,13 @@ export const copyDirectoryBestEffort = (
     stats: CopyStats = { copied: 0, skipped: [] },
     rel = ''
 ): CopyStats => {
-    mkdirSync(targetDir, { recursive: true });
-    const entries = readdirSync(sourceDir, { withFileTypes: true });
+    const sourceFs = extendedFsPath(sourceDir);
+    const targetFs = extendedFsPath(targetDir);
+    mkdirSync(targetFs, { recursive: true });
+    const entries = readdirSync(sourceFs, { withFileTypes: true });
     for (const entry of entries) {
-        const source = path.join(sourceDir, entry.name);
-        const target = path.join(targetDir, entry.name);
+        const source = path.join(sourceFs, entry.name);
+        const target = path.join(targetFs, entry.name);
         const entryRel = rel ? path.join(rel, entry.name) : entry.name;
         if (shouldSkipCopyTemplateEntry(entry.name)) {
             stats.skipped.push({ path: entryRel, reason: 'System metadata skipped' });
@@ -267,7 +285,7 @@ export const copyDirectoryBestEffort = (
                 stats.copied += 1;
             } else if (entry.isFile()) {
                 mkdirSync(path.dirname(target), { recursive: true });
-                copyFileSync(source, target);
+                copyFileVerified(source, target);
                 stats.copied += 1;
             }
         } catch (err: any) {

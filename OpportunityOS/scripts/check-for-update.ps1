@@ -10,6 +10,17 @@ function Show-UpdateMessage([string]$message, [string]$icon = 'Information') {
     [System.Windows.Forms.MessageBox]::Show($message, 'Tender Control Update', [System.Windows.Forms.MessageBoxButtons]::OK, $messageIcon) | Out-Null
 }
 
+function Remove-ObsoleteManagedFiles([string]$Root, [string]$BackupRoot) {
+    $oldPath = Join-Path $BackupRoot 'release-manifest.json'; $newPath = Join-Path $Root 'release-manifest.json'
+    if (!(Test-Path -LiteralPath $oldPath) -or !(Test-Path -LiteralPath $newPath)) { return }
+    $old = Get-Content -LiteralPath $oldPath -Raw | ConvertFrom-Json; $new = Get-Content -LiteralPath $newPath -Raw | ConvertFrom-Json
+    $newFiles = @($new.managedFiles | ForEach-Object { [string]$_ }); $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    foreach ($relative in @($old.managedFiles | ForEach-Object { [string]$_ })) {
+        if (!$relative -or $newFiles -contains $relative -or $relative -match '(^|[\\/])\.\.([\\/]|$)') { continue }
+        $candidate = [IO.Path]::GetFullPath((Join-Path $Root $relative))
+        if ($candidate.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { Remove-Item -LiteralPath $candidate -Force }
+    }
+}
 try {
     if (!(Test-Path -LiteralPath $settingsFile)) { exit 0 }
     $settings = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
@@ -39,7 +50,7 @@ try {
     New-Item -ItemType Directory -Path $extractedRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $packagePath -DestinationPath $extractedRoot -Force
     $newPackagePath = Join-Path $extractedRoot 'package.json'
-    if (!(Test-Path -LiteralPath $newPackagePath)) { throw 'The update package has an invalid structure.' }
+    if (!(Test-Path -LiteralPath $newPackagePath) -or !(Test-Path -LiteralPath (Join-Path $extractedRoot 'release-manifest.json'))) { throw 'The update package has an invalid structure.' }
     $newPackage = Get-Content -LiteralPath $newPackagePath -Raw | ConvertFrom-Json
     if ([string]$newPackage.version -ne [string]$manifest.version) { throw 'The package version does not match the update manifest.' }
 
@@ -51,6 +62,7 @@ try {
     try {
         & robocopy.exe $extractedRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "The update files could not be installed (code $LASTEXITCODE)." }
+        Remove-ObsoleteManagedFiles $projectRoot $backupRoot
         $newLockHash = if (Test-Path (Join-Path $projectRoot 'package-lock.json')) { (Get-FileHash (Join-Path $projectRoot 'package-lock.json') -Algorithm SHA256).Hash } else { '' }
         if ($newLockHash -ne $oldLockHash) {
             Push-Location $projectRoot

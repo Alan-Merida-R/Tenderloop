@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, Crosshair, Plus } from 'lucide-react';
 import { MeetingNote, OpportunityLabel } from '../types';
-import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, scopeModuleKey, scopeOptionColor, scopeLabelKey, catalogContainsLabel, SCOPE_EXTRA_REFERENCE_IDS } from './scopeCatalog';
+import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, normalizeScopeCatalog, scopeModuleKey, scopeOptionColor, scopeLabelKey, catalogContainsLabel, SCOPE_EXTRA_REFERENCE_IDS, EXECUTION_CENTERS } from './scopeCatalog';
 // The same readers the proposal cards use, so the card and this modal can never disagree
 // about which options are selected. See services/scopeSummary.ts.
 import { parseSowFields, asLabels, selectedFromFields, scopeFromLegacy, systemsFromLegacy, modulesFromFields } from '../services/scopeSummary';
@@ -97,7 +97,6 @@ const ScopeQuickViewModal: React.FC<Props> = ({ sowNote, catalog, legacyLabels =
 
     // Optional: which internal office quoted/executes this proposal, only relevant when Alan
     // works across more than one quoting center. Empty by default, never required.
-    const EXECUTION_CENTERS = ['Mexico', 'USA', 'Canada'];
     const executionCenterFromSow = typeof fields.execution_center === 'string' ? fields.execution_center : '';
     const [executionCenter, setExecutionCenter] = useState<string>(executionCenterFromSow);
     useEffect(() => { setExecutionCenter(executionCenterFromSow); }, [executionCenterFromSow]);

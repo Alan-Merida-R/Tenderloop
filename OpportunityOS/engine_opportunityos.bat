@@ -82,6 +82,12 @@ if "%MODE%"=="VISIBLE" echo [3/5] Checking dependencies... 2 steps remaining.
 if "%MODE%"=="INSTALL" echo [3/5] Checking dependencies... 2 steps remaining.
 :: A partially installed node_modules folder is not usable. Check the launcher
 :: that OpportunityOS actually needs instead of treating the folder as success.
+if "%MODE%"=="INSTALL" if exist "node_modules\.bin\vite.cmd" (
+    echo [INFO] Verifying dependencies for this complete installation folder.
+    call npm.cmd install --include=dev --no-audit --no-fund
+    if errorlevel 1 exit /b 1
+)
+
 if not exist "node_modules\.bin\vite.cmd" (
     if not "%MODE%"=="HIDDEN" echo.
     echo [INFO] Installing or repairing dependencies. This can take several minutes.

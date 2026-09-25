@@ -62,6 +62,52 @@ export function parseSowTeamMembers(noteContent: string | undefined | null): Sow
   return members;
 }
 
+interface TeamStakeholder {
+  id: string;
+  name: string;
+  role?: string;
+  roles?: string[];
+  roleContexts?: Record<string, string>;
+  aliases?: string[];
+}
+
+const normalizePersonName = (value: string | undefined) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * The people offered by the task pickers: the opportunity's stakeholders (one entry per role)
+ * plus the SOW "Team Involved" names that are not stakeholders yet. The Seller is copied into
+ * the SOW `team_cse` field, so without the name/alias match the same CSE was listed twice —
+ * once as a stakeholder and once under its legacy SOW "name|area" id.
+ * `legacyIds` maps each hidden SOW id to the stakeholder id that replaces it.
+ */
+export function buildOpportunityTeamMembers(
+  stakeholders: TeamStakeholder[] | undefined,
+  notes: { format?: string; content: string }[] | undefined,
+): { members: SowTeamMember[]; legacyIds: Map<string, string> } {
+  const people = stakeholders || [];
+  const fromStakeholders = people.flatMap(person => {
+    const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : ['Stakeholder']);
+    return roles.map(role => ({ id: person.id, name: person.name, area: person.roleContexts?.[role] ? `${role} · ${person.roleContexts[role]}` : role }));
+  }).filter(member => member.name);
+  const stakeholderByName = new Map<string, string>();
+  people.forEach(person => {
+    [person.name, ...(person.aliases || [])].forEach(name => {
+      const key = normalizePersonName(name);
+      if (key && !stakeholderByName.has(key)) stakeholderByName.set(key, person.id);
+    });
+  });
+  const legacyIds = new Map<string, string>();
+  const fromSow = collectSowTeamMembers(notes).filter(member => {
+    const stakeholderId = stakeholderByName.get(normalizePersonName(member.name));
+    if (!stakeholderId) return true;
+    legacyIds.set(member.id, stakeholderId);
+    return false;
+  });
+  const seen = new Set<string>();
+  const members = [...fromStakeholders, ...fromSow].filter(member => !seen.has(member.id) && !!seen.add(member.id));
+  return { members, legacyIds };
+}
+
 export function collectSowTeamMembers(notes: { format?: string; content: string }[] | undefined): SowTeamMember[] {
   if (!notes?.length) return [];
   const all: SowTeamMember[] = [];

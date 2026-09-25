@@ -1,7 +1,7 @@
 {
   "name": "opportunityos---local-opportunity-manager",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
     "check:scope": "tsx scripts/verify-scope-summary.ts",
     "check:quick-organizer": "tsx scripts/verify-quick-organizer.ts",
     "check:proposal-alarms": "tsx scripts/verify-proposal-alarm-policy.ts",
+    "check:system-section": "tsx scripts/verify-system-section.ts",
     "icon:build": "node scripts/generate-icon.mjs"
   },
   "dependencies": {

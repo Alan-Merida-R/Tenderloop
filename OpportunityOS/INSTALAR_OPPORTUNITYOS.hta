@@ -350,19 +350,36 @@
       });
     }
 
+    function dependencyFingerprint() {
+      var lockPath = scriptDir + "\\package-lock.json";
+      if (!fso.FileExists(lockPath)) return "no-lock";
+      var lockFile = fso.GetFile(lockPath);
+      return lockFile.Size + "@" + lockFile.DateLastModified.getTime();
+    }
+
+    function setupMatchesDependencies() {
+      var markerPath = scriptDir + "\\.opportunityos-setup-complete";
+      if (!fso.FileExists(markerPath)) return false;
+      try {
+        var markerFile = fso.OpenTextFile(markerPath, 1, false, -2);
+        var marker = markerFile.ReadAll();
+        markerFile.Close();
+        return marker.indexOf("lock=" + dependencyFingerprint()) >= 0;
+      } catch (ignore) { return false; }
+    }
     function installDependencies() {
       // The running application serves an immutable dist build, so dependency
       // verification and a new build do not require killing the user's current
       // session. Closing here used to leave Setup waiting on old/orphan engines.
       // Open app performs the one controlled restart after setup is complete.
       setStep(2, "Installing dependencies");
-      if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
-        logLine("[OK] Dependencies are already installed. The running application can remain open during verification.");
+      if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd") && setupMatchesDependencies()) {
+        logLine("[OK] Dependencies match this package. The running application can remain open during verification.");
         verifyOpportunityOS();
         return;
       }
 
-      logLine("[INFO] Installing or repairing dependencies. This can take several minutes and needs normal internet access to npm.");
+      logLine("[INFO] Installing or repairing dependencies. This is required when this is the first setup or package-lock.json changed.");
       // `npm install` repairs a partial dependency folder in place. Unlike
       // npm ci it does not first delete every native binary, which avoids
       // common EPERM failures from corporate antivirus scanners.
@@ -412,6 +429,7 @@
       // partial node_modules folder from bypassing this visible setup flow.
       var marker = fso.CreateTextFile(scriptDir + "\\.opportunityos-setup-complete", true);
       marker.WriteLine("Tender Control setup completed successfully.");
+      marker.WriteLine("lock=" + dependencyFingerprint());
       marker.Close();
 
       setStep(5, "Setup complete");

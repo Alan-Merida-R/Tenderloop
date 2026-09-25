@@ -223,6 +223,14 @@ export const copyTemplateFromOsPath = async (
   };
 };
 
+export const copyFileFromOsPath = async (source: string, target: string): Promise<void> => {
+  const qs = new URLSearchParams({ source, target }).toString();
+  const resp = await fetch(`${OPEN_HELPER_URL}/copy-file?${qs}`).catch(() => null);
+  if (!resp) throw new Error('Could not connect to the local helper (port 3099).');
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(body?.error || `File copy failed with error ${resp.status}`);
+};
+
 // Robust Move Logic (Copy + Delete)
 export const moveEntryToDir = async (entry: FileItem, destDir: FileSystemDirectoryHandle) => {
   // Native move is often restricted or flaky across handles. We use Copy + Delete.

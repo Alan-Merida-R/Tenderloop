@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
 import { getPins, addPin, removePin, movePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
@@ -804,7 +804,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       let templateOsPath: string | undefined;
       try {
         // @ts-ignore
-        templateHandle = await window.showDirectoryPicker({ id: 'tl-template-src' });
+        templateHandle = await window.showDirectoryPicker({ id: 'tl-template-src', mode: 'readwrite' });
       } catch (err: any) {
         if (err.name === 'AbortError') return;
         const entered = window.prompt(
@@ -860,19 +860,16 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         }
         return resolvedDestParentPath;
       };
+      const resolvedTemplatePath = templateOsPath || (templateHandle
+        ? (await locateFolderPathWithMarker(templateHandle)) ?? undefined
+        : undefined);
+      const resolvedDest = await resolveDestParentPath();
 
-      if (templateOsPath || !templateHandle) {
+      if (resolvedTemplatePath && resolvedDest) {
         // ── OS-level copy via the local helper ────────────────────────
         // Determine the destination OS path: use the typed path, or auto-detect
         // from the handle the browser opened successfully.
-        const resolvedDest = await resolveDestParentPath();
-        if (!resolvedDest) {
-          throw new Error(
-            'Could not determine the destination path.\n\n' +
-            'Make sure Tender Control is running via OPEN_OPPORTUNITYOS.'
-          );
-        }
-        const helperResult = await copyTemplateFromOsPath(templateOsPath!, resolvedDest, folderName);
+        const helperResult = await copyTemplateFromOsPath(resolvedTemplatePath, resolvedDest, folderName);
         if (helperResult.copied === 0 && helperResult.skipped.length > 0) {
           throw new Error(helperResult.skipped.map((i: any) => `${i.path}: ${i.reason}`).join('\n'));
         }
@@ -883,6 +880,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
         }
       } else {
         // ── File System API copy (no system files in either folder) ───
+        if (!templateHandle) throw new Error('Could not resolve the template or destination path. Start Tender Control with OPEN_OPPORTUNITYOS and try again.');
         newFolderHandle = await destParent!.getDirectoryHandle(folderName, { create: true });
         const resolvedDest = await resolveDestParentPath();
         if (resolvedDest) {
@@ -1159,8 +1157,13 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setIsCreatingRevision(true);
     try {
       const familyId = await ensureRevisionFamilyId(source);
-      await copyFileAs(source.handle as FileSystemFileHandle, currentHandle, newName);
       const newRelativePath = [...source.relativePath.slice(0, -1), newName];
+      const rootPath = await ensureRootPath();
+      if (rootPath) {
+        await copyFileFromOsPath(toAbsolutePath(rootPath, source.relativePath), toAbsolutePath(rootPath, newRelativePath));
+      } else {
+        await copyFileAs(source.handle as FileSystemFileHandle, currentHandle, newName);
+      }
       const familyKey = buildRevisionFamilyKey(source.relativePath);
       await saveMeta(opportunityId, newRelativePath.join('/'), { revisionFamilyId: familyId });
       await saveFileRevisionEntry({
@@ -2522,7 +2525,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 Pin files or folders with the pin icon to keep them within reach here.
               </div>
             ) : pins.map((pin, pinIndex) => (
-              <div key={pin.key} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer transition-colors" onClick={(event) => openPin(pin, event.shiftKey)} title={`${pin.relativePath.join('/')} · Shift+click: show in Folder`}>
+              <div key={pin.key} className="group flex items-center gap-2 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 cursor-pointer transition-colors" onClick={(event) => openPin(pin, event.ctrlKey || event.metaKey)} title={`${pin.relativePath.join('/')} · Ctrl+click: show in Folder`}>
                 <div className="shrink-0">{getFileIcon(pin.kind === 'directory' ? undefined : pin.name.split('.').pop()?.toLowerCase(), pin.kind === 'directory')}</div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium truncate">{pin.name}</div>

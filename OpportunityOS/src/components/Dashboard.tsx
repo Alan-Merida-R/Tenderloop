@@ -3,7 +3,7 @@ import React, { useState, useMemo, useRef, useEffect, useDeferredValue, useCallb
 import { Opportunity, ProcessStage, TaskStatus, TASK_STATUS_COLORS, TASK_STATUS_ORDER, taskStatusLabel, Task, Subtask, TaskPriority, PRIORITY_COLORS, STATUS_COLORS, OpportunityStatus, DeepLink, OpportunityLabel, FloatingTab, DetailedStatus, DETAILED_STATUS_COLORS, DETAILED_STATUS_ORDER, DETAILED_STATUS_LABELS, PROCESS_BOARD_BLACK_COLOR } from '../types';
 import { LayoutGrid, Calendar as CalendarIcon, Filter, Plus, CheckSquare, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, User, Download, Clock, X, Trash2, Edit2, Copy, Upload, FileText, Columns, Unlink, Lock, ListChecks, Minus, Info, RefreshCw, Zap, Activity, Eye, EyeOff, History, Check, Bell, Paperclip, GripVertical, TriangleAlert, Siren } from 'lucide-react';
 import { LinkedDocsList } from '../features/doc-links/LinkedDocsList';
-import { collectSowTeamMembers } from '../services/sowTeamMembers';
+import { buildOpportunityTeamMembers } from '../services/sowTeamMembers';
 import { ResponsibleTeamPicker, assignmentStatusPatch } from './OpportunityDetail';
 import { DocumentPickerModal } from '../features/doc-links/DocumentPickerModal';
 import { saveMeta, listLinkedForTask } from '../services/opportunityDocMetaStore';
@@ -721,7 +721,7 @@ const TaskCard = React.memo(({
     const subtasks: Subtask[] = item.subtasks || [];
     const doneSubtasks = subtasks.filter(s => s.completed && !s.outOfScope).length;
     const totalSubtasks = subtasks.filter(s => !s.outOfScope).length;
-    const sowTeamMembers = useMemo(() => collectSowTeamMembers(item.opp.notes), [item.opp.notes]);
+    const sowTeamMembers = useMemo(() => buildOpportunityTeamMembers(item.opp.stakeholders, item.opp.notes).members, [item.opp.stakeholders, item.opp.notes]);
 
     useEffect(() => {
         let cancelled = false;
@@ -1640,13 +1640,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
     );
     const selectedTaskTeamMembers = useMemo(() => {
         if (!selectedTaskOpportunity) return [];
-        const fromSow = collectSowTeamMembers(selectedTaskOpportunity.notes);
-        const fromStakeholders = (selectedTaskOpportunity.stakeholders || []).flatMap(person => {
-            const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : ['Stakeholder']);
-            return roles.map(role => ({ id: person.id, name: person.name, area: person.roleContexts?.[role] ? `${role} · ${person.roleContexts[role]}` : role }));
-        }).filter(member => member.name);
-        const seen = new Set<string>();
-        return [...fromStakeholders, ...fromSow].filter(member => !seen.has(member.id) && !!seen.add(member.id));
+        return buildOpportunityTeamMembers(selectedTaskOpportunity.stakeholders, selectedTaskOpportunity.notes).members;
     }, [selectedTaskOpportunity]);
     const [remindTaskPopoverOpen, setRemindTaskPopoverOpen] = useState(false);
     const [remindTaskWhen, setRemindTaskWhen] = useState('');

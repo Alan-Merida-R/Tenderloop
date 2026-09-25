@@ -53,7 +53,7 @@ const health = (_req: express.Request, res: express.Response) => {
         db: dbRepository.status(),
         features: [
             'open', 'open-many', 'reveal', 'clipboard', 'clipboard-email-reply', 'locate',
-            'find-dir', 'copy-template', 'check-path', 'list-dir', 'write-manager-report', 'move',
+            'find-dir', 'copy-template', 'copy-file', 'alarm-settings', 'check-path', 'list-dir', 'write-manager-report', 'move',
             ...(ENABLE_WEB_AUTOMATION ? ['web-automation', 'web-reader'] : []),
         ],
     });

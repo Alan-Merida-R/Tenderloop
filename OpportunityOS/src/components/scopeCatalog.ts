@@ -126,6 +126,9 @@ export const DEFAULT_SCOPE_CATALOG: ScopeCatalog = {
     ],
 };
 
+/** Optional Execution Center choices asked in the Scope (only when quoted from more than one center). */
+export const EXECUTION_CENTERS = ['Mexico', 'USA', 'Canada'] as const;
+
 /** Extras that carry a free-text reference (an internal file/expediente or a link) when ticked. */
 export const SCOPE_EXTRA_REFERENCE_IDS = ['similar-copy', 'split'] as const;
 

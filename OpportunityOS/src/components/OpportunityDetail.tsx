@@ -15,7 +15,7 @@ import ScopeQuickViewModal from './ScopeQuickViewModal';
 import { ScopeCatalog, DEFAULT_SCOPE_CATALOG, catalogContainsLabel, normalizeScopeCatalog, scopeLabelKey, scopeModuleKey, scopeOptionColor } from './scopeCatalog';
 import { getProposalAgeTargets } from '../services/proposalAlarmPolicy';
 import { parseSowFields, pickPrimarySowNote, readScopeSelection } from '../services/scopeSummary';
-import { collectSowTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
+import { buildOpportunityTeamMembers, SowTeamMember } from '../services/sowTeamMembers';
 import { resolveEffectiveRootPath, copyFolderLinkToRevision, moveLegacyFolderLinkToRevision } from '../services/opportunityFolderLink';
 import { getMeta, saveMeta, listLinkedForNote, listLinkedForTask } from '../services/opportunityDocMetaStore';
 import { CalendarView } from './CalendarView';
@@ -3438,7 +3438,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
     /** Folder Quick Access remains available from every expediente tab. */
     const openExpedientePin = async (pin: typeof expedientePins[number], revealInApp = false) => {
         if (revealInApp) {
-            setFolderNavTarget(pin.relativePath.join('/'));
+            // A trailing slash tells Folder deep-navigation that the target itself is
+            // a directory; without it the final segment was treated as a file name.
+            setFolderNavTarget(`${pin.relativePath.join('/')}${pin.kind === 'directory' ? '/' : ''}`);
             setActiveTabSafe('folder');
             return;
         }
@@ -4075,7 +4077,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 quoteType: prefill.quoteType || target.quoteType, statusLabel: 'In Progress', detailedStatus: 'Working on it', stage: '1. Intake', priority: 'Medium',
                 dates: { requested: requestedDate, expected: prefill.expectedDate || '', assigned: '' }, links: composeQuickLinks(initialDefaultUrls, []),
                 presentation: resetPresentationData(), history: [{ id: crypto.randomUUID(), date: today, content: 'The SR is assigned to me and I start working on it.', createdAt: new Date().toISOString() }],
-                notes: [importNote], emails: target.emails || createEmptyEmailsData(), kpis: {
+                notes: [...JSON.parse(JSON.stringify((target.notes || []).filter(note => note.format === 'sow'))), importNote], emails: target.emails || createEmptyEmailsData(), kpis: {
                     ...resetKPIData(target.kpis), ...(prefill.proposalAmountUSD !== undefined && !isNaN(prefill.proposalAmountUSD) ? { proposalAmountUSD: prefill.proposalAmountUSD } : {}),
                     timeline: { ...resetKPIData(target.kpis).timeline, receivedAt: requestedDate }
                 } as KPIs,
@@ -6658,6 +6660,13 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             value = 'External Area';
             extraPatch = { ...extraPatch, isAssignment: true };
         }
+        // [TA-2] Approval with approvers is the approval request: start its clock like Missing Info
+        // does, so the approvers show up on the area timeline and the workflow rows.
+        const nextStatus = field === 'status' ? value : latestTask.status;
+        const nextApprovers: string[] = field === 'approverTeamMemberIds' ? value : (extraPatch?.approverTeamMemberIds ?? latestTask.approverTeamMemberIds ?? []);
+        if (nextStatus === 'Approval' && nextApprovers.length > 0 && !latestTask.approvalRequestedDate && !extraPatch?.approvalRequestedDate) {
+            extraPatch = { ...extraPatch, isAssignment: true, approvalRequestedDate: getTodayStr() };
+        }
 
         if (field === 'status' && value === 'Done' && selectedTaskForEdit.task.isAssignment) {
             const today = getTodayStr();
@@ -7703,15 +7712,37 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
 
     const currentNote = localOpp.notes.find(n => n.id === selectedNoteId);
 
-    const sowTeamMembers = React.useMemo(() => {
-        const fromSow = collectSowTeamMembers(localOpp.notes);
-        const fromStakeholders = (localOpp.stakeholders || []).flatMap(person => {
-            const roles = person.roles?.length ? person.roles : (person.role ? [person.role] : ['Stakeholder']);
-            return roles.map(role => ({ id: person.id, name: person.name, area: person.roleContexts?.[role] ? `${role} · ${person.roleContexts[role]}` : role }));
-        }).filter(m => m.name);
-        const seen = new Set<string>();
-        return [...fromStakeholders, ...fromSow].filter(m => !seen.has(m.id) && !!seen.add(m.id));
-    }, [localOpp.notes, localOpp.stakeholders]);
+    const opportunityTeam = React.useMemo(
+        () => buildOpportunityTeamMembers(localOpp.stakeholders, localOpp.notes),
+        [localOpp.notes, localOpp.stakeholders]
+    );
+    const sowTeamMembers = opportunityTeam.members;
+    /** [TA-2] Approver names for the task cards; legacy "name|area" ids still resolve to their name. */
+    const taskApproverNames = (task: Task) => Array.from(new Set((task.approverTeamMemberIds || [])
+        .map(id => sowTeamMembers.find(member => member.id === id)?.name || (id.includes('|') ? id.split('|')[0].trim() : ''))
+        .filter(Boolean)));
+    // [TA-1] Tasks saved while the SOW copy of a stakeholder (e.g. the CSE) was still offered
+    // point at its legacy "name|area" id. Move them to the stakeholder id so the picker shows
+    // them checked and the person is not counted twice.
+    useEffect(() => {
+        const legacyIds = opportunityTeam.legacyIds;
+        if (!legacyIds.size || viewingVersionId) return;
+        const remap = (ids?: string[]) => {
+            if (!ids?.some(id => legacyIds.has(id))) return ids;
+            return Array.from(new Set(ids.map(id => legacyIds.get(id) || id)));
+        };
+        let changed = false;
+        const tasks = (localOppRef.current.tasks || []).map(task => {
+            const responsibleTeamMemberIds = remap(task.responsibleTeamMemberIds);
+            const approverTeamMemberIds = remap(task.approverTeamMemberIds);
+            const informedTeamMemberIds = remap(task.informedTeamMemberIds);
+            if (responsibleTeamMemberIds === task.responsibleTeamMemberIds && approverTeamMemberIds === task.approverTeamMemberIds && informedTeamMemberIds === task.informedTeamMemberIds) return task;
+            changed = true;
+            return { ...task, responsibleTeamMemberIds, approverTeamMemberIds, informedTeamMemberIds };
+        });
+        if (changed) handleFieldChange('tasks', tasks, true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [localOpp.id, opportunityTeam, viewingVersionId]);
 
     /** A stakeholder-derived member carries its area as "Role · context"; the plain area is the key. */
     const areaKey = (area: string) => (area || '').split(' · ')[0].trim();
@@ -8348,7 +8379,8 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
             // Move any legacy opportunity-level folder link onto the current
             // revision so the new revision can start empty.
             await moveLegacyFolderLinkToRevision(localOpp.id, prevRevision).catch(() => {});
-            const sourceNotes = JSON.parse(JSON.stringify(localOpp.notes || [])) as MeetingNote[];
+            const sourceNotes = JSON.parse(JSON.stringify((localOpp.notes || []).filter(note => note.format !== 'sow'))) as MeetingNote[];
+            const inheritedSowNotes = JSON.parse(JSON.stringify((localOpp.notes || []).filter(note => note.format === 'sow'))) as MeetingNote[];
             const sourceDefaultLinks = DEFAULT_QUICK_LINKS.map(link => ({
                 id: link.id,
                 label: link.label,
@@ -8373,7 +8405,9 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                 links: [], 
                 presentation: resetPresentationData(),
                 history: [], // Clean version resets history
-                notes: [],
+                // Scope lives in the SOW. Clone it into the editable revision while the
+                // snapshot captured above keeps the previous revision unchanged.
+                notes: inheritedSowNotes,
                 emails: localOpp.emails || createEmptyEmailsData(),
                 kpis: resetKPIData(localOpp.kpis),
                 folderLinked: false,
@@ -9793,13 +9827,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                             </div>
                                         </div>
 
-                                        {isProposalRevision && <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><div className="text-[9px] font-black uppercase tracking-wide text-violet-700">Revision {localOpp.revision} · Commitment</div><p className="mt-1 text-[10px] text-violet-600">Indicate how difficult this revision is. This selection directly changes its Proposal Age target; if no selection is saved, Light is used.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'light')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${(!localOpp.kpis.revisionChangeImpact || localOpp.kpis.revisionChangeImpact === 'light') ? 'border-violet-400 bg-white text-violet-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Light revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.light}% of normal time</span></button><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'major')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${localOpp.kpis.revisionChangeImpact === 'major' ? 'border-fuchsia-500 bg-white text-fuchsia-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Major revision <span className="block text-[10px] font-medium">{proposalAgeTargets.revisionPercent.major}% of normal time</span></button></div></div>}
-
-                                        <label className="block rounded-xl border border-blue-100 bg-blue-50/60 p-3">
-                                            <span className="block text-[10px] font-black uppercase tracking-wide text-blue-700">My proposal-days estimate</span>
-                                            <span className="mt-1 block text-[10px] text-blue-600">Optional. It pulls the target toward your number by {proposalAgeTargets.tenderEstimateWeightPercent}%; the remaining {100 - proposalAgeTargets.tenderEstimateWeightPercent}% still comes from the Scope calculation, so it influences the target without replacing it.{proposalAgeTargets.isManualEstimate ? ` Your ${proposalAgeTargets.tenderEstimateDays}d + calculated ${proposalAgeTargets.calculatedDays}d → target ${proposalAgeTargets.expectedDays}d.` : ''}</span>
-                                            <input disabled={isSnapshot} type="number" min="1" value={localOpp.kpis.proposalDaysEstimate || ''} onChange={event => updateKpiField('proposalDaysEstimate', event.target.value ? Math.max(1, Number(event.target.value)) : null)} placeholder={`Calculated: ${proposalAgeTargets.expectedDays} days`} className="mt-2 w-full rounded-lg border-blue-200 bg-white text-sm font-black text-blue-900 disabled:bg-gray-50" />
-                                        </label>
+                                        {isProposalRevision && <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><div className="text-[9px] font-black uppercase tracking-wide text-violet-700">Revision {localOpp.revision} · Commitment</div><p className="mt-1 text-[10px] text-violet-600">Indicate how difficult this revision is. This selection directly changes its Proposal Age target; if no selection is saved, Light is used.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'light')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${(!localOpp.kpis.revisionChangeImpact || localOpp.kpis.revisionChangeImpact === 'light') ? 'border-violet-400 bg-white text-violet-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Light revision <span className="block text-[10px] font-medium">× {proposalAgeTargets.revisionPercent.light}% of summed time</span></button><button disabled={isSnapshot} onClick={() => updateKpiField('revisionChangeImpact', 'major')} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold ${localOpp.kpis.revisionChangeImpact === 'major' ? 'border-fuchsia-500 bg-white text-fuchsia-800' : 'border-violet-100 bg-violet-50 text-violet-400'}`}>Major revision <span className="block text-[10px] font-medium">× {proposalAgeTargets.revisionPercent.major}% of summed time</span></button></div></div>}
 
                                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                                             <div className="mb-3 flex items-center gap-2">
@@ -9811,7 +9839,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 <div className="rounded-lg bg-amber-50 p-2 border border-amber-100"><div className="text-[9px] font-bold uppercase text-amber-700">Warning</div><div className="text-lg font-black text-amber-700">{proposalAgeTargets.warningDays}d</div></div>
                                                 <div className="rounded-lg bg-red-50 p-2 border border-red-100"><div className="text-[9px] font-bold uppercase text-red-700">Critical</div><div className="text-lg font-black text-red-700">{proposalAgeTargets.criticalDays}d</div></div>
                                             </div>
-                                            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">{proposalAgeTargets.isManualEstimate ? <>Target: <strong>{proposalAgeTargets.expectedDays} days</strong> — your {proposalAgeTargets.tenderEstimateDays}d estimate weighted {proposalAgeTargets.tenderEstimateWeightPercent}% against the calculated {proposalAgeTargets.calculatedDays}d. Calculated</> : <>Calculated target: <strong>{proposalAgeTargets.expectedDays} days</strong></>} from Scope, individual Scope adjustments (resales/cabinets included), commercial amount and <strong>{localOpp.quoteType || 'Budgetary'}</strong> ({proposalAgeTargets.quoteTypeDays >= 0 ? '+' : ''}{proposalAgeTargets.quoteTypeDays}d){isProposalRevision ? ` · ${localOpp.kpis.revisionChangeImpact === 'major' ? 'major' : 'light'} revision factor ${Math.round(proposalAgeTargets.revisionFactor * 100)}%` : ''}. Warning = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.warningPercent}% {proposalAgeTargets.warningOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.warningOffsetDays}d · Critical = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.criticalPercent}% {proposalAgeTargets.criticalOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.criticalOffsetDays}d.</p>
+                                            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">Calculated target: <strong>{proposalAgeTargets.expectedDays} days</strong> = {proposalAgeTargets.sumDays}d summed from Scope, amount and <strong>{localOpp.quoteType || 'Budgetary'}</strong> ({proposalAgeTargets.quoteTypeDays >= 0 ? '+' : ''}{proposalAgeTargets.quoteTypeDays}d){proposalAgeTargets.multipliers.length ? ` × ${Number(proposalAgeTargets.multiplier.toFixed(2))} (${proposalAgeTargets.multipliers.map(item => `${item.label} ${Math.round(item.factor * 100)}%`).join(' + ')})` : ''}{proposalAgeTargets.isMinimumApplied ? `, raised to the ${proposalAgeTargets.minimumDays}d Base` : ''}. Warning = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.warningPercent}% {proposalAgeTargets.warningOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.warningOffsetDays}d · Critical = {proposalAgeTargets.expectedDays} × {proposalAgeTargets.criticalPercent}% {proposalAgeTargets.criticalOffsetDays >= 0 ? '+' : ''}{proposalAgeTargets.criticalOffsetDays}d.</p>
                                         </div>
                                     </div>
 
@@ -11566,6 +11594,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                             >
                                                                                 <User className="w-3 h-3" /> {task.responsible || 'Assign'}
                                                                             </button>
+                                                                            {taskApproverNames(task).length > 0 && (
+                                                                                <span className="flex items-center gap-1 text-[10px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded" title="Approvers">
+                                                                                    <CheckSquare className="w-3 h-3" /> {taskApproverNames(task).join(', ')}
+                                                                                </span>
+                                                                            )}
                                                                             {(task.responsibleRequestedDate || task.responsibleDueDate) && (
                                                                                 <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-bold" title="Requested on / committed date">
                                                                                     {task.responsibleRequestedDate || '?'} → {task.responsibleDueDate || '?'}
@@ -11769,6 +11802,11 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                                                 >
                                                                                     <User className="w-2.5 h-2.5" /> {task.responsible || 'Assign'}
                                                                                 </button>
+                                                                                {taskApproverNames(task).length > 0 && (
+                                                                                    <span className="flex items-center gap-1 text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded" title="Approvers">
+                                                                                        <CheckSquare className="w-2.5 h-2.5" /> {taskApproverNames(task).join(', ')}
+                                                                                    </span>
+                                                                                )}
                                                                                 <span className={`text-[8px] px-1 py-0.5 rounded border uppercase font-bold ${PRIORITY_COLORS[task.priority || 'Medium']}`}>{task.priority || 'Medium'}</span>
                                                                             </div>
                                                                             {(task.responsibleRequestedDate || task.responsibleDueDate) && (
@@ -11948,17 +11986,17 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                             ) : expedientePins.map((pin, pinIndex) => (
                                 <div
                                     key={pin.key}
-                                    onClick={event => openExpedientePin(pin, event.shiftKey)}
+                                    onClick={event => openExpedientePin(pin, event.ctrlKey || event.metaKey)}
                                     onKeyDown={event => {
                                         if (event.key === 'Enter' || event.key === ' ') {
                                             event.preventDefault();
-                                            openExpedientePin(pin, event.shiftKey);
+                                            openExpedientePin(pin, event.ctrlKey || event.metaKey);
                                         }
                                     }}
                                     role="button"
                                     tabIndex={0}
                                     className="group flex min-h-[68px] w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition-all hover:-translate-y-px hover:border-[#3DCD58]/60 hover:bg-emerald-50/40 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#3DCD58]/30"
-                                    title={`${pin.relativePath.join('/')} · Shift+click: show in Folder`}
+                                    title={`${pin.relativePath.join('/')} · Ctrl+click: show in Folder`}
                                 >
                                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#3DCD58]/20 bg-[#3DCD58]/10 text-[#249c3f] transition-colors group-hover:bg-[#3DCD58] group-hover:text-white">
                                         {pin.kind === 'directory' ? <FolderOpen className="h-4.5 w-4.5" /> : <FileText className="h-4.5 w-4.5" />}

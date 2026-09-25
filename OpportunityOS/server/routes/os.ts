@@ -4,11 +4,11 @@
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { existsSync, statSync, readdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard, copyEmailReplyToClipboard,
-    copyDirectoryBestEffort, findDirByName, findDirByChildren, findFileByMetadata, locateByMarker,
+    copyDirectoryBestEffort, copyFileVerified, findDirByName, findDirByChildren, findFileByMetadata, locateByMarker,
     setTimerWindowTopmost, movePath
 } from '../os/shell';
 import type { DirChildHint } from '../os/shell';
@@ -159,6 +159,58 @@ osRouter.get('/copy-template', (req: Request, res: Response) => {
         return res.json({ ok: true, target, copied: result.copied, skipped: result.skipped });
     } catch (err: any) {
         return res.status(500).json({ error: err?.message || String(err), source, target });
+    }
+});
+
+// Copy one file by absolute paths. This is used for Word revisions in folders
+// beyond the browser/Win32 MAX_PATH boundary and verifies the byte count.
+osRouter.get('/copy-file', (req: Request, res: Response) => {
+    const source = path.normalize(q(req, 'source'));
+    const target = path.normalize(q(req, 'target'));
+    const sourceFs = process.platform === 'win32' ? path.toNamespacedPath(source) : source;
+    const targetFs = process.platform === 'win32' ? path.toNamespacedPath(target) : target;
+    if (!source || !target || !path.isAbsolute(source) || !path.isAbsolute(target)) return res.status(400).json({ error: 'Absolute source and target paths are required.' });
+    if (!existsSync(sourceFs) || !statSync(sourceFs).isFile()) return res.status(404).json({ error: 'Source file does not exist.', source });
+    if (!existsSync(path.dirname(targetFs)) || !statSync(path.dirname(targetFs)).isDirectory()) return res.status(404).json({ error: 'Target folder does not exist.', target });
+    if (existsSync(targetFs)) return res.status(409).json({ error: 'Target file already exists.', target });
+    try {
+        copyFileVerified(source, target);
+        return res.json({ ok: true, target, size: statSync(targetFs).size });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || String(err), source, target });
+    }
+});
+
+const alarmSettingsFile = (folderRaw: string) => path.join(path.normalize(folderRaw), 'OpportunityOS-Alarmas.json');
+
+osRouter.get('/alarm-settings', (req: Request, res: Response) => {
+    const folder = q(req, 'folder').trim();
+    if (!folder || !path.isAbsolute(folder)) return res.status(400).json({ error: 'Select an absolute shared folder path.' });
+    const file = alarmSettingsFile(folder);
+    if (!existsSync(file)) return res.status(404).json({ error: 'No shared alarm configuration exists in this folder yet.' });
+    try {
+        const value = JSON.parse(readFileSync(file, 'utf8'));
+        if (!Array.isArray(value?.alarms)) return res.status(422).json({ error: 'The shared alarm file is invalid.' });
+        return res.json({ alarms: value.alarms, updatedAt: value.updatedAt || null });
+    } catch (err: any) {
+        return res.status(500).json({ error: err?.message || 'Could not read the shared alarm file.' });
+    }
+});
+
+osRouter.put('/alarm-settings', (req: Request, res: Response) => {
+    const folder = typeof req.body?.folderPath === 'string' ? req.body.folderPath.trim() : '';
+    const alarms = req.body?.alarms;
+    if (!folder || !path.isAbsolute(folder) || !existsSync(folder) || !statSync(folder).isDirectory()) return res.status(400).json({ error: 'The shared folder does not exist.' });
+    if (!Array.isArray(alarms)) return res.status(400).json({ error: 'Alarm settings must be an array.' });
+    const file = alarmSettingsFile(folder);
+    const temporary = `${file}.tmp-${process.pid}`;
+    try {
+        writeFileSync(temporary, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), alarms }, null, 2), 'utf8');
+        renameSync(temporary, file);
+        return res.json({ ok: true, file });
+    } catch (err: any) {
+        try { if (existsSync(temporary)) rmSync(temporary, { force: true }); } catch { /* best effort */ }
+        return res.status(500).json({ error: err?.message || 'Could not publish the shared alarm file.' });
     }
 });
 

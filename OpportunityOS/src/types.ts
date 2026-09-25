@@ -96,11 +96,13 @@ export interface CommercialInternalRevision {
 }
 
 export interface ProposalAlarmPolicy {
-  /** Age in days expected for a proposal with no Scope answers yet. */
+  /** Formula generation the stored values belong to (see PROPOSAL_ALARM_FORMULA_VERSION). */
+  formulaVersion?: number;
+  /** Base: the target never drops below this many days (Excel "Base"). */
   defaultDays: number;
-  /** Expected age by Type of Proposal label, e.g. Green field or Migration. */
+  /** Days added by each selected Type of Proposal, e.g. Green field or Migration. */
   scopeDays: Record<string, number>;
-  /** The largest matching tier adds its days to the Scope base. */
+  /** The largest matching tier adds its days to the sum. `complexityMultiplier` is legacy and ignored. */
   amountTiers: Array<{ minAmount: number; extraDays: number; complexityMultiplier?: number }>;
   /** Percentage of the calculated target at which the card becomes Warning. */
   warningPercent: number;
@@ -112,16 +114,19 @@ export interface ProposalAlarmPolicy {
   criticalOffsetDays: number;
   /** Additional days by commercial commitment level. Firm proposals normally require more validation. */
   quoteTypeDays: { Budgetary: number; Firm: number };
-  /** Percentage of the normal target retained for each revision difficulty. */
+  /** Multiplier (as % of the summed days) for each revision difficulty. */
   revisionPercent: { light: number; major: number };
   /** Additional days by an individual Scope option, including cabinets and resale bands. */
   scopeItemDays: Record<string, number>;
-  /**
-   * How much the tender owner's own estimate pulls the final target, 0-100.
-   * The estimate is a strong opinion, not an override: the target is a weighted blend of it
-   * and the Scope calculation. 100 reproduces the old behaviour (estimate wins outright),
-   * 0 ignores the estimate entirely.
-   */
+  /** Excel-style target formula, e.g. ROUND(MAX(BASE, DIAS * MULT)). See services/alarmFormula.ts. */
+  targetFormula?: string;
+  /** Scope labels that act as a multiplier (as % of the summed days) instead of adding days, e.g. Similar/Copy, Split. */
+  scopeMultiplierPercent?: Record<string, number>;
+  /** Positive or negative days by the Scope's optional Execution Center (Mexico, USA, Canada). */
+  executionCenterDays?: Record<string, number>;
+  /** @deprecated Replaced by executionCenterDays; read once as a migration source. */
+  countryDays?: Record<string, number>;
+  /** @deprecated Older settings may still contain this value; calculations ignore it. */
   tenderEstimateWeightPercent?: number;
 }
 
