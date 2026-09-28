@@ -129,6 +129,7 @@ Base revisada: `81ecb3e` (`origin/Actualizacion` antes de este changeset).
 - `engine_opportunityos.bat`
 - `scripts/check-for-update.ps1`
 - `scripts/install-update-v2.ps1`
+- `scripts/install-source-mode.ps1` (nuevo; solo para copias del repositorio)
 - `scripts/publish-update.ps1`
 - `scripts/verify-offline-runtime.ps1` (nuevo)
 - `THIRD_PARTY_NOTICES.txt` (nuevo)
@@ -183,6 +184,43 @@ Resultados obtenidos antes del commit y push:
 También se ejecutó `git fetch origin Actualizacion main` antes del commit. La
 rama remota `Actualizacion` seguía exactamente en la base revisada `81ecb3e` y
 `main` permanecía sin cambios en `8423b32`.
+
+## Corrección posterior: reinstalación desde archivos fuente
+
+Después del primer commit del changeset se restauró el flujo usado para copiar
+una versión nueva encima de una carpeta existente y ejecutar nuevamente el
+instalador o el engine:
+
+- `INSTALAR_OPPORTUNITYOS.hta` detecta automáticamente el tipo de carpeta.
+- Con `offline-runtime.json`, conserva la verificación estricta del paquete
+  publicado y nunca instala ni compila en la PC destino.
+- Sin ese manifiesto, reconoce una copia del repositorio, valida Node.js/npm,
+  repara dependencias, genera `dist` y vuelve a crear los accesos directos.
+- `engine_opportunityos.bat` ofrece la misma recuperación cuando HTA/VBS está
+  bloqueado o se ejecuta el motor directamente.
+- El marcador `.opportunityos-setup-complete` se sobrescribe con el modo realmente
+  validado, por lo que un marcador oculto de una instalación anterior no impide
+  reparar la carpeta.
+- `scripts/install-source-mode.ps1` encapsula el modo fuente sin borrar datos ni
+  requerir elevación.
+- `scripts/publish-update.ps1` excluye expresamente ese helper de los ZIP oficiales;
+  por ello un paquete publicado incompleto no puede caer al modo fuente.
+
+Verificación de esta corrección:
+
+| Comprobación | Resultado |
+| --- | --- |
+| Parseo del JavaScript inline de `INSTALAR_OPPORTUNITYOS.hta` | PASS |
+| Parseo de `install-source-mode.ps1` y `publish-update.ps1` | PASS, 2/2 |
+| Aserciones de enrutamiento dual y exclusión del helper | PASS |
+| `npx tsc --noEmit` | PASS |
+| `npm run build` | PASS; solo warning conocido de chunks grandes |
+| `git diff --check` | PASS; solo avisos informativos LF→CRLF |
+
+Por la regla de seguridad de instaladores, no se ejecutó automáticamente el HTA,
+el engine en modo instalación ni el publicador. La prueba manual recomendada es
+copiar los archivos versionados a una carpeta de prueba sin `node_modules`/`dist`
+y ejecutar `INSTALAR_OPPORTUNITYOS.vbs` con Node.js/npm disponibles.
 
 ## Riesgos residuales y prueba manual recomendada
 

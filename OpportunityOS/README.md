@@ -38,6 +38,18 @@ Windows bloquea los archivos VBS/HTA, usa `OPEN_OPPORTUNITYOS.bat`.
 La aplicación se abre en **`http://127.0.0.1:3000`**. El servicio local de
 archivos corre en el puerto **`3099`**.
 
+### Instalación desde una copia del código fuente
+
+Si en lugar del ZIP publicado se copian los archivos del repositorio a una
+carpeta limpia, el mismo `INSTALAR_OPPORTUNITYOS.vbs` detecta automáticamente
+el modo fuente. En ese caso sí requiere Node.js y npm disponibles en el `PATH`,
+puede necesitar acceso a Internet, repara `node_modules` y genera `dist` antes
+de crear los accesos directos. Este modo permite reemplazar manualmente el
+contenido de una instalación y reconstruirla en la misma ruta.
+
+El paquete oficial nunca usa este fallback: el script de reparación desde
+fuentes se excluye expresamente del ZIP publicado.
+
 Para abrirla como una pestaña del navegador usa `OPEN_OPPORTUNITYOS_BROWSER.vbs`
 o `OPEN_OPPORTUNITYOS_BROWSER.bat`. Para cerrar la aplicación y liberar sus
 puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`.

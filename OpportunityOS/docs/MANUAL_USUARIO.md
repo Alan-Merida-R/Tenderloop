@@ -54,6 +54,16 @@ Lo que verás:
 La instalación no accede a Internet. Los puertos 3000 y 3099 son conexiones
 internas de la misma computadora y no quedan expuestos a la red de la oficina.
 
+### Alternativa: carpeta copiada desde el repositorio
+
+Si recibiste los archivos fuente en vez del ZIP oficial, ejecuta igualmente
+`INSTALAR_OPPORTUNITYOS.vbs`. El instalador detectará ese formato y mostrará los
+pasos **Check Node.js and npm**, **Install or repair dependencies** y **Build
+Tender Control**. Este modo necesita Node.js/npm y posiblemente Internet; puede
+repararse en la misma carpeta sin desinstalar ni borrar datos del usuario.
+
+Para usuarios finales sigue siendo preferible el ZIP oficial offline.
+
 > **Si aparece "SmartScreen" de Windows** al hacer doble clic:
 > Haz clic en **Más información** → **Ejecutar de todas formas**. El script es tuyo, no hay riesgo.
 

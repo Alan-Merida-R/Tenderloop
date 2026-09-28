@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The embedded SOW was reorganized into a leaner non-duplicated guided flow, shorter section names, clearer top-level scope blocks, connected contract logic and a lighter review/navigation experience.
 
 ### Fixed
+- Restored in-place installation from a manually copied source folder: setup now detects the absence of an offline manifest, validates local Node.js/npm, repairs dependencies and builds `dist` before creating shortcuts. The batch engine has the same recovery path when HTA/VBS is blocked. Official release ZIPs remain strictly offline because the source-mode helper is excluded during publication.
 - Fixed permanent deletion from the folder UI by routing single and multi-item removal exclusively through the Windows Recycle Bin.
 - Fixed ghost or inconsistent multi-selection after refresh, search, navigation and Ctrl-click deselection.
 - Fixed replacement/template folders retaining an obsolete handle/path when the new folder was empty or not indexed yet.

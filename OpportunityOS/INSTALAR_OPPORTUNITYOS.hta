@@ -171,7 +171,7 @@
   <div class="shell">
     <div class="header">
       <h1 class="title">Tender Control Setup</h1>
-      <p class="subtitle">Verifying and installing the self-contained offline Windows app.</p>
+      <p class="subtitle">Installing an official offline package or repairing a copied source folder.</p>
     </div>
 
     <div class="content">
@@ -182,9 +182,9 @@
       <div class="progress"><div id="bar" class="bar"></div></div>
 
       <div class="steps">
-        <div id="step1" class="step">1. Verify offline runtime</div>
-        <div id="step2" class="step">2. Check packaged files</div>
-        <div id="step3" class="step">3. Confirm local-only services</div>
+        <div id="step1" class="step">1. Detect installation type</div>
+        <div id="step2" class="step">2. Prepare application files</div>
+        <div id="step3" class="step">3. Verify local application</div>
         <div id="step4" class="step">4. Create shortcuts</div>
         <div id="step5" class="step">5. Finish setup</div>
       </div>
@@ -207,6 +207,7 @@
     var pollTimer = null;
     var stepIndex = 0;
     var launchAttempt = 0;
+    var installKind = "offline";
 
     window.onerror = function (message, url, line) {
       var detail = "Setup encountered an unexpected error. Please keep this window open and report: " + message + " (line " + line + ")";
@@ -338,6 +339,15 @@
       el("closeBtn").disabled = true;
       el("log").value = "";
 
+      if (!fso.FileExists(scriptDir + "\\offline-runtime.json")) {
+        startSourceInstall();
+        return;
+      }
+
+      installKind = "offline";
+      el("step1").innerText = "1. Verify offline runtime";
+      el("step2").innerText = "2. Check packaged files";
+      el("step3").innerText = "3. Confirm local-only services";
       setStep(1, "Verifying offline runtime");
       var verifier = scriptDir + "\\scripts\\verify-offline-runtime.ps1";
       if (!fso.FileExists(verifier)) {
@@ -351,6 +361,48 @@
         }
         verifyOpportunityOS();
       });
+    }
+
+    function startSourceInstall() {
+      installKind = "source";
+      el("step1").innerText = "1. Check Node.js and npm";
+      el("step2").innerText = "2. Install or repair dependencies";
+      el("step3").innerText = "3. Build Tender Control";
+      var sourceInstaller = scriptDir + "\\scripts\\install-source-mode.ps1";
+      if (!fso.FileExists(sourceInstaller) || !fso.FileExists(scriptDir + "\\package.json") || !fso.FileExists(scriptDir + "\\package-lock.json")) {
+        failInstall("This source copy is incomplete. Copy the complete project again or use the official release ZIP.");
+        return;
+      }
+
+      logLine("[INFO] Source-copy mode detected. This mode uses Node.js/npm from this PC and may require Internet access.");
+      setStep(1, "Checking Node.js and npm");
+      runSourcePhase(sourceInstaller, "Validate", function (code) {
+        if (code !== 0) {
+          failInstall("Node.js and npm were not found or could not start. Install Node.js LTS for this user, then retry; alternatively use the official offline release ZIP.");
+          return;
+        }
+        setStep(2, "Installing or repairing dependencies");
+        runSourcePhase(sourceInstaller, "Dependencies", function (dependencyCode) {
+          if (dependencyCode !== 0) {
+            failInstall("Dependencies could not be installed. Check the installer log, network/proxy access and antivirus locks, then retry in the same folder.");
+            return;
+          }
+          setStep(3, "Building Tender Control");
+          runSourcePhase(sourceInstaller, "Build", function (buildCode) {
+            if (buildCode !== 0 || !fso.FileExists(scriptDir + "\\node_modules\\vite\\bin\\vite.js") || !fso.FileExists(scriptDir + "\\node_modules\\tsx\\dist\\cli.mjs") || !fso.FileExists(scriptDir + "\\dist\\index.html")) {
+              failInstall("Tender Control could not be built from this source copy. Review the log and retry; existing user data was not changed.");
+              return;
+            }
+            logLine("[OK] Source dependencies and production build are ready.");
+            logLine("[OK] Frontend and backend remain restricted to 127.0.0.1.");
+            finishOpportunityOSSetup();
+          });
+        });
+      });
+    }
+
+    function runSourcePhase(sourceInstaller, phase, onDone) {
+      runCommand("powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + sourceInstaller + "\" -ProjectRoot \"" + scriptDir + "\" -Phase " + phase, onDone);
     }
 
     function verifyOpportunityOS() {
@@ -382,10 +434,12 @@
       }
       createShortcuts();
 
-      // Record that this extracted offline package passed local verification.
+      // Record the verified mode. Re-running setup overwrites stale markers from
+      // older installers, so a copied source folder can repair itself in place.
       var marker = fso.CreateTextFile(scriptDir + "\\.opportunityos-setup-complete", true);
       marker.WriteLine("Tender Control setup completed successfully.");
-      marker.WriteLine("offline=true");
+      marker.WriteLine("offline=" + (installKind === "offline" ? "true" : "false"));
+      marker.WriteLine("source=" + (installKind === "source" ? "true" : "false"));
       marker.Close();
 
       setStep(5, "Setup complete");

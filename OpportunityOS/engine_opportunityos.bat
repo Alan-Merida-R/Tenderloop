@@ -87,7 +87,8 @@ if not exist "%NODE_EXE%" (
 )
 
 :: --- Release packages contain the already reviewed dependencies and build.
-:: Never download packages or compile code on the user's corporate computer.
+:: A manually copied source tree can repair itself with the separate source-mode
+:: helper, which the release publisher deliberately excludes from official ZIPs.
 if "%MODE%"=="VISIBLE" echo [3/5] Checking packaged application files... 2 steps remaining.
 if "%MODE%"=="INSTALL" echo [3/5] Checking packaged application files... 2 steps remaining.
 if not exist "node_modules\tsx\dist\cli.mjs" goto :offline_files_missing
@@ -96,13 +97,30 @@ if not exist "dist\index.html" goto :offline_files_missing
 goto :offline_files_ready
 
 :offline_files_missing
+if not exist "%~dp0offline-runtime.json" if exist "%~dp0scripts\install-source-mode.ps1" (
+    if not "%MODE%"=="HIDDEN" echo [INFO] Source-copy mode detected. Installing dependencies and building Tender Control...
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-source-mode.ps1" -ProjectRoot "%~dp0" -Phase Validate
+    if errorlevel 1 goto :source_setup_failed
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-source-mode.ps1" -ProjectRoot "%~dp0" -Phase Dependencies
+    if errorlevel 1 goto :source_setup_failed
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install-source-mode.ps1" -ProjectRoot "%~dp0" -Phase Build
+    if errorlevel 1 goto :source_setup_failed
+    goto :offline_files_ready
+)
 echo [ERROR] This package is incomplete. Tender Control will not download or repair files from the internet.
 echo [ERROR] Extract the complete official release ZIP and run the installer again.
 if not "%MODE%"=="HIDDEN" pause
 exit /b 1
 
+:source_setup_failed
+echo [ERROR] Tender Control could not prepare this source copy.
+echo [ERROR] Review the messages above, then retry the installer in the same folder.
+if not "%MODE%"=="HIDDEN" pause
+exit /b 1
+
 :offline_files_ready
-if "%MODE%"=="INSTALL" echo [OK] Offline application files are ready. No internet connection is required.
+if "%MODE%"=="INSTALL" if exist "%~dp0offline-runtime.json" echo [OK] Offline application files are ready. No internet connection is required.
+if "%MODE%"=="INSTALL" if not exist "%~dp0offline-runtime.json" echo [OK] Source dependencies and production build are ready.
 
 if "%MODE%"=="INSTALL" (
     echo [4/5] Creating desktop and Start Menu shortcuts... 1 step remaining.

@@ -82,7 +82,7 @@ try {
     # Copy only version-controlled application files. This prevents local JSON
     # databases, exports, logs, AI files and scratch folders from entering a
     # release even when they happen to live below the project directory.
-    $excludedReleaseNames = @('AGENTS.md', 'CLAUDE.md', 'CODEX.md', 'GEMINI.md', 'release-manifest.json', 'offline-runtime.json')
+    $excludedReleaseNames = @('AGENTS.md', 'CLAUDE.md', 'CODEX.md', 'GEMINI.md', 'release-manifest.json', 'offline-runtime.json', 'install-source-mode.ps1')
     $trackedFiles = @(& git.exe -C $projectRoot ls-files -- .)
     if ($LASTEXITCODE -ne 0 -or $trackedFiles.Count -eq 0) { throw 'Could not enumerate version-controlled release files.' }
     foreach ($relativePath in $trackedFiles) {
