@@ -26,6 +26,9 @@ Tenderloop/
 
 Cada aplicacion con dependencias Node tiene su propio `package.json` y se
 instala desde su respectiva carpeta. No existe un `package.json` en la raiz.
+El paquete publicado de OpportunityOS es autocontenido: incluye `dist`,
+`node_modules` y un runtime Node.js x64 validado. La PC destino no ejecuta npm,
+no compila y no necesita acceso a Internet para instalar o actualizar.
 
 ## Servicio local (puerto 3099)
 

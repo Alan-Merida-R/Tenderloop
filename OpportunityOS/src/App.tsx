@@ -1717,8 +1717,10 @@ function App() {
       const active = uniqueMigratedOpps
         .filter(o => !['Submitted', 'Won', 'Lost', 'Canceled'].includes(o.statusLabel) && o.detailedStatus !== 'Completed' && o.detailedStatus !== 'Canceled')
         .sort((a, b) => {
-          const aRank = Number(a.priorityOrder) || Number.MAX_SAFE_INTEGER;
-          const bRank = Number(b.priorityOrder) || Number.MAX_SAFE_INTEGER;
+          // Same validity rule as rebalancePriorities: 0, negatives, NaN and text count as unranked.
+          const rankOf = (opp: Opportunity) => { const r = Number(opp.priorityOrder); return Number.isFinite(r) && r > 0 ? r : Number.MAX_SAFE_INTEGER; };
+          const aRank = rankOf(a);
+          const bRank = rankOf(b);
           if (aRank !== bRank) return aRank - bRank;
           const aDate = a.kpis?.timeline?.receivedAt || a.dates?.requested || '';
           const bDate = b.kpis?.timeline?.receivedAt || b.dates?.requested || '';
@@ -1928,7 +1930,12 @@ function App() {
   const deleteOpportunity = useCallback((id: string) => {
     if (!isDbLoaded) return;
     setSelectedOppId(null);
-    setDb(current => ({ ...current, opportunities: current.opportunities.filter(o => o.id !== id) }));
+    // Close the gap the deleted item leaves so ranks stay a dense 1..N.
+    setDb(current => {
+      const kept = current.opportunities.filter(o => o.id !== id);
+      const rebalanced = rebalancePrioritiesRef.current(kept);
+      return { ...current, opportunities: rebalanced.length === kept.length ? rebalanced : kept };
+    });
     // Auto-save effect will handle persistence
   }, [isDbLoaded]);
 

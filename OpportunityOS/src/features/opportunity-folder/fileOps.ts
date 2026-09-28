@@ -346,8 +346,11 @@ export const openAbsolutePath = async (absolute: string): Promise<void> => {
 
   let resp: Response;
   try {
-    resp = await fetch(`${OPEN_HELPER_URL}/open?${qs}`);
+    resp = await fetch(`${OPEN_HELPER_URL}/open?${qs}`, { signal: AbortSignal.timeout(8000) });
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new Error(`Opening "${absolute}" took too long. Restart Tender Control and try again.`);
+    }
     throw new Error(
       'Could not connect to the local helper (port 3099).\n' +
       'Close Tender Control and reopen it with OPEN_OPPORTUNITYOS to start the helper.'
@@ -379,9 +382,25 @@ export const toAbsolutePath = (rootPathDisplay: string, relativePath: string[]):
 export const openManyNative = async (rootPathDisplay: string, relativePaths: string[][]): Promise<void> => {
   const absolutes = relativePaths.map(rel => buildAbsolutePath(rootPathDisplay, rel));
   const qs = new URLSearchParams({ paths: JSON.stringify(absolutes) }).toString();
-  const resp = await fetch(`${OPEN_HELPER_URL}/open-many?${qs}`).catch(() => null);
-  if (resp && resp.ok) return;
-  // Fallback: open each path individually via the legacy single-open endpoint.
+  let resp: Response | null = null;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/open-many?${qs}`, { signal: AbortSignal.timeout(10000) });
+  } catch { /* handled below */ }
+  if (resp?.ok) {
+    const body = await resp.json().catch(() => ({}));
+    const missing = Array.isArray(body?.missing) ? body.missing : [];
+    if (missing.length) {
+      throw new Error(`${missing.length} selected item(s) could not be opened because they no longer exist.`);
+    }
+    return;
+  }
+  // Only a helper that predates /open-many should use the individual fallback.
+  // Retrying after another server error could open the successful half twice.
+  if (resp && resp.status !== 404) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body?.error || `Could not open the selected items (error ${resp.status}).`);
+  }
+  if (!resp) throw new Error('The local helper did not respond while opening the selected items. Restart Tender Control and try again.');
   for (const rel of relativePaths) {
     await openInNativeApp(rootPathDisplay, rel);
   }
@@ -413,6 +432,37 @@ export interface MoveResult {
   moved: { source: string; target: string }[];
   failed: { source: string; error: string }[];
 }
+
+export interface RecycleResult {
+  recycled: string[];
+  failed: { path: string; error: string }[];
+}
+
+/**
+ * Send files/folders to the Windows Recycle Bin through the local helper.
+ * Never falls back to FileSystemHandle.remove(), because that is permanent.
+ */
+export const recycleViaHelper = async (absolutePaths: string[]): Promise<RecycleResult> => {
+  let resp: Response;
+  try {
+    resp = await fetch(`${OPEN_HELPER_URL}/recycle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: absolutePaths }),
+    });
+  } catch {
+    throw new Error('Could not connect to the local helper (port 3099). Nothing was deleted. Reopen Tender Control with OPEN_OPPORTUNITYOS and try again.');
+  }
+  const body = await resp.json().catch(() => ({}));
+  if (resp.status === 404) {
+    throw new Error('The local helper is out of date and does not support the Recycle Bin yet. Close and reopen Tender Control, then try again. Nothing was deleted.');
+  }
+  if (!resp.ok) throw new Error(body?.error || `Recycle Bin operation failed with error ${resp.status}. Nothing was deleted.`);
+  return {
+    recycled: Array.isArray(body?.recycled) ? body.recycled : [],
+    failed: Array.isArray(body?.failed) ? body.failed : [],
+  };
+};
 
 /**
  * Move files/folders on disk through the local helper (a real OS rename).
@@ -645,9 +695,13 @@ export const locateFolderPathWithMarker = async (
     // answer at once; the retries only matter for a folder found nowhere near.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const resp = await fetch(`${OPEN_HELPER_URL}/locate?${qs}`).catch(() => null);
-      if (resp && resp.ok) {
+      if (resp) {
         const body = await resp.json().catch(() => null);
-        if (body?.path) return body.path as string;
+        if (resp.ok && body?.path) return body.path as string;
+        // Current helpers already checked the index, nearby roots and every mounted
+        // filesystem location. Retrying that complete scan cannot improve the result;
+        // older helpers omit the flag and retain the index-delay retries below.
+        if (resp.status === 404 && body?.searchComplete) return null;
       }
       if (attempt < 2) await new Promise(resolve => window.setTimeout(resolve, 600));
     }

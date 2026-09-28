@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
 set "SILENT=%~1"
+set "OPPORTUNITYOS_CLOSE_ROOT=%~dp0"
 
 if /i not "%SILENT%"=="SILENT" (
     title Cerrar Tender Control
@@ -10,10 +11,9 @@ if /i not "%SILENT%"=="SILENT" (
     echo ==========================================
 )
 
-:: Close exactly the processes LISTENING on OpportunityOS's reserved local ports.
-:: Get-NetTCPConnection is reliable here; parsing netstat text could select a
-:: client connection instead of the listener and leave an old Vite process up.
-powershell.exe -NoProfile -Command "$ports = @(3000,3099); $connections = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }); $processIds = @($connections | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($processId in $processIds) { try { Stop-Process -Id $processId -Force -ErrorAction Stop; Write-Output ('[OK] Closed Tender Control local process ' + $processId) } catch { Write-Output ('[WARN] Could not close process ' + $processId) } }; Start-Sleep -Milliseconds 400; $remaining = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }); if ($remaining.Count -gt 0) { exit 1 }"
+:: Only close listeners whose executable or command line belongs to this exact
+:: Tender Control folder. A different application using 3000/3099 is never killed.
+powershell.exe -NoProfile -Command "$ports=@(3000,3099); $root=[IO.Path]::GetFullPath($env:OPPORTUNITYOS_CLOSE_ROOT).TrimEnd('\'); $listeners=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }); $blocked=$false; foreach($listener in $listeners){ $processId=$listener.OwningProcess; $owned=$false; try { $process=Get-Process -Id $processId -ErrorAction Stop; $executable=$process.Path; if($executable -and $executable.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)){ $owned=$true } } catch {}; if(-not $owned){ try { $commandLine=(Get-CimInstance Win32_Process -Filter ('ProcessId = '+$processId) -ErrorAction Stop).CommandLine; if($commandLine -and $commandLine.IndexOf($root,[StringComparison]::OrdinalIgnoreCase) -ge 0){ $owned=$true } } catch {} }; if($owned){ try { Stop-Process -Id $processId -Force -ErrorAction Stop; Write-Output ('[OK] Closed Tender Control local process '+$processId) } catch { Write-Output ('[WARN] Could not close Tender Control process '+$processId); $blocked=$true } } else { Write-Output ('[WARN] Port '+$listener.LocalPort+' belongs to another application and was not closed.'); $blocked=$true } }; Start-Sleep -Milliseconds 400; if($blocked -or @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }).Count -gt 0){exit 1}"
 if errorlevel 1 (
     echo [WARN] A process is still using Tender Control port 3000 or 3099.
     if /i not "%SILENT%"=="SILENT" pause

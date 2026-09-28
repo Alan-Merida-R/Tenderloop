@@ -32,6 +32,7 @@ import {
   mergeFolderPaths,
 } from '../src/services/opportunityFolderStore';
 import { buildAbsolutePath, normalizeWindowsPath, relativeFromAbsolute } from '../src/features/opportunity-folder/fileOps';
+import { computeExplorerSelection } from '../src/features/opportunity-folder/selectionUtils';
 
 let passed = 0;
 const results: string[] = [];
@@ -94,6 +95,77 @@ test('path: reuse candidates ignore the legacy unkeyed entry and empty values', 
 test('path: empty input resolves to empty, never throws', () => {
   assert.equal(resolveFolderPathFromDb(undefined, 'R0'), '');
   assert.equal(resolveFolderPathFromDb({}, 'R0'), '');
+});
+
+// ---------------------------------------------------------------------------
+// Explorer-style Ctrl/Shift selection
+// ---------------------------------------------------------------------------
+
+const selection = (
+  selected: string[],
+  clickedKey: string,
+  options: { active?: string | null; anchor?: string | null; ctrl?: boolean; shift?: boolean } = {},
+) => computeExplorerSelection({
+  orderedKeys: ['A', 'B', 'C', 'D', 'E'],
+  selectedKeys: new Set(selected),
+  activeKey: options.active ?? selected.at(-1) ?? null,
+  anchorKey: options.anchor ?? selected[0] ?? null,
+  clickedKey,
+  ctrlOrMeta: !!options.ctrl,
+  shift: !!options.shift,
+});
+
+test('selection: Ctrl+click adds a file and makes it active', () => {
+  const result = selection(['A'], 'C', { active: 'A', anchor: 'A', ctrl: true });
+  assert.deepEqual([...result.selectedKeys], ['A', 'C']);
+  assert.equal(result.activeKey, 'C');
+  assert.equal(result.anchorKey, 'C');
+});
+
+test('selection: Ctrl+click removes the active file and activates a remaining selection', () => {
+  const result = selection(['A', 'C'], 'C', { active: 'C', anchor: 'C', ctrl: true });
+  assert.deepEqual([...result.selectedKeys], ['A']);
+  assert.equal(result.activeKey, 'A');
+});
+
+test('selection: Ctrl+click removes a non-active file without changing the active file', () => {
+  const result = selection(['A', 'C'], 'A', { active: 'C', anchor: 'C', ctrl: true });
+  assert.deepEqual([...result.selectedKeys], ['C']);
+  assert.equal(result.activeKey, 'C');
+});
+
+test('selection: Ctrl+click on the last file leaves no ghost active selection', () => {
+  const result = selection(['B'], 'B', { active: 'B', anchor: 'B', ctrl: true });
+  assert.equal(result.selectedKeys.size, 0);
+  assert.equal(result.activeKey, null);
+  assert.equal(result.anchorKey, 'B');
+});
+
+test('selection: plain click replaces a previous multi-selection', () => {
+  const result = selection(['A', 'C'], 'E');
+  assert.deepEqual([...result.selectedKeys], ['E']);
+  assert.equal(result.activeKey, 'E');
+  assert.equal(result.anchorKey, 'E');
+});
+
+test('selection: Shift+click selects the contiguous anchor range', () => {
+  const result = selection(['B'], 'E', { active: 'B', anchor: 'B', shift: true });
+  assert.deepEqual([...result.selectedKeys], ['B', 'C', 'D', 'E']);
+  assert.equal(result.activeKey, 'E');
+  assert.equal(result.anchorKey, 'B');
+});
+
+test('selection: Ctrl+Shift+click adds a range without dropping prior selections', () => {
+  const result = selection(['A', 'C'], 'E', { active: 'A', anchor: 'C', ctrl: true, shift: true });
+  assert.deepEqual([...result.selectedKeys], ['A', 'C', 'D', 'E']);
+  assert.equal(result.activeKey, 'E');
+});
+
+test('selection: stale keys from another folder are pruned before Ctrl+click', () => {
+  const result = selection(['OLD/FOLDER', 'B'], 'D', { active: 'OLD/FOLDER', anchor: 'OLD/FOLDER', ctrl: true });
+  assert.deepEqual([...result.selectedKeys], ['B', 'D']);
+  assert.equal(result.activeKey, 'D');
+  assert.equal(result.anchorKey, 'D');
 });
 
 // ---------------------------------------------------------------------------
@@ -270,6 +342,31 @@ test('store: recording a path marks the folder linked and never blanks it', () =
   assert.equal(bridge.current().folderLinked, true);
   setFolderPath('opp-1', 'R1', '   '); // a failed auto-detect must be ignored
   assert.equal(bridge.current().folderPaths?.R1, 'C:\\Projects\\Opp');
+});
+
+test('store: changing the linked folder replaces the old path for that revision', () => {
+  const bridge = makeBridge('sync');
+  setFolderPath('opp-1', 'R1', 'C:\\Old Project\\R1');
+  setFolderPath('opp-1', 'R1', 'G:\\Mi unidad\\New Project\\R1');
+  assert.deepEqual(bridge.current().folderPaths, { R1: 'G:\\Mi unidad\\New Project\\R1' });
+  assert.equal(resolveFolderPathFromDb(bridge.current().folderPaths, 'R1'), 'G:\\Mi unidad\\New Project\\R1');
+});
+
+test('store: changing one revision never changes another revision folder', () => {
+  const bridge = makeBridge('sync');
+  setFolderPath('opp-1', 'R0', 'C:\\Project\\R0');
+  setFolderPath('opp-1', 'R1', 'C:\\Project\\R1-old');
+  setFolderPath('opp-1', 'R1', 'D:\\Project Copy\\R1');
+  assert.equal(bridge.current().folderPaths?.R0, 'C:\\Project\\R0');
+  assert.equal(bridge.current().folderPaths?.R1, 'D:\\Project Copy\\R1');
+});
+
+test('store: template root and template revision paths persist exactly as selected', () => {
+  const bridge = makeBridge('sync');
+  setFolderPath('opp-1', 'R0', 'G:\\Bids\\Opportunity Alpha');
+  setFolderPath('opp-1', 'R0.1', 'G:\\Bids\\Opportunity Alpha\\R0.1');
+  assert.equal(resolveFolderPathFromDb(bridge.current().folderPaths, 'R0'), 'G:\\Bids\\Opportunity Alpha');
+  assert.equal(resolveFolderPathFromDb(bridge.current().folderPaths, 'R0.1'), 'G:\\Bids\\Opportunity Alpha\\R0.1');
 });
 
 test('store: a path write does not clobber a pin written in the same tick', () => {

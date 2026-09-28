@@ -105,10 +105,16 @@ const openFolderForeground = async (target: string): Promise<void> => {
     await Promise.race([raise, new Promise<void>(resolve => { setTimeout(resolve, 400); })]);
 };
 
-/** Open a file/folder in its native Windows app. Folders are raised to the front. */
-export const openNative = async (target: string): Promise<void> => {
-    let isDir = false;
-    try { isDir = statSync(target).isDirectory(); } catch { /* treat as file */ }
+/**
+ * Open a file/folder in its native Windows app. Folders are raised to the front.
+ * Callers that already inspected the path can pass the kind so network and cloud
+ * drives are not synchronously queried a second time before the app is launched.
+ */
+export const openNative = async (target: string, knownIsDirectory?: boolean): Promise<void> => {
+    let isDir = knownIsDirectory ?? false;
+    if (knownIsDirectory === undefined) {
+        try { isDir = statSync(target).isDirectory(); } catch { /* treat as file */ }
+    }
     if (isDir) return openFolderForeground(target);
     return openFileForeground(target);
 };
@@ -162,6 +168,108 @@ export const movePath = (source: string, destDir: string, overwrite = false): { 
         if (!existsSync(target)) throw new Error(`The copy to "${target}" could not be verified; nothing was deleted.`);
         rmSync(source, { recursive: true, force: true });
         return { target };
+    }
+};
+
+/**
+ * Send one file or folder to the Windows Recycle Bin.
+ *
+ * Deliberately has no permanent-delete fallback: if Windows cannot recycle the
+ * item (for example on an unsupported location), the caller gets an error and
+ * the item stays in place.
+ */
+export const recyclePath = async (targetRaw: string): Promise<void> => {
+    if (process.platform !== 'win32') throw new Error('The Recycle Bin is only available on Windows.');
+
+    const target = path.resolve(path.normalize(targetRaw));
+    if (!existsSync(target)) throw new Error(`Path does not exist: ${target}`);
+    if (target.toLowerCase() === path.parse(target).root.toLowerCase()) {
+        throw new Error('A drive root cannot be moved to the Recycle Bin.');
+    }
+
+    // IFileOperation is the Windows 8+ shell API whose RECYCLEONDELETE flag means
+    // exactly "recycle, do not permanently delete". Microsoft.VisualBasic's
+    // SendToRecycleBin silently degraded to a permanent delete in our hidden,
+    // non-interactive helper process, which is why deleted files were unrecoverable.
+    const typeDefinition = `
+using System;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("3AD05575-8857-4850-9277-11B85BDB8E09")]
+internal class FileOperationComObject { }
+
+[ComImport, Guid("947AAB5F-0A5C-4C13-B4D6-4BF7836FC9F8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IFileOperation {
+  [PreserveSig] int Advise(IntPtr sink, out uint cookie);
+  [PreserveSig] int Unadvise(uint cookie);
+  [PreserveSig] int SetOperationFlags(uint flags);
+  [PreserveSig] int SetProgressMessage([MarshalAs(UnmanagedType.LPWStr)] string message);
+  [PreserveSig] int SetProgressDialog(IntPtr dialog);
+  [PreserveSig] int SetProperties(IntPtr properties);
+  [PreserveSig] int SetOwnerWindow(uint owner);
+  [PreserveSig] int ApplyPropertiesToItem(IntPtr item);
+  [PreserveSig] int ApplyPropertiesToItems(IntPtr items);
+  [PreserveSig] int RenameItem(IntPtr item, [MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr sink);
+  [PreserveSig] int RenameItems(IntPtr items, [MarshalAs(UnmanagedType.LPWStr)] string name);
+  [PreserveSig] int MoveItem(IntPtr item, IntPtr destination, [MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr sink);
+  [PreserveSig] int MoveItems(IntPtr items, IntPtr destination);
+  [PreserveSig] int CopyItem(IntPtr item, IntPtr destination, [MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr sink);
+  [PreserveSig] int CopyItems(IntPtr items, IntPtr destination);
+  [PreserveSig] int DeleteItem(IntPtr item, IntPtr sink);
+  [PreserveSig] int DeleteItems(IntPtr items);
+  [PreserveSig] int NewItem(IntPtr destination, uint attributes, [MarshalAs(UnmanagedType.LPWStr)] string name, [MarshalAs(UnmanagedType.LPWStr)] string templateName, IntPtr sink);
+  [PreserveSig] int PerformOperations();
+  [PreserveSig] int GetAnyOperationsAborted([MarshalAs(UnmanagedType.Bool)] out bool aborted);
+}
+
+public static class OpportunityOSRecycleOperation {
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+  private static extern int SHCreateItemFromParsingName(
+    [MarshalAs(UnmanagedType.LPWStr)] string path,
+    IntPtr bindContext,
+    ref Guid interfaceId,
+    out IntPtr shellItem);
+
+  public static string Recycle(string path) {
+    IFileOperation operation = null;
+    IntPtr item = IntPtr.Zero;
+    try {
+      operation = (IFileOperation)new FileOperationComObject();
+      // FOFX_RECYCLEONDELETE | FOF_ALLOWUNDO | FOF_NOCONFIRMATION |
+      // FOF_SILENT | FOF_NOERRORUI.
+      int hr = operation.SetOperationFlags(0x00080454);
+      if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      Guid shellItemId = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+      hr = SHCreateItemFromParsingName(path, IntPtr.Zero, ref shellItemId, out item);
+      if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      hr = operation.DeleteItem(item, IntPtr.Zero);
+      if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      hr = operation.PerformOperations();
+      if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      bool aborted;
+      hr = operation.GetAnyOperationsAborted(out aborted);
+      if (hr < 0) Marshal.ThrowExceptionForHR(hr);
+      return aborted ? "ABORTED" : "RECYCLED";
+    } finally {
+      if (item != IntPtr.Zero) Marshal.Release(item);
+      if (operation != null) Marshal.FinalReleaseComObject(operation);
+    }
+  }
+}`;
+
+    const script = [
+        `$p=${psSingleQuote(target)}`,
+        `try {`,
+        `  Add-Type -TypeDefinition ${psSingleQuote(typeDefinition)}`,
+        `  Write-Output ([OpportunityOSRecycleOperation]::Recycle($p))`,
+        `} catch { Write-Output ('RECYCLE_ERROR:' + $_.Exception.Message) }`,
+    ].join('\n');
+
+    // IFileOperation requires a single-threaded COM apartment.
+    const output = await runPowerShell(script, 30000, ['-Sta']);
+    if (!output.includes('RECYCLED') || existsSync(target)) {
+        const detail = output.split('RECYCLE_ERROR:')[1]?.trim();
+        throw new Error(detail || 'Windows could not move the item to the Recycle Bin.');
     }
 };
 
@@ -462,12 +570,14 @@ const scanForDirsNamed = (name: string, roots: string[], budgetMs: number, maxDe
         .filter(r => r && existsSync(r))
         .map(r => ({ dir: path.normalize(r), depth: 0 }));
 
-    while (queue.length > 0) {
+    // An index avoids queue.shift() turning a large scan into quadratic work.
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
         if (Date.now() > deadline) break;
-        const { dir, depth } = queue.shift()!;
+        const { dir, depth } = queue[cursor];
         const lower = dir.toLowerCase();
         if (seen.has(lower)) continue;
         seen.add(lower);
+        if (path.basename(dir).toLowerCase() === wanted) found.push(dir);
         if (depth >= maxDepth) continue;
         let entries;
         try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
@@ -481,6 +591,36 @@ const scanForDirsNamed = (name: string, roots: string[], budgetMs: number, maxDe
         }
     }
     return found;
+};
+
+/**
+ * Last-resort identity lookup for a browser-picked folder.
+ *
+ * The marker is random and written through the exact FileSystemDirectoryHandle,
+ * so this remains safe for empty folders and identical template copies.
+ */
+export const findDirByMarkerScan = (
+    marker: string,
+    folderName: string,
+    roots: string[],
+    budgetMs = 5000,
+    maxDepth = 8,
+): string | null => {
+    if (!marker || /[\\/]/.test(marker) || !folderName) return null;
+    return findDirByMarkerCandidates(
+        marker,
+        folderName,
+        scanForDirsNamed(folderName, roots, budgetMs, maxDepth),
+    );
+};
+
+/** Mounted/local filesystem roots, including mapped and virtual drives. */
+const fileSystemDriveRoots = async (): Promise<string[]> => {
+    const out = await runPs(
+        `Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object { $_.Root }`,
+        2000,
+    ).catch(() => '');
+    return (out || '').split(/\r?\n/).map(root => root.trim()).filter(Boolean);
 };
 
 /**
@@ -623,7 +763,21 @@ export const locateByMarker = async (
         }
     } catch { /* index unavailable â€” fall back to scan */ }
 
-    // A marker that is not indexed yet is preferable to an incorrect path.
-    // Do not recursively scan all local drives from the UI request.
+    // A newly created or empty folder is commonly absent from Windows Search.
+    // Scan known opportunity locations first, then normal user locations and all
+    // mounted filesystem roots (including Google Drive and mapped drives). Every
+    // result is still proven by the unique marker, so this can be slow but not wrong.
+    const nearDirs = near
+        .map(raw => path.normalize(String(raw || '').trim().replace(/[\\/]+$/, '')))
+        .filter(Boolean);
+    const nearRoots = Array.from(new Set(nearDirs.flatMap(candidate => [candidate, path.dirname(candidate)])));
+    const nearby = findDirByMarkerScan(marker, folderName, nearRoots, 2500, 7);
+    if (nearby) return { path: nearby, searchedRoot: 'near-scan' };
+
+    const mountedRoots = await fileSystemDriveRoots();
+    const scanned = findDirByMarkerScan(marker, folderName, userRoots(mountedRoots), 8000, 9);
+    if (scanned) return { path: scanned, searchedRoot: 'filesystem-scan' };
+
+    // Unknown is safer than retaining the path of the previously linked folder.
     return null;
 };

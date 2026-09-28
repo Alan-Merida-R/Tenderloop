@@ -22,11 +22,19 @@ These routes drive a real browser that can be signed in to corporate systems, so
 
 HTML from imported emails, notes and email-template previews is sanitized before it is rendered. Do not bypass `sanitizeHtml()` when adding a new `innerHTML` or `dangerouslySetInnerHTML` rendering path.
 
-## Dependency policy
+## Dependency and offline-installation policy
 
-The Windows installer uses `npm ci --include=dev`, which installs the exact dependency graph in `package-lock.json`.
+The Windows installer and updater never invoke npm, download packages or compile
+code on the target PC. Published releases contain the reviewed `dist`, exact
+`node_modules` tree and an OpenJS-signed x64 Node.js executable. Publishing
+records SHA-256 hashes for every managed file; setup verifies them locally.
+Only the publishing workstation runs the build and dependency checks.
 
-`npm audit --omit=dev` has one remaining advisory for `xlsx` 0.18.5. OpportunityOS uses that library only to **write** the user-requested task-export workbook; it does not parse user-supplied XLSX files. The advisory has no fixed npm release. Replacing this export with a maintained writer is planned before any future feature that imports or parses Excel files.
+SheetJS is pinned to the patched `xlsx` 0.20.3 tarball from the authoritative
+SheetJS CDN because the public npm registry stops at vulnerable 0.18.5. The
+tarball URL and integrity hash are fixed in `package-lock.json`; target PCs do
+not download it. Production and full-tree `npm audit` checks must both report
+zero vulnerabilities before publishing.
 
 Web automation uses `playwright-core`, not the full `playwright` package: `-core` ships the automation client without bundling browser binaries, so installing it downloads no browser and needs no administrator rights. The engine drives the Chrome or Edge already present on the machine.
 

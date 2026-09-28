@@ -31,16 +31,16 @@ import {
   FolderTree,
   CheckCheck,
   GitBranch,
-  History,
   Download
 } from 'lucide-react';
 import { setFolderHandle, verifyPermission, setRootPathDisplay, clearRootPathDisplay, clearFolderHandleOnly, getFolderHandleForRevision, getRootPathDisplayForRevision, folderKey, moveLegacyFolderLinkToRevision, getFolderHandle, resolveFolderPathFromDb, listInheritableFolderPaths, inheritFolderLinkFromRevision } from '../../services/opportunityFolderLink';
 import { inheritPins, reconcileDocsForDirectory, rebindDoc, getDoc, setFolderPath, clearFolderPath } from '../../services/opportunityFolderStore';
-import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, MarkerUnwritableError, relativeFromAbsolute, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
+import { listDirectory, createFolder, uploadFiles, renameEntry, openInNativeApp, searchFiles, copyEntryToDir, moveEntryToDir, locateFolderPath, locateFolderPathWithMarker, MarkerUnwritableError, relativeFromAbsolute, copyToOsClipboard, openManyNative, copyTemplateFromOsPath, copyFileFromOsPath, copyFileAs, copyTemplateEntryToDir, checkOsPath, listDirByPath, moveViaHelper, recycleViaHelper, toAbsolutePath, rememberFolderPathHint, getFolderPathHints, getAvailableEntryName } from './fileOps';
 import { getPins, addPin, removePin, movePin, isPinned, FolderPin } from '../../services/folderPinsStore';
 import { assignFileRevisionFamilyId, deleteFileRevisionEntry, getAllFileRevisionHistory, getFileRevisionHistory, saveFileRevisionEntry, updateFileRevisionEntry, FileRevisionEntry } from '../../services/fileRevisionHistoryStore';
 import { getFileIcon } from './icons';
 import { FileItem } from './types';
+import { computeExplorerSelection } from './selectionUtils';
 import { DocTypeSelector } from '../doc-links/DocTypeSelector';
 import { getMeta, saveMeta, DocMeta } from '../../services/opportunityDocMetaStore';
 import { OfficePreview } from './preview/OfficePreview';
@@ -241,7 +241,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const [osClipBusy, setOsClipBusy] = useState(false);
 
   useEffect(() => {
-    onSelectionChange?.(selectedKeys.size === 1 && selectedItem ? selectedItem.relativePath : null);
+    const selectedItemKey = selectedItem?.relativePath.join('/') || '';
+    onSelectionChange?.(selectedKeys.size === 1 && selectedItem && selectedKeys.has(selectedItemKey) ? selectedItem.relativePath : null);
   }, [selectedItem, selectedKeys, onSelectionChange]);
 
   // Quick-access pins (F5)
@@ -374,8 +375,12 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       }
       setItems(contents);
       await loadMetas(contents);
-      // Re-validate selection: if selected item is no longer in list, clear it.
-      setSelectedItem(prev => prev && contents.some(i => i.name === prev.name) ? prev : null);
+      // Prune selection against the refreshed directory so Ctrl+click can never
+      // combine a visible item with stale keys from files that disappeared.
+      const present = new Set(contents.map(item => item.relativePath.join('/')));
+      setSelectedKeys(prev => new Set([...prev].filter(key => present.has(key))));
+      setSelectedItem(prev => prev && present.has(prev.relativePath.join('/')) ? prev : null);
+      setAnchorKey(prev => prev && present.has(prev) ? prev : null);
     } catch (e: any) {
       console.error(e);
       const name = e?.name;
@@ -583,6 +588,9 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
           const foundItem = contents.find(i => i.name === fileName);
           if (foundItem) {
             setSelectedItem(foundItem);
+            const key = foundItem.relativePath.join('/');
+            setSelectedKeys(new Set([key]));
+            setAnchorKey(key);
           } else {
             console.warn("File not found:", fileName);
           }
@@ -597,6 +605,11 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   // Search Logic
   useEffect(() => {
+    // A filtered result set is a different visible selection surface. Keeping keys
+    // from the unfiltered folder made Ctrl+click report ghost selections.
+    setSelectedKeys(new Set());
+    setSelectedItem(null);
+    setAnchorKey(null);
     if (!searchQuery.trim() || !rootHandle) {
       setSearchResults([]);
       setIsSearching(false);
@@ -751,6 +764,31 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
     setMissingPath('');
     setRootHandle(handle);
     navigateTo(handle, [], true);
+  };
+
+  /**
+   * Link a folder whose exact OS path is known even when Chromium could not return
+   * a handle for it after an OS-level template copy. The old handle must be removed:
+   * keeping it would show the previous folder while native actions use the new path.
+   */
+  const finalizePathOnlyRootLink = async (resolved: string) => {
+    const clean = resolved.trim();
+    if (!clean) return;
+    await clearFolderHandleOnly(storageKey);
+    await setRootPathDisplay(storageKey, clean);
+    rememberFolderPathHint(clean);
+    if (!isSnapshot) persistFolderPath(clean);
+    setRootPathDisplayVal(clean);
+    setPathUndetected(false);
+    setHandleMismatch(false);
+    setMissingPath('');
+    setPendingPermHandle(null);
+    setRootHandle(null);
+    setCurrentHandle(null);
+    setPathMode(true);
+    setPath([]);
+    setHistory([{ handle: null, path: [] }]);
+    setHistoryIdx(0);
   };
 
   /** Adopt another revision's folder for this one — the explicit form of what used
@@ -916,7 +954,11 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       setIsLocating(false);
 
       if (!newFolderHandle) {
-        alert(`Folder "${folderName}" was created successfully.\n\nUse "Link Existing Folder" to link it to this opportunity.`);
+        if (newFolderAbsolutePath) {
+          await finalizePathOnlyRootLink(newFolderAbsolutePath);
+        } else {
+          alert(`Folder "${folderName}" was created successfully, but its path could not be detected.\n\nUse "Link Existing Folder" to link it to this opportunity.`);
+        }
         return;
       }
 
@@ -1017,24 +1059,22 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   const handleRowSelect = (item: FileItem, e: React.MouseEvent) => {
     const key = item.relativePath.join('/');
-    const list = displayedItems().map(i => i.relativePath.join('/'));
-    if (e.ctrlKey || e.metaKey) {
-      setSelectedKeys(prev => {
-        const next = new Set(prev);
-        next.has(key) ? next.delete(key) : next.add(key);
-        return next;
-      });
-      setAnchorKey(key);
-    } else if (e.shiftKey && anchorKey && list.includes(anchorKey)) {
-      const a = list.indexOf(anchorKey);
-      const b = list.indexOf(key);
-      const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
-      setSelectedKeys(new Set(list.slice(lo, hi + 1)));
-    } else {
-      setSelectedKeys(new Set([key]));
-      setAnchorKey(key);
-    }
-    setSelectedItem(item);
+    const visibleItems = displayedItems();
+    const byKey = new Map<string, FileItem>(
+      visibleItems.map(entry => [entry.relativePath.join('/'), entry] as const),
+    );
+    const result = computeExplorerSelection({
+      orderedKeys: [...byKey.keys()],
+      selectedKeys,
+      activeKey: selectedItem?.relativePath.join('/') || null,
+      anchorKey,
+      clickedKey: key,
+      ctrlOrMeta: e.ctrlKey || e.metaKey,
+      shift: e.shiftKey,
+    });
+    setSelectedKeys(result.selectedKeys);
+    setAnchorKey(result.anchorKey);
+    setSelectedItem(result.activeKey ? byKey.get(result.activeKey) || null : null);
   };
 
   const clearSelection = () => { setSelectedKeys(new Set()); setSelectedItem(null); setAnchorKey(null); };
@@ -1100,32 +1140,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
       changes: '',
       reason: '',
     });
-  };
-
-  const handleOpenRevisionHistory = async () => {
-    const sel = selectedItems();
-    if (sel.length > 1 || (sel.length === 1 && sel[0].kind !== 'file')) {
-      alert('Select one file, or clear the selection to view all revision histories.');
-      return;
-    }
-    if (sel.length === 1) {
-      const familyId = await ensureRevisionFamilyId(sel[0]);
-      setRevisionHistoryFamilyId(familyId);
-      setRevisionHistoryTitle(sel[0].name);
-      setRevisionHistory(await getFileRevisionHistory(opportunityId, familyId));
-    } else {
-      setRevisionHistoryFamilyId(null);
-      setRevisionHistoryTitle('All tracked files, including missing or deleted files');
-      setRevisionHistory(await getAllFileRevisionHistory(opportunityId));
-    }
-    setShowRevisionHistory(true);
-  };
-
-  const handleOpenAllRevisionHistory = async () => {
-    setRevisionHistoryFamilyId(null);
-    setRevisionHistoryTitle('All tracked files, including missing or deleted files');
-    setRevisionHistory(await getAllFileRevisionHistory(opportunityId));
-    setShowRevisionHistory(true);
   };
 
   const confirmCreateRevision = async () => {
@@ -1350,19 +1364,28 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
 
   const handleDeleteSelected = () => {
     const sel = selectedItems();
-    if (sel.length === 0 || !currentHandle) return;
+    if (sel.length === 0) return;
     setConfirmation({
       op: 'delete',
-      title: `Delete ${sel.length} item(s)`,
+      title: `Move ${sel.length} item(s) to Recycle Bin`,
       source: sel.map(i => i.name).join(', '),
       sourcePath: path.join('/') || 'Root',
       onConfirm: async () => {
-        for (const item of sel) {
-          // @ts-ignore
-          try { await currentHandle.removeEntry(item.name, { recursive: true }); } catch (e) { console.error(e); }
+        const base = await ensureRootPath();
+        if (!base) { alert(PATH_UNAVAILABLE_MSG + '\n\nNothing was deleted.'); return; }
+        try {
+          const result = await recycleViaHelper(sel.map(item => toAbsolutePath(base, item.relativePath)));
+          if (result.failed.length) {
+            alert(
+              `${result.failed.length} item(s) could not be moved to the Recycle Bin and were left in place:\n\n` +
+              result.failed.slice(0, 5).map(f => `${f.path.split(/[\\/]/).pop()}: ${f.error}`).join('\n')
+            );
+          }
+          clearSelection();
+          await loadCurrentDirectory();
+        } catch (error: any) {
+          alert(error?.message || 'Could not move the items to the Recycle Bin. Nothing was deleted.');
         }
-        clearSelection();
-        loadCurrentDirectory();
       }
     });
   };
@@ -1577,14 +1600,19 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   const handleDelete = (item: FileItem) => {
     setConfirmation({
       op: 'delete',
-      title: 'Confirm Delete',
+      title: 'Move to Recycle Bin',
       source: item.name,
       sourcePath: item.relativePath.join('/'),
       onConfirm: async () => {
-        // @ts-ignore
-        await currentHandle?.removeEntry(item.name, { recursive: true });
-        loadCurrentDirectory();
-        setSelectedItem(null);
+        const base = await ensureRootPath();
+        if (!base) { alert(PATH_UNAVAILABLE_MSG + '\n\nNothing was deleted.'); return; }
+        try {
+          await recycleViaHelper([toAbsolutePath(base, item.relativePath)]);
+          await loadCurrentDirectory();
+          setSelectedItem(null);
+        } catch (error: any) {
+          alert(error?.message || 'Could not move the item to the Recycle Bin. Nothing was deleted.');
+        }
       }
     });
   };
@@ -1674,8 +1702,8 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
   };
 
   // Boilerplate navigation logic
-  const handleGoBack = () => { if (historyIdx > 0) { const e = history[historyIdx - 1]; setHistoryIdx(historyIdx - 1); setCurrentHandle(e.handle); setPath(e.path); setSelectedItem(null); } };
-  const handleGoForward = () => { if (historyIdx < history.length - 1) { const e = history[historyIdx + 1]; setHistoryIdx(historyIdx + 1); setCurrentHandle(e.handle); setPath(e.path); setSelectedItem(null); } };
+  const handleGoBack = () => { if (historyIdx > 0) { const e = history[historyIdx - 1]; setHistoryIdx(historyIdx - 1); setCurrentHandle(e.handle); setPath(e.path); clearSelection(); } };
+  const handleGoForward = () => { if (historyIdx < history.length - 1) { const e = history[historyIdx + 1]; setHistoryIdx(historyIdx + 1); setCurrentHandle(e.handle); setPath(e.path); clearSelection(); } };
   const handleGoUp = async () => {
     if (path.length === 0) return;
     const np = path.slice(0, -1);
@@ -1894,7 +1922,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                   <button onClick={(e) => { e.stopPropagation(); handleRename(item); }} title="Rename" className="p-1 hover:bg-gray-200 rounded"><Edit3 className="w-3 h-3" /></button>
                   <button onClick={(e) => { e.stopPropagation(); handleCopy(item); }} title="Copy" className="p-1 hover:bg-gray-200 rounded"><Copy className="w-3 h-3" /></button>
                   <button onClick={(e) => { e.stopPropagation(); handleCut(item); }} title="Cut" className="p-1 hover:bg-gray-200 rounded"><Scissors className="w-3 h-3" /></button>
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Delete" className="p-1 hover:bg-red-50 text-red-400 rounded"><Trash2 className="w-3 h-3" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(item); }} title="Move to Recycle Bin" className="p-1 hover:bg-red-50 text-red-400 rounded"><Trash2 className="w-3 h-3" /></button>
                 </div>
               </td>
             </tr>
@@ -2330,7 +2358,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Read-only</p>
               <p className="mt-1 text-[11px] leading-snug text-amber-800">
-                Opened by saved path. Files open normally; creating, renaming or deleting needs folder access.
+                Opened by saved path. Files open and can be moved to the Recycle Bin; creating or renaming needs folder access.
               </p>
               <button
                 onClick={pendingPermHandle ? handleGrantPermission : handleChangeRoot}
@@ -2486,10 +2514,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               Refresh
             </button>
 
-            <button onClick={handleOpenAllRevisionHistory} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm" title="View revision history even when a physical file was moved or deleted">
-              <History className="w-3.5 h-3.5" /> All revision history
-            </button>
-
             <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3DCD58] text-white rounded-lg hover:bg-[#2db64a] shadow-sm transition-colors" onClick={async () => {
               try {
                 // @ts-ignore
@@ -2574,7 +2598,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 text-sm space-y-2 mb-6">
               <div className="flex justify-between">
                 <span className="text-gray-500">Operation:</span>
-                <span className="font-bold uppercase text-gray-800">{confirmation.op}</span>
+                <span className="font-bold uppercase text-gray-800">{confirmation.op === 'delete' ? 'Recycle' : confirmation.op}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Source:</span>
@@ -2597,7 +2621,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 }}
                 className={`px-4 py-2 text-white rounded-lg font-bold text-sm shadow-lg ${confirmation.op === 'delete' ? 'bg-red-500 hover:bg-red-600' : 'bg-[#3DCD58] hover:bg-[#2db64a]'}`}
               >
-                Confirm
+                {confirmation.op === 'delete' ? 'Move to Recycle Bin' : 'Confirm'}
               </button>
             </div>
           </div>
@@ -2696,9 +2720,6 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
                 <button data-tutorial="create-file-revision" onClick={handleOpenCreateRevision} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 rounded-lg text-xs font-bold transition-all" title="Copy this file and register a revision history entry">
                   <GitBranch className="w-3.5 h-3.5" /> Create revision
                 </button>
-                <button onClick={handleOpenRevisionHistory} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Analyze revision history for this file">
-                  <History className="w-3.5 h-3.5" /> Revision history
-                </button>
               </>
             )}
             <button onClick={() => setClipboard({ op: 'copy', items: selectedItems() })} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title="Copy within the app (paste into another folder)"><Copy className="w-3.5 h-3.5" /> Copy</button>
@@ -2711,7 +2732,7 @@ export const OpportunityFolderTab: React.FC<Props> = ({ opportunityId, opportuni
               </>
             )}
             <button onClick={handleCopyContainingFolderPaths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all" title={`Copy folder path(s) — ${COPY_FOLDER_PATH_SHORTCUT}. For a selected file, copies the path of the folder that contains it.`}>{copySuccess === 'folder' ? <Check className="w-3.5 h-3.5 text-[#3DCD58]" /> : <FolderOpen className="w-3.5 h-3.5" />}</button>
-            <button onClick={handleDeleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-300 rounded-lg text-xs font-bold transition-all" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+            <button onClick={handleDeleteSelected} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-300 rounded-lg text-xs font-bold transition-all" title="Move to Recycle Bin"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
           <button onClick={clearSelection} className="text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 p-1.5 rounded-full transition-colors"><X className="w-4 h-4" /></button>
         </div>

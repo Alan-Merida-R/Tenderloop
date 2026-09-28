@@ -21,6 +21,18 @@ function Remove-ObsoleteManagedFiles([string]$Root, [string]$BackupRoot) {
         if ($candidate.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { Remove-Item -LiteralPath $candidate -Force }
     }
 }
+
+function Remove-NewManagedFilesOnRollback([string]$Root, [string]$BackupRoot) {
+    $newPath = Join-Path $Root 'release-manifest.json'; $oldPath = Join-Path $BackupRoot 'release-manifest.json'
+    if (!(Test-Path -LiteralPath $newPath) -or !(Test-Path -LiteralPath $oldPath)) { return }
+    $new = Get-Content -LiteralPath $newPath -Raw | ConvertFrom-Json; $old = Get-Content -LiteralPath $oldPath -Raw | ConvertFrom-Json
+    $oldFiles = @($old.managedFiles | ForEach-Object { [string]$_ }); $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    foreach ($relative in @($new.managedFiles | ForEach-Object { [string]$_ })) {
+        if (!$relative -or $oldFiles -contains $relative -or $relative -match '(^|[\/])\.\.([\/]|$)') { continue }
+        $candidate = [IO.Path]::GetFullPath((Join-Path $Root $relative))
+        if ($candidate.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { Remove-Item -LiteralPath $candidate -Force }
+    }
+}
 try {
     if (!(Test-Path -LiteralPath $settingsFile)) { exit 0 }
     $settings = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json
@@ -50,12 +62,13 @@ try {
     New-Item -ItemType Directory -Path $extractedRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $packagePath -DestinationPath $extractedRoot -Force
     $newPackagePath = Join-Path $extractedRoot 'package.json'
-    if (!(Test-Path -LiteralPath $newPackagePath) -or !(Test-Path -LiteralPath (Join-Path $extractedRoot 'release-manifest.json'))) { throw 'The update package has an invalid structure.' }
+    foreach ($required in @('package.json', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.ps1')) {
+        if (!(Test-Path -LiteralPath (Join-Path $extractedRoot $required) -PathType Leaf)) { throw "The offline update package is incomplete: $required" }
+    }
     $newPackage = Get-Content -LiteralPath $newPackagePath -Raw | ConvertFrom-Json
     if ([string]$newPackage.version -ne [string]$manifest.version) { throw 'The package version does not match the update manifest.' }
 
-    $oldLockHash = if (Test-Path (Join-Path $projectRoot 'package-lock.json')) { (Get-FileHash (Join-Path $projectRoot 'package-lock.json') -Algorithm SHA256).Hash } else { '' }
-    $copyExclusions = @('.git', 'node_modules', 'dist', 'dev-dist', '.tmp')
+    $copyExclusions = @('.git', '.claude', '.agents', '.ai', '.codex', '.gemini', '.tmp', '.tmp*', 'dev-dist')
     & robocopy.exe $projectRoot $backupRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "The current installation could not be backed up (code $LASTEXITCODE)." }
 
@@ -63,24 +76,9 @@ try {
         & robocopy.exe $extractedRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "The update files could not be installed (code $LASTEXITCODE)." }
         Remove-ObsoleteManagedFiles $projectRoot $backupRoot
-        $newLockHash = if (Test-Path (Join-Path $projectRoot 'package-lock.json')) { (Get-FileHash (Join-Path $projectRoot 'package-lock.json') -Algorithm SHA256).Hash } else { '' }
-        if ($newLockHash -ne $oldLockHash) {
-            Push-Location $projectRoot
-            try {
-                & npm.cmd install --include=dev --no-audit --no-fund
-                if ($LASTEXITCODE -ne 0) { throw 'Dependencies could not be updated.' }
-            } finally { Pop-Location }
-        }
-
-        # The release archive intentionally excludes dist. Rebuild it before
-        # declaring the update complete so the normal launcher can serve the
-        # stable, non-HMR application immediately.
-        Push-Location $projectRoot
-        try {
-            & npm.cmd run build
-            if ($LASTEXITCODE -ne 0) { throw 'The stable application build could not be created.' }
-        } finally { Pop-Location }
+        & (Join-Path $projectRoot 'scripts\verify-offline-runtime.ps1') -ProjectRoot $projectRoot
     } catch {
+        Remove-NewManagedFilesOnRollback $projectRoot $backupRoot
         & robocopy.exe $backupRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
         throw
     }

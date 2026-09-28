@@ -29,7 +29,10 @@ import { ScopeCatalog, scopeOptionColor, scopeLabelKey, SCOPE_CATALOG_GROUPS } f
 import { getProposalAgeTargets } from '../services/proposalAlarmPolicy';
 
 const GENERAL_COLUMNS_STORAGE_KEY = 'tenderloop_general_columns_v1';
-const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v1';
+// One-time reveal of the card-style Notes + Last Event pair for users with saved column prefs.
+const GENERAL_NOTES_COLUMNS_MIGRATION_KEY = 'tenderloop_general_columns_notes_event_v1';
+// The save-to-History button became its own optional column again.
+const GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY = 'tenderloop_general_columns_save_note_v2';
 const GENERAL_PROPOSAL_STATUS_ORDER: DetailedStatus[] = [
     'Working on it',
     'Review',
@@ -143,6 +146,38 @@ const getOpportunitySequence = (id: string) => {
     return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 };
 
+// Rows and cards open the expediente on click; editable controls inside them must never do that.
+const INTERACTIVE_SELECTOR = 'input, textarea, select, button, a, label, [contenteditable="true"], [role="button"], [role="menu"], [role="listbox"]';
+const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
+
+// Where the current click started. If a field re-renders between mousedown and mouseup the browser
+// retargets the click to the row itself, so the press target is the reliable signal.
+let lastPressTarget: EventTarget | null = null;
+if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', event => { lastPressTarget = event.target; }, true);
+}
+
+const isInteractiveTarget = (target: EventTarget | null, container: HTMLElement) => {
+    const hit = target instanceof Element ? target.closest(INTERACTIVE_SELECTOR) : null;
+    // A detached hit means the field was re-mounted mid-click: still an inner interaction.
+    return !!hit && hit !== container && (container.contains(hit) || !hit.isConnected);
+};
+
+/** True when a click on a clickable row/card came from a control inside it, or ended a text selection. */
+const isInnerInteraction = (event: React.MouseEvent) => {
+    const container = event.currentTarget as HTMLElement;
+    if (isInteractiveTarget(event.target, container) || isInteractiveTarget(lastPressTarget, container)) return true;
+    if (isEditingInside(container)) return true;
+    const selection = window.getSelection?.();
+    return !!selection && !selection.isCollapsed && !!selection.anchorNode && container.contains(selection.anchorNode);
+};
+
+/** Blocks row/card dragging while the user is working inside one of its fields (e.g. selecting text). */
+const isEditingInside = (container: EventTarget | null) => {
+    const active = document.activeElement;
+    return container instanceof Element && !!active && active !== container && container.contains(active) && active.matches(EDITABLE_SELECTOR);
+};
+
 const normalizeColumnKeys = (keys: unknown, fallbackKeys: string[]) => {
     if (!Array.isArray(keys)) return fallbackKeys;
     const validKeys = keys.filter((key): key is string => typeof key === 'string' && fallbackKeys.includes(key));
@@ -155,6 +190,20 @@ const normalizeVisibleColumnKeys = (keys: unknown, fallbackKeys: string[]) => {
     return keys.filter((key): key is string => typeof key === 'string' && fallbackKeys.includes(key));
 };
 
+const revealGeneralNotesColumns = (visibleColumns: string[], fallbackKeys: string[]) => {
+    const migrations: [string, string[]][] = [
+        [GENERAL_NOTES_COLUMNS_MIGRATION_KEY, ['notes', 'lastHistoryEvent']],
+        [GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY, ['saveNote']],
+    ];
+    for (const [migrationKey, keys] of migrations) {
+        if (localStorage.getItem(migrationKey)) continue;
+        localStorage.setItem(migrationKey, '1');
+        for (const key of keys) {
+            if (fallbackKeys.includes(key) && !visibleColumns.includes(key)) visibleColumns.push(key);
+        }
+    }
+};
+
 const readGeneralColumnPrefs = (fallbackKeys: string[], defaultVisibleKeys = fallbackKeys) => {
     try {
         const saved = localStorage.getItem(GENERAL_COLUMNS_STORAGE_KEY);
@@ -162,20 +211,14 @@ const readGeneralColumnPrefs = (fallbackKeys: string[], defaultVisibleKeys = fal
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
             const visibleColumns = normalizeVisibleColumnKeys(parsed, fallbackKeys);
-            if (!localStorage.getItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY)) {
-                localStorage.setItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY, '1');
-                if (fallbackKeys.includes('saveNote') && !visibleColumns.includes('saveNote')) visibleColumns.push('saveNote');
-            }
+            revealGeneralNotesColumns(visibleColumns, fallbackKeys);
             return {
                 visibleColumns,
                 columnOrder: fallbackKeys,
             };
         }
         const visibleColumns = normalizeVisibleColumnKeys(parsed?.visibleColumns, fallbackKeys);
-        if (!localStorage.getItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY)) {
-            localStorage.setItem(GENERAL_SAVE_NOTE_COLUMN_MIGRATION_KEY, '1');
-            if (fallbackKeys.includes('saveNote') && !visibleColumns.includes('saveNote')) visibleColumns.push('saveNote');
-        }
+        revealGeneralNotesColumns(visibleColumns, fallbackKeys);
         return {
             visibleColumns,
             columnOrder: normalizeColumnKeys(parsed?.columnOrder, fallbackKeys),
@@ -438,7 +481,7 @@ const OpportunityCard = React.memo(({
 
     return (
         <div
-            onClick={(e) => { e.stopPropagation(); onSelect(opp.id); }}
+            onClick={(e) => { e.stopPropagation(); if (isInnerInteraction(e)) return; onSelect(opp.id); }}
             draggable
             onDragStart={(e) => handleDragStart(e, opp.id, 'opp')}
             className="kanban-cursor-grab bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-[#3DCD58] cursor-grab active:cursor-grabbing transition-all group relative flex flex-col gap-2 overflow-hidden"
@@ -744,7 +787,7 @@ const TaskCard = React.memo(({
     return (
         <div
             className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 text-sm cursor-pointer hover:border-[#3DCD58] transition-all relative group"
-            onClick={() => onSelect({ task: item, oppId: item.opp.id })}
+            onClick={(e) => { if (isInnerInteraction(e)) return; onSelect({ task: item, oppId: item.opp.id }); }}
             draggable
             onDragStart={(e) => onDragStart(e, item.id, 'task', item.opp.id)}
         >
@@ -968,7 +1011,7 @@ const TaskRow = React.memo(({
     return (
         <div
             className={`bg-white hover:bg-gray-50 flex items-center justify-between p-3 cursor-pointer group transition-colors ${isSelected ? 'bg-blue-50/50' : ''}`}
-            onClick={() => onSelect({ task: item, oppId: item.opp.id })}
+            onClick={(e) => { if (isInnerInteraction(e)) return; onSelect({ task: item, oppId: item.opp.id }); }}
         >
             <div className="flex items-center gap-4 flex-1 min-w-0">
                 <div onClick={(e) => e.stopPropagation()} className="pl-2">
@@ -1307,12 +1350,12 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
         { key: 'amount', label: 'Amount' },
         { key: 'nextStep', label: 'Next Step' },
         { key: 'waiting', label: 'Waiting On' },
-        { key: 'lastHistoryEvent', label: 'Last History Event' },
         { key: 'notes', label: 'Notes' },
-        { key: 'saveNote', label: 'Save Quick Note' }
+        { key: 'saveNote', label: 'Save Note to History' },
+        { key: 'lastHistoryEvent', label: 'Last Event' }
     ], []);
     const allColumnKeys = useMemo(() => allColumns.map(c => c.key), [allColumns]);
-    const defaultVisibleColumns = useMemo(() => allColumnKeys.filter(key => key !== 'lastHistoryEvent' && key !== 'rank'), [allColumnKeys]);
+    const defaultVisibleColumns = useMemo(() => allColumnKeys.filter(key => key !== 'rank'), [allColumnKeys]);
     const [visibleColumns, setVisibleColumns] = useState<string[]>(() => readGeneralColumnPrefs(allColumnKeys, defaultVisibleColumns).visibleColumns);
     const [columnOrder, setColumnOrder] = useState<string[]>(() => readGeneralColumnPrefs(allColumnKeys).columnOrder);
     const orderedTableColumns = useMemo(() => {
@@ -2274,6 +2317,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
 
 
     const handleDragStart = useCallback((e: React.DragEvent, id: string, type: 'opp' | 'task' = 'opp', extra?: string) => {
+        if (isEditingInside(e.currentTarget)) { e.preventDefault(); return; }
         e.dataTransfer.setData('id', id);
         e.dataTransfer.setData('type', type);
         if (extra) e.dataTransfer.setData('extra', extra);
@@ -2667,11 +2711,11 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
             case 'waiting':
                 return <th key={key} className="px-6 py-3"><div className="flex items-center">Waiting On<ColumnFilter options={waitingOptions} selected={columnFilters.waiting || []} onChange={v => setColumnFilters(p => ({...p, waiting: v}))} /></div></th>;
             case 'lastHistoryEvent':
-                return <th key={key} className="px-6 py-3 min-w-[320px]">Last History Event</th>;
+                return <th key={key} className="px-6 py-3 resize-x overflow-auto min-w-[260px]">Last Event</th>;
             case 'notes':
-                return <th key={key} className="px-6 py-3 resize-x overflow-auto min-w-[150px]">Notes</th>;
+                return <th key={key} className="px-6 py-3 resize-x overflow-auto min-w-[240px]">Notes</th>;
             case 'saveNote':
-                return <th key={key} className="px-3 py-3 w-12"><span className="sr-only">Save quick note</span></th>;
+                return <th key={key} className="px-2 py-3 w-12"><span className="sr-only">Save note to history</span></th>;
             default:
                 return null;
         }
@@ -2734,7 +2778,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                         {days !== null ? <div className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${ageIndicator.className}`} style={ageIndicator.style} title={`Proposal age: ${days} · warning ${proposalAgeTargets.warningDays} · critical ${proposalAgeTargets.criticalDays} days`}>
                             {ageIndicator.level === 'critical' ? <Siren className="h-3.5 w-3.5" /> : ageIndicator.level === 'warning' ? <TriangleAlert className="h-3.5 w-3.5" /> : ageIndicator.level === 'sold' ? <Check className="h-3.5 w-3.5" /> : <Clock className="h-3 w-3" />}
                             <span className="font-medium">{days} {days === 1 ? 'day' : 'days'}</span>
-                        </div> : <span className="text-gray-300">â€”</span>}
+                        </div> : <span className="text-gray-300">—</span>}
                         {false && days !== null ? (
                             <div className="inline-flex items-center gap-1 text-[10px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 border border-gray-200" title="Duración de la propuesta (días)">
                                 <Clock className="w-3 h-3 text-gray-400" />
@@ -2792,14 +2836,41 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                 );
             case 'lastHistoryEvent': {
                 const event = getLatestHistoryEntry(opp.history);
-                return <td key={key} className="px-6 py-3 text-xs text-gray-700 whitespace-pre-wrap break-words min-w-[320px]">
-                    {event ? <div className="flex flex-col gap-1"><span className="text-[10px] font-medium text-gray-400">{event.date}</span><span>{event.content}</span></div> : <span className="text-gray-400">-</span>}
+                // Same editable latest-event box the proposal cards show.
+                return <td key={key} className="px-6 py-3 min-w-[260px]" onClick={e => e.stopPropagation()}>
+                    {event ? (
+                        <div className="flex items-start gap-1.5 p-1.5 rounded-lg bg-gray-50 border border-gray-100">
+                            <History className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                                <span className="block text-[10px] font-medium text-gray-400">{event.date}</span>
+                                <OptimizedTextArea
+                                    value={event.content || ''}
+                                    onChange={(val: string) => handleLatestHistoryEdit(opp, event.id, val)}
+                                    placeholder="Last history event..."
+                                    title="Edit the latest history event"
+                                    className="w-full min-h-12 max-h-48 resize-y overflow-auto bg-transparent border-none p-0 text-xs leading-relaxed text-gray-700 focus:ring-0"
+                                />
+                            </div>
+                        </div>
+                    ) : <span className="text-xs text-gray-400">-</span>}
                 </td>;
             }
             case 'notes':
-                return <td key={key} className="px-6 py-3 text-xs text-gray-600"><OptimizedInput key={`quick-note-${quickNoteResetTokens[opp.id] || 0}`} value={opp.kanbanNote || ''} onChange={(val) => handleKanbanNoteChange(val, opp.id)} onDraftChange={(val) => handleKanbanNoteChange(val, opp.id, true)} className="w-full bg-transparent border-none p-0 text-xs text-gray-600 focus:ring-0" placeholder="Quick note..." /></td>;
+                // Card-style quick note; the optional 'saveNote' column files it into History.
+                return (
+                    <td key={key} className="px-6 py-3 min-w-[240px]" onClick={e => e.stopPropagation()}>
+                        <OptimizedTextArea
+                            key={`quick-note-${quickNoteResetTokens[opp.id] || 0}`}
+                            value={opp.kanbanNote || ''}
+                            onChange={(val: string) => handleKanbanNoteChange(val, opp.id)}
+                            onDraftChange={(val: string) => handleKanbanNoteChange(val, opp.id, true)}
+                            placeholder="Notes..."
+                            className="w-full min-h-12 resize-y text-xs text-gray-700 bg-yellow-50 border border-yellow-200 rounded-lg p-1.5 focus:ring-1 focus:ring-yellow-300 outline-none placeholder-gray-300"
+                        />
+                    </td>
+                );
             case 'saveNote':
-                return <td key={key} className="px-3 py-3 text-center"><button type="button" onClick={() => handleArchiveQuickNote(opp.id)} className="p-1.5 text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 transition-colors" title="Save quick note to history"><History className="w-3.5 h-3.5" /></button></td>;
+                return <td key={key} className="px-2 py-3 text-center"><button type="button" onClick={() => handleArchiveQuickNote(opp.id)} className="p-1.5 text-amber-700 bg-amber-100 border border-amber-200 rounded-lg hover:bg-amber-200 transition-colors" title="Save note to history"><History className="w-3.5 h-3.5" /></button></td>;
             default:
                 return null;
         }
@@ -3243,7 +3314,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 <tr
                                                     key={opp.id}
                                                     draggable
-                                                    onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', opp.id); setDraggedGeneralOppId(opp.id); }}
+                                                    onDragStart={(event) => { if (isEditingInside(event.currentTarget)) { event.preventDefault(); return; } event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', opp.id); setDraggedGeneralOppId(opp.id); }}
                                                     onDragOver={(event) => {
                                                         if (!draggedGeneralOppId || draggedGeneralOppId === opp.id) return;
                                                         const dragged = generalOrderedOpps.find(item => item.id === draggedGeneralOppId);
@@ -3255,7 +3326,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                     onDragLeave={() => setGeneralRankDropTargetId(current => current === opp.id ? null : current)}
                                                     onDrop={(event) => { event.preventDefault(); const draggedId = draggedGeneralOppId || event.dataTransfer.getData('text/plain'); if (draggedId) handleGeneralRankDrop(draggedId, opp.id); setDraggedGeneralOppId(null); setGeneralRankDropTargetId(null); }}
                                                     onDragEnd={() => { setDraggedGeneralOppId(null); setGeneralRankDropTargetId(null); }}
-                                                    onClick={() => onSelect(opp.id)}
+                                                    onClick={(event) => { if (isInnerInteraction(event)) return; onSelect(opp.id); }}
                                                     className={`cursor-pointer transition-colors hover:bg-gray-50 ${generalRankDropTargetId === opp.id ? 'border-t-2 border-[#3DCD58] bg-emerald-50/70' : ''}`}
                                                 >
                                                     {visibleOrderedTableColumns.map(col => renderGeneralOpportunityCell(opp, col.key))}
@@ -3483,7 +3554,7 @@ const Dashboard: React.FC<Props> = React.memo(({ mode, opportunities, onSelect, 
                                                 const waitingOn = getWaitingOnAreas(opp);
                                                 const amount = getSellPrice(opp);
                                                 return (
-                                                <tr key={opp.id} onClick={() => onSelect(opp.id)} className="cursor-pointer hover:bg-gray-50 transition-colors">
+                                                <tr key={opp.id} onClick={(event) => { if (isInnerInteraction(event)) return; onSelect(opp.id); }} className="cursor-pointer hover:bg-gray-50 transition-colors">
                                                         <td className="px-4 py-3">
                                                             <input type="checkbox" checked={selectedForExport.includes(opp.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSelectExport(opp.id)} className="rounded text-[#3DCD58] focus:ring-[#3DCD58] border-gray-300" />
                                                         </td>

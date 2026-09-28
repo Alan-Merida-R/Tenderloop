@@ -56,11 +56,42 @@ function Remove-ObsoleteManagedFiles([string]$Root, [string]$BackupRoot) {
     }
 }
 
+function Remove-NewManagedFilesOnRollback([string]$Root, [string]$BackupRoot) {
+    $newPath = Join-Path $Root 'release-manifest.json'; $oldPath = Join-Path $BackupRoot 'release-manifest.json'
+    if (!(Test-Path -LiteralPath $newPath) -or !(Test-Path -LiteralPath $oldPath)) { return }
+    $new = Get-Content -LiteralPath $newPath -Raw | ConvertFrom-Json; $old = Get-Content -LiteralPath $oldPath -Raw | ConvertFrom-Json
+    $oldFiles = @($old.managedFiles | ForEach-Object { [string]$_ }); $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    foreach ($relative in @($new.managedFiles | ForEach-Object { [string]$_ })) {
+        if (!$relative -or $oldFiles -contains $relative -or $relative -match '(^|[\/])\.\.([\/]|$)') { continue }
+        $candidate = [IO.Path]::GetFullPath((Join-Path $Root $relative))
+        if ($candidate.StartsWith($rootFull, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { Remove-Item -LiteralPath $candidate -Force }
+    }
+}
+
 function Stop-TenderControl([string]$Root) {
-    $closer = Join-Path $Root 'CLOSE_OPPORTUNITYOS.bat'
-    if (Test-Path -LiteralPath $closer) { & cmd.exe /d /c call $closer SILENT | Out-Null }
-    $needle = [regex]::Escape($Root)
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -and $_.CommandLine -match $needle } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $ports = @(3000, 3099)
+    $rootPrefix = [IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'
+    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort })
+    foreach ($listener in $listeners) {
+        $processId = $listener.OwningProcess
+        $owned = $false
+        try {
+            $process = Get-Process -Id $processId -ErrorAction Stop
+            if ($process.Path -and $process.Path.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { $owned = $true }
+        } catch {}
+        if (!$owned) {
+            try {
+                $commandLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop).CommandLine
+                if ($commandLine -and $commandLine.IndexOf($Root, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $owned = $true }
+            } catch {}
+        }
+        if (!$owned) { throw "Port $($listener.LocalPort) belongs to another application or could not be verified. Close Tender Control manually and retry; no process was terminated." }
+        Stop-Process -Id $processId -Force -ErrorAction Stop
+    }
+    Start-Sleep -Milliseconds 400
+    if (@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }).Count -gt 0) {
+        throw 'Tender Control could not be stopped safely.'
+    }
 }
 
 try {
@@ -75,23 +106,21 @@ try {
     $newRoot = Join-Path $temporaryRoot 'new'; $backupRoot = Join-Path $temporaryRoot 'backup'
     New-Item -ItemType Directory -Path $newRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $zip -DestinationPath $newRoot -Force
-    foreach ($required in @('package.json', 'engine_opportunityos.bat', 'release-manifest.json')) { if (!(Test-Path -LiteralPath (Join-Path $newRoot $required))) { throw "Invalid update package: $required is missing." } }
+    foreach ($required in @('package.json', 'engine_opportunityos.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.ps1')) { if (!(Test-Path -LiteralPath (Join-Path $newRoot $required) -PathType Leaf)) { throw "Invalid offline update package: $required is missing." } }
     $new = Get-Content -LiteralPath (Join-Path $newRoot 'package.json') -Raw | ConvertFrom-Json
     if ([version](([string]$new.version -split '[+-]')[0]) -le [version](([string]$installed.version -split '[+-]')[0])) { throw 'This update is not newer than the installed version.' }
-    $oldLock = if (Test-Path -LiteralPath (Join-Path $target 'package-lock.json')) { (Get-FileHash (Join-Path $target 'package-lock.json') -Algorithm SHA256).Hash } else { '' }
-    $exclusions = @('.git', 'node_modules', 'dist', 'dev-dist', '.tmp')
+    $exclusions = @('.git', '.claude', '.agents', '.ai', '.codex', '.gemini', '.tmp', '.tmp*', 'dev-dist')
     Stop-TenderControl $target
     & robocopy.exe $target $backupRoot /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null; if ($LASTEXITCODE -ge 8) { throw 'Could not back up the installed version.' }
     try {
         & robocopy.exe $newRoot $target /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null; if ($LASTEXITCODE -ge 8) { throw 'Could not install the new files.' }
         Remove-ObsoleteManagedFiles $target $backupRoot
-        $newLock = if (Test-Path -LiteralPath (Join-Path $target 'package-lock.json')) { (Get-FileHash (Join-Path $target 'package-lock.json') -Algorithm SHA256).Hash } else { '' }
-        Push-Location $target
-        try {
-            if ($newLock -ne $oldLock) { & npm.cmd install --include=dev --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw 'Dependencies could not be updated.' } }
-            if (!$SkipBuild) { & npm.cmd run build; if ($LASTEXITCODE -ne 0) { throw 'The production build failed.' } }
-        } finally { Pop-Location }
-    } catch { & robocopy.exe $backupRoot $target /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null; throw }
+        & (Join-Path $target 'scripts\verify-offline-runtime.ps1') -ProjectRoot $target
+    } catch {
+        Remove-NewManagedFilesOnRollback $target $backupRoot
+        & robocopy.exe $backupRoot $target /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null
+        throw
+    }
     if (!$NoLaunch) { Start-Process -FilePath wscript.exe -ArgumentList ('"' + (Join-Path $target 'OPEN_OPPORTUNITYOS.vbs') + '"') }
     Notify "Tender Control was updated successfully to version $($new.version)."
 } catch { Notify ("The update could not be installed.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nThe prior version was restored when possible.") 'Warning'; exit 1 }

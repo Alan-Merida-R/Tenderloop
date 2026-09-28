@@ -11137,7 +11137,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                 over the iframe they get this slim bar: it sits above the content and never
                                                 covers a question. */}
                                             {currentNote.format === 'sow' && (
-                                                <div className="px-3 py-1.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 shrink-0">
+                                                <div className="pl-3 pr-12 py-1.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 shrink-0">
                                                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest truncate">{currentNote.title}</span>
                                                     <div className="flex items-center gap-1 shrink-0">
                                                         <button onClick={() => setNoteHidden(currentNote.id, true)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors" title="Hide the SOW from the notes list (keeps every answer)"><EyeOff className="w-4 h-4 text-gray-500" /></button>
@@ -11145,7 +11145,7 @@ const OpportunityDetail: React.FC<Props> = ({ opportunity, opportunities, onBack
                                                     </div>
                                                 </div>
                                             )}
-                                            {currentNote.format !== 'sow' && <div className="p-2 border-b border-gray-100 flex items-center gap-2 bg-gray-50 shrink-0">
+                                            {currentNote.format !== 'sow' && <div className="py-2 pl-2 pr-12 border-b border-gray-100 flex items-center gap-2 bg-gray-50 shrink-0">
                                                 <div className="flex min-w-0 flex-1 items-center gap-2">
                                                     <NoteTitleInput value={currentNote.title} onCommit={(val) => updateSelectedNote('title', val)} className="font-black text-base bg-transparent border-none focus:ring-0 text-gray-800 flex-1 min-w-0 px-0 truncate" placeholder="Note Title" />
                                                     <div className="flex shrink-0 items-center gap-1 px-2 py-1 bg-white rounded-lg border border-gray-200 shadow-sm">

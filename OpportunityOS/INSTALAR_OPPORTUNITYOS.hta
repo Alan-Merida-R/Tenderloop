@@ -171,7 +171,7 @@
   <div class="shell">
     <div class="header">
       <h1 class="title">Tender Control Setup</h1>
-      <p class="subtitle">Installing the local Windows app shortcuts and dependencies.</p>
+      <p class="subtitle">Verifying and installing the self-contained offline Windows app.</p>
     </div>
 
     <div class="content">
@@ -182,9 +182,9 @@
       <div class="progress"><div id="bar" class="bar"></div></div>
 
       <div class="steps">
-        <div id="step1" class="step">1. Check Node.js</div>
-        <div id="step2" class="step">2. Install dependencies</div>
-        <div id="step3" class="step">3. Verify Tender Control</div>
+        <div id="step1" class="step">1. Verify offline runtime</div>
+        <div id="step2" class="step">2. Check packaged files</div>
+        <div id="step3" class="step">3. Confirm local-only services</div>
         <div id="step4" class="step">4. Create shortcuts</div>
         <div id="step5" class="step">5. Finish setup</div>
       </div>
@@ -262,9 +262,8 @@
       var doneFile = tempDir + "\\" + tempName + ".done";
       var runnerFile = tempDir + "\\OpportunityOS-install-" + tempName + ".cmd";
 
-      // Run commands hidden so npm never opens a distracting terminal window.
-      // The temporary runner writes its own exit code; the HTA remains visible
-      // and keeps reporting progress while the background work continues.
+      // Run short, local verification commands without opening a terminal.
+      // Installation never invokes npm, downloads packages or compiles code.
       var runner = fso.CreateTextFile(runnerFile, true);
       runner.WriteLine("@echo off");
       runner.WriteLine("(");
@@ -302,7 +301,7 @@
 
         if (elapsedSeconds >= 900) {
           window.clearInterval(pollTimer);
-          failInstall("This setup step did not finish within 15 minutes. The log above shows the last response; check for a corporate proxy, antivirus lock, or blocked npm access.");
+          failInstall("Local package verification did not finish within 15 minutes. Close the installer, confirm that antivirus is not holding the extracted folder, and try again.");
           return;
         }
 
@@ -339,53 +338,15 @@
       el("closeBtn").disabled = true;
       el("log").value = "";
 
-      setStep(1, "Checking Node.js");
-      runCommand("where node", function (code) {
-        if (code !== 0) {
-          failInstall("Node.js was not found. Install it from https://nodejs.org/ and run this installer again.");
-          return;
-        }
-
-        installDependencies();
-      });
-    }
-
-    function dependencyFingerprint() {
-      var lockPath = scriptDir + "\\package-lock.json";
-      if (!fso.FileExists(lockPath)) return "no-lock";
-      var lockFile = fso.GetFile(lockPath);
-      return lockFile.Size + "@" + lockFile.DateLastModified.getTime();
-    }
-
-    function setupMatchesDependencies() {
-      var markerPath = scriptDir + "\\.opportunityos-setup-complete";
-      if (!fso.FileExists(markerPath)) return false;
-      try {
-        var markerFile = fso.OpenTextFile(markerPath, 1, false, -2);
-        var marker = markerFile.ReadAll();
-        markerFile.Close();
-        return marker.indexOf("lock=" + dependencyFingerprint()) >= 0;
-      } catch (ignore) { return false; }
-    }
-    function installDependencies() {
-      // The running application serves an immutable dist build, so dependency
-      // verification and a new build do not require killing the user's current
-      // session. Closing here used to leave Setup waiting on old/orphan engines.
-      // Open app performs the one controlled restart after setup is complete.
-      setStep(2, "Installing dependencies");
-      if (fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd") && setupMatchesDependencies()) {
-        logLine("[OK] Dependencies match this package. The running application can remain open during verification.");
-        verifyOpportunityOS();
+      setStep(1, "Verifying offline runtime");
+      var verifier = scriptDir + "\\scripts\\verify-offline-runtime.ps1";
+      if (!fso.FileExists(verifier)) {
+        failInstall("The offline package verifier is missing. Extract the complete official release ZIP and try again.");
         return;
       }
-
-      logLine("[INFO] Installing or repairing dependencies. This is required when this is the first setup or package-lock.json changed.");
-      // `npm install` repairs a partial dependency folder in place. Unlike
-      // npm ci it does not first delete every native binary, which avoids
-      // common EPERM failures from corporate antivirus scanners.
-      runCommand("cd /d \"" + scriptDir + "\" && npm.cmd install --include=dev --no-audit --no-fund", function (npmCode) {
-        if (npmCode !== 0) {
-          failInstall("npm could not repair dependencies. Check the log for a corporate proxy, antivirus file lock, or Node.js issue; no administrator permission is required. Choose Install to retry.");
+      runCommand("powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + verifier + "\" -ProjectRoot \"" + scriptDir + "\"", function (code) {
+        if (code !== 0) {
+          failInstall("The offline package failed its integrity or local-network safety check. No files were downloaded. Extract a fresh official release ZIP and try again.");
           return;
         }
         verifyOpportunityOS();
@@ -393,23 +354,19 @@
     }
 
     function verifyOpportunityOS() {
-      setStep(3, "Building stable Tender Control application");
+      setStep(2, "Checking packaged files");
       if (!fso.FileExists(scriptDir + "\\engine_opportunityos.bat")) {
         failInstall("engine_opportunityos.bat was not found in the installer folder.");
         return;
       }
-      if (!fso.FileExists(scriptDir + "\\node_modules\\.bin\\vite.cmd")) {
-        failInstall("Vite was not found after dependency installation.");
+      if (!fso.FileExists(scriptDir + "\\runtime\\node.exe") || !fso.FileExists(scriptDir + "\\node_modules\\vite\\bin\\vite.js") || !fso.FileExists(scriptDir + "\\dist\\index.html")) {
+        failInstall("The extracted offline application files are incomplete.");
         return;
       }
-      logLine("[INFO] Creating the stable application build. Normal use will not watch source files or reload when they change.");
-      runCommand("cd /d \"" + scriptDir + "\" && npm.cmd run build", function (buildCode) {
-        if (buildCode !== 0 || !fso.FileExists(scriptDir + "\\dist\\index.html")) {
-          failInstall("Tender Control could not create its stable application build. Review the build output above and choose Install to retry.");
-          return;
-        }
-        finishOpportunityOSSetup();
-      });
+      logLine("[OK] Runtime, dependencies and the production build are already packaged. No npm or internet access is needed.");
+      setStep(3, "Confirming local-only services");
+      logLine("[OK] Frontend and backend are restricted to 127.0.0.1 and are not exposed to the office LAN.");
+      finishOpportunityOSSetup();
     }
 
     function finishOpportunityOSSetup() {
@@ -425,11 +382,10 @@
       }
       createShortcuts();
 
-      // The launcher requires this marker in addition to Vite. It prevents a
-      // partial node_modules folder from bypassing this visible setup flow.
+      // Record that this extracted offline package passed local verification.
       var marker = fso.CreateTextFile(scriptDir + "\\.opportunityos-setup-complete", true);
       marker.WriteLine("Tender Control setup completed successfully.");
-      marker.WriteLine("lock=" + dependencyFingerprint());
+      marker.WriteLine("offline=true");
       marker.Close();
 
       setStep(5, "Setup complete");

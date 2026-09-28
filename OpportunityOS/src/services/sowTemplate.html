@@ -39,24 +39,51 @@
     box-shadow:var(--shadow);
     width:100%;
     margin-bottom:16px;
+    overflow:hidden;
+    border:1px solid transparent;
   }
+  /* Top colour band so the "Define Scope" card reads as the same kind of card as the
+     collapsible sections below it. Negative margins pull it to the card's edges past the padding. */
+  .card-band{height:5px;margin:-20px -20px 18px;background:linear-gradient(90deg,#2563eb,#7c3aed)}
+  /* First-glance guide: a compact "fill this first" strip so opening the SOW is not a blank wall. */
+  .first-glance{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 18px}
+  .fg-step{display:flex;align-items:center;gap:8px;background:#f8fafc;border:1px solid #e4e7ec;border-radius:9px;padding:7px 11px;font-size:12px;color:#475467;flex:1 1 170px;min-width:0}
+  .fg-step .fg-num{flex:0 0 auto;width:20px;height:20px;border-radius:999px;background:#2563eb;color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center}
+  .fg-step.adapt{background:#faf5ff;border-color:#e9d5ff}.fg-step.adapt .fg-num{background:#7c3aed}
+  .fg-step b{color:#101828}
+  /* Effort-at-a-glance meter: a quick self-pacing read of how heavy this proposal is, from the
+     scope/systems picked. It is a coaching hint only — it never touches the Proposal Age alarm. */
+  .effort-meter{border-radius:10px;padding:10px 12px;margin:0 0 16px;border:1px solid #e4e7ec;background:#f8fafc;font-size:12px}
+  .effort-meter .effort-head{display:flex;align-items:center;gap:8px}
+  .effort-dot{width:10px;height:10px;border-radius:999px;background:#cbd5e1;flex:0 0 auto}
+  .effort-level{font-weight:800}
+  .effort-note{color:#667085;margin-top:4px;line-height:1.4}
+  .effort-drivers{color:#98a2b3}
+  .effort-meter.low{background:#ecfdf3;border-color:#a7f3d0}.effort-meter.low .effort-dot{background:#12b76a}.effort-meter.low .effort-level{color:#027a48}
+  .effort-meter.med{background:#fffaeb;border-color:#fedf89}.effort-meter.med .effort-dot{background:#f79009}.effort-meter.med .effort-level{color:#b54708}
+  .effort-meter.high{background:#fef3f2;border-color:#fecdca}.effort-meter.high .effort-dot{background:#f04438}.effort-meter.high .effort-level{color:#b42318}
+  /* Block heading with an icon badge, so each part of the card is scannable at a glance. */
+  .block-label{display:flex;align-items:center;gap:8px;font-weight:750;color:#101828;font-size:14px;margin:0}
+  .block-label .block-ic{flex:0 0 auto;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;background:#eef4ff;line-height:1}
+  label.block-label{margin-bottom:6px}
   .sticky-tools{
     position:sticky;top:0;z-index:50;
     background:rgba(237,241,247,.96);
     backdrop-filter:blur(10px);
     padding:10px 0 12px;
   }
-  /* Single-row toolbar: nothing wraps, the title and progress bar give up
-     their space first, and only a genuinely tiny panel gets a scroll rail. */
+  /* Compact single-row toolbar: buttons stay small so every action (Print/PDF
+     included) fits on one line; a scroll rail is the last resort on a tiny panel. */
   .toolbar{
-    display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;
+    display:flex;align-items:center;gap:4px;flex-wrap:nowrap;overflow-x:auto;
     background:#fff;border:1px solid var(--line);border-radius:12px;
-    padding:8px 10px;box-shadow:var(--shadow)
+    padding:6px 8px;box-shadow:var(--shadow)
   }
   .toolbar::-webkit-scrollbar{height:6px}
   .toolbar::-webkit-scrollbar-thumb{background:#d5dbe5;border-radius:999px}
   .toolbar-title{font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .toolbar .btn{padding:6px 9px;font-size:12px;white-space:nowrap;flex:0 0 auto}
+  .toolbar .btn{padding:4px 7px;font-size:11px;white-space:nowrap;flex:0 0 auto;border-radius:7px}
+  .toolbar select.btn{padding:4px 5px;max-width:130px}
   @media (max-width:1150px){.toolbar-title{display:none}}
   .btn{
     border:1px solid #cbd5e1;background:white;color:#263247;
@@ -217,9 +244,34 @@
   .basic-proposal-information{margin:0 0 14px;padding:14px;border:1px solid #d8dee8;border-radius:10px;background:#fbfcfe}
   .basic-proposal-information h2{font-size:14px;color:#1f3b63;margin:0 0 3px}.basic-proposal-information p{font-size:12px;color:#667085;margin:0 0 12px}
   .basic-proposal-information #expedienteObjective{margin-top:12px!important}
-  .terminal-overview{position:fixed;inset:0;z-index:80;background:#090d12;color:#d8ffe1;display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .terminal-overview.open{display:flex}.terminal-head{padding:14px 24px;border-bottom:1px solid #d8e2dc;display:flex;align-items:center;gap:10px;background:#fff;color:#1f2937}.terminal-head b{font-size:12px;letter-spacing:.08em;flex:1}.terminal-head .btn{padding:5px 10px}.terminal-filters{display:flex;gap:10px;padding:10px 24px;background:#101b14;border-bottom:1px solid #183021}.terminal-search,.terminal-section-filter{padding:9px 10px;background:#101b14;border:1px solid #285738;color:#e8fff0;border-radius:7px}.terminal-search{flex:1;min-width:0}.terminal-section-filter{min-width:240px}.terminal-body{overflow:auto;padding:16px 24px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:12px;align-content:start}.terminal-line{padding:12px;border:1px solid #183021;border-radius:8px;font-size:12px;line-height:1.45}.terminal-tag{color:#69e784;font-weight:800}.terminal-question{color:#a6c7af;font-size:10px;text-transform:uppercase;margin-bottom:3px}.overview-edit{display:block;width:100%;box-sizing:border-box;margin-top:6px;min-height:42px;resize:vertical;background:#101b14;color:#f0fff3;border:1px solid #285738;border-radius:6px;padding:7px;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
-  @media(max-width:760px){.terminal-filters{flex-direction:column}.terminal-section-filter{min-width:0}}
+  .terminal-overview{position:fixed;inset:0;z-index:80;background:#f4f6fa;color:#1f2937;display:none;flex-direction:column}
+  .terminal-overview.open{display:flex}
+  .terminal-head{padding:14px 24px;border-bottom:1px solid #e4e7ec;display:flex;align-items:center;gap:12px;background:#fff}
+  .terminal-head b{font-size:14px;font-weight:800;color:#101828}
+  .ov-summary{font-size:12px;color:#667085;flex:1}
+  .ov-summary .ov-pend-count{color:#b54708}
+  .terminal-head .btn{padding:5px 10px}
+  .terminal-filters{display:flex;gap:10px;padding:12px 24px;background:#fff;border-bottom:1px solid #e4e7ec}
+  .terminal-search,.terminal-section-filter{padding:9px 11px;background:#fff;border:1px solid #cfd7e3;color:#1f2937;border-radius:8px;font:inherit}
+  .terminal-search{flex:1;min-width:0}.terminal-section-filter{min-width:240px}
+  .terminal-body{overflow:auto;padding:18px 24px 32px;max-width:1080px;width:100%;margin:0 auto}
+  .ov-empty{padding:40px;text-align:center;color:#98a2b3;font-size:13px}
+  .ov-group{margin-bottom:22px}
+  .ov-group-head{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#475467;padding:0 2px 8px;border-bottom:2px solid #e4e7ec;margin-bottom:10px}
+  .ov-group-pend{font-size:10px;font-weight:800;color:#b54708;background:#fef0c7;border-radius:999px;padding:2px 9px;letter-spacing:.02em}
+  .ov-line{background:#fff;border:1px solid #e4e7ec;border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .ov-line.is-pending{border-color:#fdb022;background:#fffcf5}
+  .ov-line-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .ov-q{flex:1;text-align:left;border:0;background:transparent;padding:0;font:600 12px/1.35 inherit;color:#182230;cursor:pointer}
+  .ov-q:hover{color:#2457a7;text-decoration:underline}
+  .ov-tag{font-size:9px;font-weight:800;letter-spacing:.04em;border-radius:999px;padding:2px 8px;white-space:nowrap}
+  .ov-tag.ok{color:#067647;background:#d1fadf}
+  .ov-tag.tbd{color:#b54708;background:#fef0c7}
+  .ov-tag.pending{color:#b42318;background:#fee4e2}
+  .overview-edit{display:block;width:100%;box-sizing:border-box;min-height:40px;resize:vertical;background:#fff;color:#1f2937;border:1px solid #d0d5dd;border-radius:7px;padding:8px;font:13px/1.45 inherit}
+  .overview-edit:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px #2563eb22}
+  .is-pending .overview-edit{border-color:#fdb022;background:#fff}
+  @media(max-width:760px){.terminal-filters{flex-direction:column}.terminal-section-filter{min-width:0}.terminal-body{padding:14px}}
 
   /* GUIDED FLOW + FORM DESIGNER */
   .band-flow{background:linear-gradient(90deg,#2563eb,#7c3aed)}
@@ -257,12 +309,27 @@
   .catalog-module{border-left:3px solid var(--primary);background:#f8fafc;border-radius:0 9px 9px 0;padding:8px 10px}
   .catalog-module>b{display:block;font-size:11px;color:#344054;margin-bottom:6px}
   .catalog-module.platform-hidden-field{display:none}
-  .terminal-tag.tbd{color:#fbbf24}
+  .terminal-tag{display:inline-block;font-size:10px;font-weight:800;color:#2457a7;background:#eaf1ff;border-radius:5px;padding:1px 6px}
   .nav-panel{position:fixed;z-index:75;inset:0 auto 0 0;width:min(390px,92vw);background:#fff;border-right:1px solid #d8dee8;box-shadow:12px 0 32px #0f172a2b;display:none;flex-direction:column}.nav-panel.open{display:flex}
   /* Push the document instead of overlaying it, so the panel never covers content the user is trying to read/edit. */
   body{transition:padding-left .15s ease}
   body.nav-panel-open{padding-left:min(390px,92vw)}.nav-head{padding:16px;border-bottom:1px solid #e4e7ec;display:flex;gap:8px;align-items:center}.nav-head b{font-size:13px;flex:1}.nav-search{margin:12px;width:calc(100% - 24px);padding:10px 12px;border:1px solid #cfd7e3;border-radius:8px;font:inherit}.nav-results{overflow:auto;padding:0 12px 18px}.nav-section{position:relative;border-bottom:1px solid #eef2f6}.nav-section>summary{padding:11px 76px 11px 5px;cursor:pointer;font-weight:700;font-size:13px;color:#172033}.nav-subsection{position:relative;margin-left:14px;border-left:2px solid #eef2f6;padding-left:8px}.nav-subsection>summary{padding:8px 64px 8px 5px;cursor:pointer;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#8a94a6}.nav-jump{position:absolute;right:5px;top:6px;z-index:1;border:1px solid #cfd7e3;border-radius:6px;background:#fff;padding:3px 7px;color:#2457a7;font:700 10px/1.2 inherit;cursor:pointer}.nav-subsection>.nav-jump{top:5px}.nav-jump:hover{background:#eef5ff;border-color:#9db9e5}.nav-question{display:flex;align-items:flex-start;gap:7px;padding:7px 8px;margin:3px 0;border-radius:7px;font-size:12px;color:#475467;cursor:pointer}.nav-question:hover,.nav-question.match{background:#fff6cc}.nav-flag{color:#e5484d;font-size:14px}.nav-snippet{display:block;color:#667085;font-size:11px;line-height:1.3;margin-top:2px}
   .question-card.missing{border-color:#f04438!important;background:#fff7f6!important}
+  .field.missing>label,.check-row.missing{outline:2px solid #f04438;outline-offset:2px;border-radius:6px}
+  /* Spanish helper hints (Etapa A): a short plain-Spanish gloss under hard technical/scope fields,
+     hidden unless the ES toggle is on. Injected from the ES_HELP dictionary, never hand-written per field. */
+  .es-help{font-size:11px;color:#0b6b3a;background:#f0fdf4;border-left:3px solid #34d399;border-radius:0 6px 6px 0;padding:5px 8px;margin-top:5px;line-height:1.4}
+  .es-help::before{content:"ES ";font-weight:800;letter-spacing:.04em;color:#059669}
+  body:not(.es-on) .es-help{display:none}
+  /* "Qué me falta" panel: mirrors the nav panel but docks on the right. */
+  .gaps-panel{position:fixed;z-index:75;inset:0 0 0 auto;width:min(400px,94vw);background:#fff;border-left:1px solid #d8dee8;box-shadow:-12px 0 32px #0f172a2b;display:none;flex-direction:column}.gaps-panel.open{display:flex}
+  .gaps-head{padding:16px;border-bottom:1px solid #e4e7ec;display:flex;gap:8px;align-items:center}.gaps-head b{font-size:13px;flex:1}
+  .gaps-status{padding:12px 16px;font-size:12px;line-height:1.4;color:#475467;border-bottom:1px solid #eef2f6}
+  .gaps-status.ready{color:#027a48;font-weight:600}
+  .gaps-body{overflow:auto;padding:8px 12px 18px}
+  .gaps-group{font:700 11px/1.2 inherit;text-transform:uppercase;letter-spacing:.03em;color:#8a94a6;margin:14px 6px 6px}
+  .gaps-item{display:block;width:100%;text-align:left;border:1px solid #eef2f6;background:#fff;border-radius:7px;padding:8px 10px;margin:4px 0;font-size:12px;color:#475467;cursor:pointer}
+  .gaps-item:hover{background:#fff6cc;border-color:#f0c000}
   .question-header{display:flex;gap:8px;align-items:flex-start;margin-bottom:5px}
   .question-title{font-size:12px;font-weight:700;line-height:1.3;flex:1}
   .question-id{font-size:10px;font-weight:800;color:#475467;background:#eef2f6;padding:3px 6px;border-radius:5px;white-space:nowrap}
@@ -372,25 +439,34 @@
 <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
 <span class="progress-text" id="progressText">0% complete</span>
 </div>
-<button aria-pressed="false" class="btn" id="designerModeBtn" title="Design questions (form designer)" type="button">Designer</button><button class="btn builder-only" id="addSectionBtn" title="Add a new section" type="button">+ Section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" title="Guided mode: show only the questions that apply" type="button">Guided</button><button class="btn" id="generateMeetingNoteBtn" title="Generate meeting note (KOM)" type="button">Meeting note</button><button class="btn" id="reviewGapsBtn" title="Review gaps: list unanswered required questions" type="button">Gaps</button><button class="btn" id="flaggedBtn" title="Show only flagged questions" type="button">🚩 Flagged</button><button class="btn" id="navigationBtn" title="Navigation panel / search in document" type="button">☰ Nav</button><button class="btn" id="overviewBtn" title="Overview of captured information" type="button">Overview</button>
+<button aria-pressed="false" class="btn" id="designerModeBtn" title="Design questions (form designer)" type="button">Designer</button><button class="btn builder-only" id="addSectionBtn" title="Add a new section" type="button">+ Section</button><button aria-pressed="true" class="btn logic-active" id="guidedModeBtn" title="Guided mode: show only the questions that apply" type="button">Guided</button><button aria-pressed="true" class="btn logic-active" id="esHelpBtn" title="Spanish help: shows a short explanation under the technical fields" type="button">ES help</button><button class="btn" id="generateMeetingNoteBtn" title="Generate meeting note (KOM)" type="button">Meeting note</button><button class="btn" id="reviewGapsBtn" title="What's still missing to send for approval" type="button">Gaps</button><button class="btn" id="flaggedBtn" title="Show only flagged questions" type="button">🚩 Flagged</button><button class="btn" id="navigationBtn" title="Navigation panel / search in document" type="button">☰ Nav</button><button class="btn" id="overviewBtn" title="Overview of captured information" type="button">Overview</button><button class="btn" id="expandAllBtn" title="Expand all sections" type="button">Expand all</button><button class="btn" id="collapseAllBtn" title="Collapse all sections" type="button">Collapse all</button>
 <select class="btn" id="printFilterSelect" title="Which questions to include when printing">
-<option value="all">Print: all questions</option>
-<option value="answered">Print: only answered</option>
-<option value="unanswered">Print: only unanswered / flagged</option>
+<option value="all">All</option>
+<option value="answered">Answered</option>
+<option value="unanswered">Unanswered</option>
 </select>
 <select class="btn" id="printFormatSelect" title="Print layout">
-<option value="questionnaire">Format: full questionnaire</option>
-<option value="executive">Format: executive summary</option>
+<option value="questionnaire">Full</option>
+<option value="executive">Executive</option>
 </select>
 <button class="btn primary" id="printBtn" title="Print / export to PDF" type="button">PDF</button>
 </div>
 </div>
-<aside class="terminal-overview" id="terminalOverview"><div class="terminal-head"><b>▣ OVERVIEW / CAPTURED INFORMATION</b><button class="btn" id="closeOverviewBtn" type="button">Close</button></div><div class="terminal-filters"><input class="terminal-search" id="overviewSearch" placeholder="Search BOM, scope, delivery..."/><select class="terminal-section-filter" id="overviewSectionFilter"><option value="">All sections</option></select></div><div class="terminal-body" id="overviewBody"></div></aside>
+<aside class="terminal-overview" id="terminalOverview"><div class="terminal-head"><b>Overview — review &amp; fill</b><span class="ov-summary" id="overviewSummary"></span><button class="btn" id="closeOverviewBtn" type="button">Close</button></div><div class="terminal-filters"><input class="terminal-search" id="overviewSearch" placeholder="Search BOM, scope, delivery…"/><select class="terminal-section-filter" id="overviewSectionFilter"><option value="">All sections</option></select></div><div class="terminal-body" id="overviewBody"></div></aside>
 <aside class="nav-panel" id="navigationPanel"><div class="nav-head"><b>Navigation panel</b><button class="btn" id="closeNavigationBtn" type="button">Close</button></div><input class="nav-search" id="navigationSearch" placeholder="Search in document (like Word)"/><div class="nav-results" id="navigationResults"></div></aside>
+<aside class="gaps-panel" id="gapsPanel"><div class="gaps-head"><b>What's missing to send for approval</b><button class="btn" id="closeGapsBtn" type="button">Close</button></div><div class="gaps-status" id="gapsStatus"></div><div class="gaps-body" id="gapsBody"></div></aside>
 <div class="card">
+<div class="card-band"></div>
 <h1>Define Scope</h1>
 <div class="subtitle">Complete project, commercial, technical, execution and handover definition for Modicon PLC, Triconex SIS and EcoStruxure Foxboro DCS opportunities.</div>
-<section class="basic-proposal-information"><h2>Base Data</h2><p>Basic proposal information, linked automatically with the expediente.</p><div class="grid four" id="expedienteSnapshot">
+<div class="first-glance">
+<div class="fg-step"><span class="fg-num">1</span><span>Fill the <b>Base Data</b></span></div>
+<div class="fg-step"><span class="fg-num">2</span><span>Write the <b>Objective</b> &amp; scope</span></div>
+<div class="fg-step"><span class="fg-num">3</span><span>Pick <b>Type</b> &amp; <b>Systems</b></span></div>
+<div class="fg-step adapt"><span class="fg-num">&#9733;</span><span>The rest of the SOW <b>adapts</b> to this</span></div>
+</div>
+<div id="effortMeter" class="effort-meter"></div>
+<section class="basic-proposal-information"><h2 class="block-label"><span class="block-ic">&#128203;</span>Base Data</h2><p>Basic proposal information, linked automatically with the expediente.</p><div class="grid four" id="expedienteSnapshot">
 <div class="field"><label>Opportunity / OP ID <span class="required-mark">*</span></label><input data-key="op_id" data-required="" placeholder="OP-... " type="text"/></div>
 <div class="field"><label>Opportunity name <span class="required-mark">*</span></label><input data-key="op_name" data-required="" type="text"/></div>
 <div class="field"><label>Investigative alias</label><input data-key="alias" type="text"/></div>
@@ -401,38 +477,38 @@
 <div class="field"><label>Seller / CSE</label><input data-key="team_cse" type="text"/></div>
 <div class="field"><label>Proposal type</label><select data-key="proposal_type"><option value=""></option><option value="Firm">Firm</option><option value="Budgetary">Budgetary</option></select></div>
 </div>
-<div class="field" id="expedienteObjective" style="margin-top:13px">
-<label>Objective <span class="required-mark">*</span></label>
+<div class="field" id="expedienteObjective" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#127919;</span>Objective <span class="required-mark">*</span></label>
 <div class="editable" contenteditable="true" data-key="objective" data-placeholder="What outcome must this proposal and project achieve?" data-required=""></div>
 </div>
-<div class="field" style="margin-top:13px">
-<label>Proposal Description</label>
-<textarea data-key="scope_summary" placeholder="Describe el alcance de la oportunidad..."></textarea>
-<div class="logic-hint">En este p&aacute;rrafo define de qu&eacute; trata el alcance y qu&eacute; se utiliz&oacute;.</div>
+<div class="field" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#128221;</span>Proposal Description</label>
+<textarea data-key="scope_summary" placeholder="Describe the opportunity scope..."></textarea>
+<div class="logic-hint">In this paragraph, define what the scope is about and what was used.</div>
 </div></section>
-<div class="field" id="scopeCatalogBlock" style="margin-top:13px">
-<label>Type of Proposal <span class="required-mark">*</span></label>
+<div class="field" id="scopeCatalogBlock" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#127991;&#65039;</span>Type of Proposal <span class="required-mark">*</span></label>
 <div class="multi-choice" data-key="scope_types" data-question-label="Type of Proposal" data-required=""></div>
 <div class="logic-hint">Green field, upgrade, migration, CF, parts, services or trainings. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
 </div>
-<div class="field" id="systemCatalogBlock" style="margin-top:13px">
-<label>System <span class="required-mark">*</span></label>
+<div class="field" id="systemCatalogBlock" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#129513;</span>System <span class="required-mark">*</span></label>
 <div class="multi-choice" data-key="sow_systems" data-question-label="System" data-required=""></div>
 <div class="catalog-modules" id="systemModulesHost"></div>
 <div class="logic-hint">Every system in scope, AVEVA and Cyber included. A system with sub-modules opens its own list right below. Edit this list in Settings &rarr; Labels &amp; Scope.</div>
 </div>
-<div class="field platform-hidden-field" id="safetyApplicationsBlock" style="margin-top:13px">
-<label>Application Safety</label>
+<div class="field platform-hidden-field" id="safetyApplicationsBlock" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#128737;&#65039;</span>Application Safety</label>
 <div class="multi-choice" data-key="safety_applications" data-question-label="Application Safety"></div>
 <div class="logic-hint">Safety applications. This section appears when Safety is selected.</div>
 </div>
-<div class="field" id="quickNotesBlock" style="margin-top:13px">
-<label>Extra Scope</label>
+<div class="field" id="quickNotesBlock" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#10133;</span>Extra Scope</label>
 <div class="multi-choice" data-key="quick_notes" data-question-label="Extra Scope"></div>
 <div class="catalog-modules" id="quickNoteModulesHost"></div>
 </div>
-<div class="field" id="scopeExtrasBlock" style="margin-top:13px">
-<label>Labels / Extras</label>
+<div class="field" id="scopeExtrasBlock" style="margin-top:16px">
+<label class="block-label"><span class="block-ic">&#128278;</span>Labels / Extras</label>
 <div class="multi-choice" data-key="scope_extras" data-question-label="Labels / Extras"></div>
 <div class="logic-hint">Historical labels appear here only when they do not match Scope, System, sub-system or another configured option.</div>
 </div>
@@ -452,11 +528,10 @@
 
 <details class="section-card" id="guidedFlowMaster" open="">
 <div class="section-band band-flow"></div>
-<summary>Guided Scope Intake &amp; Dependency Flow <span class="section-logic-label">Deduplicated automation flow</span></summary>
+<summary>Bid Strategy, Installed Base &amp; Cabinets</summary>
 <div class="section-body">
 <div class="designer-banner"><b>Form designer is active.</b> Use the buttons at the end of any section to add questions. You can also create complete sections and define dependency rules.</div>
-<p class="section-intro">This guided intake follows the question-flow workbook. Base answers unlock only the commercial, technical, cabinet, services, testing, training and documentation questions that apply.</p>
-<div class="question-library-note"><b>Dependency behavior:</b> hidden answers are preserved, but a hidden source question does not activate downstream branches. Turn off Guided mode to review every question.</div>
+<p class="section-intro">Only the intake topics that do not have their own section below: bid strategy, installed base and cabinet detail. Everything else is asked once, in the sections further down.</p>
 <div class="flow-actions"><button class="btn" id="expandFlowBtn" type="button">Expand flow</button><button class="btn" id="collapseFlowBtn" type="button">Collapse flow</button></div>
 <div id="flowStepsContainer"></div>
 </div>
@@ -492,7 +567,7 @@
 </div></details>
 <details class="section-card" open="">
 <div class="section-band band-commercial"></div>
-<summary>1. Project, Proposal &amp; Commercial Definition</summary>
+<summary>Project &amp; Commercial</summary>
 <div class="section-body">
 <div class="grid four">
 <!-- Opportunity type is asked once, as the Scope catalog in Base Data. These two controls are
@@ -549,7 +624,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band"></div>
-<summary>2. Input Package, Specifications &amp; Information Gaps</summary>
+<summary>Inputs &amp; Information Gaps</summary>
 <div class="section-body">
 <div class="choice-grid">
 <label class="choice"><input data-key="doc_written_spec" type="checkbox"/>Written specification</label>
@@ -582,7 +657,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-technical"></div>
-<summary>3. General Scope, Boundaries &amp; Architecture</summary>
+<summary>Scope, Boundaries &amp; Architecture</summary>
 <div class="section-body">
 <div class="grid two">
 <div class="field"><label>Included scope <span class="required-mark">*</span></label><textarea data-key="included_scope" data-required="" placeholder="Hardware, software, engineering, integration, testing, documentation, services..."></textarea></div>
@@ -608,7 +683,7 @@
 </details>
 <details class="section-card platform-section" data-platform="modicon" open="">
 <div class="section-band band-modicon"></div>
-<summary>4A. Modicon PLC Specialized Scope of Work</summary>
+<summary>Modicon PLC</summary>
 <div class="section-body">
 <p class="section-intro">Use for new PLC systems, expansions, CPU/I/O modernization, competitor conversions and migration projects.</p>
 <div class="grid four">
@@ -684,7 +759,7 @@
 </details>
 <details class="section-card platform-section" data-platform="triconex" open="">
 <div class="section-band band-triconex"></div>
-<summary>4B. Triconex SIS Specialized Scope of Work</summary>
+<summary>Triconex SIS (Safety)</summary>
 <div class="section-body">
 <p class="section-intro">Use for safety instrumented systems and critical-control applications. Capture both hardware scope and functional-safety lifecycle obligations.</p>
 <h3>Safety Application &amp; Functional Basis</h3>
@@ -784,7 +859,7 @@
 </details>
 <details class="section-card platform-section" data-platform="foxboro" open="">
 <div class="section-band band-foxboro"></div>
-<summary>4C. EcoStruxure Foxboro DCS Specialized Scope of Work</summary>
+<summary>Foxboro DCS</summary>
 <div class="section-body">
 <p class="section-intro">Use for DCS expansions, migrations, control-system upgrades, workstations/servers, control-network changes, I/O additions and application-engineering scope.</p>
 <h3>Installed Base &amp; Project Scenario</h3>
@@ -895,7 +970,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-hardware"></div>
-<summary>5. Installation &amp; Responsibility Matrix</summary>
+<summary>Installation &amp; Responsibility Matrix</summary>
 <div class="section-body">
 <p class="section-intro">Cabinet and panel definition now lives in <b>Step 4 &mdash; Hardware &amp; Cabinets</b> of the guided intake. This section only assigns who performs each installation activity.</p>
 <h3>Responsibility Matrix</h3>
@@ -913,7 +988,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-services"></div>
-<summary>6. Services, Execution Plan, Schedule &amp; Travel</summary>
+<summary>Services, Schedule &amp; Travel</summary>
 <div class="section-body">
 <div class="choice-grid">
 <label class="choice"><input data-key="svc_engineering" type="checkbox"/>Engineering</label>
@@ -958,7 +1033,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-tests"></div>
-<summary>7. FAT, IFAT, SAT, Site Testing &amp; Acceptance</summary>
+<summary>Testing &amp; Acceptance (FAT / SAT)</summary>
 <div class="section-body">
 <div class="grid four">
 <div class="field"><label>FAT required?</label><select data-key="fat_required"><option></option><option>Yes</option><option>No</option><option>Remote</option><option>To be defined</option></select><div class="logic-hint">Testing questions appear when FAT or SAT is required.</div></div>
@@ -988,7 +1063,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-training"></div>
-<summary>8. Training, Safety, Security &amp; Site Requirements</summary>
+<summary>Training, Safety &amp; Site</summary>
 <div class="section-body">
 <h3>Training</h3>
 <div class="grid four">
@@ -1019,7 +1094,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band band-docs"></div>
-<summary>9. Documentation, Handover, Spares, Warranty &amp; Support</summary>
+<summary>Documentation, Warranty &amp; Support</summary>
 <div class="section-body">
 <h3>Required Deliverables</h3>
 <div class="choice-grid">
@@ -1056,7 +1131,7 @@
 </details>
 <details class="section-card" open="">
 <div class="section-band"></div>
-<summary>10. Risks, Assumptions, Exclusions, Clarifications &amp; Next Steps</summary>
+<summary>Risks, Assumptions &amp; Next Steps</summary>
 <div class="section-body">
 <div class="grid two">
 <div class="field"><label>Assumptions <span class="required-mark">*</span></label><textarea data-key="assumptions" data-required=""></textarea></div>
@@ -1188,6 +1263,60 @@
   const $ = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => [...r.querySelectorAll(s)];
   let guidedMode = true;
+  // Etapa A: Spanish help defaults ON — English is the main barrier when filling this SOW.
+  let esHelp = true;
+  // Plain-Spanish gloss for the hard technical/commercial fields, keyed by data-key. This is the
+  // ONLY place these hints live: nothing is hand-written per field in the markup, so adding or
+  // fixing a hint means editing this map, not the 396 form fields.
+  const ES_HELP = {
+    objective:'¿Qué resultado debe lograr esta propuesta/proyecto? Una o dos frases.',
+    scope_summary:'De qué trata la oportunidad y qué se cotiza. Resumen en prosa, no lista.',
+    included_scope:'Qué SÍ incluye: hardware, software, ingeniería, integración, pruebas, documentación, servicios.',
+    excluded_scope:'Qué NO incluye. Dilo explícito para evitar reclamos después.',
+    customer_scope:'Alcance del cliente o de terceros: lo que hará alguien más, no Schneider.',
+    battery_limits:'Límites de batería / interfaces: dónde termina tu alcance y empieza el de otro.',
+    available_information:'Información que ya tienes y su revisión actual.',
+    missing_information:'Información que te falta / RFIs: lo que necesitas pedir para poder cerrar la propuesta.',
+    installed_base_summary:'Condición del sistema existente y base instalada.',
+    proposal_type:'Firm = compromiso en firme. Budgetary = estimado presupuestal.',
+    commercial_structure:'Cómo se arma comercialmente (HW+SW+servicios, solo servicios, migración, change order).',
+    forecast_usd:'Pronóstico de costo/ingreso en USD.',
+    architecture_status:'Estado de la arquitectura propuesta.',
+    architecture_description:'Describe la arquitectura propuesta.',
+    bom_status:'Estado del BOM. No lo congeles hasta validar planos, I/O, versiones y responsabilidades.',
+    bom_owner:'Quién es responsable de armar y validar el BOM.',
+    mod_scenario:'Escenario Modicon: sistema nuevo, modernización de CPU/I/O, conversión de competidor o migración. Define el resto de preguntas.',
+    mod_controller_design:'Carga del controlador, memoria, tiempo de scan, redundancia y margen de crecimiento.',
+    mod_program_conversion:'Estado del programa existente: respaldo, contraseña y enfoque de conversión.',
+    mod_cutover:'Plan de cutover: ventana de paro (downtime) y estrategia de rollback.',
+    mod_network:'Arquitectura de red, switches, medios, direccionamiento y redundancia.',
+    mod_third_party:'Dispositivos de terceros, drives, analizadores, gateways y protocolos.',
+    tri_application:'Aplicación de seguridad (ESD, F&G, BMS, HIPPS...). Define el resto del alcance SIS.',
+    tri_sil:'Nivel de integridad de seguridad requerido (SIL 1/2/3) según la base del cliente.',
+    tri_scenario:'Escenario del proyecto SIS: nuevo, expansión, upgrade de controlador o migración.',
+    tri_safety_philosophy:'Votación, filosofía de disparo, bypasses, reset, first-out, SOE y tiempos de respuesta.',
+    tri_standards:'Estándares aplicables, prácticas del cliente y certificaciones.',
+    tri_migration_plan:'Estrategia de migración/cutover, límites de paro y plan de rollback.',
+    tri_test_scope:'Alcance de FAT/IFAT/SAT y criterios de aceptación.',
+    tri_safety_deliverables:'Entregables del ciclo de vida de seguridad (SRS, validación, proof-test, certificados).',
+    tri_cyber:'Ciberseguridad: cuentas, hardening, parches, respaldos y acceso remoto.',
+    fox_scenario:'Escenario Foxboro DCS: nuevo, expansión, migración de controlador, refresh de servidores...',
+    fox_upgrade_reason:'¿Por qué el cliente quiere actualizar? Obsolescencia, fin de soporte, capacidad, desempeño.',
+    fox_io_summary:'Cantidades de I/O, tipos de señal, capacidad de reserva y requerimientos de campo.',
+    fox_network_details:'Topología de red, direccionamiento, medios, redundancia, sincronización y zonas de ciberseguridad.',
+    fox_application_scope:'Filosofía de control, narrativas, librerías, estándares, nomenclatura y responsable de ingeniería.',
+    fox_migration:'Secuencia de migración, compatibilidad, paros, sistemas temporales, rollback y comisionamiento.',
+    execution_plan:'Plan de ejecución: fases, entregas, dependencias, aprobaciones, recursos y secuencia.',
+    estimate_basis:'Base del estimado y supuestos de productividad.',
+    svc_hours:'Horas totales de ingeniería estimadas.',
+    svc_days:'Días totales de servicio estimados.',
+    assumptions:'Supuestos: lo que das por cierto para tu precio/tiempo. Si cambia, cambia la oferta.',
+    exclusions:'Exclusiones: lo que explícitamente NO harás.',
+    clarifications:'Aclaraciones o excepciones a lo pedido por el cliente.',
+    risks:'Riesgos y mitigaciones recomendadas.',
+    primary_blocker:'Principal bloqueo que impide avanzar la propuesta hoy.',
+    next_critical_action:'Siguiente acción crítica para desbloquear.'
+  };
   let designerMode = false;
   let flaggedQuestions = new Set();
   let syncing = false;
@@ -1292,7 +1421,7 @@
   }
 
   function collectState(){
-    const data = {version:4, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), flags:[...flaggedQuestions], ui:{guidedMode}, savedAt:new Date().toISOString()};
+    const data = {version:4, fields:captureFieldValues(), tables:{}, customForm:JSON.parse(JSON.stringify(customForm)), flags:[...flaggedQuestions], ui:{guidedMode, esHelp}, savedAt:new Date().toISOString()};
     $$('.dynamic-table').forEach(t => data.tables[t.dataset.key] = serializeTable(t));
     return data;
   }
@@ -1310,6 +1439,7 @@
     customForm = mergeGlobalForm(data.customForm);
     flaggedQuestions = new Set(Array.isArray(data.flags) ? data.flags : []);
     if(data.ui && typeof data.ui.guidedMode === 'boolean') guidedMode = data.ui.guidedMode;
+    if(data.ui && typeof data.ui.esHelp === 'boolean') esHelp = data.ui.esHelp;
     rebuildCustomForm(null, false);
     renderScopeCatalogs();
     const restoredFields={...(data.fields || {})};
@@ -1320,6 +1450,7 @@
     mirrorScopeToOppType(false); mirrorSystemsToPlatforms(false);
     $$('.dynamic-table').forEach(t => { if(data.tables && data.tables[t.dataset.key]) restoreTable(t,data.tables[t.dataset.key]); });
     decorateStaticFlags();
+    applyEsHelp(); applyEsHelpMode();
     updateGuidedButton(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress();
   }
 
@@ -1341,10 +1472,43 @@
 
   function isLogicVisible(el){ return !el.closest('.hidden-by-platform,.conditional-hidden'); }
   function requiredAndVisible(){ return $$('[data-required]').filter(isLogicVisible); }
+  // Quick effort read from the scope picked at the top, so a glance tells Alan how hard to push
+  // this proposal (and where his time will go). Transparent heuristic; NOT the Proposal Age alarm.
+  function computeEffort(){
+    const arr=v=>Array.isArray(v)?v:(v?[v]:[]);
+    const types=arr(value('scope_types')), systems=arr(value('sow_systems')), notes=arr(value('quick_notes')), safety=arr(value('safety_applications'));
+    let score=0; const drivers=[];
+    if(systems.length){score+=systems.length*2; drivers.push(`${systems.length} system${systems.length>1?'s':''}`);}
+    const heavy=systems.filter(s=>/foxboro|safety|triconex/i.test(String(s)));
+    if(heavy.length){score+=heavy.length*2; drivers.push('safety/DCS scope');}
+    const typeWeight=t=>/migration/i.test(t)?3:/upgrade|green/i.test(t)?2:/cf/i.test(t)?1:/service/i.test(t)?1:0;
+    score+=types.reduce((m,t)=>Math.max(m,typeWeight(String(t))),0);
+    if(types.some(t=>/migration/i.test(String(t))))drivers.push('migration');
+    const ib=value('flow_IB001'); if(ib===true||/^yes$/i.test(String(ib||''))){score+=2; drivers.push('installed base');}
+    if(notes.length)score+=Math.min(notes.length,3);
+    if(safety.length)score+=1;
+    const level=score>=10?'High':score>=5?'Medium':score>0?'Low':'—';
+    return {level,drivers};
+  }
+  function renderEffort(){
+    const host=$('#effortMeter'); if(!host)return;
+    const {level,drivers}=computeEffort();
+    const map={
+      High:{c:'high',t:'Heavy proposal — block focused time and start early.'},
+      Medium:{c:'med',t:'Medium — plan a couple of focused sessions.'},
+      Low:{c:'low',t:'Light — knock it out quickly, do not postpone it.'},
+      '—':{c:'',t:'Pick Type and Systems above to estimate the effort.'}
+    };
+    const m=map[level];
+    host.className=`effort-meter ${m.c}`;
+    host.innerHTML=`<div class="effort-head"><span class="effort-dot"></span><b>Effort at a glance:</b> <span class="effort-level">${esc(level)}</span></div><div class="effort-note">${esc(m.t)}${drivers.length?` <span class="effort-drivers">(${esc(drivers.join(' · '))})</span>`:''}</div>`;
+  }
   function updateProgress(){
     const req=requiredAndVisible(), filled=req.filter(isFilled).length, pct=req.length?Math.round(filled/req.length*100):100;
     $('#progressBar').style.width=pct+'%'; $('#progressText').textContent=`${pct}% (${filled}/${req.length} required)`;
     renderOverview();
+    renderEffort();
+    if($('#gapsPanel')?.classList.contains('open'))renderGaps();
     markAnsweredState();
   }
   /**
@@ -1378,18 +1542,45 @@
       // Hidden mirrors (legacy opportunity type, platform_*, sub-modules of an unselected
       // parent) restate an answer the Overview already shows under its real question.
       if(el.closest('.platform-hidden-field'))return;
-      const row={key:el.dataset.key,label:fieldLabel(el),section:sectionLabel(el),value:getValue(el)};
+      // Only fields currently applicable (their section/question is not hidden by dependencies or an
+      // unselected platform). This keeps the Overview to what actually belongs in this proposal.
+      if(!isLogicVisible(el))return;
+      const row={key:el.dataset.key,label:fieldLabel(el),section:sectionLabel(el),value:getValue(el),el};
       const existing=rowsByKey.get(row.key);
       if(!existing||(!filledValue(existing.value)&&filledValue(row.value)))rowsByKey.set(row.key,row);
     });
     const allRows=[...rowsByKey.values()];
-    const filter=$('#overviewSectionFilter'); const sections=[...new Set(allRows.map(row=>row.section))].sort();
+    // Required questions still empty for the current scope: shown as PENDIENTE so the Overview
+    // doubles as a "what to fill next" list, not only a record of what is already answered.
+    const pendingKeys=new Set(requiredAndVisible().filter(el=>!isFilled(el)).map(el=>el.dataset.key));
+    const filter=$('#overviewSectionFilter'); const sections=[...new Set(allRows.map(row=>row.section))];
     if(filter){const current=filter.value;filter.innerHTML='<option value="">All sections</option>'+sections.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join('');filter.value=sections.includes(current)?current:'';}
     const selected=filter?.value||'';
-    const rows=allRows.filter(row=>(filledValue(row.value)||flaggedQuestions.has(row.key))&&(!selected||row.section===selected)).filter(row=>`${row.label} ${row.section} ${Array.isArray(row.value)?row.value.join(' '):typeof row.value==='object'?Object.values(row.value).join(' '):row.value}`.toLowerCase().includes(query));
     const displayValue=value=>value===true?'Yes':value===false?'No':Array.isArray(value)?value.join(', '):typeof value==='object'?Object.values(value).filter(Boolean).map(v=>v===true?'Yes':v===false?'No':v).join(' — '):String(value).replace(/<[^>]*>/g,' ');
-    body.innerHTML=rows.length?rows.map(row=>{const tbd=flaggedQuestions.has(row.key);return `<div class="terminal-line"><div class="terminal-question">${esc(row.section)} · ${esc(row.label)}</div><div><span class="terminal-tag ${tbd?'tbd':''}">[${tbd?'TBD 🚩':'CONFIRMED'}]</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}">${esc(displayValue(row.value))}</textarea></div>`;}).join(''):'<div class="terminal-line">No captured information matches this search.</div>';
-    $$('.overview-edit',body).forEach(input=>input.addEventListener('change',()=>{const el=keyEl(input.dataset.overviewKey);if(!el)return;const raw=input.value.trim();if(el.type==='checkbox')setValue(el,/^(yes|true|1)$/i.test(raw));else if(el.classList.contains('multi-choice'))setValue(el,raw.split(',').map(v=>v.trim()).filter(Boolean));else setValue(el,raw);syncChangedKey(el.dataset.key);updateConditionalVisibility();persistNow();}));
+    const rows=allRows.filter(row=>{
+      const show=filledValue(row.value)||flaggedQuestions.has(row.key)||pendingKeys.has(row.key);
+      if(!show||(selected&&row.section!==selected))return false;
+      const hay=`${row.label} ${row.section} ${displayValue(row.value)}`.toLowerCase();
+      return hay.includes(query);
+    });
+    // Live counters in the header so he sees progress and what is left at a glance.
+    const total=rows.length, pending=rows.filter(r=>pendingKeys.has(r.key)&&!filledValue(r.value)).length;
+    const summary=$('#overviewSummary'); if(summary)summary.innerHTML=`<b>${total-pending}</b> captured · <b class="ov-pend-count">${pending}</b> pending`;
+    if(!rows.length){ body.innerHTML='<div class="ov-empty">No information matches this search.</div>'; return; }
+    const bySection=new Map(); rows.forEach(row=>{ if(!bySection.has(row.section))bySection.set(row.section,[]); bySection.get(row.section).push(row); });
+    const rowHtml=row=>{
+      const isPending=pendingKeys.has(row.key)&&!filledValue(row.value);
+      const tbd=flaggedQuestions.has(row.key);
+      const tag=isPending?'PENDING':tbd?'TBD':'OK';
+      const cls=isPending?'pending':tbd?'tbd':'ok';
+      return `<div class="ov-line ${isPending?'is-pending':''}"><div class="ov-line-top"><button type="button" class="ov-q" data-jump-key="${esc(row.key)}" title="Go to this field">${esc(row.label)}</button><span class="ov-tag ${cls}">${tag}</span></div><textarea class="overview-edit" data-overview-key="${esc(row.key)}" placeholder="${isPending?'Type here to fill it…':''}">${esc(displayValue(row.value))}</textarea></div>`;
+    };
+    body.innerHTML=[...bySection.entries()].map(([section,secRows])=>{
+      const p=secRows.filter(r=>pendingKeys.has(r.key)&&!filledValue(r.value)).length;
+      return `<div class="ov-group"><div class="ov-group-head">${esc(section)}${p?`<span class="ov-group-pend">${p} pending</span>`:''}</div>${secRows.map(rowHtml).join('')}</div>`;
+    }).join('');
+    $$('.ov-q',body).forEach(btn=>btn.addEventListener('click',()=>{const el=keyEl(btn.dataset.jumpKey);if(!el)return;closeOverview();jumpToField(el);}));
+    $$('.overview-edit',body).forEach(input=>input.addEventListener('change',()=>{const el=keyEl(input.dataset.overviewKey);if(!el)return;const raw=input.value.trim();if(el.type==='checkbox')setValue(el,/^(yes|true|1)$/i.test(raw));else if(el.classList.contains('multi-choice'))setValue(el,raw.split(',').map(v=>v.trim()).filter(Boolean));else setValue(el,raw);syncChangedKey(el.dataset.key);updateConditionalVisibility();persistNow();renderOverview();}));
   }
   /**
    * Builds the "executive summary" print page: a short, readable brief for people who were not
@@ -1463,25 +1654,40 @@
     if(explicit) return explicit;
     const field=el.closest('.field');
     const label=field && $('label',field);
-    return (label?.textContent || el.dataset.key || 'Campo pendiente').replace(/\*/g,'').trim();
+    return (label?.textContent || el.dataset.key || 'Untitled field').replace(/\*/g,'').trim();
   }
   function sectionLabel(el){
     const flow=el.closest('details.flow-step'); if(flow)return flow.dataset.sectionTitle || 'Base Data';
     const section=el.closest('details.section-card');
     const summary=section ? $('summary',section) : null;
-    return (summary?.childNodes?.[0]?.textContent || 'Datos base').trim();
+    return (summary?.childNodes?.[0]?.textContent || 'Base Data').trim();
   }
-  function updateDraftReadiness(required, filled){
-    const missing=required.filter(el=>!isFilled(el));
-    const status=$('#draftReadiness'), list=$('#draftGaps');
-    if(!status || !list) return;
-    list.innerHTML='';
-    if(!missing.length){ status.textContent='Draft ready: all applicable required information is complete.'; status.className='draft-ready'; return; }
-    status.className=''; status.textContent=`${missing.length} required item${missing.length===1?'':'s'} still needed to complete the draft. Use them as the agenda for the next KOM or meeting.`;
-    const grouped=new Map(); missing.forEach(el=>{const section=sectionLabel(el); if(!grouped.has(section))grouped.set(section,[]); grouped.get(section).push(fieldLabel(el));});
-    [...grouped.entries()].slice(0,5).forEach(([section,labels])=>{const item=document.createElement('li');item.textContent=`${section}: ${labels.slice(0,3).join(', ')}${labels.length>3?` and ${labels.length-3} more`:''}`;list.appendChild(item);});
-    if(grouped.size>5){const item=document.createElement('li');item.textContent=`More pending items in ${grouped.size-5} section(s).`;list.appendChild(item);}
+  // "Qué me falta para mandar a aprobación": a readable, always-current list of the required
+  // questions still empty for the current scope, grouped by section. Each row jumps to its field.
+  function jumpToField(el){
+    if(!el)return;
+    let parent=el.closest('details'); while(parent){ parent.open=true; parent=parent.parentElement?.closest('details'); }
+    const box=el.closest('.field')||el.closest('.check-row')||el;
+    box.classList.add('missing');
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(()=>focusTarget(el)?.focus(),350);
   }
+  function renderGaps(){
+    const status=$('#gapsStatus'), body=$('#gapsBody');
+    if(!status || !body) return;
+    const missing=requiredAndVisible().filter(el=>!isFilled(el));
+    body.innerHTML='';
+    if(!missing.length){ status.className='gaps-status ready'; status.textContent='✓ All set: no required item is missing for the current scope. Ready to send for approval.'; return; }
+    status.className='gaps-status'; status.textContent=`${missing.length} required item${missing.length===1?'':'s'} missing. Tap one to jump straight to that field.`;
+    const grouped=new Map();
+    missing.forEach(el=>{const section=sectionLabel(el); if(!grouped.has(section))grouped.set(section,[]); grouped.get(section).push(el);});
+    grouped.forEach((els,section)=>{
+      const head=document.createElement('div'); head.className='gaps-group'; head.textContent=section; body.appendChild(head);
+      els.forEach(el=>{const item=document.createElement('button');item.type='button';item.className='gaps-item';item.textContent=fieldLabel(el);item.addEventListener('click',()=>jumpToField(el));body.appendChild(item);});
+    });
+  }
+  function openGaps(){ requiredAndVisible().forEach(el=>{const box=el.closest('.field')||el.closest('.check-row')||el;box.classList.toggle('missing',!isFilled(el));}); renderGaps(); $('#gapsPanel').classList.add('open'); }
+  function closeGaps(){ $('#gapsPanel').classList.remove('open'); }
   function generateMeetingNote(){
     const pending=requiredAndVisible().filter(el=>!isFilled(el));
     const questions=pending.length?`<ol>${pending.map(el=>`<li><b>${esc(sectionLabel(el))}</b> — ${esc(fieldLabel(el))}</li>`).join('')}</ol>`:'<p>All applicable required questions have been answered. Use this meeting to validate decisions, risks and next steps.</p>';
@@ -1489,41 +1695,37 @@
     try{window.parent.postMessage({source:'tenderloop-sow',type:'generated-note',payload:{title:'KOM',content}},'*');const btn=$('#generateMeetingNoteBtn');btn.textContent='KOM created ✓';setTimeout(()=>btn.textContent='Meeting note',1600);}catch(e){}
   }
   function focusTarget(el){ return el.matches('input,select,textarea,[contenteditable="true"]') ? el : $('input,select,textarea,[contenteditable="true"]',el); }
-  function reviewGaps(){
-    const req=requiredAndVisible(); req.forEach(el => el.classList.toggle('missing',!isFilled(el)));
-    const first=req.find(el=>!isFilled(el));
-    if(first){ let parent=first.closest('details'); while(parent){ parent.open=true; parent=parent.parentElement?.closest('details'); } first.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>focusTarget(first)?.focus(),350); }
-    else alert('All required fields currently applicable to this scope are complete.');
-  }
 
   function renderNavigation(){
     const host=$('#navigationResults'); if(!host)return;
     const query=String($('#navigationSearch')?.value||'').trim().toLowerCase();
-    const groups=new Map();
-    $$('.question-card').forEach(card=>{
-      const field=$('[data-key]',card); if(!field)return;
-      const section=sectionLabel(field), subsection=card.querySelector('.question-meta span:nth-child(3)')?.textContent || 'Questions';
-      const code=String(card.dataset.questionId||field.dataset.key||'').replace(/^flow_/i,''), label=card.dataset.questionLabel||fieldLabel(field), answer=String(getValue(field)??'').replace(/<[^>]*>/g,' ');
-      const haystack=`${code} ${field.dataset.key||''} ${section} ${subsection} ${label} ${answer}`.toLowerCase();
-      if(query&&!haystack.includes(query))return;
-      if(!groups.has(section))groups.set(section,new Map());
-      const children=groups.get(section); if(!children.has(subsection))children.set(subsection,[]);
-      children.get(subsection).push({key:field.dataset.key,code,label,answer,flagged:flaggedQuestions.has(field.dataset.key)});
-    });
     host.innerHTML='';
-    if(!groups.size){host.innerHTML='<p class="help">No section, question or answer matches this search.</p>';return;}
-    groups.forEach((subsections,section)=>{
-      const firstSectionQuestion=[...subsections.values()][0]?.[0];
-      const sectionEl=document.createElement('details');sectionEl.className='nav-section';sectionEl.open=!!query;
-      sectionEl.innerHTML=`<summary>${esc(section)}</summary>${firstSectionQuestion?`<button class="nav-jump" type="button" data-navigate-key="${esc(firstSectionQuestion.key)}">Go to section</button>`:''}`;
-      subsections.forEach((questions,subsection)=>{
-        const sub=document.createElement('details');sub.className='nav-subsection';sub.open=!!query;
-        sub.innerHTML=`<summary>${esc(subsection)}</summary>${questions[0]?`<button class="nav-jump" type="button" data-navigate-key="${esc(questions[0].key)}">Go</button>`:''}`;
-        questions.forEach(q=>{const row=document.createElement('div');row.className=`nav-question ${query?'match':''}`;row.dataset.navigateKey=q.key;row.innerHTML=`${q.flagged?'<span class="nav-flag">⚑</span>':''}<span><b>${q.code?`<span class="terminal-tag">${esc(q.code)}</span> · `:''}${esc(q.label)}</b>${q.answer?`<span class="nav-snippet">${esc(q.answer.slice(0,120))}</span>`:''}</span>`;sub.appendChild(row);});
-        sectionEl.appendChild(sub);
+    // Full document map: every visible section (classic sections AND guided-flow steps), in order,
+    // with the fields that belong directly to it. A field in a nested flow-step belongs to that step.
+    const sections=$$('details.section-card, details.flow-step').filter(sec=>!sec.classList.contains('conditional-hidden')&&!sec.classList.contains('hidden-by-platform'));
+    let any=false;
+    sections.forEach(sec=>{
+      const title=sectionTitle(sec);
+      const rows=[];
+      $$('[data-key]',sec).forEach(el=>{
+        if(el.classList.contains('dynamic-table'))return;
+        if(el.closest('.platform-hidden-field'))return;
+        if(!isLogicVisible(el))return;
+        if(el.closest('details.section-card, details.flow-step')!==sec)return;
+        const card=el.closest('.question-card');
+        const label=card?.dataset.questionLabel||el.dataset.questionLabel||fieldLabel(el);
+        const answer=String(getValue(el)??'').replace(/<[^>]*>/g,' ').trim();
+        rows.push({key:el.dataset.key,label,answer,flagged:flaggedQuestions.has(el.dataset.key)});
       });
+      const filtered=query?rows.filter(r=>`${title} ${r.label} ${r.answer}`.toLowerCase().includes(query)):rows;
+      if(!filtered.length)return;
+      any=true;
+      const sectionEl=document.createElement('details');sectionEl.className='nav-section';sectionEl.open=!!query;
+      sectionEl.innerHTML=`<summary>${esc(title)}</summary><button class="nav-jump" type="button" data-navigate-key="${esc(filtered[0].key)}">Go to section</button>`;
+      filtered.forEach(r=>{const row=document.createElement('div');row.className=`nav-question ${query?'match':''}`;row.dataset.navigateKey=r.key;row.innerHTML=`${r.flagged?'<span class="nav-flag">⚑</span>':''}<span><b>${esc(r.label)}</b>${r.answer?`<span class="nav-snippet">${esc(r.answer.slice(0,120))}</span>`:''}</span>`;sectionEl.appendChild(row);});
       host.appendChild(sectionEl);
     });
+    if(!any)host.innerHTML='<p class="help">No section, question or answer matches this search.</p>';
   }
   function openNavigation(){ $('#navigationPanel').classList.add('open'); document.body.classList.add('nav-panel-open'); renderNavigation(); $('#navigationSearch').focus(); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-open'},'*');}catch(e){} }
   function closeNavigation(){ $('#navigationPanel').classList.remove('open'); document.body.classList.remove('nav-panel-open'); try{window.parent.postMessage({source:'tenderloop-sow',type:'navigation-close'},'*');}catch(e){} }
@@ -1622,6 +1824,16 @@
     'flow_B008',
     'flow_C001','flow_C002','flow_C003','flow_C004','flow_C005','flow_C008','flow_C009','flow_C010','flow_C011',
     'flow_T001','flow_T007',
+    // Lean intake: technical detail already captured richer in the dedicated platform sections
+    // (Modicon / Triconex / Foxboro each have existing/target controller, scenario and HMI counts).
+    // The guided intake keeps only the branching gates, not these duplicated detail questions.
+    'flow_B009','flow_T002','flow_T003','flow_T004','flow_T006','flow_T010',
+    // Config/integration ownership is captured in the Responsibility Matrix and Services section,
+    // so the intake's Technical Scope step is reduced to the Installed Base branch only.
+    'flow_T005','flow_T008','flow_T009',
+    // Bid Strategy G001 (included_scope) and G002 (project type) repeat the Define Scope card's
+    // scope and Type of Proposal at the top, so they are dropped from the intake.
+    'included_scope','flow_G002',
     'flow_H001','flow_H002','flow_H005','flow_H006','flow_H007','flow_H008','flow_H009',
     'flow_S002','flow_S003','flow_S004','flow_S005','flow_S006','flow_S007',
     'flow_P001','flow_P002','flow_P003','flow_P004','flow_P005','flow_P006',
@@ -1631,16 +1843,23 @@
   const FLOW_COPY_OVERRIDES={
     flow_C001:'What are we offering to the customer?'
   };
+  // Only the sections that hold content with no dedicated section elsewhere are rendered here, in
+  // this order. Everything else the flow used to duplicate now lives once, in the sections below.
+  const FLOW_SHOWN=[
+    {section:'Bid Strategy & Inputs', title:'Bid Strategy & Inputs'},
+    {section:'Technical Scope', title:'Installed Base'},
+    {section:'Hardware & Cabinets', title:'Cabinets & Panels'}
+  ];
   function renderFlow(){
     const host=$('#flowStepsContainer'); host.innerHTML='';
-    FLOW_DATA.steps.forEach((step,index)=>{
+    FLOW_SHOWN.forEach((entry,index)=>{
+      const step=FLOW_DATA.steps.find(s=>s.Section===entry.section); if(!step)return;
       const sec=document.createElement('details'); sec.className='flow-step'; sec.open=index===0;
-      const sectionId=`flow_${slugify(step.Section)}`; sec.dataset.builderSectionId=sectionId; sec.dataset.sectionTitle=step.Section;
+      const sectionId=`flow_${slugify(step.Section)}`; sec.dataset.builderSectionId=sectionId; sec.dataset.sectionTitle=entry.title;
       const body=document.createElement('div'); body.className='flow-step-body';
-      const summary=document.createElement('summary'); summary.innerHTML=`<span>Step ${esc(step.Step)} — ${esc(step.Section)}</span><span class="flow-count"></span>`;
-      body.innerHTML=`<div class="flow-step-goal"><b>Goal:</b> ${esc(step.Goal)}${step.Notes?`<br/><b>Design note:</b> ${esc(step.Notes)}`:''}</div>`;
-      const baseDataAlreadyShown=new Set(['flow_B001','flow_B002','flow_B003','flow_B005','flow_B006','flow_B007']);
-      const qs=allFlowQuestions().map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section&&!baseDataAlreadyShown.has(q.key));
+      const summary=document.createElement('summary'); summary.innerHTML=`<span>${esc(entry.title)}</span><span class="flow-count"></span>`;
+      body.innerHTML=`<div class="flow-step-goal"><b>Goal:</b> ${esc(step.Goal)}</div>`;
+      const qs=allFlowQuestions().map(q=>({...(customForm.flowOverrides?.[q.key]?{...q,...customForm.flowOverrides[q.key]}:q),label:customForm.flowOverrides?.[q.key]?.label||FLOW_COPY_OVERRIDES[q.key]||q.label})).filter(q=>!REMOVED_FLOW_QUESTIONS.has(q.key)&&q.section===step.Section);
       let current='', subsection, grid;
       qs.forEach(q=>{
         if(q.subsection!==current){
@@ -1865,8 +2084,11 @@
 
   function updateConditionalVisibility(){
     showField('team_tsc_modicon',checked('platform_modicon')); showField('team_tsc_triconex',checked('platform_triconex')); showField('team_tsc_foxboro',checked('platform_foxboro'));
-    const contractSelected=anyChecked(['msa_available','cfa_available','customer_terms','se_standard_terms']);
-    showField('msa_link',checked('msa_available')); showField('cfa_link',checked('cfa_available')); showField('contract_links',anyChecked(['customer_terms','se_standard_terms'])); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||'')));
+    // T&Cs basis (Bid Strategy G006) is related to this contract block: its choice reveals the
+    // matching detail here, so the two are one connected question instead of a floating duplicate.
+    const tcsBasis=String(value('flow_G006')||'');
+    const contractSelected=anyChecked(['msa_available','cfa_available','customer_terms','se_standard_terms'])||!!tcsBasis;
+    showField('msa_link',checked('msa_available')||/^MSA/i.test(tcsBasis)); showField('cfa_link',checked('cfa_available')); showField('contract_links',anyChecked(['customer_terms','se_standard_terms'])||/negotiation/i.test(tcsBasis)); showField('commercial_exceptions',contractSelected||/Firm|Bid to bid|Change order/i.test(String(value('proposal_type')||''))||/negotiation/i.test(tcsBasis));
     const opportunityTypes=opportunityTypeValues(), opp=opportunityTypes.length===1?opportunityTypes[0]:'', existingScope=!opp||opp!=='Greenfield'||opportunityTypes.some(type=>['Modernization','Migration','Upgrade','Expansion','Mixed new + existing','Modernize in place'].includes(type));
     showField('installed_base_summary',existingScope); showField('data_validation_notes',existingScope);
     const mod=String(value('mod_scenario')||''), modChosen=!!mod, modSoftwareOnly=mod==='Software / services only', modExisting=modChosen&&!['New PLC system','Software / services only'].includes(mod), modMigration=modChosen&&['CPU + I/O modernization','CPU modernization, I/O remains','I/O modernization, CPU remains','Add new I/O','Competitor conversion'].includes(mod);
@@ -2044,6 +2266,19 @@
   // wording lives in each button's title tooltip.
   function applyDesignerMode(){ document.body.classList.toggle('designer-mode',designerMode); const btn=$('#designerModeBtn');btn.textContent=designerMode?'Designer: ON':'Designer';btn.title=designerMode?'Form designer is ON — click to exit':'Design questions (form designer)';btn.classList.toggle('logic-active',designerMode);btn.setAttribute('aria-pressed',designerMode?'true':'false'); }
   function updateGuidedButton(){ const btn=$('#guidedModeBtn');btn.textContent=guidedMode?'Guided':'Show all';btn.title=guidedMode?'Guided mode: only applicable questions are shown':'Showing every question, including the ones that do not apply';btn.classList.toggle('logic-active',guidedMode);btn.setAttribute('aria-pressed',guidedMode?'true':'false'); }
+  // Injects one .es-help hint per field listed in ES_HELP. Idempotent: it skips a field that already
+  // has its hint, so it can be called again after the form rebuilds without duplicating anything.
+  function applyEsHelp(){
+    Object.keys(ES_HELP).forEach(key=>{
+      const el=keyEl(key); if(!el)return;
+      const box=el.closest('.field')||el.closest('.check-row'); if(!box)return;
+      if(box.querySelector(':scope > .es-help'))return;
+      const hint=document.createElement('div'); hint.className='es-help'; hint.textContent=ES_HELP[key];
+      box.appendChild(hint);
+    });
+  }
+  function updateEsHelpButton(){ const btn=$('#esHelpBtn');if(!btn)return;btn.classList.toggle('logic-active',esHelp);btn.setAttribute('aria-pressed',esHelp?'true':'false'); }
+  function applyEsHelpMode(){ document.body.classList.toggle('es-on',esHelp); updateEsHelpButton(); }
 
   document.addEventListener('input',e=>{if(e.target.matches('#raciTaskSearch')){renderTaskSearchResults();return;}if(e.target.matches('[data-stakeholder-search]')){const query=String(e.target.value||'').trim().toLowerCase(),picker=e.target.closest('.stakeholder-picker');$$('[data-stakeholder-option]',picker).forEach(option=>option.style.display=option.textContent.toLowerCase().includes(query)?'':'none');return;} if(e.target.matches('input,select,textarea,[contenteditable="true"]')){ const keyed=e.target.closest('[data-key]'); if(keyed)keyed.classList.remove('missing'); syncChangedKey(keyed?.dataset.key); scheduleVisualUpdate(); save(); } });
   document.addEventListener('change',e=>{const raciPicker=e.target.closest('[data-raci-role]');if(raciPicker&&e.target.matches('[data-stakeholder-id]')){updateStakeholderPickerSummary(raciPicker);const row=raciPicker.closest('[data-raci-task-id]');if(row)try{window.parent.postMessage({source:'tenderloop-sow',type:'update-task-raci',payload:{taskId:row.dataset.raciTaskId,responsibleTeamMemberIds:selectedValues($('[data-raci-role="responsible"]',row)),approverTeamMemberIds:selectedValues($('[data-raci-role="approver"]',row)),informedTeamMemberIds:selectedValues($('[data-raci-role="informed"]',row))}},'*');}catch(error){}return;} if(e.target.matches('.platform-selector'))updatePlatformVisibility(); if(e.target.matches('input,select,textarea')){ const keyed=e.target.closest('[data-key]');syncChangedKey(keyed?.dataset.key);flushVisualUpdate();clearTimeout(saveTimer);persistNow();updateProgress(); } });
@@ -2080,7 +2315,9 @@
   $('#designerModeBtn').addEventListener('click',()=>{designerMode=!designerMode;applyDesignerMode();});
   $('#addSectionBtn').addEventListener('click',()=>openSectionDialog());
   $('#guidedModeBtn').addEventListener('click',()=>{guidedMode=!guidedMode;updateGuidedButton();updateConditionalVisibility();save();});
-  $('#reviewGapsBtn').addEventListener('click',reviewGaps);
+  $('#esHelpBtn').addEventListener('click',()=>{esHelp=!esHelp;applyEsHelpMode();save();});
+  $('#reviewGapsBtn').addEventListener('click',()=>{ if($('#gapsPanel').classList.contains('open'))closeGaps(); else openGaps(); });
+  $('#closeGapsBtn').addEventListener('click',closeGaps);
   $('#flaggedBtn').addEventListener('click',()=>{const active=!document.body.classList.contains('flag-filtering');document.body.classList.toggle('flag-filtering',active);$('#flaggedBtn').classList.toggle('logic-active',active);$('#flaggedBtn').textContent=active?'🚩 Only flagged':'🚩 Flagged';$('#flaggedBtn').title=active?'Only flagged questions are shown — click to show all':'Show only flagged questions';if(active){const first=$('.question-card.flagged')||$('[data-flag-box].flagged');if(first){let parent=first.closest('details');while(parent){parent.open=true;parent=parent.parentElement?.closest('details');}first.scrollIntoView({behavior:'smooth',block:'center'});}}});
   $('#navigationBtn').addEventListener('click',openNavigation);
   $('#closeNavigationBtn').addEventListener('click',closeNavigation);
@@ -2092,7 +2329,7 @@
   $('#overviewSearch').addEventListener('input',renderOverview);
   $('#overviewSectionFilter').addEventListener('change',renderOverview);
   $('#terminalOverview').addEventListener('click',e=>{if(e.target===e.currentTarget)closeOverview();});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverview();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeOverview();closeGaps();}});
   $('#printBtn').addEventListener('click',()=>{
     markAnsweredState();
     document.body.dataset.printFilter=$('#printFilterSelect')?.value||'all';
@@ -2103,6 +2340,8 @@
   });
   $('#expandFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=true));
   $('#collapseFlowBtn').addEventListener('click',()=>$$('details.flow-step').forEach(d=>d.open=false));
+  $('#expandAllBtn').addEventListener('click',()=>$$('details.section-card, details.flow-step').forEach(d=>d.open=true));
+  $('#collapseAllBtn').addEventListener('click',()=>$$('details.section-card, details.flow-step').forEach(d=>d.open=false));
   $('#questionType').addEventListener('change',updateOptionsVisibility);
   $('#addQuestionConditionBtn').addEventListener('click',()=>addConditionRow($('#questionConditions'),{},$('#questionEditId').value));
   $('#addSectionConditionBtn').addEventListener('click',()=>addConditionRow($('#sectionConditions')));
@@ -2193,7 +2432,7 @@
       globalForm=normalizeCustomForm(e.data.globalForm);
       applyScopeCatalog(e.data.scopeCatalog);
       if(e.data.payload){ applyState(e.data.payload); applyHostPrefill(hostPrefill); updateConditionalVisibility(); persistNow(); }
-      else { customForm=mergeGlobalForm(customForm); applyHostPrefill(hostPrefill); rebuildCustomForm(null,false); renderScopeCatalogs(); decorateStaticFlags(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); persistNow(); }
+      else { customForm=mergeGlobalForm(customForm); applyHostPrefill(hostPrefill); rebuildCustomForm(null,false); renderScopeCatalogs(); decorateStaticFlags(); applyEsHelp(); applyEsHelpMode(); updatePlatformVisibility(); updateConditionalVisibility(); updateProgress(); persistNow(); }
     }
     if(e.data.type === 'update-scope-catalog'){ applyScopeCatalog(e.data.scopeCatalog); renderScopeCatalogs(); decorateStaticFlags(); updateConditionalVisibility(); updateProgress(); }
     if(e.data.type === 'open-overview'){ $('#terminalOverview').classList.add('open');renderOverview(); }
@@ -2215,7 +2454,7 @@
   window.setTimeout(() => {
     if(receivedParentInit) return;
     let stored=null;try{stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem(LEGACY_STORAGE_KEY)||'null');}catch(e){}
-    if(stored)applyState(stored);else{updatePlatformVisibility();updateConditionalVisibility();updateProgress();}
+    if(stored)applyState(stored);else{applyEsHelp();applyEsHelpMode();updatePlatformVisibility();updateConditionalVisibility();updateProgress();}
   }, 400);
 })();</script>
 </body>

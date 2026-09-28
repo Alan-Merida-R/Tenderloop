@@ -28,12 +28,12 @@ elegida por el usuario; no se transmite nada fuera de su equipo.
 
 1. Recibe el paquete publicado por el responsable de Tender Control y extráelo
    completo en una ruta corta, por ejemplo `C:\Tenderloop`.
-2. Instala **Node.js 18** o una versión LTS posterior.
-3. En la carpeta `OpportunityOS`, abre **`OPEN_OPPORTUNITYOS.vbs`**.
+2. En la carpeta `OpportunityOS`, abre **`INSTALAR_OPPORTUNITYOS.vbs`**.
+3. Cuando termine la verificación local, pulsa **Open app**.
 
-Si Windows bloquea los archivos VBS, usa `OPEN_OPPORTUNITYOS.bat`. En el primer
-inicio el launcher instala las dependencias automáticamente; no es necesario
-ejecutar `npm install` manualmente para usar la aplicación.
+El paquete publicado incluye el runtime, las dependencias y el build revisados:
+no requiere Node.js, npm, permisos de administrador ni acceso a Internet. Si
+Windows bloquea los archivos VBS/HTA, usa `OPEN_OPPORTUNITYOS.bat`.
 
 La aplicación se abre en **`http://127.0.0.1:3000`**. El servicio local de
 archivos corre en el puerto **`3099`**.
@@ -49,7 +49,8 @@ puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`.
 Cada usuario puede configurar una carpeta de SharePoint sincronizada en
 **Settings › General › Application updates**. Sin carpeta configurada, Tender
 Control funciona normalmente. Al abrir, el launcher valida e instala cualquier
-versión más reciente y restaura la anterior si algo falla.
+versión más reciente desde esa carpeta local y restaura la anterior si algo
+falla. La PC destino no contacta npm ni compila código.
 
 Para publicar una nueva versión:
 
@@ -395,7 +396,7 @@ Los servicios en `src/services/` encapsulan la lógica de negocio y el acceso a 
 | `scripts/find-chrome-app-id.ps1` | Busca el app-id de la Chrome App instalada para que el launcher reusar su identidad de barra de tareas |
 | `GRABAR_BFO.bat` | Abre una sesión de grabación de selectores BFO, inyecta el grabador y guarda `bfo-selectors.json` |
 | `PUBLICAR_ACTUALIZACION.bat` | Valida el proyecto, solicita la carpeta de destino y genera el ZIP versionado con `latest.json` |
-| `engine_opportunityos.bat` | Motor interno del launcher: comprueba Node.js, instala dependencias si faltan, arranca Vite y Express y aplica actualizaciones |
+| `engine_opportunityos.bat` | Motor interno del launcher: valida el runtime offline empaquetado y arranca Vite y Express únicamente en `127.0.0.1` |
 
 ---
 

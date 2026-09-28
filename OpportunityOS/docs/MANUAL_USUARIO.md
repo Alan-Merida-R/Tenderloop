@@ -4,45 +4,15 @@ Guía para ejecutar el proyecto en una PC nueva desde el ZIP.
 
 ---
 
-## 1. Requisitos (una sola vez por PC)
+## 1. Requisitos
 
 - **Windows 10 / 11**
-- **Node.js 18 o superior (LTS)** → https://nodejs.org/
 - **Navegador moderno:** Microsoft Edge o Google Chrome (se abren en modo *app*, sin pestañas). Cualquier versión reciente sirve.
-- **Conexión a internet** la **primera vez** que se arranca (para descargar las dependencias). Después ya no se necesita.
+- El ZIP oficial completo de Tender Control.
 
-### 1.A Instalar Node.js SIN permisos de administrador
-
-En computadoras del trabajo muchas veces el instalador `.msi` de Node pide contraseña de administrador. Puedes esquivarlo usando la **versión ZIP portátil** — se descomprime en tu carpeta de usuario y no toca el sistema.
-
-**Paso a paso:**
-
-1. Ve a https://nodejs.org/en/download
-2. En **Prebuilt Binaries** selecciona:
-   - **OS:** Windows
-   - **Arquitectura:** x64
-   - **Formato:** `.zip` *(no `.msi`)*
-3. Descarga el archivo (ej. `node-v20.18.0-win-x64.zip`).
-4. Descomprime en una ruta **dentro de tu carpeta de usuario**, por ejemplo:
-   ```
-   C:\Users\TuUsuario\node
-   ```
-   El contenido debe quedar así: `C:\Users\TuUsuario\node\node.exe`, `npm.cmd`, etc.
-5. Añade esa ruta al PATH **del usuario** (no del sistema — no necesitas admin):
-   - Pulsa la tecla **Windows**, escribe `variables de entorno` y elige **"Editar las variables de entorno para esta cuenta"** (la que dice **para esta cuenta**, NO la del sistema).
-   - En el cuadro de arriba ("Variables de usuario"), selecciona **Path** → **Editar** → **Nuevo** → pega `C:\Users\TuUsuario\node` → **Aceptar** → **Aceptar**.
-6. **Cierra todas las ventanas de `cmd` / PowerShell** que tuvieras abiertas (el PATH nuevo solo aplica a consolas nuevas).
-7. Abre una consola nueva (`Windows + R` → escribe `cmd` → Enter) y verifica:
-   ```
-   node -v
-   npm -v
-   ```
-   Debe responder `v20.xx.x` y un número para npm. Si sale "no se reconoce…", revisa que escribiste bien la ruta en Path.
-
-> **¿Por qué funciona sin admin?**
-> El ZIP portátil no registra nada en el Registro de Windows ni copia archivos a `C:\Program Files`. Vive dentro de tu carpeta personal, sobre la que sí tienes permisos.
-
-> **¿IT bloquea la descarga?** Pide que abran https://nodejs.org y https://registry.npmjs.org en la lista blanca, o descarga el ZIP desde tu casa y tráelo en USB.
+No instales Node.js ni ejecutes npm. El paquete lleva un runtime oficial firmado,
+las dependencias exactas y la aplicación ya compilada. La instalación no descarga
+nada, no modifica el Registro del sistema y no necesita permisos de administrador.
 
 ---
 
@@ -54,7 +24,8 @@ En computadoras del trabajo muchas veces el instalador `.msi` de Node pide contr
    - ❌ `C:\Usuarios\María José\Escritorio\Tenderloop (copia)\`
 2. Clic derecho → **Extraer todo…**
 3. Al terminar, dentro de la carpeta deberás ver archivos como:
-   - `OPEN_OPPORTUNITYOS.vbs` (inicio normal)
+   - `INSTALAR_OPPORTUNITYOS.vbs` (primera instalación)
+   - `OPEN_OPPORTUNITYOS.vbs` (inicio normal después de instalar)
    - `OPEN_OPPORTUNITYOS.bat` (alternativa si Windows bloquea VBS)
    - `engine_opportunityos.bat` (motor local; no es necesario abrirlo directamente)
    - `package.json`
@@ -69,16 +40,19 @@ En computadoras del trabajo muchas veces el instalador `.msi` de Node pide contr
 Doble clic sobre:
 
 ```
-OPEN_OPPORTUNITYOS.vbs
+INSTALAR_OPPORTUNITYOS.vbs
 ```
 
 Lo que verás:
 
-1. Se prepara el motor local de Tender Control (puerto 3000).
-2. El texto `[INFO] Instalando paquetes por primera vez, puede tardar varios minutos…` aparece y empieza a bajar dependencias (≈ 3-10 min según la red).
-3. Cuando termina, sale `[OK] Servidor iniciando…` y **se abre el navegador** solo, en una ventana tipo "aplicación".
+1. Se comprueba por SHA-256 que el runtime, el código y las dependencias empaquetadas no estén alterados.
+2. Se confirma que la aplicación está completa y limitada a `127.0.0.1`.
+3. Se crean los accesos directos; pulsa **Open app** para abrir Tender Control.
 4. Tender Control mantiene un motor local mientras la aplicación está en uso.
    Para cerrarlo de forma segura utiliza `CLOSE_OPPORTUNITYOS.bat`.
+
+La instalación no accede a Internet. Los puertos 3000 y 3099 son conexiones
+internas de la misma computadora y no quedan expuestos a la red de la oficina.
 
 > **Si aparece "SmartScreen" de Windows** al hacer doble clic:
 > Haz clic en **Más información** → **Ejecutar de todas formas**. El script es tuyo, no hay riesgo.
@@ -149,7 +123,7 @@ Cópialo a:
 Simplemente haz doble clic en `OPEN_OPPORTUNITYOS.vbs`. Si falta la instalación,
 abrirá el instalador automáticamente. Si Windows bloquea archivos VBS, usa
 `OPEN_OPPORTUNITYOS.bat`.
-Como ya están instaladas las dependencias, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
+Como todos los archivos ya vienen preparados, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
 
 > **Si Tender Control ya está abierto**, volver a hacer doble clic **no** abre una
 > segunda ventana: trae al frente la que ya tienes (o la minimiza si ya estaba
@@ -194,21 +168,20 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 1. Doble clic en `DESINSTALAR_OPPORTUNITYOS.vbs` o usa **Uninstall Tender Control** desde el menú Inicio.
 2. Confirma en la ventana visual.
-3. El desinstalador hará cuatro cosas:
+3. El desinstalador hará estas tareas:
    - Cerrar los procesos locales de Tender Control en los puertos 3000 y 3099.
-   - Cerrar cualquier `node.exe` que esté ejecutándose desde **esta** carpeta (sin tocar otros Node que tengas para otras cosas).
-   - Borrar `node_modules`, `dist` y `.vite` (lo más pesado y lo que bloquea la eliminación).
-4. Cuando termine, ya puedes borrar la carpeta completa desde el Explorador sin errores.
+   - Verificar que esos procesos pertenecen a **esta** carpeta, sin cerrar aplicaciones ajenas.
+   - Quitar los accesos directos.
+4. Pulsa **Remove folder now** y espera el mensaje final que confirma la eliminación.
 
 **¿Qué NO borra el desinstalador?**
 
 - Tu base de datos (`.json`) → vive fuera de esta carpeta en la ruta que tú elegiste. **Queda intacta.**
-- Node.js instalado en tu PC → es para otros proyectos también. **No se toca.**
-- Los archivos fuente del proyecto (`App.tsx`, `package.json`, etc.) → para que puedas reinstalar de nuevo si cambias de opinión (simplemente ejecuta `OPEN_OPPORTUNITYOS.vbs` otra vez y volverá a bajar `node_modules`).
+- `%APPDATA%\OpportunityOS` → configuraciones y datos auxiliares permanecen intactos.
+- Cualquier Node.js instalado por otras aplicaciones → no se toca.
 
-> **¿Quieres borrar TODO incluido el código?** Ejecuta `DESINSTALAR_OPPORTUNITYOS.vbs` primero (libera los locks) y luego borra la carpeta completa desde el Explorador.
-
-> **¿El desinstalador dice "No se pudo borrar node_modules por completo"?** Significa que hay procesos de Node con locks que no se pudieron cerrar (a veces antivirus corporativo). Reinicia la PC y vuelve a ejecutar el desinstalador — al arrancar Windows "limpio" ya no habrá nada bloqueando.
+> Si guardaste manualmente una base de datos dentro de la carpeta de instalación,
+> muévela fuera antes de confirmar **Remove folder now**.
 
 ---
 
@@ -216,12 +189,12 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 | Síntoma | Causa probable | Solución |
 | --- | --- | --- |
-| `[ERROR] Node.js no esta instalado` | Node no está instalado o falta reiniciar | Instala Node LTS y reinicia la PC |
-| `Fallo "npm install". Revisa tu conexion o proxy corporativo` | Red bloqueada o VPN corporativa | Ejecuta fuera de la VPN, o pide a IT abrir `registry.npmjs.org` |
-| El navegador abre pero se queda en blanco | Vite aún no terminó de compilar | Espera 10-20 s y recarga (F5) |
+| `The packaged Tender Control runtime is missing` | ZIP incompleto o se copiaron archivos sueltos | Extrae nuevamente el ZIP oficial completo |
+| `failed its SHA-256 integrity check` | Archivo incompleto o alterado | Descarta esa copia y extrae nuevamente el ZIP oficial |
+| El navegador abre pero se queda en blanco | El motor local aún está iniciando | Espera unos segundos y recarga (F5) |
 | `Puerto 3000 en uso` | Otra app ocupa el puerto | Usa `CLOSE_OPPORTUNITYOS.bat` y vuelve a lanzar |
 | La app dice "No se pudo guardar el archivo" | El navegador perdió permisos sobre el `.json` | Recarga (F5) y vuelve a abrir la base; aprueba el permiso que pide el navegador |
-| Quiero reinstalar todo desde cero | Dependencias corruptas | Borra la carpeta `node_modules` y vuelve a doble clic en el `.vbs` |
+| Quiero reinstalar todo desde cero | Paquete incompleto o corrupto | Conserva tu base `.json`, extrae un ZIP oficial nuevo y ejecuta el instalador |
 | Al vincular una carpeta pide la ruta a mano | Windows Search todavía no indexó la carpeta | Espera unos segundos y reintenta; la app ahora reintenta sola durante ~9 segundos antes de pedírtela |
 | "El perfil de navegador de Tender Control ya está abierto" | Quedó una ventana de automatización abierta | Ciérrala y vuelve a intentar; Windows solo permite un proceso por perfil |
 | Una lista de tareas o una nota "desapareció" | Está marcada como oculta | En Ajustes desmarca *Hide this list*, o abre la tira de **notas ocultas** en el expediente. Nada se borró |

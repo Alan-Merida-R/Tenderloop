@@ -9,7 +9,7 @@ import path from 'node:path';
 import {
     openNative, revealInExplorer, copyPathsToClipboard, copyEmailReplyToClipboard,
     copyDirectoryBestEffort, copyFileVerified, findDirByName, findDirByChildren, findFileByMetadata, locateByMarker,
-    setTimerWindowTopmost, movePath
+    setTimerWindowTopmost, movePath, recyclePath
 } from '../os/shell';
 import type { DirChildHint } from '../os/shell';
 import { composeEmail, findMissingAttachments } from '../os/outlookCompose';
@@ -66,12 +66,15 @@ osRouter.get('/open', async (req: Request, res: Response) => {
     if (!raw) return res.status(400).json({ error: 'Missing "path" query param' });
 
     const target = path.normalize(raw);
-    if (!existsSync(target)) {
+    let isDirectory: boolean;
+    try {
+        isDirectory = statSync(target).isDirectory();
+    } catch {
         return res.status(404).json({ error: 'Path does not exist', path: target });
     }
     try {
-        await openNative(target);
-        const kind = statSync(target).isDirectory() ? 'directory' : 'file';
+        await openNative(target, isDirectory);
+        const kind = isDirectory ? 'directory' : 'file';
         return res.json({ ok: true, opened: target, kind });
     } catch (err: any) {
         return res.status(500).json({ error: err.message, path: target });
@@ -87,9 +90,13 @@ osRouter.get('/open-many', async (req: Request, res: Response) => {
     const missing: string[] = [];
     for (const raw of paths) {
         const target = path.normalize(raw);
-        if (!existsSync(target)) { missing.push(target); continue; }
-        try { await openNative(target); opened.push(target); }
-        catch { missing.push(target); }
+        try {
+            const isDirectory = statSync(target).isDirectory();
+            await openNative(target, isDirectory);
+            opened.push(target);
+        } catch {
+            missing.push(target);
+        }
     }
     return res.json({ ok: true, opened, missing });
 });
@@ -336,6 +343,38 @@ osRouter.post('/move', (req: Request, res: Response) => {
     return res.json({ ok: true, moved, failed });
 });
 
+// --- Send files/folders to the Windows Recycle Bin ---
+// There is intentionally no permanent-delete fallback. A failure leaves the
+// item where it is so an accidental click can never become unrecoverable.
+osRouter.post('/recycle', async (req: Request, res: Response) => {
+    const body = req.body || {};
+    const requested: string[] = Array.isArray(body.paths)
+        ? body.paths.filter((value: unknown): value is string => typeof value === 'string' && !!value.trim())
+        : [];
+    if (!requested.length) return res.status(400).json({ error: 'Missing "paths"' });
+
+    const recycled: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+    for (const raw of requested) {
+        if (!path.isAbsolute(raw)) {
+            failed.push({ path: raw, error: 'An absolute path is required.' });
+            continue;
+        }
+        const target = path.normalize(raw);
+        try {
+            await recyclePath(target);
+            recycled.push(target);
+        } catch (err: any) {
+            failed.push({ path: target, error: err?.message || String(err) });
+        }
+    }
+
+    if (!recycled.length) {
+        return res.status(500).json({ error: failed[0]?.error || 'Nothing could be moved to the Recycle Bin.', recycled, failed });
+    }
+    return res.json({ ok: true, recycled, failed });
+});
+
 // --- Check whether an absolute path exists (used to validate persisted folder paths) ---
 osRouter.get('/check-path', (req: Request, res: Response) => {
     const raw = q(req, 'path');
@@ -411,7 +450,7 @@ osRouter.post('/compose-email', async (req: Request, res: Response) => {
     }
 });
 
-// --- DEPRECATED: locate a folder by unique marker file ---
+// --- Locate a browser-picked folder by its unique temporary marker ---
 osRouter.get('/locate', async (req: Request, res: Response) => {
     const marker = q(req, 'marker').trim();
     const name = q(req, 'name').trim();
@@ -421,5 +460,5 @@ osRouter.get('/locate', async (req: Request, res: Response) => {
 
     const found = await locateByMarker(marker, name, near);
     if (found) return res.json({ ok: true, ...found });
-    return res.status(404).json({ error: 'Marker not found in known roots', marker });
+    return res.status(404).json({ error: 'Marker not found after checking indexed, nearby and mounted locations', marker, searchComplete: true });
 });

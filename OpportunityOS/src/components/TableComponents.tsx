@@ -87,17 +87,24 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
     // Dates in the General table are regular text fields. The native calendar
     // is intentionally exposed only through its dedicated icon button.
     if (direct && type === 'date') {
+        // Stored as YYYY-MM-DD (sometimes with a time part); shown day-first like the placeholder.
+        const isoValue = String(value || '').slice(0, 10);
+        const isoMatch = isoValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const shownValue = tempValue === value
+            ? (isoMatch ? `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}` : String(value || ''))
+            : String(tempValue || '');
         const commitTypedDate = () => {
             const normalized = normalizeTypedDate(String(tempValue));
             if (normalized === null) { setTempValue(value); return; }
+            if (normalized === isoValue) { setTempValue(value); return; }
             setTempValue(normalized);
-            if (normalized !== value) onChange(normalized);
+            onChange(normalized);
         };
         return (
-            <div className="flex min-w-[92px] items-center rounded border border-transparent bg-transparent pr-0 transition-colors hover:bg-gray-100/50 focus-within:border-gray-200 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#3DCD58]">
+            <div className="relative flex min-w-[112px] items-center rounded border border-transparent bg-transparent pr-0 transition-colors hover:bg-gray-100/50 focus-within:border-gray-200 focus-within:bg-white focus-within:ring-1 focus-within:ring-[#3DCD58]">
                 <input
                     type="text"
-                    value={String(tempValue || '')}
+                    value={shownValue}
                     placeholder="DD/MM/YYYY"
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -108,7 +115,8 @@ export const EditableCell: React.FC<EditableCellProps> = ({ value, onChange, typ
                     className={`min-w-0 flex-1 border-0 bg-transparent px-1 py-1 text-xs font-mono text-gray-700 outline-none focus:ring-0 ${className || ''}`}
                 />
                 <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.stopPropagation(); const picker = calendarRef.current as (HTMLInputElement & { showPicker?: () => void }) | null; picker?.showPicker ? picker.showPicker() : picker?.click(); }} className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-[#278a3b]" title="Choose from calendar"><CalendarDays className="h-3 w-3" /></button>
-                <input ref={calendarRef} type="date" value={String(value || '')} onChange={(e) => { setTempValue(e.target.value); onChange(e.target.value); }} tabIndex={-1} aria-hidden="true" className="absolute h-px w-px opacity-0 pointer-events-none" />
+                {/* Spans the whole field so the native calendar opens aligned right under it. */}
+                <input ref={calendarRef} type="date" value={isoMatch ? isoValue : ''} onChange={(e) => { if (!e.target.value || e.target.value === isoValue) return; setTempValue(e.target.value); onChange(e.target.value); }} tabIndex={-1} aria-hidden="true" className="absolute inset-0 h-full w-full opacity-0 pointer-events-none" />
             </div>
         );
     }

@@ -65,79 +65,44 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3099 " ^| findstr "LISTENIN
     exit /b 1
 )
 
-:: --- Check Node.js ---
-if "%MODE%"=="VISIBLE" echo [2/5] Checking Node.js... 3 steps remaining.
-if "%MODE%"=="INSTALL" echo [2/5] Checking Node.js... 3 steps remaining.
-where node >nul 2>&1
-if %errorlevel% neq 0 (
-    if not "%MODE%"=="HIDDEN" (
-        echo [ERROR] Node.js was not found. Install it from https://nodejs.org/
-        pause
-    )
-    exit /b 1
-)
-
-:: --- Install dependencies if needed ---
-if "%MODE%"=="VISIBLE" echo [3/5] Checking dependencies... 2 steps remaining.
-if "%MODE%"=="INSTALL" echo [3/5] Checking dependencies... 2 steps remaining.
-:: A partially installed node_modules folder is not usable. Check the launcher
-:: that OpportunityOS actually needs instead of treating the folder as success.
-if "%MODE%"=="INSTALL" if exist "node_modules\.bin\vite.cmd" (
-    echo [INFO] Verifying dependencies for this complete installation folder.
-    call npm.cmd install --include=dev --no-audit --no-fund
-    if errorlevel 1 exit /b 1
-)
-
-if not exist "node_modules\.bin\vite.cmd" (
-    if not "%MODE%"=="HIDDEN" echo.
-    echo [INFO] Installing or repairing dependencies. This can take several minutes.
-    if not "%MODE%"=="HIDDEN" echo [INFO] npm will show download progress below. After this, 2 setup steps remain.
-    :: Vite is required to run the local application. --include=dev keeps it
-    :: available even when a corporate PC has NODE_ENV=production configured.
-    :: Use the committed lockfile so every installation receives the reviewed
-    :: dependency tree instead of resolving newer semver-compatible packages.
-    call npm ci --include=dev --no-audit --no-fund
-    if errorlevel 1 (
-        if not "%MODE%"=="HIDDEN" (
-            echo.
-            echo [ERROR] npm ci failed. Possible causes:
-            echo   - No internet connection
-            echo   - Corporate proxy blocking npm
-            echo   - Outdated Node.js
-            echo.
-            pause
-        )
+:: --- Use the reviewed runtime bundled in release packages. Developers can
+:: still run the source tree with their system Node.js when no release manifest
+:: is present, but an installed offline package never falls back to PATH.
+if "%MODE%"=="VISIBLE" echo [2/5] Checking the offline runtime... 3 steps remaining.
+if "%MODE%"=="INSTALL" echo [2/5] Checking the offline runtime... 3 steps remaining.
+set "NODE_EXE=%~dp0runtime\node.exe"
+if not exist "%NODE_EXE%" (
+    if exist "%~dp0offline-runtime.json" (
+        echo [ERROR] The packaged Tender Control runtime is missing or incomplete.
+        if not "%MODE%"=="HIDDEN" pause
         exit /b 1
     )
-    if not "%MODE%"=="HIDDEN" echo [OK] Dependencies installed. 2 setup steps remaining.
-) else (
-    if "%MODE%"=="INSTALL" echo [OK] Dependencies are already installed. 2 setup steps remaining.
-)
-
-:: --- Check Vite ---
-if not exist "node_modules\.bin\vite.cmd" (
-    if not "%MODE%"=="HIDDEN" (
-        echo [ERROR] Vite was not found. Delete node_modules and run the installer again.
-        pause
-    )
-    exit /b 1
-)
-
-:: --- Build the stable application shell ---
-:: Normal use must never run Vite's development/HMR server: any source edit by
-:: an agent would otherwise reload the user's active window. Installation and
-:: updates create dist once; this fallback repairs a missing build safely.
-if not exist "dist\index.html" (
-    if not "%MODE%"=="HIDDEN" echo [INFO] Building the stable Tender Control application. This can take a minute.
-    call npm.cmd run build
+    where node.exe >nul 2>&1
     if errorlevel 1 (
-        if not "%MODE%"=="HIDDEN" (
-            echo [ERROR] Tender Control could not create its stable application build.
-            pause
-        )
+        echo [ERROR] Node.js was not found. Use the complete Tender Control release package.
+        if not "%MODE%"=="HIDDEN" pause
         exit /b 1
     )
+    set "NODE_EXE=node.exe"
 )
+
+:: --- Release packages contain the already reviewed dependencies and build.
+:: Never download packages or compile code on the user's corporate computer.
+if "%MODE%"=="VISIBLE" echo [3/5] Checking packaged application files... 2 steps remaining.
+if "%MODE%"=="INSTALL" echo [3/5] Checking packaged application files... 2 steps remaining.
+if not exist "node_modules\tsx\dist\cli.mjs" goto :offline_files_missing
+if not exist "node_modules\vite\bin\vite.js" goto :offline_files_missing
+if not exist "dist\index.html" goto :offline_files_missing
+goto :offline_files_ready
+
+:offline_files_missing
+echo [ERROR] This package is incomplete. Tender Control will not download or repair files from the internet.
+echo [ERROR] Extract the complete official release ZIP and run the installer again.
+if not "%MODE%"=="HIDDEN" pause
+exit /b 1
+
+:offline_files_ready
+if "%MODE%"=="INSTALL" echo [OK] Offline application files are ready. No internet connection is required.
 
 if "%MODE%"=="INSTALL" (
     echo [4/5] Creating desktop and Start Menu shortcuts... 1 step remaining.
@@ -158,7 +123,7 @@ if "%MODE%"=="INSTALL" (
 :: --- OpportunityOS backend in background (port 3099) ---
 if "%MODE%"=="VISIBLE" echo [4/5] Starting local engine... 1 step remaining.
 if exist "server\index.ts" (
-    start "" /B node_modules\.bin\tsx.cmd server\index.ts
+    start "" /B "%NODE_EXE%" "node_modules\tsx\dist\cli.mjs" "server\index.ts"
 ) else (
     echo [ERROR] Tender Control server files are missing.
     if not "%MODE%"=="HIDDEN" pause
@@ -169,5 +134,6 @@ if exist "server\index.ts" (
 if "%MODE%"=="VISIBLE" echo [5/5] Opening Tender Control... 0 steps remaining.
 start "" /B cmd /c call "%~dp0_open_browser.bat" %BROWSER_MODE%
 
-:: --- Serve the immutable production build (no file watcher, no HMR reloads) ---
-call node_modules\.bin\vite.cmd preview --host 127.0.0.1 --port 3000 --strictPort
+:: --- Serve the immutable production build on loopback only. This is local IPC,
+:: not a LAN or internet listener, and it performs no package downloads.
+"%NODE_EXE%" "node_modules\vite\bin\vite.js" preview --host 127.0.0.1 --port 3000 --strictPort

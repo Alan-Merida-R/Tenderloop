@@ -14,7 +14,6 @@ echo [1/3] Closing Tender Control processes...
 :: can stall indefinitely and leave the uninstaller waiting forever. OpportunityOS
 :: reserves these two local ports, so close their owners directly and quickly.
 call "%APP_DIR%CLOSE_OPPORTUNITYOS.bat" SILENT
-taskkill /f /im OpportunityOS.exe >nul 2>&1
 echo [OK] Requested shutdown of Tender Control local services.
 
 echo [2/3] Removing Tender Control shortcuts...
@@ -26,5 +25,6 @@ echo [OK] Tender Control shortcuts removed.
 
 echo [3/3] Ready to remove the complete Tender Control folder.
 echo [OK] Select "Remove folder now" in the uninstaller to start complete removal.
-echo [INFO] Node.js itself is not removed. Local Tender Control data inside this folder will be removed.
+echo [INFO] Other Node.js installations and the separate APPDATA folder are not removed.
+echo [WARN] Any files stored manually inside this application folder will be removed.
 exit /b 0

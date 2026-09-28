@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased - 2026-09-27
+
+### Added
+- Added a self-contained offline Windows distribution model: published packages now carry the reviewed production build, exact dependency tree, an OpenJS-signed x64 Node.js runtime, third-party notices and SHA-256 integrity metadata. Target PCs no longer need Node.js, npm, administrator rights or Internet access.
+- Added `scripts/verify-offline-runtime.ps1` to validate every managed release file, the packaged runtime and lockfile hashes, package completeness, architecture and localhost-only configuration before installation or update.
+- Added safe Windows Recycle Bin support to the opportunity folder through `POST /api/os/recycle`. Files and folders are recycled through `IFileOperation`; failure never falls back to permanent deletion.
+- Added Explorer-style folder selection with Ctrl/Meta toggle, Shift ranges, Ctrl+Shift additive ranges, active-item tracking and stale-selection cleanup, backed by the pure `selectionUtils.ts` helper and regression checks.
+- Added a marker-based filesystem scan fallback for newly created, empty, unindexed or deeply nested linked folders, including mapped/cloud drives, while continuing to reject ambiguous matches.
+- Added an SOW effort-at-a-glance indicator, first-use guidance, optional Spanish field help, an actionable missing-required-fields panel, editable grouped Overview, complete document navigation and Expand/Collapse all controls.
+
+### Changed
+- Installer, launcher and both update paths now consume the packaged offline runtime and production build instead of downloading dependencies or compiling on the destination PC. Updates verify the complete payload and remove newly introduced managed files during rollback.
+- Release publishing now builds from version-controlled files, excludes AI/scratch/data paths, audits the complete dependency tree, validates the runtime signature and localhost bindings, packages `dist` plus `node_modules`, and emits a schema-2 release manifest with per-file hashes.
+- Dependency security was refreshed: `@xmldom/xmldom` 0.8.15, DOMPurify 3.4.13, patched SheetJS 0.20.3 from its pinned official CDN tarball, plus fixed `nanoid` and `qs` overrides.
+- Process shutdown now verifies that listeners on ports 3000/3099 belong to the current Tender Control folder before stopping them. Uninstall preserves the separate `%APPDATA%\OpportunityOS` data area and other Node.js installations.
+- Opportunity-folder opening now uses bounded requests with clearer partial/missing-file errors. Template-created folders can be linked in path-only mode when Chromium cannot return a handle.
+- Dashboard General view now presents Notes, Save Note to History and editable Last Event as card-style columns, preserves them for existing saved layouts, prevents row navigation/dragging while editing, and displays dates as `DD/MM/YYYY` without changing stored ISO values.
+- Opportunity ranking now treats invalid/non-positive values as unranked and closes priority gaps after deletion.
+- The embedded SOW was reorganized into a leaner non-duplicated guided flow, shorter section names, clearer top-level scope blocks, connected contract logic and a lighter review/navigation experience.
+
+### Fixed
+- Fixed permanent deletion from the folder UI by routing single and multi-item removal exclusively through the Windows Recycle Bin.
+- Fixed ghost or inconsistent multi-selection after refresh, search, navigation and Ctrl-click deselection.
+- Fixed replacement/template folders retaining an obsolete handle/path when the new folder was empty or not indexed yet.
+- Fixed duplicate native opens after partial `/open-many` failures and slow opening requests that could wait indefinitely.
+- Fixed Dashboard controls, text selection and editable fields accidentally opening or dragging the surrounding opportunity/task row.
+- Fixed General-view date rendering and native date-picker alignment, a mojibake em dash, and note-editor header spacing beneath overlay controls.
+
+Full technical inventory and validation evidence: [`docs/CHANGESET_ACTUALIZACION_2026-09-27.md`](docs/CHANGESET_ACTUALIZACION_2026-09-27.md).
+
 ## v1.0.5 - 2026-09-25
 
 ### Added
