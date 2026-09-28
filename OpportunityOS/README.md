@@ -46,13 +46,15 @@ fuente. En ese caso sí requiere Node.js y npm disponibles en el `PATH`, puede
 necesitar acceso al registro npm, instala exactamente el lockfile con `npm ci`
 y genera `dist` solo cuando hace falta. Este modo permite reemplazar manualmente
 el contenido y reconstruirlo en la misma ruta sin borrar los datos del usuario.
+Si quedaron manifiestos o launchers de una versión antigua, el helper fuente
+nuevo tiene prioridad y limpia únicamente los componentes WSH obsoletos.
 
 El paquete oficial nunca usa este fallback: el script de reparación desde
 fuentes se excluye expresamente del ZIP publicado.
 
-Para abrirla como una pestaña del navegador usa
-`OPEN_OPPORTUNITYOS_BROWSER.bat`. Para cerrar la aplicación y liberar sus
-puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`. Consulta el flujo detallado en
+El engine abre por defecto una pestaña del navegador. El alias
+`OPEN_OPPORTUNITYOS_BROWSER.bat` conserva ese mismo comportamiento. Para cerrar
+la aplicación y liberar sus puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`. Consulta el flujo detallado en
 [`docs/INSTALLATION_ENGINE.md`](docs/INSTALLATION_ENGINE.md).
 
 ---

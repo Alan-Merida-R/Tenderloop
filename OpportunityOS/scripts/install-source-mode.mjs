@@ -54,9 +54,11 @@ const runNpm = (description, args, root) => {
 
 try {
   const requestedRoot = process.argv[2];
+  const allowStaleOfflineManifest = process.argv.includes('--allow-stale-offline-manifest');
   if (!requestedRoot) fail('ProjectRoot was not supplied by engine_opportunityos.bat.');
   const root = fs.realpathSync(requestedRoot);
-  if (fs.existsSync(path.join(root, 'offline-runtime.json'))) fail('Source-copy setup is disabled for official offline packages.');
+  if (fs.existsSync(path.join(root, 'offline-runtime.json')) && !allowStaleOfflineManifest) fail('Source-copy setup is disabled for official offline packages.');
+  if (allowStaleOfflineManifest) console.log('[INFO] Ignoring stale offline metadata because the source-only preparation helper is present.');
   for (const required of ['package.json', 'package-lock.json', 'engine_opportunityos.bat']) {
     if (!fs.statSync(path.join(root, required), { throwIfNoEntry: false })?.isFile()) fail(`The source copy is incomplete: ${required} is missing.`);
   }

@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The embedded SOW was reorganized into a leaner non-duplicated guided flow, shorter section names, clearer top-level scope blocks, connected contract logic and a lighter review/navigation experience.
 
 ### Fixed
+- Launching the engine now closes a verified previous Tender Control instance on ports 3000/3099 before starting the current files. The default browser launch is also a standard tab instead of an unreliable Chromium app window.
+- Source files copied over an older offline installation now take precedence over stale offline manifests, rebuild deterministically and remove only the known obsolete HTA/VBS/WSH launchers.
 - Removed the mandatory three-call `Phase` contract that could be swallowed by the trailing backslash in the quoted `%~dp0` argument and leave PowerShell waiting for interactive input.
 - Restored in-place installation from a manually copied source folder: the engine detects the absence of an offline manifest, validates local Node.js/npm, repairs dependencies and builds `dist` without an interactive phase parameter. Official release ZIPs remain strictly offline because the source-mode helper is excluded during publication.
 - Fixed permanent deletion from the folder UI by routing single and multi-item removal exclusively through the Windows Recycle Bin.

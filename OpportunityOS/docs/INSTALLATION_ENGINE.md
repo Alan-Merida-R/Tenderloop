@@ -18,7 +18,8 @@ autorizarse por el canal de Cybersecurity en vez de saltar el control.
 
 ## Flujo automático
 
-1. Reutiliza una instancia existente solo si frontend y backend responden.
+1. Si frontend y backend ya responden, cierra de forma segura esa instancia
+   anterior y libera 3000/3099 antes de iniciar la versión actual.
 2. Comprueba que los puertos 3000 y 3099 estén libres.
 3. Distingue una distribución oficial por `offline-runtime.json`.
 4. En una distribución oficial, verifica runtime, manifiestos, hashes, build y
@@ -28,10 +29,15 @@ autorizarse por el canal de Cybersecurity en vez de saltar el control.
    el árbol de dependencias o cambió `package-lock.json`. Calcula una huella de
    las entradas del frontend y ejecuta `npm run build` solo si `dist` falta o
    quedó obsoleto.
+   Si la copia se pegó encima de una instalación antigua y quedaron manifiestos
+   offline, la presencia de `scripts/install-source-mode.mjs` da prioridad segura
+   al modo fuente. Después del build retira solamente los launchers HTA/VBS y
+   helpers WSH obsoletos conocidos.
 6. Inicia Express y Vite Preview, ambos en loopback, y espera hasta 60 segundos
    a que los dos health checks respondan.
-7. Abre Chrome, Edge o Vivaldi en modo app; si no están disponibles usa la
-   asociación HTTP estándar de Windows.
+7. Abre una pestaña mediante la asociación HTTP estándar de Windows. El modo
+   ventana Chromium queda disponible como opción explícita `APP`, no como valor
+   predeterminado.
 8. Mantiene la consola abierta para mostrar errores y conservar observables los
    dos procesos locales.
 
@@ -54,7 +60,8 @@ usuario deba contestar.
 
 - Para reemplazar manualmente una copia fuente, cierra Tender Control con
   `CLOSE_OPPORTUNITYOS.bat`, copia los archivos nuevos sobre la misma carpeta y
-  vuelve a ejecutar `engine_opportunityos.bat`.
+  vuelve a ejecutar `engine_opportunityos.bat`. No es necesario borrar primero
+  `node_modules`, `dist` ni metadatos antiguos: el engine los valida o reconstruye.
 - Una distribución oficial puede aplicar el paquete configurado en Settings al
   inicio. El actualizador verifica SHA-256, crea respaldo, instala, verifica y
   revierte si hay error.

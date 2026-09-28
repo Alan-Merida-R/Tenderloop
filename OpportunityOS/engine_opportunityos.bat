@@ -3,10 +3,12 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 set "PROJECT_ROOT=%CD%"
+set "SOURCE_MODE="
+if exist "%PROJECT_ROOT%\scripts\install-source-mode.mjs" set "SOURCE_MODE=1"
 set "MODE=%~1"
 if not defined MODE set "MODE=VISIBLE"
 set "BROWSER_MODE=%~2"
-if not defined BROWSER_MODE set "BROWSER_MODE=APP"
+if not defined BROWSER_MODE set "BROWSER_MODE=TAB"
 if /I "%MODE%"=="TAB" (
     set "BROWSER_MODE=TAB"
     set "MODE=VISIBLE"
@@ -26,13 +28,17 @@ curl.exe -f -s -o nul --max-time 2 http://127.0.0.1:3000 >nul 2>&1
 if not errorlevel 1 (
     curl.exe -f -s -o nul --max-time 2 -H "Origin: http://127.0.0.1:3000" http://127.0.0.1:3099/health >nul 2>&1
     if not errorlevel 1 (
-        call "%PROJECT_ROOT%\_open_browser.bat" "%BROWSER_MODE%"
-        exit /b 0
+        if /I not "%MODE%"=="HIDDEN" echo [INFO] Closing the previous Tender Control instance before restarting...
+        call "%PROJECT_ROOT%\CLOSE_OPPORTUNITYOS.bat" SILENT
+        timeout /t 1 /nobreak >nul
+        goto :previous_instance_closed
     )
     if /I not "%MODE%"=="HIDDEN" echo [INFO] An incomplete Tender Control instance was found. Restarting it...
     call "%PROJECT_ROOT%\CLOSE_OPPORTUNITYOS.bat" SILENT
     timeout /t 1 /nobreak >nul
 )
+
+:previous_instance_closed
 
 :: A backend-only or frontend-only process can also retain locks after an
 :: interrupted launch. Ask the scoped closer to remove only listeners that
@@ -55,7 +61,7 @@ for %%P in (3000 3099) do (
     )
 )
 
-if exist "%PROJECT_ROOT%\offline-runtime.json" if exist "%PROJECT_ROOT%\scripts\check-for-update.ps1" (
+if not defined SOURCE_MODE if exist "%PROJECT_ROOT%\offline-runtime.json" if exist "%PROJECT_ROOT%\scripts\check-for-update.ps1" (
     powershell.exe -NoProfile -STA -File "%PROJECT_ROOT%\scripts\check-for-update.ps1"
     if errorlevel 10 (
         call "%PROJECT_ROOT%\engine_opportunityos.bat" "%MODE%" "%BROWSER_MODE%"
@@ -65,25 +71,28 @@ if exist "%PROJECT_ROOT%\offline-runtime.json" if exist "%PROJECT_ROOT%\scripts\
 
 if /I not "%MODE%"=="HIDDEN" echo [2/5] Checking runtime... 3 steps remaining.
 set "NODE_EXE=%PROJECT_ROOT%\runtime\node.exe"
-if exist "%PROJECT_ROOT%\offline-runtime.json" (
-    if not exist "%NODE_EXE%" goto :runtime_missing
-) else (
+if defined SOURCE_MODE (
     where node.exe >nul 2>&1
     if errorlevel 1 goto :source_runtime_missing
     where npm.cmd >nul 2>&1
     if errorlevel 1 goto :source_runtime_missing
     set "NODE_EXE=node.exe"
+) else (
+    if not exist "%PROJECT_ROOT%\offline-runtime.json" goto :package_marker_missing
+    if not exist "%NODE_EXE%" goto :runtime_missing
 )
 
 if /I not "%MODE%"=="HIDDEN" echo [3/5] Checking application files... 2 steps remaining.
-if exist "%PROJECT_ROOT%\offline-runtime.json" goto :prepare_offline
+if not defined SOURCE_MODE goto :prepare_offline
 
-if not exist "%PROJECT_ROOT%\scripts\install-source-mode.mjs" (
-    echo [ERROR] Source preparation helper is missing: scripts\install-source-mode.mjs
-    goto :prepare_failed
+if exist "%PROJECT_ROOT%\offline-runtime.json" (
+    echo [INFO] Old offline-package metadata was found beside new source files.
+    echo [INFO] Source-copy mode takes priority and will rebuild the current files.
+    "%NODE_EXE%" "%PROJECT_ROOT%\scripts\install-source-mode.mjs" "%PROJECT_ROOT%" --allow-stale-offline-manifest
+) else (
+    echo [INFO] Source-copy mode detected.
+    "%NODE_EXE%" "%PROJECT_ROOT%\scripts\install-source-mode.mjs" "%PROJECT_ROOT%"
 )
-echo [INFO] Source-copy mode detected.
-"%NODE_EXE%" "%PROJECT_ROOT%\scripts\install-source-mode.mjs" "%PROJECT_ROOT%"
 if errorlevel 1 goto :prepare_failed
 goto :files_ready
 
@@ -99,6 +108,12 @@ goto :files_ready
 :runtime_missing
 echo [ERROR] The packaged Node.js runtime is missing: runtime\node.exe
 echo [ACTION] Extract the complete official release again. No download was attempted.
+if /I not "%MODE%"=="HIDDEN" pause
+exit /b 1
+
+:package_marker_missing
+echo [ERROR] This folder is neither a complete source copy nor an official offline package.
+echo [ACTION] Copy the complete new version into this folder, then run the engine again.
 if /I not "%MODE%"=="HIDDEN" pause
 exit /b 1
 
@@ -120,6 +135,24 @@ for %%F in ("node_modules\tsx\dist\cli.mjs" "node_modules\vite\bin\vite.js" "dis
         echo [ERROR] Required application file is missing: %%~F
         goto :prepare_failed
     )
+)
+
+:: A source copy can be placed over a much older installation. Remove only the
+:: obsolete application launchers/helpers that depended on Windows Script Host;
+:: never touch databases, exports, APPDATA, or unknown user files.
+if defined SOURCE_MODE (
+    for %%F in (
+        "INSTALAR_OPPORTUNITYOS.hta"
+        "INSTALAR_OPPORTUNITYOS.vbs"
+        "OPEN_OPPORTUNITYOS.vbs"
+        "OPEN_OPPORTUNITYOS_BROWSER.vbs"
+        "DESINSTALAR_OPPORTUNITYOS.hta"
+        "DESINSTALAR_OPPORTUNITYOS.vbs"
+        "scripts\find-chrome-app-id.ps1"
+        "scripts\toggle-app-window.ps1"
+        "scripts\install-source-mode.ps1"
+        "scripts\verify-offline-runtime.ps1"
+    ) do if exist "%%~F" del /q "%%~F" >nul 2>&1
 )
 
 if defined APPDATA (

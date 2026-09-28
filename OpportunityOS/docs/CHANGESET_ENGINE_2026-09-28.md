@@ -86,3 +86,16 @@ oficial antes de publicar.
 | `npm run check:server` | PASS |
 | Smoke test directo de Vite Preview + Express | PASS: HTTP 200 en 3000 y `/health` en 3099 con Origin confiable; procesos cerrados al terminar |
 | `git diff --check` | PASS; avisos informativos LF→CRLF únicamente |
+
+## Compatibilidad posterior con instalaciones antiguas
+
+- Cada ejecución cierra primero una instancia anterior verificada en 3000/3099
+  y arranca los archivos de la carpeta actual; un proceso ajeno no se termina.
+- La apertura predeterminada cambió de ventana Chromium `--app` a una pestaña
+  estándar, evitando que el engine se cierre sin mostrar la aplicación.
+- Si una copia fuente nueva se pega sobre un paquete offline viejo, la presencia
+  de `scripts/install-source-mode.mjs` tiene prioridad sobre manifiestos antiguos.
+- Ese modo reinstala con el lockfile, reconstruye `dist` cuando corresponde y
+  elimina solamente los launchers HTA/VBS y helpers WSH obsoletos conocidos.
+- Los actualizadores oficial y manual continúan usando `managedFiles` para
+  retirar archivos administrados de releases anteriores durante la migración.

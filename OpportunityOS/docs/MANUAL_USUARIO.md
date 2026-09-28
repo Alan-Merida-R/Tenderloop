@@ -7,7 +7,7 @@ Guía para ejecutar el proyecto en una PC nueva desde el ZIP.
 ## 1. Requisitos
 
 - **Windows 10 / 11**
-- **Navegador moderno:** Microsoft Edge o Google Chrome (se abren en modo *app*, sin pestañas). Cualquier versión reciente sirve.
+- **Navegador moderno:** Microsoft Edge, Google Chrome o el navegador predeterminado. Tender Control abre una pestaña normal para maximizar compatibilidad corporativa.
 - El ZIP oficial completo de Tender Control.
 - Windows PowerShell permitido por la política corporativa para verificación,
   actualización y desinstalación. Tender Control no cambia ni omite esa política.
@@ -64,6 +64,11 @@ y npm, instalará las versiones fijadas por `package-lock.json` mediante `npm ci
 cuando haga falta y generará `dist` cuando cambie el código. Este modo puede
 necesitar acceso al registro npm; se repara en la misma carpeta sin desinstalar
 ni borrar datos del usuario.
+
+También puede copiarse una versión fuente nueva encima de una carpeta antigua.
+El engine reconoce el helper nuevo, ignora manifiestos offline obsoletos,
+reinstala/reconstruye solo cuando corresponde y elimina los antiguos launchers
+HTA/VBS conocidos sin tocar bases de datos, exportaciones ni `%APPDATA%`.
 
 Para usuarios finales sigue siendo preferible el ZIP oficial offline.
 
@@ -137,8 +142,9 @@ Simplemente haz doble clic en `engine_opportunityos.bat`. Si falta una dependenc
 o el build en una copia fuente, el mismo engine los prepara automáticamente. En
 un paquete oficial ya preparado no ejecuta npm ni recompila.
 
-> **Si Tender Control ya está abierto**, volver a hacer doble clic reutiliza los
-> servicios existentes y abre la aplicación sin iniciar otra copia del motor.
+> **Si Tender Control ya está abierto**, volver a hacer doble clic cierra sus
+> servicios anteriores en 3000/3099 y arranca nuevamente la versión de la
+> carpeta actual. No cierra procesos ajenos que usen esos puertos.
 
 ---
 

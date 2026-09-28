@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 set "APP_URL=http://127.0.0.1:3000"
 set "BROWSER_MODE=%~1"
-if not defined BROWSER_MODE set "BROWSER_MODE=APP"
+if not defined BROWSER_MODE set "BROWSER_MODE=TAB"
 
 if /I "%BROWSER_MODE%"=="TAB" (
     start "" "%APP_URL%"
