@@ -29,6 +29,9 @@ instala desde su respectiva carpeta. No existe un `package.json` en la raiz.
 El paquete publicado de OpportunityOS es autocontenido: incluye `dist`,
 `node_modules` y un runtime Node.js x64 validado. La PC destino no ejecuta npm,
 no compila y no necesita acceso a Internet para instalar o actualizar.
+`OpportunityOS/engine_opportunityos.bat` es la entrada operativa: distingue el
+paquete oficial de una copia fuente, prepara lo necesario y comprueba ambos
+servicios. No existe una capa HTA/VBScript/Windows Script Host.
 
 ## Servicio local (puerto 3099)
 

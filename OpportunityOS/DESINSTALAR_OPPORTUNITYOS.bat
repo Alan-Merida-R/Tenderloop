@@ -1,30 +1,38 @@
 @echo off
 setlocal EnableExtensions
-set "APP_DIR=%~dp0"
-set "DESKTOP_DIR=%~1"
-set "PROGRAM_DIR=%~2"
-:: The HTA uninstaller passes both paths explicitly. When this runs directly
-:: (e.g. from the "Uninstall OpportunityOS" Start Menu shortcut, which needs
-:: no .vbs/.hta), fall back to the standard per-user locations so shortcuts
-:: still get cleaned up.
-if not defined DESKTOP_DIR set "DESKTOP_DIR=%USERPROFILE%\Desktop"
-if not defined PROGRAM_DIR set "PROGRAM_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control"
-echo [1/3] Closing Tender Control processes...
-:: Do not use WMI/Get-CimInstance here: on some corporate Windows machines it
-:: can stall indefinitely and leave the uninstaller waiting forever. OpportunityOS
-:: reserves these two local ports, so close their owners directly and quickly.
-call "%APP_DIR%CLOSE_OPPORTUNITYOS.bat" SILENT
-echo [OK] Requested shutdown of Tender Control local services.
+cd /d "%~dp0"
+set "APP_DIR=%CD%"
 
-echo [2/3] Removing Tender Control shortcuts...
-if defined DESKTOP_DIR if exist "%DESKTOP_DIR%\Tender Control.lnk" del /q "%DESKTOP_DIR%\Tender Control.lnk" >nul 2>&1
-if defined PROGRAM_DIR if exist "%PROGRAM_DIR%\Tender Control.lnk" del /q "%PROGRAM_DIR%\Tender Control.lnk" >nul 2>&1
-if defined PROGRAM_DIR if exist "%PROGRAM_DIR%\Uninstall Tender Control.lnk" del /q "%PROGRAM_DIR%\Uninstall Tender Control.lnk" >nul 2>&1
-if defined PROGRAM_DIR rd "%PROGRAM_DIR%" >nul 2>&1
-echo [OK] Tender Control shortcuts removed.
+echo Tender Control Uninstaller
+echo ==========================
+echo.
+echo This removes the application folder:
+echo %APP_DIR%
+echo.
+echo Your separate data in %%APPDATA%%\OpportunityOS is preserved.
+echo Any files stored manually inside the application folder will be removed.
+echo.
+choice /c YN /n /m "Continue? [Y/N]: "
+if errorlevel 2 exit /b 0
 
-echo [3/3] Ready to remove the complete Tender Control folder.
-echo [OK] Select "Remove folder now" in the uninstaller to start complete removal.
-echo [INFO] Other Node.js installations and the separate APPDATA folder are not removed.
-echo [WARN] Any files stored manually inside this application folder will be removed.
+echo [1/3] Closing Tender Control local services...
+call "%APP_DIR%\CLOSE_OPPORTUNITYOS.bat" SILENT
+echo [OK] Shutdown requested.
+
+echo [2/3] Removing legacy shortcuts...
+if exist "%USERPROFILE%\Desktop\Tender Control.lnk" del /q "%USERPROFILE%\Desktop\Tender Control.lnk" >nul 2>&1
+if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control\Tender Control.lnk" del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control\Tender Control.lnk" >nul 2>&1
+if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control\Uninstall Tender Control.lnk" del /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control\Uninstall Tender Control.lnk" >nul 2>&1
+rd "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Tender Control" >nul 2>&1
+echo [OK] Legacy shortcuts removed.
+
+echo [3/3] Handing folder removal to PowerShell...
+set "TEMP_UNINSTALLER=%TEMP%\OpportunityOS-uninstall-%RANDOM%-%RANDOM%.ps1"
+copy /y "%APP_DIR%\scripts\uninstall-opportunityos.ps1" "%TEMP_UNINSTALLER%" >nul
+if errorlevel 1 (
+    echo [ERROR] Could not create the temporary removal helper.
+    pause
+    exit /b 1
+)
+start "Tender Control Uninstaller" powershell.exe -NoProfile -File "%TEMP_UNINSTALLER%" -TargetRoot "%APP_DIR%"
 exit /b 0

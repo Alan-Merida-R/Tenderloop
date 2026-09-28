@@ -28,7 +28,7 @@ try {
         'dist\index.html',
         'node_modules\tsx\dist\cli.mjs',
         'node_modules\vite\bin\vite.js',
-        'scripts\verify-offline-runtime.ps1'
+        'scripts\verify-offline-runtime.mjs'
     )) {
         if (!(Test-Path -LiteralPath (Join-Path $projectRoot $requiredPath) -PathType Leaf)) {
             throw "The offline release payload is incomplete: $requiredPath"
@@ -51,7 +51,7 @@ try {
     if ($engineText -notmatch '--host\s+127\.0\.0\.1' -or $serverConfigText -notmatch "HOST\s*=\s*'127\.0\.0\.1'") {
         throw 'The release launchers are not restricted to 127.0.0.1.'
     }
-    foreach ($targetScript in @('engine_opportunityos.bat', 'INSTALAR_OPPORTUNITYOS.hta', 'OPEN_OPPORTUNITYOS.bat', 'OPEN_OPPORTUNITYOS.vbs', 'scripts\install-update-v2.ps1', 'scripts\check-for-update.ps1', 'scripts\verify-offline-runtime.ps1')) {
+    foreach ($targetScript in @('engine_opportunityos.bat', '_open_browser.bat', 'OPEN_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'scripts\install-update-v2.ps1', 'scripts\check-for-update.ps1', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
         $targetText = Get-Content -LiteralPath (Join-Path $projectRoot $targetScript) -Raw
         if ($targetText -match '(?i)npm(?:\.cmd)?\s+(?:ci|install|run\s+build)\b|Invoke-WebRequest|Start-BitsTransfer|curl\.exe\s+https?://') {
             throw "Target-side network or build command found in $targetScript. Offline publication was stopped."
@@ -82,7 +82,7 @@ try {
     # Copy only version-controlled application files. This prevents local JSON
     # databases, exports, logs, AI files and scratch folders from entering a
     # release even when they happen to live below the project directory.
-    $excludedReleaseNames = @('AGENTS.md', 'CLAUDE.md', 'CODEX.md', 'GEMINI.md', 'release-manifest.json', 'offline-runtime.json', 'install-source-mode.ps1')
+    $excludedReleaseNames = @('AGENTS.md', 'CLAUDE.md', 'CODEX.md', 'GEMINI.md', 'release-manifest.json', 'offline-runtime.json', 'install-source-mode.mjs')
     $trackedFiles = @(& git.exe -C $projectRoot ls-files -- .)
     if ($LASTEXITCODE -ne 0 -or $trackedFiles.Count -eq 0) { throw 'Could not enumerate version-controlled release files.' }
     foreach ($relativePath in $trackedFiles) {
@@ -97,7 +97,7 @@ try {
 
     # These two release-safety files may be new in the current worktree before
     # the release commit is created; copy them explicitly after validating them.
-    foreach ($relativePath in @('THIRD_PARTY_NOTICES.txt', 'scripts\verify-offline-runtime.ps1')) {
+    foreach ($relativePath in @('THIRD_PARTY_NOTICES.txt', 'scripts\verify-offline-runtime.mjs')) {
         $destinationPath = Join-Path $stagingRoot $relativePath
         $destinationDirectory = Split-Path -Parent $destinationPath
         if (!(Test-Path -LiteralPath $destinationDirectory)) { New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null }

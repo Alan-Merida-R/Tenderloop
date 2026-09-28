@@ -24,11 +24,17 @@ HTML from imported emails, notes and email-template previews is sanitized before
 
 ## Dependency and offline-installation policy
 
-The Windows installer and updater never invoke npm, download packages or compile
-code on the target PC. Published releases contain the reviewed `dist`, exact
+The Windows engine and updater never invoke npm, download packages or compile
+code on a target PC that uses an official package. Published releases contain the reviewed `dist`, exact
 `node_modules` tree and an OpenJS-signed x64 Node.js executable. Publishing
 records SHA-256 hashes for every managed file; setup verifies them locally.
-Only the publishing workstation runs the build and dependency checks.
+Only the publishing workstation runs the release build and dependency checks.
+A deliberately copied source tree is a separate developer/recovery mode: its
+engine uses local Node.js/npm and the committed lockfile through `npm ci`.
+
+Installation, launch, update and uninstall do not use HTA, VBScript,
+`wscript.exe`, `cscript.exe` or Windows Script Host. PowerShell calls do not
+change or bypass the machine's execution policy.
 
 SheetJS is pinned to the patched `xlsx` 0.20.3 tarball from the authoritative
 SheetJS CDN because the public npm registry stops at vulnerable 0.18.5. The

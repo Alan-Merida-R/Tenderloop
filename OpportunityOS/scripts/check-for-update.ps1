@@ -62,7 +62,7 @@ try {
     New-Item -ItemType Directory -Path $extractedRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $packagePath -DestinationPath $extractedRoot -Force
     $newPackagePath = Join-Path $extractedRoot 'package.json'
-    foreach ($required in @('package.json', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.ps1')) {
+    foreach ($required in @('package.json', 'engine_opportunityos.bat', '_open_browser.bat', 'CLOSE_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
         if (!(Test-Path -LiteralPath (Join-Path $extractedRoot $required) -PathType Leaf)) { throw "The offline update package is incomplete: $required" }
     }
     $newPackage = Get-Content -LiteralPath $newPackagePath -Raw | ConvertFrom-Json
@@ -76,7 +76,8 @@ try {
         & robocopy.exe $extractedRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "The update files could not be installed (code $LASTEXITCODE)." }
         Remove-ObsoleteManagedFiles $projectRoot $backupRoot
-        & (Join-Path $projectRoot 'scripts\verify-offline-runtime.ps1') -ProjectRoot $projectRoot
+        & (Join-Path $projectRoot 'runtime\node.exe') (Join-Path $projectRoot 'scripts\verify-offline-runtime.mjs') $projectRoot
+        if ($LASTEXITCODE -ne 0) { throw "Offline verification failed with exit code $LASTEXITCODE." }
     } catch {
         Remove-NewManagedFilesOnRollback $projectRoot $backupRoot
         & robocopy.exe $backupRoot $projectRoot /E /NFL /NDL /NJH /NJS /NP /XD $copyExclusions | Out-Null
@@ -84,6 +85,7 @@ try {
     }
 
     Show-UpdateMessage "Tender Control was updated successfully to version $availableVersion."
+    exit 10
 } catch {
     try { Show-UpdateMessage ("The update could not be installed.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nTender Control will open using the current version.") 'Warning' } catch {}
 } finally {

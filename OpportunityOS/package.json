@@ -15,6 +15,7 @@
     "check:quick-organizer": "tsx scripts/verify-quick-organizer.ts",
     "check:proposal-alarms": "tsx scripts/verify-proposal-alarm-policy.ts",
     "check:system-section": "tsx scripts/verify-system-section.ts",
+    "check:launcher": "node scripts/verify-launcher-flow.mjs",
     "icon:build": "node scripts/generate-icon.mjs"
   },
   "dependencies": {

@@ -28,12 +28,12 @@ elegida por el usuario; no se transmite nada fuera de su equipo.
 
 1. Recibe el paquete publicado por el responsable de Tender Control y extráelo
    completo en una ruta corta, por ejemplo `C:\Tenderloop`.
-2. En la carpeta `OpportunityOS`, abre **`INSTALAR_OPPORTUNITYOS.vbs`**.
-3. Cuando termine la verificación local, pulsa **Open app**.
+2. En la carpeta `OpportunityOS`, ejecuta **`engine_opportunityos.bat`**.
+3. Mantén abierta la ventana del engine mientras utilizas Tender Control.
 
 El paquete publicado incluye el runtime, las dependencias y el build revisados:
-no requiere Node.js, npm, permisos de administrador ni acceso a Internet. Si
-Windows bloquea los archivos VBS/HTA, usa `OPEN_OPPORTUNITYOS.bat`.
+no requiere Node.js, npm, permisos de administrador ni acceso a Internet. El
+flujo no utiliza HTA, VBScript ni Windows Script Host.
 
 La aplicación se abre en **`http://127.0.0.1:3000`**. El servicio local de
 archivos corre en el puerto **`3099`**.
@@ -41,18 +41,19 @@ archivos corre en el puerto **`3099`**.
 ### Instalación desde una copia del código fuente
 
 Si en lugar del ZIP publicado se copian los archivos del repositorio a una
-carpeta limpia, el mismo `INSTALAR_OPPORTUNITYOS.vbs` detecta automáticamente
-el modo fuente. En ese caso sí requiere Node.js y npm disponibles en el `PATH`,
-puede necesitar acceso a Internet, repara `node_modules` y genera `dist` antes
-de crear los accesos directos. Este modo permite reemplazar manualmente el
-contenido de una instalación y reconstruirla en la misma ruta.
+carpeta limpia, `engine_opportunityos.bat` detecta automáticamente el modo
+fuente. En ese caso sí requiere Node.js y npm disponibles en el `PATH`, puede
+necesitar acceso al registro npm, instala exactamente el lockfile con `npm ci`
+y genera `dist` solo cuando hace falta. Este modo permite reemplazar manualmente
+el contenido y reconstruirlo en la misma ruta sin borrar los datos del usuario.
 
 El paquete oficial nunca usa este fallback: el script de reparación desde
 fuentes se excluye expresamente del ZIP publicado.
 
-Para abrirla como una pestaña del navegador usa `OPEN_OPPORTUNITYOS_BROWSER.vbs`
-o `OPEN_OPPORTUNITYOS_BROWSER.bat`. Para cerrar la aplicación y liberar sus
-puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`.
+Para abrirla como una pestaña del navegador usa
+`OPEN_OPPORTUNITYOS_BROWSER.bat`. Para cerrar la aplicación y liberar sus
+puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`. Consulta el flujo detallado en
+[`docs/INSTALLATION_ENGINE.md`](docs/INSTALLATION_ENGINE.md).
 
 ---
 
@@ -128,14 +129,13 @@ OpportunityOS/
 ├── scripts/               # Utilidades de build, íconos y comprobaciones
 ├── public/                # Activos estáticos (icon.svg, manifest.webmanifest)
 ├── docs/                  # Documentación técnica y de usuario
-├── OPEN_OPPORTUNITYOS.vbs / .bat            # Launcher principal (sin ventana cmd)
-├── OPEN_OPPORTUNITYOS_BROWSER.vbs / .bat   # Abre en pestaña de navegador
+├── engine_opportunityos.bat                # Entrada principal: prepara, inicia y verifica
+├── OPEN_OPPORTUNITYOS.bat                  # Alias BAT de compatibilidad
+├── OPEN_OPPORTUNITYOS_BROWSER.bat          # Alias para abrir en pestaña
 ├── CLOSE_OPPORTUNITYOS.bat                  # Cierra app y libera puertos
-├── INSTALAR_OPPORTUNITYOS.hta / .vbs       # Instalador guiado
-├── DESINSTALAR_OPPORTUNITYOS.hta/.vbs/.bat # Desinstalador
+├── DESINSTALAR_OPPORTUNITYOS.bat           # Desinstalador sin Windows Script Host
 ├── GRABAR_BFO.bat                           # Graba selectores BFO para automatización
 ├── PUBLICAR_ACTUALIZACION.bat               # Publica versión empaquetada
-├── engine_opportunityos.bat                 # Motor interno del launcher
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
@@ -404,11 +404,11 @@ Los servicios en `src/services/` encapsulan la lógica de negocio y el acceso a 
 | `scripts/verify-folder-persistence.ts` | Comprueba que las rutas de carpeta vinculadas se guardan y recuperan correctamente (`npm run check:folder`) |
 | `scripts/verify-bfo-selectors.ts` | Valida los selectores BFO grabados contra la estructura real de la página (`npm run check:bfo`) |
 | `scripts/verify-scope-summary.ts` | Verifica que el extractor de scope summary produce campos completos (`npm run check:scope`) |
-| `scripts/toggle-app-window.ps1` | Detecta si la ventana de Tender Control está abierta y la restaura/enfoca o la minimiza. Usado por el launcher VBS |
-| `scripts/find-chrome-app-id.ps1` | Busca el app-id de la Chrome App instalada para que el launcher reusar su identidad de barra de tareas |
+| `scripts/install-source-mode.mjs` | Prepara automáticamente una copia fuente con `npm ci` y un build incremental por huella |
+| `scripts/uninstall-opportunityos.ps1` | Elimina de forma diferida y segura la carpeta después de cerrar los servicios |
 | `GRABAR_BFO.bat` | Abre una sesión de grabación de selectores BFO, inyecta el grabador y guarda `bfo-selectors.json` |
 | `PUBLICAR_ACTUALIZACION.bat` | Valida el proyecto, solicita la carpeta de destino y genera el ZIP versionado con `latest.json` |
-| `engine_opportunityos.bat` | Motor interno del launcher: valida el runtime offline empaquetado y arranca Vite y Express únicamente en `127.0.0.1` |
+| `engine_opportunityos.bat` | Punto de entrada principal: detecta paquete/código fuente, prepara, arranca y comprueba Vite y Express únicamente en `127.0.0.1` |
 
 ---
 

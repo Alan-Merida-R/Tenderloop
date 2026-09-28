@@ -12,8 +12,8 @@ Users can download this exact branch from GitHub using **Code -> Download ZIP**,
 
 This document records a previous `version-beta` branch and its launcher names.
 It is not the installation guide for the current repository layout. For the
-current application use `OpportunityOS/OPEN_OPPORTUNITYOS.vbs` (or the `.bat`
-alternative) after following the root `README.md`.
+current application use `OpportunityOS/engine_opportunityos.bat` after following
+the root `README.md`.
 
 ## Included baseline: backend integration
 

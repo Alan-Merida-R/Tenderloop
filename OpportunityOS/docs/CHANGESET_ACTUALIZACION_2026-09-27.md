@@ -1,5 +1,10 @@
 # Changeset de `Actualizacion` — 2026-09-27
 
+> Registro histórico. El flujo HTA/VBScript descrito más abajo fue retirado el
+> 2026-09-28. El procedimiento vigente está en
+> [`INSTALLATION_ENGINE.md`](INSTALLATION_ENGINE.md) y usa
+> `engine_opportunityos.bat`.
+
 ## Propósito
 
 Este documento registra el estado completo que se prepara para subir a la rama
@@ -217,10 +222,10 @@ Verificación de esta corrección:
 | `npm run build` | PASS; solo warning conocido de chunks grandes |
 | `git diff --check` | PASS; solo avisos informativos LF→CRLF |
 
-Por la regla de seguridad de instaladores, no se ejecutó automáticamente el HTA,
-el engine en modo instalación ni el publicador. La prueba manual recomendada es
-copiar los archivos versionados a una carpeta de prueba sin `node_modules`/`dist`
-y ejecutar `INSTALAR_OPPORTUNITYOS.vbs` con Node.js/npm disponibles.
+Por la regla de seguridad de instaladores, no se ejecutaron automáticamente los
+puntos de entrada ni el publicador. La prueba manual vigente es copiar los
+archivos versionados a una carpeta de prueba sin `node_modules`/`dist` y ejecutar
+`engine_opportunityos.bat` con Node.js/npm disponibles.
 
 ## Riesgos residuales y prueba manual recomendada
 

@@ -22,18 +22,26 @@ function Find-InstalledRoot {
         if (Test-Path -LiteralPath (Join-Path $TargetRoot 'engine_opportunityos.bat') -PathType Leaf) { return (Resolve-Path -LiteralPath $TargetRoot).Path }
         throw "The selected Tender Control installation is invalid: $TargetRoot"
     }
-    $shortcuts = @(
-        Join-Path ([Environment]::GetFolderPath('Desktop')) 'Tender Control.lnk',
-        Join-Path ([Environment]::GetFolderPath('Programs')) 'Tender Control\Tender Control.lnk'
-    )
-    $roots = foreach ($shortcutPath in $shortcuts) {
-        if (!(Test-Path -LiteralPath $shortcutPath)) { continue }
-        $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
-        if (("$($shortcut.TargetPath) $($shortcut.Arguments)") -match '"?([^"\r\n]+\\OPEN_OPPORTUNITYOS\.(?:vbs|bat))"?') { Split-Path -Parent $Matches[1] }
+    $localDataRoot = if ($env:APPDATA) { $env:APPDATA } else { $env:USERPROFILE }
+    $pointerPath = Join-Path (Join-Path $localDataRoot 'OpportunityOS') 'install-root.txt'
+    if (Test-Path -LiteralPath $pointerPath -PathType Leaf) {
+        $savedRoot = (Get-Content -LiteralPath $pointerPath -Raw).Trim()
+        if ($savedRoot -and (Test-Path -LiteralPath (Join-Path $savedRoot 'engine_opportunityos.bat') -PathType Leaf)) {
+            return (Resolve-Path -LiteralPath $savedRoot).Path
+        }
     }
-    $valid = @($roots | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'engine_opportunityos.bat')) } | Select-Object -Unique)
-    if ($valid.Count -eq 1) { return (Resolve-Path -LiteralPath $valid[0]).Path }
-    throw 'Tender Control could not be found from its Desktop or Start Menu shortcut.'
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = 'Select the Tender Control folder that contains engine_opportunityos.bat.'
+    $dialog.ShowNewFolderButton = $false
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $selectedRoot = $dialog.SelectedPath
+        if (Test-Path -LiteralPath (Join-Path $selectedRoot 'engine_opportunityos.bat') -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $selectedRoot).Path
+        }
+        throw 'The selected folder is not a Tender Control installation.'
+    }
+    throw 'Tender Control could not be found and no installation folder was selected.'
 }
 
 function Get-Package {
@@ -106,7 +114,7 @@ try {
     $newRoot = Join-Path $temporaryRoot 'new'; $backupRoot = Join-Path $temporaryRoot 'backup'
     New-Item -ItemType Directory -Path $newRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $zip -DestinationPath $newRoot -Force
-    foreach ($required in @('package.json', 'engine_opportunityos.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.ps1')) { if (!(Test-Path -LiteralPath (Join-Path $newRoot $required) -PathType Leaf)) { throw "Invalid offline update package: $required is missing." } }
+    foreach ($required in @('package.json', 'engine_opportunityos.bat', '_open_browser.bat', 'CLOSE_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) { if (!(Test-Path -LiteralPath (Join-Path $newRoot $required) -PathType Leaf)) { throw "Invalid offline update package: $required is missing." } }
     $new = Get-Content -LiteralPath (Join-Path $newRoot 'package.json') -Raw | ConvertFrom-Json
     if ([version](([string]$new.version -split '[+-]')[0]) -le [version](([string]$installed.version -split '[+-]')[0])) { throw 'This update is not newer than the installed version.' }
     $exclusions = @('.git', '.claude', '.agents', '.ai', '.codex', '.gemini', '.tmp', '.tmp*', 'dev-dist')
@@ -115,13 +123,16 @@ try {
     try {
         & robocopy.exe $newRoot $target /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null; if ($LASTEXITCODE -ge 8) { throw 'Could not install the new files.' }
         Remove-ObsoleteManagedFiles $target $backupRoot
-        & (Join-Path $target 'scripts\verify-offline-runtime.ps1') -ProjectRoot $target
+        & (Join-Path $target 'runtime\node.exe') (Join-Path $target 'scripts\verify-offline-runtime.mjs') $target
+        if ($LASTEXITCODE -ne 0) { throw "Offline verification failed with exit code $LASTEXITCODE." }
     } catch {
         Remove-NewManagedFilesOnRollback $target $backupRoot
         & robocopy.exe $backupRoot $target /E /NFL /NDL /NJH /NJS /NP /XD $exclusions | Out-Null
         throw
     }
-    if (!$NoLaunch) { Start-Process -FilePath wscript.exe -ArgumentList ('"' + (Join-Path $target 'OPEN_OPPORTUNITYOS.vbs') + '"') }
+    if (!$NoLaunch) {
+        Start-Process -FilePath $env:ComSpec -ArgumentList @('/d', '/c', 'call', ('"' + (Join-Path $target 'engine_opportunityos.bat') + '"')) -WorkingDirectory $target
+    }
     Notify "Tender Control was updated successfully to version $($new.version)."
 } catch { Notify ("The update could not be installed.`r`n`r`n" + $_.Exception.Message + "`r`n`r`nThe prior version was restored when possible.") 'Warning'; exit 1 }
 finally { if ($temporaryRoot -and (Test-Path -LiteralPath $temporaryRoot)) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue } }

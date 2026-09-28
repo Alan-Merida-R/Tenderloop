@@ -5,6 +5,7 @@
 | Necesidad | Ubicación |
 | --- | --- |
 | Primer uso e instalación | `README.md` en la raíz |
+| Engine, reparación, actualización y desinstalación | `OpportunityOS/docs/INSTALLATION_ENGINE.md` |
 | Flujo de Git y revisión previa a publicar | `OpportunityOS/docs/GIT_MANUAL.md` |
 | Arquitectura general | `OpportunityOS/docs/architecture.md` |
 

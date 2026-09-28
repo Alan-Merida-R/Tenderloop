@@ -9,6 +9,8 @@ Guía para ejecutar el proyecto en una PC nueva desde el ZIP.
 - **Windows 10 / 11**
 - **Navegador moderno:** Microsoft Edge o Google Chrome (se abren en modo *app*, sin pestañas). Cualquier versión reciente sirve.
 - El ZIP oficial completo de Tender Control.
+- Windows PowerShell permitido por la política corporativa para verificación,
+  actualización y desinstalación. Tender Control no cambia ni omite esa política.
 
 No instales Node.js ni ejecutes npm. El paquete lleva un runtime oficial firmado,
 las dependencias exactas y la aplicación ya compilada. La instalación no descarga
@@ -24,10 +26,9 @@ nada, no modifica el Registro del sistema y no necesita permisos de administrado
    - ❌ `C:\Usuarios\María José\Escritorio\Tenderloop (copia)\`
 2. Clic derecho → **Extraer todo…**
 3. Al terminar, dentro de la carpeta deberás ver archivos como:
-   - `INSTALAR_OPPORTUNITYOS.vbs` (primera instalación)
-   - `OPEN_OPPORTUNITYOS.vbs` (inicio normal después de instalar)
-   - `OPEN_OPPORTUNITYOS.bat` (alternativa si Windows bloquea VBS)
-   - `engine_opportunityos.bat` (motor local; no es necesario abrirlo directamente)
+   - `engine_opportunityos.bat` (instalación, reparación e inicio)
+   - `CLOSE_OPPORTUNITYOS.bat` (cierre seguro)
+   - `DESINSTALAR_OPPORTUNITYOS.bat` (desinstalación)
    - `package.json`
    - etc.
 
@@ -37,18 +38,19 @@ nada, no modifica el Registro del sistema y no necesita permisos de administrado
 
 ## 3. Primera ejecución
 
-Doble clic sobre:
+Doble clic sobre el punto de entrada único:
 
 ```
-INSTALAR_OPPORTUNITYOS.vbs
+engine_opportunityos.bat
 ```
 
 Lo que verás:
 
 1. Se comprueba por SHA-256 que el runtime, el código y las dependencias empaquetadas no estén alterados.
 2. Se confirma que la aplicación está completa y limitada a `127.0.0.1`.
-3. Se crean los accesos directos; pulsa **Open app** para abrir Tender Control.
-4. Tender Control mantiene un motor local mientras la aplicación está en uso.
+3. Inicia el frontend y backend, comprueba que ambos respondan y abre Tender Control.
+4. La ventana del engine permanece visible mientras la aplicación está en uso
+   para que cualquier error sea diagnosticable.
    Para cerrarlo de forma segura utiliza `CLOSE_OPPORTUNITYOS.bat`.
 
 La instalación no accede a Internet. Los puertos 3000 y 3099 son conexiones
@@ -57,10 +59,11 @@ internas de la misma computadora y no quedan expuestos a la red de la oficina.
 ### Alternativa: carpeta copiada desde el repositorio
 
 Si recibiste los archivos fuente en vez del ZIP oficial, ejecuta igualmente
-`INSTALAR_OPPORTUNITYOS.vbs`. El instalador detectará ese formato y mostrará los
-pasos **Check Node.js and npm**, **Install or repair dependencies** y **Build
-Tender Control**. Este modo necesita Node.js/npm y posiblemente Internet; puede
-repararse en la misma carpeta sin desinstalar ni borrar datos del usuario.
+`engine_opportunityos.bat`. El engine detectará ese formato, comprobará Node.js
+y npm, instalará las versiones fijadas por `package-lock.json` mediante `npm ci`
+cuando haga falta y generará `dist` cuando cambie el código. Este modo puede
+necesitar acceso al registro npm; se repara en la misma carpeta sin desinstalar
+ni borrar datos del usuario.
 
 Para usuarios finales sigue siendo preferible el ZIP oficial offline.
 
@@ -130,14 +133,12 @@ Cópialo a:
 
 ## 5. Ejecuciones siguientes
 
-Simplemente haz doble clic en `OPEN_OPPORTUNITYOS.vbs`. Si falta la instalación,
-abrirá el instalador automáticamente. Si Windows bloquea archivos VBS, usa
-`OPEN_OPPORTUNITYOS.bat`.
-Como todos los archivos ya vienen preparados, **el navegador abre en pocos segundos** y la ventana del motor queda oculta (minimizada en segundo plano).
+Simplemente haz doble clic en `engine_opportunityos.bat`. Si falta una dependencia
+o el build en una copia fuente, el mismo engine los prepara automáticamente. En
+un paquete oficial ya preparado no ejecuta npm ni recompila.
 
-> **Si Tender Control ya está abierto**, volver a hacer doble clic **no** abre una
-> segunda ventana: trae al frente la que ya tienes (o la minimiza si ya estaba
-> al frente). Puedes usarlo como un interruptor de mostrar/ocultar.
+> **Si Tender Control ya está abierto**, volver a hacer doble clic reutiliza los
+> servicios existentes y abre la aplicación sin iniciar otra copia del motor.
 
 ---
 
@@ -176,13 +177,14 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 
 **Para desinstalar correctamente:**
 
-1. Doble clic en `DESINSTALAR_OPPORTUNITYOS.vbs` o usa **Uninstall Tender Control** desde el menú Inicio.
-2. Confirma en la ventana visual.
+1. Doble clic en `DESINSTALAR_OPPORTUNITYOS.bat`.
+2. Confirma en la consola.
 3. El desinstalador hará estas tareas:
    - Cerrar los procesos locales de Tender Control en los puertos 3000 y 3099.
    - Verificar que esos procesos pertenecen a **esta** carpeta, sin cerrar aplicaciones ajenas.
    - Quitar los accesos directos.
-4. Pulsa **Remove folder now** y espera el mensaje final que confirma la eliminación.
+4. PowerShell espera a que termine el BAT y elimina la carpeta completa. Si un
+   proceso conserva un archivo abierto, muestra la causa y la acción recomendada.
 
 **¿Qué NO borra el desinstalador?**
 
@@ -191,7 +193,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 - Cualquier Node.js instalado por otras aplicaciones → no se toca.
 
 > Si guardaste manualmente una base de datos dentro de la carpeta de instalación,
-> muévela fuera antes de confirmar **Remove folder now**.
+> muévela fuera antes de confirmar la desinstalación.
 
 ---
 
@@ -204,7 +206,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 | El navegador abre pero se queda en blanco | El motor local aún está iniciando | Espera unos segundos y recarga (F5) |
 | `Puerto 3000 en uso` | Otra app ocupa el puerto | Usa `CLOSE_OPPORTUNITYOS.bat` y vuelve a lanzar |
 | La app dice "No se pudo guardar el archivo" | El navegador perdió permisos sobre el `.json` | Recarga (F5) y vuelve a abrir la base; aprueba el permiso que pide el navegador |
-| Quiero reinstalar todo desde cero | Paquete incompleto o corrupto | Conserva tu base `.json`, extrae un ZIP oficial nuevo y ejecuta el instalador |
+| Quiero reparar o reinstalar | Paquete incompleto o copia fuente actualizada | Conserva tu base `.json`, reemplaza los archivos y ejecuta `engine_opportunityos.bat` |
 | Al vincular una carpeta pide la ruta a mano | Windows Search todavía no indexó la carpeta | Espera unos segundos y reintenta; la app ahora reintenta sola durante ~9 segundos antes de pedírtela |
 | "El perfil de navegador de Tender Control ya está abierto" | Quedó una ventana de automatización abierta | Ciérrala y vuelve a intentar; Windows solo permite un proceso por perfil |
 | Una lista de tareas o una nota "desapareció" | Está marcada como oculta | En Ajustes desmarca *Hide this list*, o abre la tira de **notas ocultas** en el expediente. Nada se borró |
@@ -216,7 +218,7 @@ Eso pasa porque el motor de Vite / el helper de Node todavía están corriendo e
 **Tu base de datos es el archivo `.json` que elegiste al crearla.** Ni la carpeta del proyecto ni `node_modules` contienen tus datos — todo está en ese JSON.
 
 - Cópialo periódicamente a un disco externo o nube.
-- Si cambias de PC, basta con descomprimir el ZIP de nuevo, instalar Node, ejecutar el `.vbs` y abrir el mismo JSON desde **Open DB**.
+- Si cambias de PC, basta con descomprimir el ZIP oficial, ejecutar `engine_opportunityos.bat` y abrir el mismo JSON desde **Open DB**. El ZIP oficial no requiere instalar Node.js.
 
 ---
 

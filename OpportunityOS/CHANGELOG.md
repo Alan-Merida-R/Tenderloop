@@ -9,13 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added a self-contained offline Windows distribution model: published packages now carry the reviewed production build, exact dependency tree, an OpenJS-signed x64 Node.js runtime, third-party notices and SHA-256 integrity metadata. Target PCs no longer need Node.js, npm, administrator rights or Internet access.
-- Added `scripts/verify-offline-runtime.ps1` to validate every managed release file, the packaged runtime and lockfile hashes, package completeness, architecture and localhost-only configuration before installation or update.
+- Added `scripts/verify-offline-runtime.mjs` to validate every managed release file, the packaged runtime and lockfile hashes, package completeness, architecture and localhost-only configuration before installation or update without depending on PowerShell execution policy.
 - Added safe Windows Recycle Bin support to the opportunity folder through `POST /api/os/recycle`. Files and folders are recycled through `IFileOperation`; failure never falls back to permanent deletion.
 - Added Explorer-style folder selection with Ctrl/Meta toggle, Shift ranges, Ctrl+Shift additive ranges, active-item tracking and stale-selection cleanup, backed by the pure `selectionUtils.ts` helper and regression checks.
 - Added a marker-based filesystem scan fallback for newly created, empty, unindexed or deeply nested linked folders, including mapped/cloud drives, while continuing to reject ambiguous matches.
 - Added an SOW effort-at-a-glance indicator, first-use guidance, optional Spanish field help, an actionable missing-required-fields panel, editable grouped Overview, complete document navigation and Expand/Collapse all controls.
 
 ### Changed
+- Replaced the HTA/VBScript/Windows Script Host installation stack with `engine_opportunityos.bat` as the primary entry point. It now prepares source copies idempotently, starts and health-checks both localhost services, opens the browser directly and keeps diagnostics visible.
+- Source preparation now uses the committed npm lockfile through `npm ci`, skips unchanged dependencies/builds by SHA-256 fingerprints, and reports phase, failed command and exit code without interactive parameters.
+- Manual update discovery now uses `%APPDATA%\OpportunityOS\install-root.txt`; update relaunch and deferred uninstall use BAT/PowerShell only and do not alter PowerShell execution policy.
 - Installer, launcher and both update paths now consume the packaged offline runtime and production build instead of downloading dependencies or compiling on the destination PC. Updates verify the complete payload and remove newly introduced managed files during rollback.
 - Release publishing now builds from version-controlled files, excludes AI/scratch/data paths, audits the complete dependency tree, validates the runtime signature and localhost bindings, packages `dist` plus `node_modules`, and emits a schema-2 release manifest with per-file hashes.
 - Dependency security was refreshed: `@xmldom/xmldom` 0.8.15, DOMPurify 3.4.13, patched SheetJS 0.20.3 from its pinned official CDN tarball, plus fixed `nanoid` and `qs` overrides.
@@ -26,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The embedded SOW was reorganized into a leaner non-duplicated guided flow, shorter section names, clearer top-level scope blocks, connected contract logic and a lighter review/navigation experience.
 
 ### Fixed
-- Restored in-place installation from a manually copied source folder: setup now detects the absence of an offline manifest, validates local Node.js/npm, repairs dependencies and builds `dist` before creating shortcuts. The batch engine has the same recovery path when HTA/VBS is blocked. Official release ZIPs remain strictly offline because the source-mode helper is excluded during publication.
+- Removed the mandatory three-call `Phase` contract that could be swallowed by the trailing backslash in the quoted `%~dp0` argument and leave PowerShell waiting for interactive input.
+- Restored in-place installation from a manually copied source folder: the engine detects the absence of an offline manifest, validates local Node.js/npm, repairs dependencies and builds `dist` without an interactive phase parameter. Official release ZIPs remain strictly offline because the source-mode helper is excluded during publication.
 - Fixed permanent deletion from the folder UI by routing single and multi-item removal exclusively through the Windows Recycle Bin.
 - Fixed ghost or inconsistent multi-selection after refresh, search, navigation and Ctrl-click deselection.
 - Fixed replacement/template folders retaining an obsolete handle/path when the new folder was empty or not indexed yet.

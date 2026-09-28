@@ -78,7 +78,7 @@ el estado o los imports que solo ella usaba.
 ## Verificacion manual
 
 Para lo que no cubren esas comprobaciones, prueba el flujo completo en la
-aplicacion real (`OPEN_OPPORTUNITYOS.vbs`), no solo el componente modificado:
+aplicacion real (`engine_opportunityos.bat`), no solo el componente modificado:
 
 - **Persistencia:** haz el cambio, cierra la app y vuelve a abrirla. El
   autoguardado es diferido, asi que un cambio que "se ve bien" puede no haber
