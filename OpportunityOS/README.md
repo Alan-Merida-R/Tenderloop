@@ -29,7 +29,8 @@ elegida por el usuario; no se transmite nada fuera de su equipo.
 1. Recibe el paquete publicado por el responsable de Tender Control y extráelo
    completo en una ruta corta, por ejemplo `C:\Tenderloop`.
 2. En la carpeta `OpportunityOS`, ejecuta **`engine_opportunityos.bat`**.
-3. Mantén abierta la ventana del engine mientras utilizas Tender Control.
+3. Espera a que el engine compruebe ambos servicios y abra Tender Control. La
+   ventana se cierra automáticamente y la aplicación continúa oculta en segundo plano.
 
 El paquete publicado incluye el runtime, las dependencias y el build revisados:
 no requiere Node.js, npm, permisos de administrador ni acceso a Internet. El
@@ -54,7 +55,8 @@ fuentes se excluye expresamente del ZIP publicado.
 
 El engine abre por defecto una pestaña del navegador. El alias
 `OPEN_OPPORTUNITYOS_BROWSER.bat` conserva ese mismo comportamiento. Para cerrar
-la aplicación y liberar sus puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`. Consulta el flujo detallado en
+la aplicación y liberar sus puertos, ejecuta `CLOSE_OPPORTUNITYOS.bat`. Si un
+servicio falla, sus logs están en `%APPDATA%\OpportunityOS\logs`. Consulta el flujo detallado en
 [`docs/INSTALLATION_ENGINE.md`](docs/INSTALLATION_ENGINE.md).
 
 ---

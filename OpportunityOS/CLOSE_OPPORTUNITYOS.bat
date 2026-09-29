@@ -2,6 +2,7 @@
 setlocal EnableExtensions
 set "SILENT=%~1"
 set "OPPORTUNITYOS_CLOSE_ROOT=%~dp0"
+set "CLOSE_NODE_EXE=%~dp0runtime\node.exe"
 
 if /i not "%SILENT%"=="SILENT" (
     title Cerrar Tender Control
@@ -9,6 +10,19 @@ if /i not "%SILENT%"=="SILENT" (
     echo ==========================================
     echo    DETENIENDO TENDER CONTROL...
     echo ==========================================
+)
+
+:: New installations keep the exact background service PIDs in APPDATA. Stop
+:: only those recorded processes when they still own Tender Control's ports.
+:: The PowerShell block below remains as a compatibility fallback for versions
+:: that predate the process record.
+if not exist "%CLOSE_NODE_EXE%" (
+    set "CLOSE_NODE_EXE="
+    where node.exe >nul 2>&1
+    if not errorlevel 1 set "CLOSE_NODE_EXE=node.exe"
+)
+if exist "%~dp0scripts\stop-local-services.mjs" (
+    if defined CLOSE_NODE_EXE "%CLOSE_NODE_EXE%" "%~dp0scripts\stop-local-services.mjs" "%~dp0"
 )
 
 :: Only close listeners whose executable or command line belongs to this exact

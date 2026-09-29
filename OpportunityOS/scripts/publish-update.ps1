@@ -26,8 +26,10 @@ try {
 
     foreach ($requiredPath in @(
         'dist\index.html',
-        'node_modules\tsx\dist\cli.mjs',
+        'node_modules\tsx\dist\loader.mjs',
         'node_modules\vite\bin\vite.js',
+        'scripts\start-local-services.mjs',
+        'scripts\stop-local-services.mjs',
         'scripts\verify-offline-runtime.mjs'
     )) {
         if (!(Test-Path -LiteralPath (Join-Path $projectRoot $requiredPath) -PathType Leaf)) {
@@ -46,12 +48,12 @@ try {
         throw 'The local Node.js executable is not validly signed by the OpenJS Foundation.'
     }
 
-    $engineText = Get-Content -LiteralPath (Join-Path $projectRoot 'engine_opportunityos.bat') -Raw
+    $serviceStarterText = Get-Content -LiteralPath (Join-Path $projectRoot 'scripts\start-local-services.mjs') -Raw
     $serverConfigText = Get-Content -LiteralPath (Join-Path $projectRoot 'server\config.ts') -Raw
-    if ($engineText -notmatch '--host\s+127\.0\.0\.1' -or $serverConfigText -notmatch "HOST\s*=\s*'127\.0\.0\.1'") {
+    if ($serviceStarterText -notmatch "'--host',\s*'127\.0\.0\.1'" -or $serverConfigText -notmatch "HOST\s*=\s*'127\.0\.0\.1'") {
         throw 'The release launchers are not restricted to 127.0.0.1.'
     }
-    foreach ($targetScript in @('engine_opportunityos.bat', '_open_browser.bat', 'OPEN_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'scripts\install-update-v2.ps1', 'scripts\check-for-update.ps1', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
+    foreach ($targetScript in @('engine_opportunityos.bat', '_open_browser.bat', 'OPEN_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'scripts\install-update-v2.ps1', 'scripts\check-for-update.ps1', 'scripts\start-local-services.mjs', 'scripts\stop-local-services.mjs', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
         $targetText = Get-Content -LiteralPath (Join-Path $projectRoot $targetScript) -Raw
         if ($targetText -match '(?i)npm(?:\.cmd)?\s+(?:ci|install|run\s+build)\b|Invoke-WebRequest|Start-BitsTransfer|curl\.exe\s+https?://') {
             throw "Target-side network or build command found in $targetScript. Offline publication was stopped."
@@ -95,9 +97,9 @@ try {
         Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
     }
 
-    # These two release-safety files may be new in the current worktree before
+    # These release-safety files may be new in the current worktree before
     # the release commit is created; copy them explicitly after validating them.
-    foreach ($relativePath in @('THIRD_PARTY_NOTICES.txt', 'scripts\verify-offline-runtime.mjs')) {
+    foreach ($relativePath in @('THIRD_PARTY_NOTICES.txt', 'scripts\start-local-services.mjs', 'scripts\stop-local-services.mjs', 'scripts\verify-offline-runtime.mjs')) {
         $destinationPath = Join-Path $stagingRoot $relativePath
         $destinationDirectory = Split-Path -Parent $destinationPath
         if (!(Test-Path -LiteralPath $destinationDirectory)) { New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null }

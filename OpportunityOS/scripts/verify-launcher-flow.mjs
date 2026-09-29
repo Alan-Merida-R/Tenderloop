@@ -33,7 +33,10 @@ for (const file of files.filter(file => file !== fileURLToPath(import.meta.url) 
 
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const engine = read('engine_opportunityos.bat');
+const closer = read('CLOSE_OPPORTUNITYOS.bat');
 const sourceHelper = read(path.join('scripts', 'install-source-mode.mjs'));
+const serviceStarter = read(path.join('scripts', 'start-local-services.mjs'));
+const serviceStopper = read(path.join('scripts', 'stop-local-services.mjs'));
 const publisher = read(path.join('scripts', 'publish-update.ps1'));
 const automaticUpdater = read(path.join('scripts', 'check-for-update.ps1'));
 const manualUpdater = read(path.join('scripts', 'install-update-v2.ps1'));
@@ -54,6 +57,13 @@ requireCheck(/\['ci', '--include=dev', '--no-audit', '--no-fund'\]/.test(sourceH
 requireCheck(/http:\/\/127\.0\.0\.1:3000/.test(engine) && /http:\/\/127\.0\.0\.1:3099\/health/.test(engine), 'Engine does not health-check both loopback services.');
 requireCheck(/if not defined BROWSER_MODE set "BROWSER_MODE=TAB"/i.test(engine), 'Engine does not default to the reliable browser-tab mode.');
 requireCheck(/Closing the previous Tender Control instance before restarting[^\r\n]*\r?\n\s*call "%PROJECT_ROOT%\\CLOSE_OPPORTUNITYOS\.bat" SILENT/i.test(engine), 'Healthy existing services are not closed before restart.');
+requireCheck(/scripts\\start-local-services\.mjs" "%PROJECT_ROOT%" "%NODE_EXE%"/i.test(engine), 'Engine does not use the background service launcher.');
+requireCheck(!/start "Tender Control (?:backend|frontend)" \/B/i.test(engine) && !/:monitor_services/i.test(engine), 'Engine still owns the service console lifetime.');
+requireCheck(/detached:\s*true/.test(serviceStarter) && /windowsHide:\s*true/.test(serviceStarter) && /\.unref\(\)/.test(serviceStarter), 'Background services are not detached and hidden.');
+requireCheck(/'--host',\s*'127\.0\.0\.1'/.test(serviceStarter) && /'--port',\s*'3000'/.test(serviceStarter), 'Background frontend launch is not restricted to 127.0.0.1:3000.');
+requireCheck(/engine-processes\.json/.test(serviceStarter) && /backendPid/.test(serviceStarter) && /frontendPid/.test(serviceStarter), 'Background launcher does not persist scoped service PIDs.');
+requireCheck(/scripts\\stop-local-services\.mjs/i.test(closer) && /engine-processes\.json/.test(serviceStopper), 'Safe close flow does not use the scoped background process record.');
+requireCheck(/listeners\.get\(pid\)\s*!==\s*expectedPort/.test(serviceStopper) && !/taskkill[^\r\n]*\/IM\s+node/i.test(serviceStopper), 'Background close flow can terminate unscoped Node processes.');
 requireCheck(/host:\s*'127\.0\.0\.1'/.test(vite) && /HOST\s*=\s*'127\.0\.0\.1'/.test(server), 'Frontend or backend binding is not restricted to 127.0.0.1.');
 
 const lock = JSON.parse(read('package-lock.json'));
@@ -66,4 +76,5 @@ if (errors.length) {
 console.log('[OK] Launcher flow is free of HTA/VBS/Windows Script Host dependencies.');
 console.log('[OK] Source preparation is automatic and lockfile-driven.');
 console.log('[OK] Old source overlays and managed offline updates have migration paths.');
+console.log('[OK] Local services detach into hidden processes with scoped PID-based shutdown.');
 console.log('[OK] Frontend and backend remain restricted to 127.0.0.1.');

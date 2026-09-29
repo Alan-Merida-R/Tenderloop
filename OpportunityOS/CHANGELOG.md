@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an SOW effort-at-a-glance indicator, first-use guidance, optional Spanish field help, an actionable missing-required-fields panel, editable grouped Overview, complete document navigation and Expand/Collapse all controls.
 
 ### Changed
-- Replaced the HTA/VBScript/Windows Script Host installation stack with `engine_opportunityos.bat` as the primary entry point. It now prepares source copies idempotently, starts and health-checks both localhost services, opens the browser directly and keeps diagnostics visible.
+- Replaced the HTA/VBScript/Windows Script Host installation stack with `engine_opportunityos.bat` as the primary entry point. It now prepares source copies idempotently, starts and health-checks both localhost services, opens the browser directly, then closes its console while detached hidden services write diagnostic logs under `%APPDATA%\OpportunityOS\logs`.
+- Background service PIDs are recorded per installation so `CLOSE_OPPORTUNITYOS.bat` can stop only the matching listeners; its prior process-inspection path remains as a compatibility fallback for older installations.
 - Source preparation now uses the committed npm lockfile through `npm ci`, skips unchanged dependencies/builds by SHA-256 fingerprints, and reports phase, failed command and exit code without interactive parameters.
 - Manual update discovery now uses `%APPDATA%\OpportunityOS\install-root.txt`; update relaunch and deferred uninstall use BAT/PowerShell only and do not alter PowerShell execution policy.
 - Installer, launcher and both update paths now consume the packaged offline runtime and production build instead of downloading dependencies or compiling on the destination PC. Updates verify the complete payload and remove newly introduced managed files during rollback.

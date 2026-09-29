@@ -130,7 +130,7 @@ if /I not "%MODE%"=="HIDDEN" pause
 exit /b 1
 
 :files_ready
-for %%F in ("node_modules\tsx\dist\cli.mjs" "node_modules\vite\bin\vite.js" "dist\index.html" "server\index.ts") do (
+for %%F in ("node_modules\tsx\dist\loader.mjs" "node_modules\vite\bin\vite.js" "dist\index.html" "server\index.ts" "scripts\start-local-services.mjs" "scripts\stop-local-services.mjs") do (
     if not exist "%%~F" (
         echo [ERROR] Required application file is missing: %%~F
         goto :prepare_failed
@@ -161,14 +161,9 @@ if defined APPDATA (
 )
 
 if /I not "%MODE%"=="HIDDEN" echo [4/5] Starting local services... 1 step remaining.
-start "Tender Control backend" /B "%NODE_EXE%" "node_modules\tsx\dist\cli.mjs" "server\index.ts"
+"%NODE_EXE%" "%PROJECT_ROOT%\scripts\start-local-services.mjs" "%PROJECT_ROOT%" "%NODE_EXE%"
 if errorlevel 1 (
-    echo [ERROR] The backend process could not be started. Exit code: %ERRORLEVEL%
-    goto :startup_failed
-)
-start "Tender Control frontend" /B "%NODE_EXE%" "node_modules\vite\bin\vite.js" preview --host 127.0.0.1 --port 3000 --strictPort
-if errorlevel 1 (
-    echo [ERROR] The frontend process could not be started. Exit code: %ERRORLEVEL%
+    echo [ERROR] The local services could not be started. Exit code: %ERRORLEVEL%
     goto :startup_failed
 )
 
@@ -182,7 +177,7 @@ if defined FRONT_READY if defined BACK_READY goto :services_ready
 set /a START_ATTEMPTS+=1
 if %START_ATTEMPTS% GEQ 60 (
     echo [ERROR] Local services did not become ready within 60 seconds.
-    echo [ACTION] Review the server messages above. Ports 3000 and 3099 must be available.
+    echo [ACTION] Review %%APPDATA%%\OpportunityOS\logs. Ports 3000 and 3099 must be available.
     goto :startup_failed
 )
 timeout /t 1 /nobreak >nul
@@ -197,16 +192,8 @@ echo.
 echo Frontend: http://127.0.0.1:3000
 echo Backend:  http://127.0.0.1:3099
 echo.
-echo Keep this window open while using Tender Control.
-
-:monitor_services
-timeout /t 5 /nobreak >nul
-curl.exe -f -s -o nul --max-time 2 http://127.0.0.1:3000 >nul 2>&1 || goto :services_stopped
-curl.exe -f -s -o nul --max-time 2 -H "Origin: http://127.0.0.1:3000" http://127.0.0.1:3099/health >nul 2>&1 || goto :services_stopped
-goto :monitor_services
-
-:services_stopped
-echo [INFO] Tender Control local services stopped.
+echo The engine window can now close; services will remain hidden.
+timeout /t 2 /nobreak >nul
 exit /b 0
 
 :startup_failed

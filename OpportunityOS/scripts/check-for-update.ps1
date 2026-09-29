@@ -62,7 +62,7 @@ try {
     New-Item -ItemType Directory -Path $extractedRoot, $backupRoot -Force | Out-Null
     Expand-Archive -LiteralPath $packagePath -DestinationPath $extractedRoot -Force
     $newPackagePath = Join-Path $extractedRoot 'package.json'
-    foreach ($required in @('package.json', 'engine_opportunityos.bat', '_open_browser.bat', 'CLOSE_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\cli.mjs', 'node_modules\vite\bin\vite.js', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
+    foreach ($required in @('package.json', 'engine_opportunityos.bat', '_open_browser.bat', 'CLOSE_OPPORTUNITYOS.bat', 'DESINSTALAR_OPPORTUNITYOS.bat', 'release-manifest.json', 'offline-runtime.json', 'runtime\node.exe', 'dist\index.html', 'node_modules\tsx\dist\loader.mjs', 'node_modules\vite\bin\vite.js', 'scripts\start-local-services.mjs', 'scripts\stop-local-services.mjs', 'scripts\verify-offline-runtime.mjs', 'scripts\uninstall-opportunityos.ps1')) {
         if (!(Test-Path -LiteralPath (Join-Path $extractedRoot $required) -PathType Leaf)) { throw "The offline update package is incomplete: $required" }
     }
     $newPackage = Get-Content -LiteralPath $newPackagePath -Raw | ConvertFrom-Json

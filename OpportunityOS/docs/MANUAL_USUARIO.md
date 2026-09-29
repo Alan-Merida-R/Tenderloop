@@ -49,9 +49,10 @@ Lo que verás:
 1. Se comprueba por SHA-256 que el runtime, el código y las dependencias empaquetadas no estén alterados.
 2. Se confirma que la aplicación está completa y limitada a `127.0.0.1`.
 3. Inicia el frontend y backend, comprueba que ambos respondan y abre Tender Control.
-4. La ventana del engine permanece visible mientras la aplicación está en uso
-   para que cualquier error sea diagnosticable.
-   Para cerrarlo de forma segura utiliza `CLOSE_OPPORTUNITYOS.bat`.
+4. La ventana del engine se cierra automáticamente. El frontend y backend
+   continúan ocultos en segundo plano y escriben diagnóstico en
+   `%APPDATA%\OpportunityOS\logs`.
+   Para detenerlos de forma segura utiliza `CLOSE_OPPORTUNITYOS.bat`.
 
 La instalación no accede a Internet. Los puertos 3000 y 3099 son conexiones
 internas de la misma computadora y no quedan expuestos a la red de la oficina.
@@ -154,7 +155,8 @@ Dos opciones:
 
 - **Cierre limpio (recomendado):** doble clic en `CLOSE_OPPORTUNITYOS.bat`.
   Libera el puerto 3000 y detiene el servicio local del puerto 3099.
-- **Cierre rápido:** cierra la ventana negra del motor. El navegador mostrará "no se puede conectar" a los pocos segundos — es normal, ya se apagó.
+- **Si algo falla:** revisa `backend.log` y `frontend.log` dentro de
+  `%APPDATA%\OpportunityOS\logs`, y después usa el cierre limpio.
 
 No hace falta cerrar el navegador manualmente; la app guarda antes de soltar el control.
 

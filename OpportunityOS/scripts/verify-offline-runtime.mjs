@@ -40,8 +40,9 @@ try {
   const requiredFiles = [
     'engine_opportunityos.bat', '_open_browser.bat', 'CLOSE_OPPORTUNITYOS.bat',
     'DESINSTALAR_OPPORTUNITYOS.bat', 'runtime\\node.exe', 'package-lock.json',
-    'dist\\index.html', 'server\\index.ts', 'node_modules\\tsx\\dist\\cli.mjs',
-    'node_modules\\vite\\bin\\vite.js', 'scripts\\uninstall-opportunityos.ps1',
+    'dist\\index.html', 'server\\index.ts', 'node_modules\\tsx\\dist\\loader.mjs',
+    'node_modules\\vite\\bin\\vite.js', 'scripts\\start-local-services.mjs',
+    'scripts\\stop-local-services.mjs', 'scripts\\uninstall-opportunityos.ps1',
   ];
   for (const relative of requiredFiles) {
     if (!fs.statSync(path.join(root, relative), { throwIfNoEntry: false })?.isFile()) fail(`The offline package is incomplete: ${relative}`);

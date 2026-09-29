@@ -30,6 +30,10 @@ compilar.
   dependencias y build empaquetados.
 - Frontend y backend se inician en `127.0.0.1`, se comprueban mediante HTTP y
   solo entonces se abre el navegador.
+- Después de los health checks, ambos servicios continúan como procesos Node
+  desacoplados y ocultos; el engine cierra su consola automáticamente. Sus PID
+  quedan registrados para un cierre limitado a esta instalación y sus logs se
+  guardan en `%APPDATA%\OpportunityOS\logs`.
 - Los errores de npm muestran fase, comando y exit code; los mensajes de Vite,
   Express y Node permanecen visibles.
 - El navegador se abre con BAT y `start`; no se descubre ni ejecuta un app-id
@@ -99,3 +103,5 @@ oficial antes de publicar.
   elimina solamente los launchers HTA/VBS y helpers WSH obsoletos conocidos.
 - Los actualizadores oficial y manual continúan usando `managedFiles` para
   retirar archivos administrados de releases anteriores durante la migración.
+- `CLOSE_OPPORTUNITYOS.bat` usa el nuevo registro de PID y conserva el cierre
+  heredado para instalaciones antiguas que todavía no lo tengan.

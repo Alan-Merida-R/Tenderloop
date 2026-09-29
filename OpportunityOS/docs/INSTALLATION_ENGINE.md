@@ -38,8 +38,8 @@ autorizarse por el canal de Cybersecurity en vez de saltar el control.
 7. Abre una pestaña mediante la asociación HTTP estándar de Windows. El modo
    ventana Chromium queda disponible como opción explícita `APP`, no como valor
    predeterminado.
-8. Mantiene la consola abierta para mostrar errores y conservar observables los
-   dos procesos locales.
+8. Desacopla Express y Vite en procesos ocultos, registra sus PID y cierra la
+   consola del engine. La salida queda en `%APPDATA%\OpportunityOS\logs`.
 
 ## Causa del antiguo error `Phase`
 
@@ -73,7 +73,10 @@ usuario deba contestar.
 
 ## Cierre y desinstalación
 
-`CLOSE_OPPORTUNITYOS.bat` libera los servicios locales. Para desinstalar, ejecuta
+`CLOSE_OPPORTUNITYOS.bat` usa el registro de PID de la carpeta actual para
+detener únicamente sus procesos en 3000/3099. También conserva la detección
+heredada para cerrar versiones anteriores que aún no generaban ese registro.
+Para desinstalar, ejecuta
 `DESINSTALAR_OPPORTUNITYOS.bat`: confirma la operación, cierra los servicios y
 delega a un script PowerShell temporal la eliminación de la carpeta después de
 que el BAT termine. `%APPDATA%\OpportunityOS`, bases externas y otras
@@ -82,5 +85,7 @@ instalaciones de Node.js se conservan.
 ## Diagnóstico
 
 Los comandos npm muestran su salida. Si fallan, el helper informa la fase, el
-comando exacto y el exit code. El engine no redirige los mensajes de Node, Vite
-o Express, y ante timeout indica los puertos que deben revisarse.
+comando exacto y el exit code. Tras iniciar en segundo plano, Node, Vite y
+Express escriben en `%APPDATA%\OpportunityOS\logs\backend.log` y
+`frontend.log`; ante timeout el engine señala esa ubicación y los puertos que
+deben revisarse.

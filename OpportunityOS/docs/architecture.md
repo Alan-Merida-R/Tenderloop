@@ -31,7 +31,8 @@ El paquete publicado de OpportunityOS es autocontenido: incluye `dist`,
 no compila y no necesita acceso a Internet para instalar o actualizar.
 `OpportunityOS/engine_opportunityos.bat` es la entrada operativa: distingue el
 paquete oficial de una copia fuente, prepara lo necesario y comprueba ambos
-servicios. No existe una capa HTA/VBScript/Windows Script Host.
+servicios. Después desacopla Vite y Express como procesos ocultos y cierra su
+consola. No existe una capa HTA/VBScript/Windows Script Host.
 
 ## Servicio local (puerto 3099)
 
@@ -58,6 +59,8 @@ El servicio local escribe ademas bajo `%APPDATA%\OpportunityOS\`:
 | `chrome-profile/` | Perfil de Chrome dedicado a la automatizacion; contiene la sesion corporativa del usuario. |
 | `web-probes/` | Artefactos de cada sondeo (HTML, texto, captura, JSON) **sin redactar**. |
 | `web-recipes/` | Recetas de extraccion (fase 2). |
+| `logs/` | Salida local del frontend y backend iniciados en segundo plano. |
+| `engine-processes.json` | PID y carpeta de la instancia actual; permite un cierre limitado a esos servicios. |
 
 Estas carpetas son datos de trabajo: nunca se versionan ni se comparten.
 
